@@ -128,6 +128,8 @@ claude mcp add wechat -- python C:\Users\你的用户名\wechat-decrypt\mcp_serv
 
 前置条件：需要先完成步骤 1-2（配置 + 提取密钥）。
 
+**[查看使用案例 →](USAGE.md)**
+
 ## 文件说明
 
 | 文件 | 说明 |
