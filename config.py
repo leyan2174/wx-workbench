@@ -12,6 +12,7 @@ _DEFAULT = {
     "db_dir": r"D:\xwechat_files\your_wxid\db_storage",
     "keys_file": "all_keys.json",
     "decrypted_dir": "decrypted",
+    "decoded_image_dir": "decoded_images",
     "wechat_process": "Weixin.exe",
 }
 
@@ -29,8 +30,21 @@ def load_config():
 
     # 将相对路径转为绝对路径
     base = os.path.dirname(os.path.abspath(__file__))
-    for key in ("keys_file", "decrypted_dir"):
+    for key in ("keys_file", "decrypted_dir", "decoded_image_dir"):
         if key in cfg and not os.path.isabs(cfg[key]):
             cfg[key] = os.path.join(base, cfg[key])
+
+    # 自动推导微信数据根目录（db_dir 的上级目录）
+    # db_dir 格式: D:\xwechat_files\<wxid>\db_storage
+    # base_dir 格式: D:\xwechat_files\<wxid>
+    db_dir = cfg.get("db_dir", "")
+    if db_dir and os.path.basename(db_dir) == "db_storage":
+        cfg["wechat_base_dir"] = os.path.dirname(db_dir)
+    else:
+        cfg["wechat_base_dir"] = db_dir
+
+    # decoded_image_dir 默认值
+    if "decoded_image_dir" not in cfg:
+        cfg["decoded_image_dir"] = os.path.join(base, "decoded_images")
 
     return cfg

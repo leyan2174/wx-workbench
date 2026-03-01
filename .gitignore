@@ -3,6 +3,7 @@ all_keys.json
 wechat_key.txt
 config.json
 decrypted/
+decoded_images/
 *.db
 *.db-shm
 *.db-wal

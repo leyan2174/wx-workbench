@@ -10,6 +10,8 @@ import hmac as hmac_mod
 from datetime import datetime
 from Crypto.Cipher import AES
 from mcp.server.fastmcp import FastMCP
+import zstandard as zstd
+from decode_image import ImageResolver
 
 # ============ 加密常量 ============
 PAGE_SZ = 4096
@@ -33,6 +35,19 @@ for _key in ("keys_file", "decrypted_dir"):
 DB_DIR = _cfg["db_dir"]
 KEYS_FILE = _cfg["keys_file"]
 DECRYPTED_DIR = _cfg["decrypted_dir"]
+
+# 图片相关路径
+_db_dir = _cfg["db_dir"]
+if os.path.basename(_db_dir) == "db_storage":
+    WECHAT_BASE_DIR = os.path.dirname(_db_dir)
+else:
+    WECHAT_BASE_DIR = _db_dir
+
+DECODED_IMAGE_DIR = _cfg.get("decoded_image_dir")
+if not DECODED_IMAGE_DIR:
+    DECODED_IMAGE_DIR = os.path.join(SCRIPT_DIR, "decoded_images")
+elif not os.path.isabs(DECODED_IMAGE_DIR):
+    DECODED_IMAGE_DIR = os.path.join(SCRIPT_DIR, DECODED_IMAGE_DIR)
 
 with open(KEYS_FILE) as f:
     ALL_KEYS = json.load(f)
@@ -240,12 +255,30 @@ def resolve_username(chat_name):
     return None
 
 
+_zstd_dctx = zstd.ZstdDecompressor()
+
+
+def _decompress_content(content, ct):
+    """解压 zstd 压缩的消息内容"""
+    if ct and ct == 4 and isinstance(content, bytes):
+        try:
+            return _zstd_dctx.decompress(content).decode('utf-8', errors='replace')
+        except Exception:
+            return None
+    if isinstance(content, bytes):
+        try:
+            return content.decode('utf-8', errors='replace')
+        except Exception:
+            return None
+    return content
+
+
 def _parse_message_content(content, local_type, is_group):
     """解析消息内容，返回 (sender_id, text)"""
     if content is None:
         return '', ''
     if isinstance(content, bytes):
-        return '', '(压缩内容)'
+        return '', '(二进制内容)'
 
     sender = ''
     text = content
@@ -327,10 +360,13 @@ def get_recent_sessions(limit: int = 20) -> str:
         display = names.get(username, username)
         is_group = '@chatroom' in username
 
+        if isinstance(summary, bytes):
+            try:
+                summary = _zstd_dctx.decompress(summary).decode('utf-8', errors='replace')
+            except Exception:
+                summary = '(压缩内容)'
         if isinstance(summary, str) and ':\n' in summary:
             summary = summary.split(':\n', 1)[1]
-        elif isinstance(summary, bytes):
-            summary = '(压缩内容)'
 
         sender_display = ''
         if is_group and sender:
@@ -376,9 +412,9 @@ def get_chat_history(chat_name: str, limit: int = 50) -> str:
     conn = sqlite3.connect(db_path)
     try:
         rows = conn.execute(f"""
-            SELECT local_type, create_time, message_content, WCDB_CT_message_content
+            SELECT local_id, local_type, create_time, message_content,
+                   WCDB_CT_message_content
             FROM [{table_name}]
-            WHERE WCDB_CT_message_content = 0 OR WCDB_CT_message_content IS NULL
             ORDER BY create_time DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -391,11 +427,21 @@ def get_chat_history(chat_name: str, limit: int = 50) -> str:
         return f"{display_name} 无消息记录"
 
     lines = []
-    for local_type, create_time, content, ct in reversed(rows):
+    for local_id, local_type, create_time, content, ct in reversed(rows):
         time_str = datetime.fromtimestamp(create_time).strftime('%m-%d %H:%M')
+
+        # zstd 解压
+        content = _decompress_content(content, ct)
+        if content is None:
+            content = '(无法解压)'
+
         sender, text = _parse_message_content(content, local_type, is_group)
 
-        if local_type != 1:
+        if local_type == 3:
+            text = f"[图片] (local_id={local_id})"
+        elif local_type == 47:
+            text = "[表情]"
+        elif local_type != 1:
             type_label = format_msg_type(local_type)
             text = f"[{type_label}] {text}" if text else f"[{type_label}]"
 
@@ -461,17 +507,20 @@ def search_messages(keyword: str, limit: int = 20) -> str:
 
                 try:
                     rows = conn.execute(f"""
-                        SELECT local_type, create_time, message_content
+                        SELECT local_type, create_time, message_content,
+                               WCDB_CT_message_content
                         FROM [{tname}]
-                        WHERE message_content LIKE ? AND
-                              (WCDB_CT_message_content = 0 OR WCDB_CT_message_content IS NULL)
+                        WHERE message_content LIKE ?
                         ORDER BY create_time DESC
                         LIMIT ?
                     """, (f'%{keyword}%', limit - len(results))).fetchall()
                 except Exception:
                     continue
 
-                for local_type, ts, content in rows:
+                for local_type, ts, content, ct in rows:
+                    content = _decompress_content(content, ct)
+                    if content is None:
+                        continue
                     sender, text = _parse_message_content(content, local_type, is_group)
                     time_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M')
                     sender_name = ''
@@ -577,10 +626,13 @@ def get_new_messages() -> str:
                 display = names.get(username, username)
                 is_group = '@chatroom' in username
                 summary = s['summary']
+                if isinstance(summary, bytes):
+                    try:
+                        summary = _zstd_dctx.decompress(summary).decode('utf-8', errors='replace')
+                    except Exception:
+                        summary = '(压缩内容)'
                 if isinstance(summary, str) and ':\n' in summary:
                     summary = summary.split(':\n', 1)[1]
-                elif isinstance(summary, bytes):
-                    summary = '(压缩内容)'
                 time_str = datetime.fromtimestamp(s['timestamp']).strftime('%H:%M')
                 tag = "[群]" if is_group else ""
                 unread_msgs.append(f"[{time_str}] {display}{tag} ({s['unread']}条未读): {summary}")
@@ -597,10 +649,13 @@ def get_new_messages() -> str:
             display = names.get(username, username)
             is_group = '@chatroom' in username
             summary = s['summary']
+            if isinstance(summary, bytes):
+                try:
+                    summary = _zstd_dctx.decompress(summary).decode('utf-8', errors='replace')
+                except Exception:
+                    summary = '(压缩内容)'
             if isinstance(summary, str) and ':\n' in summary:
                 summary = summary.split(':\n', 1)[1]
-            elif isinstance(summary, bytes):
-                summary = '(压缩内容)'
 
             sender_display = ''
             if is_group and s['sender']:
@@ -624,6 +679,84 @@ def get_new_messages() -> str:
     new_msgs.sort(key=lambda x: x[0])
     entries = [m[1] for m in new_msgs]
     return f"{len(entries)} 条新消息:\n\n" + "\n".join(entries)
+
+
+# ============ 图片解密 ============
+
+_image_resolver = ImageResolver(WECHAT_BASE_DIR, DECODED_IMAGE_DIR, _cache)
+
+
+@mcp.tool()
+def decode_image(chat_name: str, local_id: int) -> str:
+    """解密微信聊天中的一张图片。
+
+    先用 get_chat_history 查看消息，图片消息会显示 local_id，
+    然后用此工具解密对应图片。
+
+    Args:
+        chat_name: 聊天对象的名字、备注名或wxid
+        local_id: 图片消息的 local_id（从 get_chat_history 获取）
+    """
+    username = resolve_username(chat_name)
+    if not username:
+        return f"找不到聊天对象: {chat_name}"
+
+    result = _image_resolver.decode_image(username, local_id)
+    if result['success']:
+        return (
+            f"解密成功!\n"
+            f"  文件: {result['path']}\n"
+            f"  格式: {result['format']}\n"
+            f"  大小: {result['size']:,} bytes\n"
+            f"  MD5: {result['md5']}"
+        )
+    else:
+        error = result['error']
+        if 'md5' in result:
+            error += f"\n  MD5: {result['md5']}"
+        return f"解密失败: {error}"
+
+
+@mcp.tool()
+def get_chat_images(chat_name: str, limit: int = 20) -> str:
+    """列出某个聊天中的图片消息。
+
+    返回图片的时间、local_id、MD5、文件大小等信息。
+    可以配合 decode_image 工具解密指定图片。
+
+    Args:
+        chat_name: 聊天对象的名字、备注名或wxid
+        limit: 返回数量，默认20
+    """
+    username = resolve_username(chat_name)
+    if not username:
+        return f"找不到聊天对象: {chat_name}"
+
+    names = get_contact_names()
+    display_name = names.get(username, username)
+
+    db_path, table_name = _find_msg_table_for_user(username)
+    if not db_path:
+        return f"找不到 {display_name} 的消息记录"
+
+    images = _image_resolver.list_chat_images(db_path, table_name, username, limit)
+    if not images:
+        return f"{display_name} 无图片消息"
+
+    lines = []
+    for img in images:
+        time_str = datetime.fromtimestamp(img['create_time']).strftime('%Y-%m-%d %H:%M')
+        line = f"[{time_str}] local_id={img['local_id']}"
+        if img.get('md5'):
+            line += f"  MD5={img['md5']}"
+        if img.get('size'):
+            size_kb = img['size'] / 1024
+            line += f"  {size_kb:.0f}KB"
+        if not img.get('md5'):
+            line += "  (无资源信息)"
+        lines.append(line)
+
+    return f"{display_name} 的 {len(lines)} 张图片:\n\n" + "\n".join(lines)
 
 
 if __name__ == "__main__":
