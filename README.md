@@ -79,6 +79,7 @@ python monitor_web.py
 - 检测到变化后全量解密 + WAL patch (~70ms)
 - SSE 实时推送到浏览器
 - 总延迟约 100ms
+- **图片消息内联预览**（支持旧 XOR / V1 / V2 三种 .dat 加密格式）
 
 #### 命令行
 
@@ -130,6 +131,23 @@ claude mcp add wechat -- python C:\Users\你的用户名\wechat-decrypt\mcp_serv
 
 **[查看使用案例 →](USAGE.md)**
 
+### 6. 图片解密 (V2 格式)
+
+微信 4.0 (2025-08+) 的 .dat 图片文件使用 AES-128-ECB + XOR 混合加密 (V2 格式)。AES 密钥需要从运行中的微信进程内存中提取：
+
+```bash
+# 1. 在微信中打开查看 2-3 张图片（点击看大图）
+# 2. 立即运行密钥提取（持续监控版）：
+python find_image_key_monitor.py
+
+# 或单次扫描版：
+python find_image_key.py
+```
+
+密钥会自动保存到 `config.json` 的 `image_aes_key` 字段。之后 `monitor_web.py` 启动时会自动加载密钥，图片消息将显示内联预览。
+
+> **注意**: AES 密钥仅在微信查看图片时临时加载到内存中。如果扫描未找到密钥，请先在微信中查看几张图片，然后立即重新运行脚本。
+
 ## 文件说明
 
 | 文件 | 说明 |
@@ -138,8 +156,11 @@ claude mcp add wechat -- python C:\Users\你的用户名\wechat-decrypt\mcp_serv
 | `find_all_keys.py` | 从微信进程内存提取所有数据库密钥 |
 | `decrypt_db.py` | 全量解密所有数据库 |
 | `mcp_server.py` | MCP Server，让 Claude AI 查询微信数据 |
-| `monitor_web.py` | 实时消息监听 (Web UI + SSE) |
+| `monitor_web.py` | 实时消息监听 (Web UI + SSE + 图片预览) |
 | `monitor.py` | 实时消息监听 (命令行) |
+| `decode_image.py` | 图片 .dat 文件解密模块 (XOR / V1 / V2) |
+| `find_image_key.py` | 从微信进程内存提取图片 AES 密钥 |
+| `find_image_key_monitor.py` | 持续监控版密钥提取（推荐） |
 | `latency_test.py` | 延迟测量诊断工具 |
 
 ## 技术细节
@@ -150,6 +171,18 @@ claude mcp add wechat -- python C:\Users\你的用户名\wechat-decrypt\mcp_serv
 - 不能用文件大小 (永远不变)
 - 使用 mtime 检测写入
 - 解密 WAL frame 时需校验 salt 值，跳过旧周期遗留的 frame
+
+### 图片 .dat 加密格式
+
+微信本地图片 (.dat) 有三种加密格式：
+
+| 格式 | 时期 | Magic | 加密方式 | 密钥来源 |
+|------|------|-------|---------|---------|
+| 旧 XOR | ~2025-07 | 无 | 单字节 XOR | 自动检测 (对比 magic bytes) |
+| V1 | 过渡期 | `07 08 V1 08 07` | AES-ECB + XOR | 固定 key: `cfcd208495d565ef` |
+| V2 | 2025-08+ | `07 08 V2 08 07` | AES-128-ECB + XOR | 从进程内存提取 |
+
+V2 文件结构: `[6B signature] [4B aes_size LE] [4B xor_size LE] [1B padding]` + `[AES-ECB encrypted] [raw unencrypted] [XOR encrypted]`
 
 ### 数据库结构
 
