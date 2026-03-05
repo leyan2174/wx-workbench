@@ -226,7 +226,11 @@ def decrypt_page(page_data, enc_key, page_no, page_size, reserve):
 
     if page_no == 1:
         # 拼回 SQLite 头: "SQLite format 3\0" + 解密内容 + reserve填零
-        return b'SQLite format 3\x00' + decrypted + b'\x00' * reserve
+        page = bytearray(b'SQLite format 3\x00' + decrypted + b'\x00' * reserve)
+        # 清除 header offset 20 的 reserved-space 字段
+        # 加密时该字段 = reserve size，解密后需要归零，否则 SQLite 误判 usable page size
+        page[20] = 0
+        return bytes(page)
     else:
         # Reserve 区填零（SQLite 不读取该区域，清零保持输出干净）
         return decrypted + b'\x00' * reserve
@@ -282,6 +286,9 @@ def decrypt_db(db_path, raw_key_hex, output_path):
 
         if verify_hmac_page1(data, enc_key, page_size, reserve):
             # HMAC 验证通过，开始解密
+            # 注意: 生产代码应对每一页都验证 HMAC，防止单页损坏/篡改
+            # 后续页的 HMAC 计算方式相同，只是 content 从 offset 0 开始（无 salt），
+            # 且 page_no 使用对应的页码（从 1 开始）
             num_pages = len(data) // page_size
             output = b''
             for i in range(num_pages):
