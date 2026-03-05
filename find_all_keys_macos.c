@@ -187,6 +187,7 @@ int main(int argc, char *argv[]) {
         kr = mach_vm_region(task, &addr, &size, VM_REGION_BASIC_INFO_64,
                            (vm_region_info_t)&info, &info_count, &obj_name);
         if (kr != KERN_SUCCESS) break;
+        if (size == 0) { addr++; continue; }  /* guard against infinite loop */
 
         if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE)) ==
             (VM_PROT_READ | VM_PROT_WRITE)) {
@@ -288,10 +289,8 @@ int main(int argc, char *argv[]) {
     }
     printf("\nMatched %d/%d keys to known DBs\n", matched, key_count);
 
-    /* Save JSON in decrypt_db.py compatible format:
-     * { "rel/path.db": { "enc_key": "hex" }, ... }
-     * Uses backslash separators for Windows compat (decrypt_db.py expects this).
-     * Also saves all keys (including unmatched) to wechat_keys_raw.json for debugging.
+    /* Save JSON: { "rel/path.db": { "enc_key": "hex" }, ... }
+     * Uses forward slashes (native macOS paths, valid JSON without escaping).
      */
     const char *out_path = "all_keys.json";
     FILE *fp = fopen(out_path, "w");
@@ -307,19 +306,13 @@ int main(int argc, char *argv[]) {
                 }
             }
             if (!db) continue;
-            /* Convert forward slashes to backslashes for decrypt_db.py compat */
-            char db_path[256];
-            strncpy(db_path, db, sizeof(db_path) - 1);
-            db_path[sizeof(db_path) - 1] = '\0';
-            for (char *p = db_path; *p; p++)
-                if (*p == '/') *p = '\\';
             fprintf(fp, "%s  \"%s\": {\"enc_key\": \"%s\"}",
-                first ? "" : ",\n", db_path, keys[i].key_hex);
+                first ? "" : ",\n", db, keys[i].key_hex);
             first = 0;
         }
         fprintf(fp, "\n}\n");
         fclose(fp);
-        printf("Saved to %s (decrypt_db.py compatible)\n", out_path);
+        printf("Saved to %s\n", out_path);
     }
 
     return 0;
