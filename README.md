@@ -194,6 +194,37 @@ V2 文件结构: `[6B signature] [4B aes_size LE] [4B xor_size LE] [1B padding]`
 - `media_*/media_*.db` - 媒体文件索引
 - 其他: head_image, favorite, sns, emoticon 等
 
+## macOS 数据库密钥扫描 (WeChat 4.x)
+
+macOS 版微信 4.x 使用 SQLCipher 4 加密本地数据库，密钥格式为 `x'<64hex_key><32hex_salt>'`。C 版扫描器通过 Mach VM API 扫描微信进程内存提取密钥。
+
+### 前置条件
+
+- macOS (Apple Silicon / Intel)
+- WeChat 4.x (macOS 版)
+- Xcode Command Line Tools: `xcode-select --install`
+- 微信需要 ad-hoc 签名（或安装了防撤回补丁）：
+  `sudo codesign --force --deep --sign - /Applications/WeChat.app`
+
+### 编译和使用
+
+```bash
+# 编译
+cc -O2 -o find_all_keys_macos find_all_keys_macos.c -framework Foundation
+
+# 运行（自动查找微信进程、扫描内存、匹配 DB salt）
+sudo ./find_all_keys_macos
+
+# 或指定 PID
+sudo ./find_all_keys_macos <pid>
+```
+
+输出 `all_keys.json`，格式兼容 `decrypt_db.py`，可直接用于解密：
+
+```bash
+python3 decrypt_db.py
+```
+
 ## 免责声明
 
 本工具仅用于学习和研究目的，用于解密**自己的**微信数据。请遵守相关法律法规，不要用于未经授权的数据访问。

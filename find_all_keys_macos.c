@@ -22,8 +22,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <glob.h>
+#include <dirent.h>
+#include <ftw.h>
 #include <pwd.h>
+#include <sys/stat.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 
@@ -38,6 +40,40 @@ typedef struct {
     char salt_hex[33];
     char full_pragma[100];
 } key_entry_t;
+
+/* Forward declaration */
+static int read_db_salt(const char *path, char *salt_hex_out);
+
+/* nftw callback state for collecting DB files */
+#define MAX_DBS 256
+static char g_db_salts[MAX_DBS][33];
+static char g_db_names[MAX_DBS][256];
+static int g_db_count = 0;
+static int nftw_collect_db(const char *fpath, const struct stat *sb,
+                           int typeflag, struct FTW *ftwbuf) {
+    (void)sb; (void)ftwbuf;
+    if (typeflag != FTW_F) return 0;
+    size_t len = strlen(fpath);
+    if (len < 3 || strcmp(fpath + len - 3, ".db") != 0) return 0;
+    if (g_db_count >= MAX_DBS) return 0;
+
+    char salt[33];
+    if (read_db_salt(fpath, salt) != 0) return 0;
+
+    strcpy(g_db_salts[g_db_count], salt);
+    /* Extract relative path from db_storage/ */
+    const char *rel = strstr(fpath, "db_storage/");
+    if (rel) rel += strlen("db_storage/");
+    else {
+        rel = strrchr(fpath, '/');
+        rel = rel ? rel + 1 : fpath;
+    }
+    strncpy(g_db_names[g_db_count], rel, 255);
+    g_db_names[g_db_count][255] = '\0';
+    printf("  %s: salt=%s\n", g_db_names[g_db_count], salt);
+    g_db_count++;
+    return 0;
+}
 
 static int is_hex_char(unsigned char c) {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
@@ -107,40 +143,32 @@ int main(int argc, char *argv[]) {
     if (!home) home = "/root";
     printf("User home: %s\n", home);
 
-    /* Collect DB salts */
+    /* Collect DB salts by recursively walking db_storage directories.
+     * Note: POSIX glob() does not support ** recursive matching on macOS,
+     * so we use nftw() to walk the directory tree instead. */
     printf("\nScanning for DB files...\n");
-    glob_t g;
-    char pattern[512];
-    snprintf(pattern, sizeof(pattern),
-        "%s/Library/Containers/com.tencent.xinWeChat/Data/Documents/"
-        "xwechat_files/*/db_storage/**/*.db",
+    char db_base_dir[512];
+    snprintf(db_base_dir, sizeof(db_base_dir),
+        "%s/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files",
         home);
 
-    char db_salts[64][33];
-    char db_names[64][256];   /* relative path from db_storage, e.g. "contact/contact.db" */
-    int db_count = 0;
-
-    if (glob(pattern, GLOB_NOSORT, NULL, &g) == 0) {
-        for (size_t i = 0; i < g.gl_pathc && db_count < 64; i++) {
-            char salt[33];
-            if (read_db_salt(g.gl_pathv[i], salt) == 0) {
-                strcpy(db_salts[db_count], salt);
-                /* Extract relative path from db_storage/ */
-                const char *rel = strstr(g.gl_pathv[i], "db_storage/");
-                if (rel) rel += strlen("db_storage/");
-                else {
-                    rel = strrchr(g.gl_pathv[i], '/');
-                    rel = rel ? rel + 1 : g.gl_pathv[i];
-                }
-                strncpy(db_names[db_count], rel, 255);
-                db_names[db_count][255] = '\0';
-                printf("  %s: salt=%s\n", db_names[db_count], salt);
-                db_count++;
+    /* Walk each account's db_storage directory */
+    DIR *xdir = opendir(db_base_dir);
+    if (xdir) {
+        struct dirent *ent;
+        while ((ent = readdir(xdir)) != NULL) {
+            if (ent->d_name[0] == '.') continue;
+            char storage_path[768];
+            snprintf(storage_path, sizeof(storage_path),
+                "%s/%s/db_storage", db_base_dir, ent->d_name);
+            struct stat st;
+            if (stat(storage_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                nftw(storage_path, nftw_collect_db, 20, FTW_PHYS);
             }
         }
-        globfree(&g);
+        closedir(xdir);
     }
-    printf("Found %d encrypted DBs\n", db_count);
+    printf("Found %d encrypted DBs\n", g_db_count);
 
     /* Scan memory for x' patterns */
     printf("\nScanning memory for keys...\n");
@@ -222,7 +250,12 @@ int main(int argc, char *argv[]) {
                     }
                     mach_vm_deallocate(mach_task_self(), data, dc);
                 }
-                ca += cs;
+                /* Advance with overlap to catch patterns spanning chunk boundaries.
+                 * Pattern is x'<96 hex chars>' = 99 bytes total. */
+                if (cs > HEX_PATTERN_LEN + 3)
+                    ca += cs - (HEX_PATTERN_LEN + 3);
+                else
+                    ca += cs;
             }
         }
         addr += size;
@@ -241,9 +274,9 @@ int main(int argc, char *argv[]) {
     int matched = 0;
     for (int i = 0; i < key_count; i++) {
         const char *db = NULL;
-        for (int j = 0; j < db_count; j++) {
-            if (strcmp(keys[i].salt_hex, db_salts[j]) == 0) {
-                db = db_names[j];
+        for (int j = 0; j < g_db_count; j++) {
+            if (strcmp(keys[i].salt_hex, g_db_salts[j]) == 0) {
+                db = g_db_names[j];
                 matched++;
                 break;
             }
@@ -267,9 +300,9 @@ int main(int argc, char *argv[]) {
         int first = 1;
         for (int i = 0; i < key_count; i++) {
             const char *db = NULL;
-            for (int j = 0; j < db_count; j++) {
-                if (strcmp(keys[i].salt_hex, db_salts[j]) == 0) {
-                    db = db_names[j];
+            for (int j = 0; j < g_db_count; j++) {
+                if (strcmp(keys[i].salt_hex, g_db_salts[j]) == 0) {
+                    db = g_db_names[j];
                     break;
                 }
             }
