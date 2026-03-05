@@ -162,6 +162,7 @@ python find_image_key.py
 | `find_image_key.py` | 从微信进程内存提取图片 AES 密钥 |
 | `find_image_key_monitor.py` | 持续监控版密钥提取（推荐） |
 | `latency_test.py` | 延迟测量诊断工具 |
+| `find_all_keys_macos.c` | macOS 版内存密钥扫描器 (C, Mach VM API) |
 
 ## 技术细节
 
