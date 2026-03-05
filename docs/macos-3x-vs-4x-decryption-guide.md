@@ -341,10 +341,15 @@ file ~/.../<account>/Message/msg_0.db
 # 应该显示 "data" 而不是 "SQLite 3.x database"
 
 # 4. 提取密钥 (必须在本机 Terminal!)
-sudo frida -p $(pgrep -x WeChat) -l scan_keys.js
-# 记下输出的 64 字符 hex 字符串
+# 方法 A: 使用 C 工具（推荐，见本 repo 的 find_all_keys_macos.c）
+cc -O2 -o find_all_keys_macos find_all_keys_macos.c -framework Foundation
+sudo ./find_all_keys_macos
+# 输出 all_keys.json，可直接用于解密
 
-# 5. 运行解密
+# 方法 B: 使用 Frida（需自行编写扫描脚本）
+# sudo frida -p $(pgrep -x WeChat) -l your_scan_script.js
+
+# 5. 运行解密（需配置 config.json 指向 db_storage 目录）
 python3 decrypt_db.py
 
 # 6. 验证
