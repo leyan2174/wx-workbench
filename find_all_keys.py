@@ -100,7 +100,7 @@ def main():
         for f in files:
             if f.endswith('.db') and not f.endswith('-wal') and not f.endswith('-shm'):
                 path = os.path.join(root, f)
-                rel = os.path.relpath(path, DB_DIR)
+                rel = os.path.relpath(path, DB_DIR).replace('\\', '/')
                 sz = os.path.getsize(path)
                 if sz < PAGE_SZ:
                     continue

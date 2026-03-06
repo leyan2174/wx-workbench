@@ -129,7 +129,7 @@ def main():
         for f in files:
             if f.endswith('.db') and not f.endswith('-wal') and not f.endswith('-shm'):
                 path = os.path.join(root, f)
-                rel = os.path.relpath(path, DB_DIR)
+                rel = os.path.relpath(path, DB_DIR).replace('\\', '/')
                 sz = os.path.getsize(path)
                 db_files.append((rel, path, sz))
 
@@ -142,8 +142,8 @@ def main():
     total_bytes = 0
 
     for rel, path, sz in db_files:
-        # 用反斜杠格式查找key (json中的key是Windows路径)
-        rel_key = rel.replace('/', '\\')
+        # 统一用正斜杠查找key
+        rel_key = rel.replace('\\', '/')
         if rel_key not in keys:
             print(f"SKIP: {rel} (无密钥)")
             failed += 1

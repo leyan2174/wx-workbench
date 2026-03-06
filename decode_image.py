@@ -313,7 +313,7 @@ class ImageResolver:
 
     def get_image_md5(self, local_id):
         """通过 local_id 查 message_resource.db 获取图片文件 MD5"""
-        path = self.cache.get("message\\message_resource.db")
+        path = self.cache.get("message/message_resource.db")
         if not path:
             return None
 

@@ -149,7 +149,7 @@ class DBCache:
             tmp_path = info["path"]
             if not os.path.exists(tmp_path):
                 continue
-            rel_path = rel_key.replace('\\', os.sep)
+            rel_path = rel_key.replace('/', os.sep)
             db_path = os.path.join(DB_DIR, rel_path)
             wal_path = db_path + "-wal"
             try:
@@ -177,7 +177,7 @@ class DBCache:
     def get(self, rel_key):
         if rel_key not in ALL_KEYS:
             return None
-        rel_path = rel_key.replace('\\', os.sep)
+        rel_path = rel_key.replace('/', os.sep)
         db_path = os.path.join(DB_DIR, rel_path)
         wal_path = db_path + "-wal"
         if not os.path.exists(db_path):
@@ -248,7 +248,7 @@ def get_contact_names():
             pass
 
     # 实时解密
-    path = _cache.get("contact\\contact.db")
+    path = _cache.get("contact/contact.db")
     if path:
         try:
             _contact_names, _contact_full = _load_contacts_from(path)
@@ -332,7 +332,7 @@ def _parse_message_content(content, local_type, is_group):
 # 消息 DB 的 rel_keys（排除 fts/resource/media/biz）
 MSG_DB_KEYS = sorted([
     k for k in ALL_KEYS
-    if k.startswith("message\\message_") and k.endswith(".db")
+    if k.startswith("message/message_") and k.endswith(".db")
     and "fts" not in k and "resource" not in k
 ])
 
@@ -379,7 +379,7 @@ def get_recent_sessions(limit: int = 20) -> str:
     Args:
         limit: 返回的会话数量，默认20
     """
-    path = _cache.get("session\\session.db")
+    path = _cache.get("session/session.db")
     if not path:
         return "错误: 无法解密 session.db"
 
@@ -635,7 +635,7 @@ def get_new_messages() -> str:
     """获取自上次调用以来的新消息。首次调用返回最近的会话状态。"""
     global _last_check_state
 
-    path = _cache.get("session\\session.db")
+    path = _cache.get("session/session.db")
     if not path:
         return "错误: 无法解密 session.db"
 
