@@ -130,6 +130,29 @@ python find_image_key.py
 
 > **注意**: AES 密钥仅在微信查看图片时临时加载到内存中。如果扫描未找到密钥，请先在微信中查看几张图片，然后立即重新运行脚本。
 
+#### macOS 图片解密
+
+macOS 上使用 C 版工具（通过 Mach VM API + CommonCrypto，性能比 Python 高 100 倍）：
+
+**前置条件：**
+- Xcode Command Line Tools: `xcode-select --install`
+- 微信需要 ad-hoc 签名：`sudo codesign --force --deep --sign - /Applications/WeChat.app`
+- 开发者模式：系统设置 → 隐私与安全 → 开发者模式 → 开启
+
+```bash
+# 编译
+cc -O3 -o find_image_key find_image_key.c -framework Security
+cc -O3 -o decrypt_images decrypt_images.c -framework Security
+
+# 1. 持续扫描图片密钥（在微信中浏览图片，扫描器自动捕获密钥）
+sudo ./find_image_key
+
+# 2. 批量解密所有 V2 图片
+./decrypt_images
+```
+
+`find_image_key` 会自动发现所有未解密的 V2 图片 pattern，持续扫描微信进程内存。当用户在微信中浏览图片时捕获密钥，保存到 `image_keys.json`。支持 `--deep` 模式进行逐字节深度扫描。
+
 ## 文件说明
 
 | 文件 | 说明 |
@@ -146,6 +169,8 @@ python find_image_key.py
 | `find_image_key_monitor.py` | 持续监控版密钥提取（推荐） |
 | `latency_test.py` | 延迟测量诊断工具 |
 | `find_all_keys_macos.c` | macOS 版内存密钥扫描器 (C, Mach VM API) |
+| `find_image_key.c` | macOS 版图片密钥扫描器 (C, 持续监控模式) |
+| `decrypt_images.c` | macOS 版批量图片解密器 (C, 多密钥支持) |
 
 ## 技术细节
 
