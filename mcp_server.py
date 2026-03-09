@@ -220,6 +220,8 @@ atexit.register(_cache.cleanup)
 _contact_names = None  # {username: display_name}
 _contact_full = None   # [{username, nick_name, remark}]
 _self_username = None
+_XML_UNSAFE_RE = re.compile(r'<!DOCTYPE|<!ENTITY', re.IGNORECASE)
+_XML_PARSE_MAX_LEN = 20000
 
 
 def _load_contacts_from(db_path):
@@ -286,6 +288,7 @@ def _split_msg_type(t):
         t = int(t)
     except (TypeError, ValueError):
         return 0, 0
+    # WeChat packs the base type into the low 32 bits and app subtype into the high 32 bits.
     if t > 0xFFFFFFFF:
         return t & 0xFFFFFFFF, t >> 32
     return t, 0
@@ -352,8 +355,11 @@ def _collapse_text(text):
 
 def _get_self_username():
     global _self_username
-    if _self_username is not None:
+    if _self_username:
         return _self_username
+
+    if not DB_DIR:
+        return ''
 
     names = get_contact_names()
     account_dir = os.path.basename(os.path.dirname(DB_DIR))
@@ -368,24 +374,21 @@ def _get_self_username():
             _self_username = candidate
             return _self_username
 
-    _self_username = ''
-    return _self_username
+    return ''
 
 
 def _load_name2id_maps(conn):
     id_to_username = {}
-    username_to_id = {}
     try:
         rows = conn.execute("SELECT rowid, user_name FROM Name2Id").fetchall()
     except sqlite3.Error:
-        return id_to_username, username_to_id
+        return id_to_username
 
     for rowid, user_name in rows:
         if not user_name:
             continue
         id_to_username[rowid] = user_name
-        username_to_id[user_name] = rowid
-    return id_to_username, username_to_id
+    return id_to_username
 
 
 def _display_name_for_username(username, names):
@@ -419,15 +422,38 @@ def _resolve_quote_sender_label(ref_user, ref_display_name, is_group, chat_usern
             return _display_name_for_username(ref_user, names)
         return ref_display_name or ''
 
+    self_username = _get_self_username()
     if ref_user:
         if ref_user == chat_username:
             return chat_display_name
-        return 'me'
+        if self_username and ref_user == self_username:
+            return 'me'
+        return names.get(ref_user, ref_display_name or ref_user)
     if ref_display_name:
         if ref_display_name == chat_display_name:
             return chat_display_name
-        return 'me'
+        self_display_name = names.get(self_username, self_username) if self_username else ''
+        if self_display_name and ref_display_name == self_display_name:
+            return 'me'
+        return ref_display_name
     return ''
+
+
+def _parse_xml_root(content):
+    if not content or len(content) > _XML_PARSE_MAX_LEN or _XML_UNSAFE_RE.search(content):
+        return None
+
+    try:
+        return ET.fromstring(content)
+    except ET.ParseError:
+        return None
+
+
+def _parse_int(value, fallback=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _format_app_message_text(content, local_type, is_group, chat_username, chat_display_name, names):
@@ -435,10 +461,8 @@ def _format_app_message_text(content, local_type, is_group, chat_username, chat_
         return None
 
     _, sub_type = _split_msg_type(local_type)
-
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError:
+    root = _parse_xml_root(content)
+    if root is None:
         return None
 
     appmsg = root.find('.//appmsg')
@@ -447,7 +471,7 @@ def _format_app_message_text(content, local_type, is_group, chat_username, chat_
 
     title = _collapse_text(appmsg.findtext('title') or '')
     app_type_text = (appmsg.findtext('type') or '').strip()
-    app_type = int(app_type_text or sub_type or 0)
+    app_type = _parse_int(app_type_text, _parse_int(sub_type, 0))
 
     if app_type == 57:
         ref = appmsg.find('.//refermsg')
@@ -481,6 +505,35 @@ def _format_app_message_text(content, local_type, is_group, chat_username, chat_
     return "[链接/文件]"
 
 
+def _format_voip_message_text(content):
+    if not content or '<voip' not in content:
+        return None
+
+    root = _parse_xml_root(content)
+    if root is None:
+        return "[通话]"
+
+    raw_text = _collapse_text(root.findtext('.//msg') or '')
+    if not raw_text:
+        return "[通话]"
+
+    status_map = {
+        'Canceled': '已取消',
+        'Line busy': '对方忙线',
+        'Already answered elsewhere': '已在其他设备接听',
+        'Declined on other device': '已在其他设备拒接',
+        'Call canceled by caller': '主叫已取消',
+        'Call not answered': '未接听',
+        "Call wasn't answered": '未接听',
+    }
+
+    if raw_text.startswith('Duration:'):
+        duration = raw_text.split(':', 1)[1].strip()
+        return f"[通话] 通话时长 {duration}" if duration else "[通话]"
+
+    return f"[通话] {status_map.get(raw_text, raw_text)}"
+
+
 def _format_message_text(local_id, local_type, content, is_group, chat_username, chat_display_name, names):
     sender_from_content, text = _parse_message_content(content, local_type, is_group)
     base_type, _ = _split_msg_type(local_type)
@@ -489,6 +542,8 @@ def _format_message_text(local_id, local_type, content, is_group, chat_username,
         text = f"[图片] (local_id={local_id})"
     elif base_type == 47:
         text = "[表情]"
+    elif base_type == 50:
+        text = _format_voip_message_text(text) or "[通话]"
     elif base_type == 49:
         text = _format_app_message_text(
             text, local_type, is_group, chat_username, chat_display_name, names
@@ -498,6 +553,10 @@ def _format_message_text(local_id, local_type, content, is_group, chat_username,
         text = f"[{type_label}] {text}" if text else f"[{type_label}]"
 
     return sender_from_content, text
+
+
+def _is_safe_msg_table_name(table_name):
+    return bool(re.fullmatch(r'Msg_[0-9a-f]{32}', table_name))
 
 
 # 消息 DB 的 rel_keys
@@ -513,6 +572,8 @@ def _find_msg_table_for_user(username):
     """在所有 message_N.db 中查找用户的消息表，返回 (db_path, table_name)"""
     table_hash = hashlib.md5(username.encode()).hexdigest()
     table_name = f"Msg_{table_hash}"
+    if not _is_safe_msg_table_name(table_name):
+        return None, None
 
     for rel_key in MSG_DB_KEYS:
         path = _cache.get(rel_key)
@@ -624,7 +685,7 @@ def get_chat_history(chat_name: str, limit: int = 50) -> str:
 
     conn = sqlite3.connect(db_path)
     try:
-        id_to_username, _ = _load_name2id_maps(conn)
+        id_to_username = _load_name2id_maps(conn)
         rows = conn.execute(f"""
             SELECT local_id, local_type, create_time, real_sender_id, message_content,
                    WCDB_CT_message_content
