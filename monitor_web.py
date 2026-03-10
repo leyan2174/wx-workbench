@@ -367,6 +367,7 @@ def full_decrypt(db_path, out_path, enc_key):
     file_size = os.path.getsize(db_path)
     total_pages = file_size // PAGE_SZ
 
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(db_path, 'rb') as fin, open(out_path, 'wb') as fout:
         for pgno in range(1, total_pages + 1):
             page = fin.read(PAGE_SZ)
