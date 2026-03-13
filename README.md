@@ -29,7 +29,7 @@ WCDB (微信的 SQLCipher 封装) 会在进程内存中缓存派生后的 raw ke
 
 - Python 3.10+
 - 微信 4.x
-- `pip install pycryptodome`
+- `pip install -r requirements.txt`
 
 Windows：
 
@@ -46,7 +46,7 @@ Linux：
 ### 安装依赖
 
 ```bash
-pip install pycryptodome
+pip install -r requirements.txt
 ```
 
 ### 快速开始
