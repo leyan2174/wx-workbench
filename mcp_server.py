@@ -872,33 +872,49 @@ def _iter_table_contexts(ctx):
         }
 
 
+def _candidate_page_size(limit, offset):
+    return limit + offset
+
+
+def _message_query_batch_size(candidate_limit):
+    return candidate_limit
+
+
+def _page_ranked_entries(entries, limit, offset):
+    ordered = sorted(entries, key=lambda item: item[0], reverse=True)
+    paged = ordered[offset:offset + limit]
+    paged.sort(key=lambda item: item[0])
+    return paged
+
+
 def _collect_chat_history_lines(ctx, names, start_ts=None, end_ts=None, limit=20, offset=0):
     collected = []
     failures = []
+    candidate_limit = _candidate_page_size(limit, offset)
 
     for table_ctx in _iter_table_contexts(ctx):
         try:
             with closing(sqlite3.connect(table_ctx['db_path'])) as conn:
                 id_to_username = _load_name2id_maps(conn)
+                # 当前页上的消息一定落在各分表最近的 offset+limit 条记录内。
                 rows = _query_messages(
                     conn,
                     table_ctx['table_name'],
                     start_ts=start_ts,
                     end_ts=end_ts,
-                    limit=None,
+                    limit=candidate_limit,
+                    offset=0,
                 )
                 for row in rows:
                     collected.append(_build_history_line(row, table_ctx, names, id_to_username))
         except Exception as e:
             failures.append(f"{table_ctx['db_path']}: {e}")
 
-    ordered = sorted(collected, key=lambda item: item[0], reverse=True)
-    paged = ordered[offset:offset + limit]
-    paged.sort(key=lambda item: item[0])
+    paged = _page_ranked_entries(collected, limit, offset)
     return [line for _, line in paged], failures
 
 
-def _collect_chat_search_entries(ctx, names, keyword, start_ts=None, end_ts=None):
+def _collect_chat_search_entries(ctx, names, keyword, start_ts=None, end_ts=None, candidate_limit=20):
     collected = []
     failures = []
     contexts_by_db = {}
@@ -915,6 +931,7 @@ def _collect_chat_search_entries(ctx, names, keyword, start_ts=None, end_ts=None
                     keyword,
                     start_ts=start_ts,
                     end_ts=end_ts,
+                    candidate_limit=candidate_limit,
                 )
                 collected.extend(db_entries)
                 failures.extend(db_failures)
@@ -954,25 +971,40 @@ def _load_search_contexts_from_db(conn, db_path, names):
     return contexts
 
 
-def _collect_search_entries(conn, contexts, names, keyword, start_ts=None, end_ts=None):
+def _collect_search_entries(conn, contexts, names, keyword, start_ts=None, end_ts=None, candidate_limit=20):
     collected = []
     failures = []
     id_to_username = _load_name2id_maps(conn)
+    batch_size = _message_query_batch_size(candidate_limit)
 
     for ctx in contexts:
         try:
-            rows = _query_messages(
-                conn,
-                ctx['table_name'],
-                start_ts=start_ts,
-                end_ts=end_ts,
-                keyword=keyword,
-                limit=None,
-            )
-            for row in rows:
-                formatted = _build_search_entry(row, ctx, names, id_to_username)
-                if formatted:
-                    collected.append(formatted)
+            fetch_offset = 0
+            collected_before_table = len(collected)
+            # 全局分页只需要每个分表最新的 offset+limit 条有效命中，无需把整表命中读进内存。
+            while len(collected) - collected_before_table < candidate_limit:
+                rows = _query_messages(
+                    conn,
+                    ctx['table_name'],
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    keyword=keyword,
+                    limit=batch_size,
+                    offset=fetch_offset,
+                )
+                if not rows:
+                    break
+                fetch_offset += len(rows)
+
+                for row in rows:
+                    formatted = _build_search_entry(row, ctx, names, id_to_username)
+                    if formatted:
+                        collected.append(formatted)
+                        if len(collected) - collected_before_table >= candidate_limit:
+                            break
+
+                if len(rows) < batch_size:
+                    break
         except Exception as e:
             failures.append(f"{ctx['display_name']}: {e}")
 
@@ -980,14 +1012,12 @@ def _collect_search_entries(conn, contexts, names, keyword, start_ts=None, end_t
 
 
 def _page_search_entries(entries, limit, offset):
-    ordered = sorted(entries, key=lambda x: x[0], reverse=True)
-    paged = ordered[offset:offset + limit]
-    paged.sort(key=lambda x: x[0])
-    return paged
+    return _page_ranked_entries(entries, limit, offset)
 
 
 def _search_single_chat(ctx, keyword, start_ts, end_ts, start_time, end_time, limit, offset):
     names = get_contact_names()
+    candidate_limit = _candidate_page_size(limit, offset)
 
     entries, failures = _collect_chat_search_entries(
         ctx,
@@ -995,6 +1025,7 @@ def _search_single_chat(ctx, keyword, start_ts, end_ts, start_time, end_time, li
         keyword,
         start_ts=start_ts,
         end_ts=end_ts,
+        candidate_limit=candidate_limit,
     )
 
     paged = _page_search_entries(entries, limit, offset)
@@ -1028,6 +1059,7 @@ def _search_multiple_chats(chat_names, keyword, start_ts, end_ts, start_time, en
         return f"错误: 没有可查询的聊天对象{suffix}"
 
     names = get_contact_names()
+    candidate_limit = _candidate_page_size(limit, offset)
     collected = []
     failures = []
     for ctx in resolved_contexts:
@@ -1037,6 +1069,7 @@ def _search_multiple_chats(chat_names, keyword, start_ts, end_ts, start_time, en
             keyword,
             start_ts=start_ts,
             end_ts=end_ts,
+            candidate_limit=candidate_limit,
         )
         collected.extend(chat_entries)
         failures.extend(chat_failures)
@@ -1074,6 +1107,7 @@ def _search_all_messages(keyword, start_ts, end_ts, start_time, end_time, limit,
     names = get_contact_names()
     collected = []
     failures = []
+    candidate_limit = _candidate_page_size(limit, offset)
 
     for rel_key in MSG_DB_KEYS:
         path = _cache.get(rel_key)
@@ -1090,6 +1124,7 @@ def _search_all_messages(keyword, start_ts, end_ts, start_time, end_time, limit,
                     keyword,
                     start_ts=start_ts,
                     end_ts=end_ts,
+                    candidate_limit=candidate_limit,
                 )
                 collected.extend(db_entries)
                 failures.extend(db_failures)
@@ -1135,16 +1170,15 @@ def get_recent_sessions(limit: int = 20) -> str:
         return "错误: 无法解密 session.db"
 
     names = get_contact_names()
-    conn = sqlite3.connect(path)
-    rows = conn.execute("""
-        SELECT username, unread_count, summary, last_timestamp,
-               last_msg_type, last_msg_sender, last_sender_display_name
-        FROM SessionTable
-        WHERE last_timestamp > 0
-        ORDER BY last_timestamp DESC
-        LIMIT ?
-    """, (limit,)).fetchall()
-    conn.close()
+    with closing(sqlite3.connect(path)) as conn:
+        rows = conn.execute("""
+            SELECT username, unread_count, summary, last_timestamp,
+                   last_msg_type, last_msg_sender, last_sender_display_name
+            FROM SessionTable
+            WHERE last_timestamp > 0
+            ORDER BY last_timestamp DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
 
     results = []
     for r in rows:
@@ -1351,15 +1385,14 @@ def get_new_messages() -> str:
         return "错误: 无法解密 session.db"
 
     names = get_contact_names()
-    conn = sqlite3.connect(path)
-    rows = conn.execute("""
-        SELECT username, unread_count, summary, last_timestamp,
-               last_msg_type, last_msg_sender, last_sender_display_name
-        FROM SessionTable
-        WHERE last_timestamp > 0
-        ORDER BY last_timestamp DESC
-    """).fetchall()
-    conn.close()
+    with closing(sqlite3.connect(path)) as conn:
+        rows = conn.execute("""
+            SELECT username, unread_count, summary, last_timestamp,
+                   last_msg_type, last_msg_sender, last_sender_display_name
+            FROM SessionTable
+            WHERE last_timestamp > 0
+            ORDER BY last_timestamp DESC
+        """).fetchall()
 
     curr_state = {}
     for r in rows:

@@ -157,8 +157,8 @@ class SearchMessagesTests(unittest.TestCase):
         self.assertNotIn("foo a1", result)
         self.assertNotIn("foo b2", result)
 
-    def test_search_messages_all_messages_scans_all_dbs_before_paging(self):
-        # 全库搜索要先扫完整个库，再分页，不能被旧分片提前截断。
+    def test_search_messages_all_messages_merges_global_results_before_paging(self):
+        # 全库搜索要基于跨库合并后的全局时间线分页，不能被单个分库提前截断。
         older_db = self.create_db(
             "older.db",
             {"older_user": [(1, 10, "foo older 1"), (2, 9, "foo older 2"), (3, 8, "foo older 3")]},
@@ -181,6 +181,44 @@ class SearchMessagesTests(unittest.TestCase):
         self.assertIn('搜索 "foo" 找到 2 条结果（offset=0, limit=2）', result)
         self.assertLess(result.index("foo newer 2"), result.index("foo newer 1"))
         self.assertNotIn("foo older 1", result)
+
+    def test_search_messages_all_messages_uses_bounded_sql_pagination(self):
+        # 每个消息表都只应查询当前页所需的候选窗口，不能回退到 limit=None 的全量扫描。
+        older_db = self.create_db(
+            "older_paged.db",
+            {"older_user": [(1, 10, "foo older 1"), (2, 9, "foo older 2"), (3, 8, "foo older 3")]},
+        )
+        newer_db = self.create_db(
+            "newer_paged.db",
+            {"newer_user": [(1, 30, "foo newer 1"), (2, 20, "foo newer 2"), (3, 19, "foo newer 3")]},
+        )
+        fake_cache = _FakeCache({"older": older_db, "newer": newer_db})
+        original_query_messages = mcp_server._query_messages
+        calls = []
+
+        def recording_query_messages(*args, **kwargs):
+            calls.append((args[1], kwargs.get("limit"), kwargs.get("offset", 0)))
+            return original_query_messages(*args, **kwargs)
+
+        with patch.object(mcp_server, "MSG_DB_KEYS", ["older", "newer"]), patch.object(
+            mcp_server, "_cache", fake_cache
+        ), patch.object(
+            mcp_server,
+            "get_contact_names",
+            return_value={"older_user": "Older", "newer_user": "Newer"},
+        ), patch.object(
+            mcp_server, "_query_messages", side_effect=recording_query_messages
+        ):
+            result = mcp_server.search_messages("foo", limit=2, offset=1)
+
+        self.assertIn('搜索 "foo" 找到 2 条结果（offset=1, limit=2）', result)
+        self.assertEqual(
+            calls,
+            [
+                (_msg_table_name("older_user"), 3, 0),
+                (_msg_table_name("newer_user"), 3, 0),
+            ],
+        )
 
     def test_search_messages_single_chat_respects_time_range(self):
         # 单聊搜索的开始/结束时间都必须严格生效。
@@ -339,6 +377,81 @@ class SearchMessagesTests(unittest.TestCase):
         self.assertIn("new message", result)
         self.assertNotIn("old message", result)
 
+    def test_get_chat_history_uses_bounded_sql_pagination(self):
+        # 历史查询应把 offset+limit 下推到 SQL，避免把整张消息表读出来后再切片。
+        db_path = self.create_db(
+            "history_paged.db",
+            {
+                "alice": [
+                    (1, 400, "newest"),
+                    (2, 300, "middle"),
+                    (3, 200, "older"),
+                    (4, 100, "oldest"),
+                ]
+            },
+        )
+        ctx = {
+            "query": "Alice",
+            "username": "alice",
+            "display_name": "Alice",
+            "db_path": db_path,
+            "table_name": _msg_table_name("alice"),
+            "message_tables": [{"db_path": db_path, "table_name": _msg_table_name("alice")}],
+            "is_group": False,
+        }
+        original_query_messages = mcp_server._query_messages
+        calls = []
+
+        def recording_query_messages(*args, **kwargs):
+            calls.append((args[1], kwargs.get("limit"), kwargs.get("offset", 0)))
+            return original_query_messages(*args, **kwargs)
+
+        with patch.object(mcp_server, "get_contact_names", return_value={"alice": "Alice"}), patch.object(
+            mcp_server, "_resolve_chat_context", return_value=ctx
+        ), patch.object(
+            mcp_server, "_query_messages", side_effect=recording_query_messages
+        ):
+            result = mcp_server.get_chat_history("Alice", limit=2, offset=1)
+
+        self.assertIn("middle", result)
+        self.assertIn("older", result)
+        self.assertNotIn("newest", result)
+        self.assertNotIn("oldest", result)
+        self.assertEqual(calls, [(_msg_table_name("alice"), 3, 0)])
+
+    def test_get_chat_history_keeps_partial_results_when_formatting_fails(self):
+        # 单条坏消息不应让整个历史查询失败，已有结果仍应返回并附带失败说明。
+        db_path = self.create_db(
+            "history_partial_failure.db",
+            {"alice": [(1, 200, "good message"), (2, 100, "bad message")]},
+        )
+        ctx = {
+            "query": "Alice",
+            "username": "alice",
+            "display_name": "Alice",
+            "db_path": db_path,
+            "table_name": _msg_table_name("alice"),
+            "message_tables": [{"db_path": db_path, "table_name": _msg_table_name("alice")}],
+            "is_group": False,
+        }
+        original_build_history_line = mcp_server._build_history_line
+
+        def flaky_build_history_line(row, *args, **kwargs):
+            if row[2] == 100:
+                raise ValueError("bad row")
+            return original_build_history_line(row, *args, **kwargs)
+
+        with patch.object(mcp_server, "get_contact_names", return_value={"alice": "Alice"}), patch.object(
+            mcp_server, "_resolve_chat_context", return_value=ctx
+        ), patch.object(
+            mcp_server, "_build_history_line", side_effect=flaky_build_history_line
+        ):
+            result = mcp_server.get_chat_history("Alice", limit=2, offset=0)
+
+        self.assertIn("good message", result)
+        self.assertIn("查询失败:", result)
+        self.assertIn("bad row", result)
+
     def test_search_messages_single_chat_merges_sharded_message_tables(self):
         # 单聊搜索也要跨分片合并，否则最近消息可能查不到。
         older_db = self.create_db("search_older.db", {"alice": [(1, 100, "foo old")]})
@@ -376,6 +489,101 @@ class SearchMessagesTests(unittest.TestCase):
         self.assertIn("foo middle", result)
         self.assertIn("foo new", result)
         self.assertNotIn("foo old", result)
+
+    def test_search_messages_keeps_partial_results_when_later_batch_fails(self):
+        # 后续批次失败时，前面已经拿到的有效结果不应被丢弃。
+        db_path = self.create_db(
+            "search_partial_failure.db",
+            {
+                "alice": [
+                    (1, 400, "foo newest"),
+                    (2, 300, "foo skipped"),
+                    (3, 200, "foo older"),
+                    (4, 100, "foo bad"),
+                ]
+            },
+        )
+        ctx = {
+            "query": "Alice",
+            "username": "alice",
+            "display_name": "Alice",
+            "db_path": db_path,
+            "table_name": _msg_table_name("alice"),
+            "message_tables": [{"db_path": db_path, "table_name": _msg_table_name("alice")}],
+            "is_group": False,
+        }
+        original_build_search_entry = mcp_server._build_search_entry
+
+        def flaky_build_search_entry(row, *args, **kwargs):
+            if row[2] == 300:
+                return None
+            if row[2] == 100:
+                raise ValueError("bad row")
+            return original_build_search_entry(row, *args, **kwargs)
+
+        with patch.object(mcp_server, "get_contact_names", return_value={"alice": "Alice"}), patch.object(
+            mcp_server, "_resolve_chat_context", return_value=ctx
+        ), patch.object(
+            mcp_server, "_build_search_entry", side_effect=flaky_build_search_entry
+        ):
+            result = mcp_server.search_messages("foo", chat_name="Alice", limit=3, offset=0)
+
+        self.assertIn("foo newest", result)
+        self.assertIn("foo older", result)
+        self.assertIn("查询失败:", result)
+        self.assertIn("bad row", result)
+
+    def test_get_recent_sessions_closes_connection_when_query_fails(self):
+        # 会话查询抛异常时也必须关闭 sqlite3 连接，避免资源泄漏。
+        fake_cache = _FakeCache({os.path.join("session", "session.db"): "session.db"})
+
+        class _FakeConn:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, *args, **kwargs):
+                raise sqlite3.OperationalError("boom")
+
+            def close(self):
+                self.closed = True
+
+        fake_conn = _FakeConn()
+
+        with patch.object(mcp_server, "_cache", fake_cache), patch.object(
+            mcp_server, "get_contact_names", return_value={}
+        ), patch.object(
+            mcp_server.sqlite3, "connect", return_value=fake_conn
+        ):
+            with self.assertRaisesRegex(sqlite3.OperationalError, "boom"):
+                mcp_server.get_recent_sessions()
+
+        self.assertTrue(fake_conn.closed)
+
+    def test_get_new_messages_closes_connection_when_query_fails(self):
+        # 新消息轮询失败时也要释放 sqlite3 连接。
+        fake_cache = _FakeCache({os.path.join("session", "session.db"): "session.db"})
+
+        class _FakeConn:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, *args, **kwargs):
+                raise sqlite3.OperationalError("boom")
+
+            def close(self):
+                self.closed = True
+
+        fake_conn = _FakeConn()
+
+        with patch.object(mcp_server, "_cache", fake_cache), patch.object(
+            mcp_server, "get_contact_names", return_value={}
+        ), patch.object(
+            mcp_server.sqlite3, "connect", return_value=fake_conn
+        ):
+            with self.assertRaisesRegex(sqlite3.OperationalError, "boom"):
+                mcp_server.get_new_messages()
+
+        self.assertTrue(fake_conn.closed)
 
 
 if __name__ == "__main__":
