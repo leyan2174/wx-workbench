@@ -139,12 +139,6 @@ claude mcp add wechat -- python C:\Users\你的用户名\wechat-decrypt\mcp_serv
 
 前置条件：需要先运行 `python main.py` 或 `python find_all_keys.py` 完成密钥提取。
 
-新增能力：
-- `get_chat_history` 支持 `offset` 分页，以及 `start_time` / `end_time` 时间范围过滤
-- `search_messages` 支持“全库 / 单个联系人或群聊 / 多个联系人或群聊”的统一搜索入口
-- `search_messages` 在定向搜索时会汇报无法解析或无消息表的对象
-- 时间格式支持 `YYYY-MM-DD`、`YYYY-MM-DD HH:MM`、`YYYY-MM-DD HH:MM:SS`
-
 **[查看使用案例 →](USAGE.md)**
 
 ### 图片解密 (V2 格式)
