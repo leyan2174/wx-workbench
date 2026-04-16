@@ -1,6 +1,6 @@
 {
   "name": "@jackwener/wx-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Query your local WeChat data from the command line. Designed for LLM agent tool calls.",
   "bin": {
     "wx": "bin/wx.js"
