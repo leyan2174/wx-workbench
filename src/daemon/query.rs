@@ -209,7 +209,7 @@ pub async fn q_search(
             let md5_lookup = names.md5_to_uname.clone();
             let names_map = names.map.clone();
 
-            let table_targets: Vec<(String, String, String, String)> = tokio::task::spawn_blocking(move || {
+            let table_targets: Vec<(String, String, String, String)> = match tokio::task::spawn_blocking(move || {
                 let conn = Connection::open(&path2)?;
                 let mut stmt = conn.prepare(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%'"
@@ -239,7 +239,11 @@ pub async fn q_search(
                     ));
                 }
                 Ok::<_, anyhow::Error>(result)
-            }).await??;
+            }).await {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => { eprintln!("[search] skip DB {}: {}", rel_key, e); continue; }
+                Err(e) => { eprintln!("[search] task error {}: {}", rel_key, e); continue; }
+            };
 
             targets.extend(table_targets);
         }
@@ -260,26 +264,35 @@ pub async fn q_search(
         let limit2 = limit * 3;
 
         let names_map2 = names.map.clone();
-        let found: Vec<Value> = tokio::task::spawn_blocking(move || {
+        let found: Vec<Value> = match tokio::task::spawn_blocking(move || {
             let conn = Connection::open(&db_path)?;
             let mut all = Vec::new();
             for (tname, display, uname) in &table_list {
                 let is_group = uname.contains("@chatroom");
-                let rows = search_in_table(&conn, tname, &uname, is_group,
-                    &names_map2, &kw2, since2, until2, limit2)?;
-                for mut row in rows {
-                    if row.get("chat").map(|v| v.as_str().unwrap_or("")).unwrap_or("").is_empty() {
-                        if let Some(obj) = row.as_object_mut() {
-                            obj.insert("chat".into(), serde_json::Value::String(
-                                if display.is_empty() { tname.clone() } else { display.clone() }
-                            ));
+                match search_in_table(&conn, tname, &uname, is_group,
+                    &names_map2, &kw2, since2, until2, limit2)
+                {
+                    Ok(rows) => {
+                        for mut row in rows {
+                            if row.get("chat").map(|v| v.as_str().unwrap_or("")).unwrap_or("").is_empty() {
+                                if let Some(obj) = row.as_object_mut() {
+                                    obj.insert("chat".into(), serde_json::Value::String(
+                                        if display.is_empty() { tname.clone() } else { display.clone() }
+                                    ));
+                                }
+                            }
+                            all.push(row);
                         }
                     }
-                    all.push(row);
+                    Err(e) => eprintln!("[search] skip table {}: {}", tname, e),
                 }
             }
             Ok::<_, anyhow::Error>(all)
-        }).await??;
+        }).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => { eprintln!("[search] skip DB: {}", e); continue; }
+            Err(e) => { eprintln!("[search] task error: {}", e); continue; }
+        };
 
         results.extend(found);
     }
@@ -654,8 +667,18 @@ fn parse_appmsg(text: &str) -> Option<String> {
         "57" => {
             let ref_content = extract_xml_text(text, "content")
                 .map(|s| {
-                    let s: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-                    if s.len() > 80 { format!("{}...", &s[..80]) } else { s }
+                    // content 可能是 HTML 转义的 XML（被引用的消息是 appmsg 时）
+                    let unescaped = unescape_html(&s);
+                    // 如果解转义后是 XML，尝试递归解析
+                    if unescaped.contains("<appmsg") {
+                        if let Some(parsed) = parse_appmsg(&unescaped) {
+                            return parsed;
+                        }
+                    }
+                    let s: String = unescaped.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if s.chars().count() > 40 {
+                        format!("{}...", s.chars().take(40).collect::<String>())
+                    } else { s }
                 })
                 .unwrap_or_default();
             let quote = if !title.is_empty() { format!("[引用] {}", title) } else { "[引用]".into() };
@@ -677,6 +700,14 @@ fn extract_xml_text(xml: &str, tag: &str) -> Option<String> {
     let content_start = start + open.len();
     let end = xml[content_start..].find(&close)?;
     Some(xml[content_start..content_start + end].trim().to_string())
+}
+
+fn unescape_html(s: &str) -> String {
+    s.replace("&lt;", "<")
+     .replace("&gt;", ">")
+     .replace("&amp;", "&")
+     .replace("&quot;", "\"")
+     .replace("&apos;", "'")
 }
 
 fn fmt_time(ts: i64, fmt: &str) -> String {
