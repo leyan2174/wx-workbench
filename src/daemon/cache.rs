@@ -80,11 +80,10 @@ impl DbCache {
                 continue;
             }
             let db_path = self.db_dir.join(rel_key.replace('\\', std::path::MAIN_SEPARATOR_STR).replace('/', std::path::MAIN_SEPARATOR_STR));
-            let wal_path_str = format!("{}-wal", db_path.display());
-            let wal_path = Path::new(&wal_path_str);
+            let wal_path = wal_path_for(&db_path);
 
             let db_mt = mtime_nanos(&db_path);
-            let wal_mt = if wal_path.exists() { mtime_nanos(wal_path) } else { 0 };
+            let wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
 
             if db_mt == entry.db_mt && wal_mt == entry.wal_mt {
                 inner.insert(rel_key.clone(), CacheEntry {
@@ -135,8 +134,7 @@ impl DbCache {
             return Ok(None);
         }
 
-        let wal_path_str = format!("{}-wal", db_path.display());
-        let wal_path = Path::new(&wal_path_str).to_path_buf();
+        let wal_path = wal_path_for(&db_path);
 
         let db_mt = mtime_nanos(&db_path);
         let wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
@@ -195,11 +193,18 @@ impl DbCache {
     }
 }
 
-fn mtime_nanos(path: &Path) -> u64 {
+pub(super) fn mtime_nanos(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
         .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// `foo/bar.db` → `foo/bar.db-wal`（用 OsString 拼接，避免 display() 的 UTF-8 问题）
+fn wal_path_for(db_path: &Path) -> PathBuf {
+    let mut name = db_path.file_name().unwrap_or_default().to_os_string();
+    name.push("-wal");
+    db_path.with_file_name(name)
 }
 
 fn hex_to_32bytes(s: &str) -> Result<[u8; 32]> {

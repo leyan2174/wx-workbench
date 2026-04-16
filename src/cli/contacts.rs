@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::ipc::Request;
-use super::super::cli::transport;
+use super::transport;
 
 pub fn cmd_contacts(query: Option<String>, limit: usize, json: bool) -> Result<()> {
     let req = Request::Contacts { query, limit };

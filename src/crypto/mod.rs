@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use aes::Aes256;
 use cbc::Decryptor;
 use cbc::cipher::{BlockDecryptMut, KeyIvInit};
+use std::io::{Read, Write};
 use std::path::Path;
 
 pub const PAGE_SZ: usize = 4096;
@@ -73,34 +74,34 @@ fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], data: &[u8]) -> Result<Vec<u8>
     Ok(buf)
 }
 
-/// 完整解密一个 SQLCipher 数据库文件
+/// 完整解密一个 SQLCipher 数据库文件（流式，逐页读写避免全量载入内存）
 ///
 /// 读取 `db_path`，按 PAGE_SZ 分页解密，写入 `out_path`
 pub fn full_decrypt(db_path: &Path, out_path: &Path, enc_key: &[u8; 32]) -> Result<()> {
-    let data = std::fs::read(db_path)?;
-    if data.is_empty() {
-        bail!("数据库文件为空: {}", db_path.display());
-    }
-
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let total_pages = (data.len() + PAGE_SZ - 1) / PAGE_SZ;
-    let mut out = Vec::with_capacity(data.len());
-
-    for pgno in 1..=total_pages {
-        let offset = (pgno - 1) * PAGE_SZ;
-        let end = std::cmp::min(offset + PAGE_SZ, data.len());
-        let mut page = data[offset..end].to_vec();
-        // 不足一页则补零
-        if page.len() < PAGE_SZ {
-            page.resize(PAGE_SZ, 0);
-        }
-        let dec = decrypt_page(enc_key, &page, pgno as u32)?;
-        out.extend_from_slice(&dec);
+    let mut input = std::fs::File::open(db_path)?;
+    let file_size = input.metadata()?.len() as usize;
+    if file_size == 0 {
+        bail!("数据库文件为空: {}", db_path.display());
     }
 
-    std::fs::write(out_path, &out)?;
+    let mut output = std::fs::File::create(out_path)?;
+    let total_pages = (file_size + PAGE_SZ - 1) / PAGE_SZ;
+    let mut page_buf = vec![0u8; PAGE_SZ];
+
+    for pgno in 1..=total_pages {
+        let n = input.read(&mut page_buf)?;
+        if n == 0 { break; }
+        // 不足一页则补零
+        if n < PAGE_SZ {
+            page_buf[n..].fill(0);
+        }
+        let dec = decrypt_page(enc_key, &page_buf, pgno as u32)?;
+        output.write_all(&dec)?;
+    }
+
     Ok(())
 }

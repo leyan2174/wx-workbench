@@ -67,11 +67,23 @@ fn start_daemon() -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        // 日志文件：~/.wx-cli/daemon.log
+        let log_path = config::log_path();
+        // 确保父目录存在
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let (stdout_stdio, stderr_stdio) = std::fs::OpenOptions::new()
+            .create(true).append(true)
+            .open(&log_path)
+            .and_then(|f| f.try_clone().map(|g| (f, g)))
+            .map(|(f, g)| (std::process::Stdio::from(f), std::process::Stdio::from(g)))
+            .unwrap_or_else(|_| (std::process::Stdio::null(), std::process::Stdio::null()));
         let mut cmd = std::process::Command::new(&exe);
         cmd.env("WX_DAEMON_MODE", "1")
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stdout(stdout_stdio)
+            .stderr(stderr_stdio);
         // SAFETY: setsid() 在 fork 后的子进程中调用，使 daemon 脱离控制终端
         unsafe { cmd.pre_exec(|| { libc::setsid(); Ok(()) }); }
         let _ = cmd.spawn().context("无法启动 daemon 进程")?;
@@ -79,8 +91,15 @@ fn start_daemon() -> Result<()> {
 
     #[cfg(windows)]
     {
+        let log_file = std::fs::OpenOptions::new()
+            .create(true).append(true)
+            .open(config::log_path())
+            .ok()
+            .map(std::process::Stdio::from)
+            .unwrap_or_else(std::process::Stdio::null);
         let _ = std::process::Command::new(&exe)
             .env("WX_DAEMON_MODE", "1")
+            .stdout(log_file)
             .creation_flags(0x00000008) // DETACHED_PROCESS
             .spawn()
             .context("无法启动 daemon 进程")?;

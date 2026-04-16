@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::io::BufRead;
 
 use crate::ipc::Request;
-use super::super::cli::transport;
+use super::transport;
 
 pub fn cmd_watch(chat: Option<String>, json: bool) -> Result<()> {
     transport::ensure_daemon()?;

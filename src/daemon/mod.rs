@@ -208,12 +208,7 @@ async fn run_watcher(
     }
 }
 
-fn mtime_nanos(path: &std::path::Path) -> u64 {
-    std::fs::metadata(path)
-        .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
-        .unwrap_or(0)
-}
+use cache::mtime_nanos;
 
 fn decompress_or_str(data: &[u8]) -> String {
     if data.is_empty() { return String::new(); }

@@ -4,8 +4,15 @@ use regex::Regex;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 use super::cache::DbCache;
+
+/// 静态编译的 Msg 表名正则，避免在热路径中重复编译
+fn msg_table_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
+}
 
 /// 联系人名称缓存
 #[derive(Clone)]
@@ -141,7 +148,7 @@ pub async fn q_history(
 
     let tables = find_msg_tables(db, names, &username).await?;
     if tables.is_empty() {
-        return Ok(json!({ "error": format!("找不到 {} 的消息记录", display) }));
+        anyhow::bail!("找不到 {} 的消息记录", display);
     }
 
     let mut all_msgs: Vec<Value> = Vec::new();
@@ -218,7 +225,7 @@ pub async fn q_search(
                     .filter_map(|r| r.ok())
                     .collect();
 
-                let re = Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap();
+                let re = msg_table_re();
                 let mut result = Vec::new();
                 for tname in table_names {
                     if !re.is_match(&tname) {
@@ -483,8 +490,10 @@ fn search_in_table(
     limit: usize,
 ) -> Result<Vec<Value>> {
     let id2u = load_id2u(conn);
-    let mut clauses = vec!["message_content LIKE ?".to_string()];
-    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(format!("%{}%", keyword))];
+    // 转义 LIKE 通配符，使用 '\' 作为 ESCAPE 字符
+    let escaped_kw = keyword.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let mut clauses = vec!["message_content LIKE ? ESCAPE '\\'".to_string()];
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(format!("%{}%", escaped_kw))];
     if let Some(s) = since {
         clauses.push("create_time >= ?".into());
         params.push(Box::new(s));

@@ -41,12 +41,6 @@ pub enum Request {
     Watch,
 }
 
-impl Request {
-    pub fn to_json_line(&self) -> anyhow::Result<String> {
-        let s = serde_json::to_string(self)?;
-        Ok(s + "\n")
-    }
-}
 
 /// daemon 的响应
 #[derive(Debug, Clone, Serialize, Deserialize)]

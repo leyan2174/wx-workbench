@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::ipc::Request;
-use super::super::cli::transport;
+use super::transport;
 
 pub fn cmd_sessions(limit: usize, json: bool) -> Result<()> {
     let resp = transport::send(Request::Sessions { limit })?;

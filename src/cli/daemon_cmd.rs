@@ -37,8 +37,17 @@ fn cmd_stop() -> Result<()> {
 
     #[cfg(unix)]
     {
-        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
-        println!("已停止 wx-daemon (PID {})", pid);
+        let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        if ret != 0 {
+            let errno = unsafe { *libc::__error() };
+            if errno == libc::ESRCH {
+                println!("wx-daemon (PID {}) 已不在运行，清理残留文件", pid);
+            } else {
+                anyhow::bail!("发送 SIGTERM 失败 (errno {})", errno);
+            }
+        } else {
+            println!("已停止 wx-daemon (PID {})", pid);
+        }
     }
 
     #[cfg(windows)]

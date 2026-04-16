@@ -55,21 +55,6 @@ pub fn load_config() -> Result<Config> {
     })
 }
 
-/// 保存配置到文件
-pub fn save_config(config: &Config) -> Result<()> {
-    let config_path = find_config_file().unwrap_or_else(|_| {
-        std::env::current_exe()
-            .unwrap_or_default()
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join("config.json")
-    });
-    let content = serde_json::to_string_pretty(config)?;
-    std::fs::write(&config_path, content)
-        .with_context(|| format!("写入 config.json 失败: {}", config_path.display()))?;
-    Ok(())
-}
-
 fn find_config_file() -> Result<PathBuf> {
     // 1. 优先查找可执行文件同目录
     if let Ok(exe) = std::env::current_exe() {

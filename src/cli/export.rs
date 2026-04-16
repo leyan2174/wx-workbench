@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::ipc::Request;
-use super::super::cli::transport;
+use super::transport;
 use super::history::{parse_time, parse_time_end};
 
 pub fn cmd_export(

@@ -75,6 +75,11 @@ pub fn cmd_init(force: bool) -> Result<()> {
     cfg.entry("keys_file".into()).or_insert_with(|| json!("all_keys.json"));
     cfg.entry("decrypted_dir".into()).or_insert_with(|| json!("decrypted"));
 
+    // 确保父目录存在（如 ~/.wx-cli/）
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+    }
     std::fs::write(&config_path, serde_json::to_string_pretty(&cfg)?)
         .context("写入 config.json 失败")?;
     println!("配置已保存: {}", config_path.display());
@@ -84,13 +89,21 @@ pub fn cmd_init(force: bool) -> Result<()> {
 }
 
 fn find_or_create_config_path() -> std::path::PathBuf {
-    // 优先使用可执行文件同目录
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            return dir.join("config.json");
+    // 如果当前工作目录或可执行文件目录已有 config.json，沿用它（支持便携模式）
+    if let Ok(cwd) = std::env::current_dir() {
+        let p = cwd.join("config.json");
+        if p.exists() {
+            return p;
         }
     }
-    std::env::current_dir()
-        .unwrap_or_default()
-        .join("config.json")
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("config.json");
+            if p.exists() {
+                return p;
+            }
+        }
+    }
+    // 默认写入 ~/.wx-cli/config.json（与 load_config 的最终查找路径保持一致）
+    config::cli_dir().join("config.json")
 }
