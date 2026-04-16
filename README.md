@@ -25,9 +25,17 @@ wx (CLI) ──Unix socket──▶ wx-daemon (后台进程)
 - WeChat 4.x（macOS 版）
 - 首次使用需 `sudo`（内存扫描）
 
-### 下载
+### 安装
 
-从 [Releases](https://github.com/jackwener/wx-cli/releases) 下载对应平台的预编译二进制：
+**方式一：cargo install（推荐）**
+
+```bash
+cargo install wx-cli
+```
+
+**方式二：下载预编译二进制**
+
+从 [Releases](https://github.com/jackwener/wx-cli/releases) 下载对应平台的文件：
 
 | 平台 | 文件名 |
 |------|--------|
@@ -43,7 +51,7 @@ chmod +x wx
 sudo mv wx /usr/local/bin/
 ```
 
-### 从源码构建
+**方式三：从源码构建**
 
 ```bash
 git clone git@github.com:jackwener/wx-cli.git
