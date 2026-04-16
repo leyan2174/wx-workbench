@@ -35,13 +35,7 @@ uv sync
 
 ### 初始化（首次使用）
 
-微信需要 ad-hoc 签名才能被扫描内存：
-
-```bash
-sudo codesign --force --deep --sign - /Applications/WeChat.app
-```
-
-然后打开微信并登录，运行初始化：
+打开微信并登录，运行初始化：
 
 ```bash
 uv run python wx.py init
@@ -126,6 +120,12 @@ wx watch
 
 ### `wx daemon status / stop / logs [-f] [-n N]`
 管理后台 daemon。`logs --follow` 等同 `tail -f`。
+
+> **如果 `wx init` 报权限错误**（`task_for_pid` 失败），说明你的微信版本开启了更严格的 hardened runtime 保护，需要先剥掉签名：
+> ```bash
+> sudo codesign --force --deep --sign - /Applications/WeChat.app
+> ```
+> 官网 dmg 安装的微信通常**不需要**这步。
 
 ## 原理
 
