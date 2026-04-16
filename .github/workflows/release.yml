@@ -6,7 +6,23 @@ on:
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,aarch64-unknown-linux-gnu,x86_64-unknown-linux-gnu
+
+      - name: cargo check all targets
+        run: |
+          cargo check --target x86_64-unknown-linux-gnu
+          cargo check --target aarch64-unknown-linux-gnu
+          cargo check --target x86_64-pc-windows-msvc
+
   build:
+    needs: check
     strategy:
       fail-fast: false
       matrix:
