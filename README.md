@@ -18,14 +18,20 @@
 
 - **零依赖安装** — 单一 Rust 二进制，一行命令装完
 - **毫秒级响应** — 后台 daemon 持久缓存解密数据库，mtime 不变则复用
-- **AI 友好** — `--json` 输出纯 JSON，方便 LLM agent 直接调用
+- **AI 友好** — 默认 YAML 输出，`--json` 切换为 JSON，方便 LLM agent 直接调用
 - **完全本地** — 数据不出本机，实时解密，无需全量预解密
 
 ---
 
 ## 安装
 
-**macOS / Linux**
+**npm（推荐，全平台）**
+
+```bash
+npm install -g wx-cli
+```
+
+**macOS / Linux（curl）**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jackwener/wx-cli/main/install.sh | bash
@@ -49,6 +55,7 @@ irm https://raw.githubusercontent.com/jackwener/wx-cli/main/install.ps1 | iex
 | macOS Apple Silicon | `wx-macos-arm64` |
 | macOS Intel | `wx-macos-x86_64` |
 | Linux x86_64 | `wx-linux-x86_64` |
+| Linux arm64 | `wx-linux-arm64` |
 | Windows x86_64 | `wx-windows-x86_64.exe` |
 
 macOS / Linux：`chmod +x wx && sudo mv wx /usr/local/bin/`
@@ -137,9 +144,9 @@ wx export "张三" --format markdown -o chat.md
 wx export "AI群" --since 2026-01-01 --format json
 ```
 
-### JSON 输出（AI agent 用）
+### 输出格式
 
-所有命令加 `--json` 输出机器可读的 JSON：
+默认输出 YAML，加 `--json` 切换为 JSON（适合 AI agent / `jq` 处理）：
 
 ```bash
 wx sessions --json
