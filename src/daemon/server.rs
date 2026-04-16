@@ -132,7 +132,7 @@ async fn serve_windows(
         tokio::prelude::*, GenericNamespaced, ListenerOptions,
     };
 
-    let pipe_name = r"\\.\pipe\wechat-cli-daemon";
+    let pipe_name = r"\\.\pipe\wx-cli-daemon";
     let name = pipe_name.to_ns_name::<GenericNamespaced>()?;
     let opts = ListenerOptions::new().name(name);
     let listener = opts.create_tokio()?;

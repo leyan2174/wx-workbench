@@ -40,7 +40,7 @@ pub fn is_alive() -> bool {
     #[cfg(windows)]
     {
         // 通过 named pipe 检测
-        let pipe_path = r"\\.\pipe\wechat-cli-daemon";
+        let pipe_path = r"\\.\pipe\wx-cli-daemon";
         use std::fs::OpenOptions;
         OpenOptions::new().read(true).write(true).open(pipe_path).is_ok()
     }
@@ -151,7 +151,7 @@ fn send_windows(req: Request) -> Result<Response> {
     use std::fs::OpenOptions;
     use std::os::windows::fs::OpenOptionsExt;
 
-    let pipe_path = r"\\.\pipe\wechat-cli-daemon";
+    let pipe_path = r"\\.\pipe\wx-cli-daemon";
     let mut pipe = OpenOptions::new()
         .read(true)
         .write(true)

@@ -11,7 +11,7 @@ pub struct Config {
     pub wechat_process: String,
 }
 
-/// 从 <exe_dir>/config.json 或 $HOME/.wechat-cli/config.json 加载配置
+/// 从 <exe_dir>/config.json 或 $HOME/.wx-cli/config.json 加载配置
 pub fn load_config() -> Result<Config> {
     let config_path = find_config_file()?;
     let content = std::fs::read_to_string(&config_path)
@@ -85,9 +85,9 @@ fn find_config_file() -> Result<PathBuf> {
     if cwd.exists() {
         return Ok(cwd);
     }
-    // 3. ~/.wechat-cli/config.json
+    // 3. ~/.wx-cli/config.json
     if let Some(home) = dirs::home_dir() {
-        let p = home.join(".wechat-cli").join("config.json");
+        let p = home.join(".wx-cli").join("config.json");
         if p.exists() {
             return Ok(p);
         }
@@ -104,7 +104,7 @@ fn find_config_file() -> Result<PathBuf> {
 pub fn cli_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".wechat-cli")
+        .join(".wx-cli")
 }
 
 pub fn sock_path() -> PathBuf {

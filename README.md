@@ -76,8 +76,8 @@ sudo wx init
 
 `wx init` 自动完成：
 1. 检测微信数据目录（`~/Library/Containers/.../xwechat_files/<wxid>/db_storage`）
-2. 扫描微信进程内存，提取所有数据库密钥 → `~/.wechat-cli/all_keys.json`
-3. 写入 `~/.wechat-cli/config.json`
+2. 扫描微信进程内存，提取所有数据库密钥 → `~/.wx-cli/all_keys.json`
+3. 写入 `~/.wx-cli/config.json`
 
 ### 使用
 
@@ -150,11 +150,11 @@ wx daemon logs --follow
 - **KDF**：PBKDF2-HMAC-SHA512，256,000 次迭代
 - **页结构**：4096 bytes/page，reserve = 80（IV 16 + HMAC 64）
 
-WCDB 在进程内存中缓存派生后的 raw key，格式为 `x'<64hex_enc_key><32hex_salt>'`。Rust 扫描器通过 macOS Mach VM API（`mach_vm_region` + `mach_vm_read`）或 Linux `/proc/<pid>/mem` 扫描微信进程内存，匹配此模式后输出到 `~/.wechat-cli/all_keys.json`。
+WCDB 在进程内存中缓存派生后的 raw key，格式为 `x'<64hex_enc_key><32hex_salt>'`。Rust 扫描器通过 macOS Mach VM API（`mach_vm_region` + `mach_vm_read`）或 Linux `/proc/<pid>/mem` 扫描微信进程内存，匹配此模式后输出到 `~/.wx-cli/all_keys.json`。
 
 ### DBCache（mtime 感知缓存）
 
-daemon 首次解密后将结果（及 DB/WAL 的 mtime，精度纳秒）持久化到 `~/.wechat-cli/cache/_mtimes.json`。重启时若 mtime 未变，直接复用已解密文件。
+daemon 首次解密后将结果（及 DB/WAL 的 mtime，精度纳秒）持久化到 `~/.wx-cli/cache/_mtimes.json`。重启时若 mtime 未变，直接复用已解密文件。
 
 ### WAL 监听
 
@@ -163,7 +163,7 @@ daemon 每 500ms 检测 `session.db-wal` 的 mtime，有变化时重新解密并
 ### 数据文件路径
 
 ```
-~/.wechat-cli/
+~/.wx-cli/
 ├── config.json       # 配置（DB 目录、密钥文件路径）
 ├── all_keys.json     # 数据库密钥
 ├── daemon.sock       # Unix socket
