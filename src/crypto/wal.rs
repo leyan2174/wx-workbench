@@ -61,7 +61,9 @@ pub fn apply_wal(wal_path: &Path, out_path: &Path, enc_key: &[u8; 32]) -> Result
             page_buf.resize(PAGE_SZ, 0);
         }
 
-        let dec = decrypt_page(enc_key, &page_buf, pgno)?;
+        // WAL 帧中的页数据不含 SALT 头，所以对 pgno=1 的帧也用普通页解密路径
+        // （区别于主数据库第一页需要跳过 SALT 并写入 SQLite 魔数）
+        let dec = decrypt_page(enc_key, &page_buf, if pgno == 1 { 2 } else { pgno })?;
         let file_offset = (pgno as u64 - 1) * PAGE_SZ as u64;
         db_file.seek(SeekFrom::Start(file_offset))?;
         db_file.write_all(&dec)?;

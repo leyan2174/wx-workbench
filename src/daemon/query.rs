@@ -259,13 +259,14 @@ pub async fn q_search(
         let until2 = until;
         let limit2 = limit * 3;
 
+        let names_map2 = names.map.clone();
         let found: Vec<Value> = tokio::task::spawn_blocking(move || {
             let conn = Connection::open(&db_path)?;
             let mut all = Vec::new();
             for (tname, display, uname) in &table_list {
                 let is_group = uname.contains("@chatroom");
                 let rows = search_in_table(&conn, tname, &uname, is_group,
-                    &HashMap::new(), &kw2, since2, until2, limit2)?;
+                    &names_map2, &kw2, since2, until2, limit2)?;
                 for mut row in rows {
                     if row.get("chat").map(|v| v.as_str().unwrap_or("")).unwrap_or("").is_empty() {
                         if let Some(obj) = row.as_object_mut() {

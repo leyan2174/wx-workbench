@@ -152,9 +152,8 @@ fn scan_memory(task: mach_port_t) -> Result<Vec<(String, String)>> {
     let mut results: Vec<(String, String)> = Vec::new();
     let mut addr: mach_vm_address_t = 0;
 
-    // VM_REGION_BASIC_INFO_COUNT_64 = sizeof(vm_region_basic_info_64) / sizeof(int32_t)
-    let info_count_expected: mach_msg_type_number_t =
-        (std::mem::size_of::<VmRegionBasicInfo64>() / 4) as u32;
+    // VM_REGION_BASIC_INFO_COUNT_64 = 9（来自 <mach/vm_region.h>，固定值，不能用 sizeof 计算）
+    let info_count_expected: mach_msg_type_number_t = 9;
 
     loop {
         let mut size: mach_vm_size_t = 0;

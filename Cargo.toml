@@ -49,7 +49,7 @@ md5 = "0.7"
 # 正则表达式
 regex = "1"
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
