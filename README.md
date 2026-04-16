@@ -14,6 +14,24 @@
 
 ---
 
+## AI Agent Skill
+
+通过 [skills CLI](https://github.com/vercel-labs/skills) 一键安装到 Claude Code、Cursor、Codex 等 agent：
+
+```bash
+npx skills add jackwener/wx-cli
+```
+
+或全局安装：
+
+```bash
+npx skills add jackwener/wx-cli -g
+```
+
+安装后 agent 会自动读取 `SKILL.md`，了解如何安装和调用 wx-cli。
+
+---
+
 ## 特性
 
 - **零依赖安装** — 单一 Rust 二进制，一行命令装完
