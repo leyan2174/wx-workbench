@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,6 +21,8 @@ pub enum Request {
         since: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         until: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_type: Option<i64>,
     },
     Search {
         keyword: String,
@@ -31,6 +34,8 @@ pub enum Request {
         since: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         until: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        msg_type: Option<i64>,
     },
     Contacts {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,7 +43,38 @@ pub enum Request {
         #[serde(default = "default_limit_50")]
         limit: usize,
     },
-    Watch,
+    Unread {
+        #[serde(default = "default_limit_20")]
+        limit: usize,
+    },
+    Members {
+        chat: String,
+    },
+    NewMessages {
+        /// 上次检查时各会话的 last_timestamp 快照（username -> ts）
+        /// None 表示首次运行，会返回 new_state 供下次使用
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state: Option<HashMap<String, i64>>,
+        #[serde(default = "default_limit_200")]
+        limit: usize,
+    },
+    Stats {
+        chat: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        since: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        until: Option<i64>,
+    },
+    Favorites {
+        #[serde(default = "default_limit_50")]
+        limit: usize,
+        /// 类型过滤：1=文本,2=图片,5=文章,19=名片,20=视频
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fav_type: Option<i64>,
+        /// 内容关键词搜索
+        #[serde(skip_serializing_if = "Option::is_none")]
+        query: Option<String>,
+    },
 }
 
 
@@ -69,48 +105,4 @@ impl Response {
 
 fn default_limit_20() -> usize { 20 }
 fn default_limit_50() -> usize { 50 }
-
-/// Watch 事件（daemon -> CLI 流式推送）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WatchEvent {
-    pub event: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chat: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_group: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sender: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub msg_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<i64>,
-}
-
-impl WatchEvent {
-    pub fn connected() -> Self {
-        Self {
-            event: "connected".into(),
-            time: None, chat: None, username: None, is_group: None,
-            sender: None, content: None, msg_type: None, timestamp: None,
-        }
-    }
-
-    pub fn heartbeat() -> Self {
-        Self {
-            event: "heartbeat".into(),
-            time: None, chat: None, username: None, is_group: None,
-            sender: None, content: None, msg_type: None, timestamp: None,
-        }
-    }
-
-    pub fn to_json_line(&self) -> anyhow::Result<String> {
-        let s = serde_json::to_string(self)?;
-        Ok(s + "\n")
-    }
-}
+fn default_limit_200() -> usize { 200 }

@@ -82,3 +82,161 @@ mod hex {
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// 创建一个进程唯一的临时目录（测试用），返回路径；测试结束后调用方负责删除
+    fn make_temp_dir(label: &str) -> std::path::PathBuf {
+        let mut p = std::env::temp_dir();
+        // 用 label + thread id 保证同进程内并发测试不冲突
+        p.push(format!("wx-cli-test-{}-{:?}", label, std::thread::current().id()));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    // ── read_db_salt ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_read_db_salt_plaintext_sqlite() {
+        let dir = make_temp_dir("salt-plain");
+        let path = dir.join("plain.db");
+        // 明文 SQLite 头：前 15 字节是 "SQLite format 3"
+        let mut content = b"SQLite format 3\x00".to_vec();
+        content.extend_from_slice(&[0u8; 100]);
+        fs::write(&path, &content).unwrap();
+
+        assert!(read_db_salt(&path).is_none(), "明文 SQLite 应返回 None");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_read_db_salt_encrypted() {
+        let dir = make_temp_dir("salt-enc");
+        let path = dir.join("enc.db");
+        // 非 SQLite 头 → 视为加密数据库，取前 16 字节作为 salt
+        let header: [u8; 16] = [
+            0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04,
+            0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+        ];
+        fs::write(&path, &header).unwrap();
+
+        let salt = read_db_salt(&path).expect("加密 DB 应返回 Some");
+        assert_eq!(salt, "deadbeef0102030405060708090a0b0c");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_read_db_salt_too_short() {
+        let dir = make_temp_dir("salt-short");
+        let path = dir.join("short.db");
+        fs::write(&path, b"tooshort").unwrap(); // < 16 bytes
+
+        assert!(read_db_salt(&path).is_none(), "文件太短应返回 None");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_read_db_salt_nonexistent() {
+        assert!(read_db_salt(Path::new("/nonexistent/surely/not/here.db")).is_none());
+    }
+
+    #[test]
+    fn test_read_db_salt_exactly_16_bytes() {
+        let dir = make_temp_dir("salt-16");
+        let path = dir.join("exact.db");
+        let header = [0xabu8; 16];
+        fs::write(&path, &header).unwrap();
+
+        let salt = read_db_salt(&path).unwrap();
+        // 0xab × 16 → "ab" × 16 = 32 chars
+        assert_eq!(salt, "ab".repeat(16));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── collect_db_salts ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_collect_db_salts_empty_dir() {
+        let dir = make_temp_dir("collect-empty");
+        let salts = collect_db_salts(&dir);
+        assert!(salts.is_empty());
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_skips_plaintext_sqlite() {
+        let dir = make_temp_dir("collect-plain");
+        let mut content = b"SQLite format 3\x00".to_vec();
+        content.extend_from_slice(&[0u8; 100]);
+        fs::write(dir.join("plain.db"), &content).unwrap();
+
+        assert!(collect_db_salts(&dir).is_empty(), "明文 SQLite 应被跳过");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_finds_encrypted() {
+        let dir = make_temp_dir("collect-enc");
+        let header = [0x11u8; 16];
+        fs::write(dir.join("msg.db"), &header).unwrap();
+
+        let salts = collect_db_salts(&dir);
+        assert_eq!(salts.len(), 1);
+        assert_eq!(salts[0].0, "11".repeat(16)); // 0x11 × 16 → "11" × 16
+        assert_eq!(salts[0].1, "msg.db");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_recursive() {
+        let dir = make_temp_dir("collect-rec");
+        let subdir = dir.join("sub");
+        fs::create_dir_all(&subdir).unwrap();
+
+        let header = [0xaau8; 16];
+        fs::write(dir.join("root.db"), &header).unwrap();
+        fs::write(subdir.join("nested.db"), &header).unwrap();
+        fs::write(dir.join("ignored.txt"), b"text file").unwrap();
+
+        let salts = collect_db_salts(&dir);
+        assert_eq!(salts.len(), 2, "应递归找到 2 个加密 .db");
+
+        let names: Vec<&str> = salts.iter().map(|(_, n)| n.as_str()).collect();
+        assert!(names.contains(&"root.db"));
+        assert!(names.contains(&"sub/nested.db"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_ignores_non_db_extensions() {
+        let dir = make_temp_dir("collect-ext");
+        let header = [0xbbu8; 16];
+        fs::write(dir.join("data.txt"),  &header).unwrap();
+        fs::write(dir.join("data.json"), &header).unwrap();
+        fs::write(dir.join("data.sqlite"), &header).unwrap();
+
+        assert!(collect_db_salts(&dir).is_empty(), "非 .db 文件应被忽略");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_multiple_files_unique_salts() {
+        let dir = make_temp_dir("collect-multi");
+        fs::write(dir.join("a.db"), &[0x11u8; 16]).unwrap();
+        fs::write(dir.join("b.db"), &[0x22u8; 16]).unwrap();
+        fs::write(dir.join("c.db"), &[0x33u8; 16]).unwrap();
+
+        let salts = collect_db_salts(&dir);
+        assert_eq!(salts.len(), 3);
+
+        let salt_vals: std::collections::HashSet<&str> =
+            salts.iter().map(|(s, _)| s.as_str()).collect();
+        assert!(salt_vals.contains("11".repeat(16).as_str()));
+        assert!(salt_vals.contains("22".repeat(16).as_str()));
+        assert!(salt_vals.contains("33".repeat(16).as_str()));
+        fs::remove_dir_all(&dir).ok();
+    }
+}

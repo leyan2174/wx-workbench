@@ -3,8 +3,8 @@ use crate::ipc::Request;
 use super::transport;
 use super::output::{resolve, print_value};
 
-pub fn cmd_sessions(limit: usize, json: bool) -> Result<()> {
-    let resp = transport::send(Request::Sessions { limit })?;
+pub fn cmd_unread(limit: usize, json: bool) -> Result<()> {
+    let resp = transport::send(Request::Unread { limit })?;
     let data = resp.data.get("sessions")
         .cloned()
         .unwrap_or(serde_json::Value::Array(vec![]));

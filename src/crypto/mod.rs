@@ -7,6 +7,8 @@ use cbc::cipher::{BlockDecryptMut, KeyIvInit};
 use std::io::{Read, Write};
 use std::path::Path;
 
+type Block = aes::cipher::Block<Aes256>;
+
 pub const PAGE_SZ: usize = 4096;
 pub const SALT_SZ: usize = 16;
 pub const RESERVE_SZ: usize = 80; // IV(16) + HMAC(64)
@@ -62,16 +64,13 @@ fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], data: &[u8]) -> Result<Vec<u8>
     if data.is_empty() || data.len() % 16 != 0 {
         bail!("密文长度不是 AES 块大小的倍数: {}", data.len());
     }
-    let mut buf = data.to_vec();
-    // 使用 raw 模式不处理 padding
+    // 将 &[u8] 复制为 Block 数组，避免 unsafe from_raw_parts_mut
+    let mut blocks: Vec<Block> = data.chunks_exact(16)
+        .map(Block::clone_from_slice)
+        .collect();
     Aes256CbcDec::new(key.into(), iv.into())
-        .decrypt_blocks_mut(unsafe {
-            std::slice::from_raw_parts_mut(
-                buf.as_mut_ptr() as *mut aes::cipher::Block<Aes256>,
-                buf.len() / 16,
-            )
-        });
-    Ok(buf)
+        .decrypt_blocks_mut(&mut blocks);
+    Ok(blocks.iter().flat_map(|b| b.iter().copied()).collect())
 }
 
 /// 完整解密一个 SQLCipher 数据库文件（流式，逐页读写避免全量载入内存）

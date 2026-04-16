@@ -1,10 +1,8 @@
 use anyhow::Result;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::broadcast;
 
-use crate::ipc::{Request, Response, WatchEvent};
+use crate::ipc::{Request, Response};
 use super::cache::DbCache;
 use super::query::Names;
 
@@ -12,12 +10,11 @@ use super::query::Names;
 pub async fn serve(
     db: Arc<DbCache>,
     names: Arc<std::sync::RwLock<Names>>,
-    watch_tx: broadcast::Sender<WatchEvent>,
 ) -> Result<()> {
     #[cfg(unix)]
-    serve_unix(db, names, watch_tx).await?;
+    serve_unix(db, names).await?;
     #[cfg(windows)]
-    serve_windows(db, names, watch_tx).await?;
+    serve_windows(db, names).await?;
     Ok(())
 }
 
@@ -25,7 +22,6 @@ pub async fn serve(
 async fn serve_unix(
     db: Arc<DbCache>,
     names: Arc<std::sync::RwLock<Names>>,
-    watch_tx: broadcast::Sender<WatchEvent>,
 ) -> Result<()> {
     use tokio::net::UnixListener;
     let sock_path = crate::config::sock_path();
@@ -49,10 +45,9 @@ async fn serve_unix(
         let (stream, _) = listener.accept().await?;
         let db2 = Arc::clone(&db);
         let names2 = Arc::clone(&names);
-        let tx2 = watch_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection_unix(stream, db2, names2, tx2).await {
+            if let Err(e) = handle_connection_unix(stream, db2, names2).await {
                 eprintln!("[server] 连接处理错误: {}", e);
             }
         });
@@ -64,7 +59,6 @@ async fn handle_connection_unix(
     stream: tokio::net::UnixStream,
     db: Arc<DbCache>,
     names: Arc<std::sync::RwLock<Names>>,
-    watch_tx: broadcast::Sender<WatchEvent>,
 ) -> Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut lines = BufReader::new(reader).lines();
@@ -84,41 +78,8 @@ async fn handle_connection_unix(
         }
     };
 
-    match req {
-        Request::Watch => {
-            // 流式模式：持续推送事件
-            let mut rx = watch_tx.subscribe();
-            let connected = WatchEvent::connected();
-            writer.write_all(connected.to_json_line()?.as_bytes()).await?;
-
-            loop {
-                tokio::select! {
-                    event = rx.recv() => {
-                        match event {
-                            Ok(e) => {
-                                if writer.write_all(e.to_json_line()?.as_bytes()).await.is_err() {
-                                    break;
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                            Err(_) => break,
-                        }
-                    }
-                    _ = tokio::time::sleep(Duration::from_secs(30)) => {
-                        // 心跳
-                        let hb = WatchEvent::heartbeat();
-                        if writer.write_all(hb.to_json_line()?.as_bytes()).await.is_err() {
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        other => {
-            let resp = dispatch(other, &db, &names).await;
-            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
-        }
-    }
+    let resp = dispatch(req, &db, &names).await;
+    writer.write_all(resp.to_json_line()?.as_bytes()).await?;
     Ok(())
 }
 
@@ -126,7 +87,6 @@ async fn handle_connection_unix(
 async fn serve_windows(
     db: Arc<DbCache>,
     names: Arc<std::sync::RwLock<Names>>,
-    watch_tx: broadcast::Sender<WatchEvent>,
 ) -> Result<()> {
     use interprocess::local_socket::{
         tokio::prelude::*, GenericNamespaced, ListenerOptions,
@@ -143,10 +103,9 @@ async fn serve_windows(
         let conn = listener.accept().await?;
         let db2 = Arc::clone(&db);
         let names2 = Arc::clone(&names);
-        let tx2 = watch_tx.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection_generic(conn, db2, names2, tx2).await {
+            if let Err(e) = handle_connection_generic(conn, db2, names2).await {
                 eprintln!("[server] 连接处理错误: {}", e);
             }
         });
@@ -164,7 +123,6 @@ async fn dispatch(
     match req {
         Ping => Response::ok(serde_json::json!({ "pong": true })),
         Sessions { limit } => {
-            // 在 await 前获取并复制所需数据，避免 RwLockGuard 跨 await
             let names_snapshot = match clone_names(names) {
                 Ok(n) => n,
                 Err(e) => return Response::err(e),
@@ -174,22 +132,22 @@ async fn dispatch(
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        History { chat, limit, offset, since, until } => {
+        History { chat, limit, offset, since, until, msg_type } => {
             let names_snapshot = match clone_names(names) {
                 Ok(n) => n,
                 Err(e) => return Response::err(e),
             };
-            match query::q_history(db, &names_snapshot, &chat, limit, offset, since, until).await {
+            match query::q_history(db, &names_snapshot, &chat, limit, offset, since, until, msg_type).await {
                 Ok(v) => Response::ok(v),
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        Search { keyword, chats, limit, since, until } => {
+        Search { keyword, chats, limit, since, until, msg_type } => {
             let names_snapshot = match clone_names(names) {
                 Ok(n) => n,
                 Err(e) => return Response::err(e),
             };
-            match query::q_search(db, &names_snapshot, &keyword, chats, limit, since, until).await {
+            match query::q_search(db, &names_snapshot, &keyword, chats, limit, since, until, msg_type).await {
                 Ok(v) => Response::ok(v),
                 Err(e) => Response::err(e.to_string()),
             }
@@ -204,7 +162,52 @@ async fn dispatch(
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        Watch => Response::err("Watch 命令不应通过 dispatch 处理"),
+        Unread { limit } => {
+            let names_snapshot = match clone_names(names) {
+                Ok(n) => n,
+                Err(e) => return Response::err(e),
+            };
+            match query::q_unread(db, &names_snapshot, limit).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
+        Members { chat } => {
+            let names_snapshot = match clone_names(names) {
+                Ok(n) => n,
+                Err(e) => return Response::err(e),
+            };
+            match query::q_members(db, &names_snapshot, &chat).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
+        NewMessages { state, limit } => {
+            let names_snapshot = match clone_names(names) {
+                Ok(n) => n,
+                Err(e) => return Response::err(e),
+            };
+            match query::q_new_messages(db, &names_snapshot, state, limit).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
+        Favorites { limit, fav_type, query } => {
+            match query::q_favorites(db, limit, fav_type, query).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
+        Stats { chat, since, until } => {
+            let names_snapshot = match clone_names(names) {
+                Ok(n) => n,
+                Err(e) => return Response::err(e),
+            };
+            match query::q_stats(db, &names_snapshot, &chat, since, until).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
     }
 }
 

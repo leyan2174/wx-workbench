@@ -246,7 +246,7 @@ fn scan_region(
 /// 在缓冲区中搜索 x'<96个十六进制字符>' 模式
 ///
 /// 格式：x'<64hex(key)><32hex(salt)>'（总计 99 字节）
-fn search_pattern(buf: &[u8], results: &mut Vec<(String, String)>) {
+pub(crate) fn search_pattern(buf: &[u8], results: &mut Vec<(String, String)>) {
     let total = HEX_PATTERN_LEN + 3; // x' + 96 hex + '
     if buf.len() < total {
         return;
@@ -289,5 +289,154 @@ fn search_pattern(buf: &[u8], results: &mut Vec<(String, String)>) {
         }
 
         i += total;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造一条合法的 x'<key><salt>' 模式字节串
+    fn make_pattern(key: &[u8; 64], salt: &[u8; 32]) -> Vec<u8> {
+        let mut v = vec![b'x', b'\''];
+        v.extend_from_slice(key);
+        v.extend_from_slice(salt);
+        v.push(b'\'');
+        v
+    }
+
+    #[test]
+    fn test_is_hex_char_valid() {
+        for c in b'0'..=b'9' { assert!(is_hex_char(c), "digit {}", c as char); }
+        for c in b'a'..=b'f' { assert!(is_hex_char(c), "lower {}", c as char); }
+        for c in b'A'..=b'F' { assert!(is_hex_char(c), "upper {}", c as char); }
+    }
+
+    #[test]
+    fn test_is_hex_char_invalid() {
+        for c in [b'g', b'G', b'x', b'\'', b' ', b'\0', b'z', b'Z'] {
+            assert!(!is_hex_char(c), "expected non-hex: {}", c as char);
+        }
+    }
+
+    #[test]
+    fn test_search_pattern_basic() {
+        let key  = [b'a'; 64];
+        let salt = [b'b'; 32];
+        let buf = make_pattern(&key, &salt);
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "a".repeat(64));
+        assert_eq!(results[0].1, "b".repeat(32));
+    }
+
+    #[test]
+    fn test_search_pattern_uppercase_lowercased() {
+        // 大写十六进制字符应被统一转为小写
+        let key  = [b'A'; 64];
+        let salt = [b'B'; 32];
+        let buf = make_pattern(&key, &salt);
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "a".repeat(64));
+        assert_eq!(results[0].1, "b".repeat(32));
+    }
+
+    #[test]
+    fn test_search_pattern_not_all_hex() {
+        // 96 个十六进制字符中有一个非法字符 → 不匹配
+        let mut buf = vec![b'x', b'\''];
+        buf.extend_from_slice(&[b'a'; 95]);
+        buf.push(b'g'); // 'g' 不是合法十六进制字符
+        buf.push(b'\'');
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_pattern_wrong_closing_quote() {
+        // 结尾引号错误 → 不匹配
+        let mut buf = vec![b'x', b'\''];
+        buf.extend_from_slice(&[b'a'; 96]);
+        buf.push(b'"'); // 应为 b'\''
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_pattern_dedup() {
+        // 相同模式出现两次 → 只保留一条
+        let key  = [b'1'; 64];
+        let salt = [b'2'; 32];
+        let pattern = make_pattern(&key, &salt);
+        let mut buf = pattern.clone();
+        buf.extend_from_slice(&pattern);
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_pattern_multiple_distinct() {
+        // 两个不同的合法模式 → 各自独立捕获
+        let key1  = [b'a'; 64]; let salt1 = [b'b'; 32];
+        let key2  = [b'c'; 64]; let salt2 = [b'd'; 32];
+        let mut buf = make_pattern(&key1, &salt1);
+        buf.extend_from_slice(&make_pattern(&key2, &salt2));
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 2);
+        let keys: Vec<&str> = results.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(keys.contains(&"a".repeat(64).as_str()));
+        assert!(keys.contains(&"c".repeat(64).as_str()));
+    }
+
+    #[test]
+    fn test_search_pattern_embedded_in_garbage() {
+        // 模式夹在垃圾字节中间，仍应找到
+        let mut buf = vec![0xFFu8; 50];
+        let key  = [b'e'; 64];
+        let salt = [b'f'; 32];
+        buf.extend_from_slice(&make_pattern(&key, &salt));
+        buf.extend_from_slice(&[0x00u8; 50]);
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_search_pattern_too_short() {
+        // 缓冲区太小，无法容纳完整模式
+        let buf = [b'x', b'\'', b'a', b'b'];
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_pattern_empty_buf() {
+        let mut results = Vec::new();
+        search_pattern(&[], &mut results);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_pattern_real_hex_mix() {
+        // 合法的混合大小写十六进制（0-9, a-f, A-F）
+        let mut key = [b'0'; 64];
+        for (i, c) in b"0123456789abcdefABCDEF0123456789abcdef0123456789abcdef01234567".iter().enumerate() {
+            if i < 64 { key[i] = *c; }
+        }
+        let salt = [b'9'; 32];
+        let buf = make_pattern(&key, &salt);
+        let mut results = Vec::new();
+        search_pattern(&buf, &mut results);
+        assert_eq!(results.len(), 1);
+        // 结果应全小写
+        assert!(results[0].0.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()));
     }
 }

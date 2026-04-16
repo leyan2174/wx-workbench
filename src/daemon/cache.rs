@@ -56,8 +56,7 @@ impl DbCache {
 
     fn cache_file_path(&self, rel_key: &str) -> PathBuf {
         let hash = format!("{:x}", md5::compute(rel_key.as_bytes()));
-        let short = &hash[..12];
-        self.cache_dir.join(format!("{}.db", short))
+        self.cache_dir.join(format!("{}.db", hash))
     }
 
     /// 从持久化文件加载 mtime 记录，复用未过期的解密文件

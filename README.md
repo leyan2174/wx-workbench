@@ -4,8 +4,8 @@
 
 **从命令行查询本地微信数据**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#安装)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#安装)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
 会话 · 聊天记录 · 搜索 · 联系人 · 群成员 · 收藏 · 统计 · 导出
@@ -25,31 +25,40 @@
 
 ## 安装
 
+**macOS / Linux**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jackwener/wx-cli/main/install.sh | bash
 ```
 
-> 支持：macOS Apple Silicon / Intel，Linux x86_64 / arm64
+**Windows**（PowerShell，以管理员身份运行）
+
+```powershell
+irm https://raw.githubusercontent.com/jackwener/wx-cli/main/install.ps1 | iex
+```
 
 <details>
 <summary>其他安装方式</summary>
 
 **手动下载**
 
-从 [Releases](https://github.com/jackwener/wx-cli/releases) 下载对应平台文件，重命名为 `wx`，`chmod +x` 后放入 PATH：
+从 [Releases](https://github.com/jackwener/wx-cli/releases) 下载对应平台文件：
 
 | 平台 | 文件 |
 |------|------|
 | macOS Apple Silicon | `wx-macos-arm64` |
 | macOS Intel | `wx-macos-x86_64` |
 | Linux x86_64 | `wx-linux-x86_64` |
+| Windows x86_64 | `wx-windows-x86_64.exe` |
+
+macOS / Linux：`chmod +x wx && sudo mv wx /usr/local/bin/`
 
 **从源码构建**
 
 ```bash
 git clone git@github.com:jackwener/wx-cli.git && cd wx-cli
 cargo build --release
-# 产物：target/release/wx
+# 产物：target/release/wx（Windows: wx.exe）
 ```
 
 </details>
@@ -58,16 +67,25 @@ cargo build --release
 
 ## 快速开始
 
-微信 4.x（macOS 版）需要先做 ad-hoc 签名才能扫描内存：
+保持微信运行，然后初始化（只需一次）：
+
+**macOS**（需要先对微信做 ad-hoc 签名，才能扫描其内存）
 
 ```bash
 sudo codesign --force --deep --sign - /Applications/WeChat.app
+sudo wx init
 ```
 
-保持微信运行，然后初始化（只需一次）：
+**Linux**
 
 ```bash
 sudo wx init
+```
+
+**Windows**（以管理员身份运行 PowerShell）
+
+```powershell
+wx init
 ```
 
 之后直接用，daemon 会在首次调用时自动启动：

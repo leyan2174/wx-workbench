@@ -3,7 +3,7 @@ name = "wx-cli"
 version = "0.1.1"
 edition = "2021"
 description = "WeChat 4.x (macOS/Linux) local data CLI — decrypt SQLCipher DBs, query chat history, watch new messages"
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/jackwener/wx-cli"
 keywords = ["wechat", "sqlcipher", "decrypt", "cli"]
 categories = ["command-line-utilities"]
@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["full"] }
 # 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "=1.0.140"
+serde_yaml = "0.9"
 
 # SQLite
 rusqlite = { version = "0.31", features = ["bundled"] }

@@ -20,6 +20,7 @@ pub fn cmd_export(
         offset: 0,
         since: since_ts,
         until: until_ts,
+        msg_type: None,
     };
 
     let resp = transport::send(req)?;

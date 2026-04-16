@@ -1,6 +1,7 @@
 use anyhow::Result;
 use crate::ipc::Request;
 use super::transport;
+use super::output::{resolve, print_value};
 
 pub fn cmd_history(
     chat: String,
@@ -8,73 +9,65 @@ pub fn cmd_history(
     offset: usize,
     since: Option<String>,
     until: Option<String>,
+    msg_type: Option<String>,
     json: bool,
 ) -> Result<()> {
     let since_ts = since.as_deref().map(parse_time).transpose()?;
-    let until_ts = until.as_deref().map(|s| parse_time_end(s)).transpose()?;
+    let until_ts = until.as_deref().map(parse_time_end).transpose()?;
+    let type_val = msg_type.as_deref().and_then(parse_msg_type);
 
-    let req = Request::History {
-        chat,
-        limit,
-        offset,
-        since: since_ts,
-        until: until_ts,
-    };
-
+    let req = Request::History { chat, limit, offset, since: since_ts, until: until_ts, msg_type: type_val };
     let resp = transport::send(req)?;
 
-    if json {
-        let msgs = resp.data.get("messages").cloned().unwrap_or(serde_json::Value::Array(vec![]));
-        println!("{}", serde_json::to_string_pretty(&msgs)?);
-        return Ok(());
-    }
-
-    let chat_name = resp.data["chat"].as_str().unwrap_or("");
-    let is_group = resp.data["is_group"].as_bool().unwrap_or(false);
-    let count = resp.data["count"].as_i64().unwrap_or(0);
-    let group_str = if is_group { " [群]" } else { "" };
-    println!("=== {}{}  ({} 条) ===\n", chat_name, group_str, count);
-
-    if let Some(msgs) = resp.data["messages"].as_array() {
-        for m in msgs {
-            let time = m["time"].as_str().unwrap_or("");
-            let sender = m["sender"].as_str().unwrap_or("");
-            let content = m["content"].as_str().unwrap_or("");
-
-            let sender_str = if !sender.is_empty() {
-                format!("\x1b[33m{}\x1b[0m: ", sender)
-            } else {
-                String::new()
-            };
-
-            println!("\x1b[90m[{}]\x1b[0m {}{}", time, sender_str, content);
-        }
-    }
-
-    Ok(())
+    let msgs = resp.data.get("messages")
+        .cloned()
+        .unwrap_or(serde_json::Value::Array(vec![]));
+    print_value(&msgs, &resolve(json))
 }
 
 pub fn parse_time(s: &str) -> Result<i64> {
-    for fmt in &["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"] {
+    use chrono::{Local, TimeZone};
+    for fmt in &["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
         if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
-            return Ok(dt.and_utc().timestamp());
+            return Local.from_local_datetime(&dt).single()
+                .map(|d| d.timestamp())
+                .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
         }
-        // 尝试仅日期格式
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(s, fmt) {
-            let dt = d.and_hms_opt(0, 0, 0).unwrap();
-            return Ok(dt.and_utc().timestamp());
-        }
+    }
+    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let dt = d.and_hms_opt(0, 0, 0).unwrap();
+        return Local.from_local_datetime(&dt).single()
+            .map(|d| d.timestamp())
+            .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
     }
     anyhow::bail!("无法解析时间 '{}'，支持 YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS", s)
 }
 
 pub fn parse_time_end(s: &str) -> Result<i64> {
-    // 对于仅日期格式，结束时间为当天 23:59:59
+    use chrono::{Local, TimeZone};
     if s.len() == 10 {
         if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
             let dt = d.and_hms_opt(23, 59, 59).unwrap();
-            return Ok(dt.and_utc().timestamp());
+            return Local.from_local_datetime(&dt).single()
+                .map(|d| d.timestamp())
+                .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
         }
     }
     parse_time(s)
+}
+
+/// 将消息类型字符串转为 local_type 整数，未知类型返回 None
+pub fn parse_msg_type(s: &str) -> Option<i64> {
+    match s {
+        "text"     => Some(1),
+        "image"    => Some(3),
+        "voice"    => Some(34),
+        "video"    => Some(43),
+        "sticker"  => Some(47),
+        "location" => Some(48),
+        "link" | "file" => Some(49),
+        "call"     => Some(50),
+        "system"   => Some(10000),
+        _          => None,
+    }
 }

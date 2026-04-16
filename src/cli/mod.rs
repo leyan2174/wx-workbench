@@ -4,9 +4,14 @@ pub mod history;
 pub mod search;
 pub mod contacts;
 pub mod export;
-pub mod watch;
 pub mod daemon_cmd;
 pub mod transport;
+pub mod output;
+pub mod unread;
+pub mod members;
+pub mod new_messages;
+pub mod stats;
+pub mod favorites;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -32,7 +37,7 @@ enum Commands {
         /// 会话数量
         #[arg(short = 'n', long, default_value = "20")]
         limit: usize,
-        /// 输出原始 JSON
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
     },
@@ -52,7 +57,11 @@ enum Commands {
         /// 结束时间 YYYY-MM-DD
         #[arg(long)]
         until: Option<String>,
-        /// 输出原始 JSON
+        /// 消息类型过滤 [text|image|voice|video|sticker|location|link|file|call|system]
+        #[arg(long = "type", value_name = "TYPE",
+              value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
+        msg_type: Option<String>,
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
     },
@@ -72,7 +81,11 @@ enum Commands {
         /// 结束时间 YYYY-MM-DD
         #[arg(long)]
         until: Option<String>,
-        /// 输出原始 JSON
+        /// 消息类型过滤 [text|image|voice|video|sticker|location|link|file|call|system]
+        #[arg(long = "type", value_name = "TYPE",
+              value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
+        msg_type: Option<String>,
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
     },
@@ -84,7 +97,7 @@ enum Commands {
         /// 显示数量
         #[arg(short = 'n', long, default_value = "50")]
         limit: usize,
-        /// 输出原始 JSON
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
     },
@@ -101,19 +114,66 @@ enum Commands {
         /// 最多导出条数
         #[arg(short = 'n', long, default_value = "500")]
         limit: usize,
-        /// 输出格式 [markdown|txt|json]
-        #[arg(short = 'f', long, default_value = "markdown", value_parser = ["markdown", "txt", "json"])]
+        /// 输出格式 [markdown|txt|json|yaml]
+        #[arg(short = 'f', long, default_value = "markdown", value_parser = ["markdown", "txt", "json", "yaml"])]
         format: String,
         /// 输出文件（默认 stdout）
         #[arg(short = 'o', long)]
         output: Option<String>,
     },
-    /// 实时监听新消息（Ctrl+C 退出）
-    Watch {
-        /// 只显示指定聊天的消息
+    /// 显示有未读消息的会话
+    Unread {
+        /// 显示数量
+        #[arg(short = 'n', long, default_value = "20")]
+        limit: usize,
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
-        chat: Option<String>,
-        /// 输出 JSON lines
+        json: bool,
+    },
+    /// 查看群成员
+    Members {
+        /// 群聊名称（支持模糊匹配）
+        chat: String,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 获取自上次检查以来的新消息
+    NewMessages {
+        /// 显示数量上限
+        #[arg(short = 'n', long, default_value = "200")]
+        limit: usize,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 聊天统计分析
+    Stats {
+        /// 聊天对象名称（支持模糊匹配）
+        chat: String,
+        /// 起始时间 YYYY-MM-DD
+        #[arg(long)]
+        since: Option<String>,
+        /// 结束时间 YYYY-MM-DD
+        #[arg(long)]
+        until: Option<String>,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 查看微信收藏内容
+    Favorites {
+        /// 显示数量
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
+        /// 类型过滤 [text|image|article|card|video]
+        #[arg(long = "type", value_name = "TYPE",
+              value_parser = ["text","image","article","card","video"])]
+        fav_type: Option<String>,
+        /// 内容关键词搜索
+        #[arg(short = 'q', long)]
+        query: Option<String>,
+        /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
     },
@@ -153,17 +213,25 @@ fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { force } => init::cmd_init(force),
         Commands::Sessions { limit, json } => sessions::cmd_sessions(limit, json),
-        Commands::History { chat, limit, offset, since, until, json } => {
-            history::cmd_history(chat, limit, offset, since, until, json)
+        Commands::History { chat, limit, offset, since, until, msg_type, json } => {
+            history::cmd_history(chat, limit, offset, since, until, msg_type, json)
         }
-        Commands::Search { keyword, chats, limit, since, until, json } => {
-            search::cmd_search(keyword, chats, limit, since, until, json)
+        Commands::Search { keyword, chats, limit, since, until, msg_type, json } => {
+            search::cmd_search(keyword, chats, limit, since, until, msg_type, json)
         }
         Commands::Contacts { query, limit, json } => contacts::cmd_contacts(query, limit, json),
         Commands::Export { chat, since, until, limit, format, output } => {
             export::cmd_export(chat, since, until, limit, format, output)
         }
-        Commands::Watch { chat, json } => watch::cmd_watch(chat, json),
+        Commands::Unread { limit, json } => unread::cmd_unread(limit, json),
+        Commands::Members { chat, json } => members::cmd_members(chat, json),
+        Commands::NewMessages { limit, json } => new_messages::cmd_new_messages(limit, json),
+        Commands::Stats { chat, since, until, json } => {
+            stats::cmd_stats(chat, since, until, json)
+        }
+        Commands::Favorites { limit, fav_type, query, json } => {
+            favorites::cmd_favorites(limit, fav_type, query, json)
+        }
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
 }
