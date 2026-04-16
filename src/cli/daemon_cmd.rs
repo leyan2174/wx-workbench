@@ -39,7 +39,7 @@ fn cmd_stop() -> Result<()> {
     {
         let ret = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
         if ret != 0 {
-            let errno = unsafe { *libc::__error() };
+            let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
             if errno == libc::ESRCH {
                 println!("wx-daemon (PID {}) 已不在运行，清理残留文件", pid);
             } else {
