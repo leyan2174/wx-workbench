@@ -28,7 +28,7 @@
 **npm（推荐，全平台）**
 
 ```bash
-npm install -g wx-cli
+npm install -g @jackwener/wx-cli
 ```
 
 **macOS / Linux（curl）**

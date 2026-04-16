@@ -1,5 +1,5 @@
 {
-  "name": "wx-cli",
+  "name": "@jackwener/wx-cli",
   "version": "0.1.1",
   "description": "Query your local WeChat data from the command line. Designed for LLM agent tool calls.",
   "bin": {
@@ -13,22 +13,18 @@
     "install.js"
   ],
   "optionalDependencies": {
-    "@wx-cli/darwin-arm64": "0.1.1",
-    "@wx-cli/darwin-x64": "0.1.1",
-    "@wx-cli/linux-x64": "0.1.1",
-    "@wx-cli/linux-arm64": "0.1.1",
-    "@wx-cli/win32-x64": "0.1.1"
+    "@jackwener/wx-cli-darwin-arm64": "0.1.1",
+    "@jackwener/wx-cli-darwin-x64":   "0.1.1",
+    "@jackwener/wx-cli-linux-x64":    "0.1.1",
+    "@jackwener/wx-cli-linux-arm64":  "0.1.1",
+    "@jackwener/wx-cli-win32-x64":    "0.1.1"
   },
-  "engines": {
-    "node": ">=14"
-  },
+  "engines": { "node": ">=14" },
   "keywords": ["wechat", "cli", "wx", "llm", "ai", "sqlite", "sqlcipher"],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/jackwener/wx-cli"
   },
-  "publishConfig": {
-    "access": "public"
-  }
+  "publishConfig": { "access": "public" }
 }
