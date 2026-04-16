@@ -91,6 +91,7 @@ fn start_daemon() -> Result<()> {
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let log_file = std::fs::OpenOptions::new()
             .create(true).append(true)
             .open(config::log_path())

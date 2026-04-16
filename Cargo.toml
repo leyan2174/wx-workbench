@@ -38,7 +38,8 @@ pbkdf2 = "0.12"
 # 解压
 zstd = "0.13"
 
-# IPC (Unix socket + Windows named pipe 统一)
+# IPC Windows named pipe（Unix 直接用 tokio::net::UnixListener）
+[target.'cfg(windows)'.dependencies]
 interprocess = { version = "2", features = ["tokio"] }
 
 # 错误处理

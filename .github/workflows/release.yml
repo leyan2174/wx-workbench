@@ -70,12 +70,14 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           cp target/${{ matrix.target }}/release/wx ${{ matrix.asset }}
+          mkdir -p npm/platforms/${{ matrix.npm_dir }}/bin
           cp target/${{ matrix.target }}/release/wx npm/platforms/${{ matrix.npm_dir }}/bin/wx
 
       - name: Copy binary (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           copy target\${{ matrix.target }}\release\wx.exe ${{ matrix.asset }}
+          if not exist npm\platforms\${{ matrix.npm_dir }}\bin mkdir npm\platforms\${{ matrix.npm_dir }}\bin
           copy target\${{ matrix.target }}\release\wx.exe npm\platforms\${{ matrix.npm_dir }}\bin\wx.exe
 
       - uses: actions/upload-artifact@v4

@@ -105,11 +105,39 @@ async fn serve_windows(
         let names2 = Arc::clone(&names);
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection_generic(conn, db2, names2).await {
+            if let Err(e) = handle_connection_windows(conn, db2, names2).await {
                 eprintln!("[server] 连接处理错误: {}", e);
             }
         });
     }
+}
+
+#[cfg(windows)]
+async fn handle_connection_windows(
+    conn: interprocess::local_socket::tokio::Stream,
+    db: Arc<DbCache>,
+    names: Arc<std::sync::RwLock<Names>>,
+) -> Result<()> {
+    let (reader, mut writer) = tokio::io::split(conn);
+    let mut lines = BufReader::new(reader).lines();
+
+    let line = match lines.next_line().await? {
+        Some(l) => l,
+        None => return Ok(()),
+    };
+
+    let req: Request = match serde_json::from_str(&line) {
+        Ok(r) => r,
+        Err(e) => {
+            let resp = Response::err(format!("JSON 解析错误: {}", e));
+            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
+            return Ok(());
+        }
+    };
+
+    let resp = dispatch(req, &db, &names).await;
+    writer.write_all(resp.to_json_line()?.as_bytes()).await?;
+    Ok(())
 }
 
 async fn dispatch(
