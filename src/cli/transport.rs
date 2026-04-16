@@ -126,8 +126,8 @@ fn send_unix(req: Request) -> Result<Response> {
     let sock_path = config::sock_path();
     let mut stream = UnixStream::connect(&sock_path)
         .context("连接 daemon socket 失败")?;
-    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
+    stream.set_read_timeout(Some(Duration::from_secs(120))).ok();
+    stream.set_write_timeout(Some(Duration::from_secs(120))).ok();
 
     let req_str = serde_json::to_string(&req)? + "\n";
     stream.write_all(req_str.as_bytes())?;

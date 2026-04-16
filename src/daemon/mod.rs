@@ -55,6 +55,7 @@ async fn async_run() -> Result<()> {
         .filter(|k| {
             let k = k.replace('\\', "/");
             k.contains("message/message_") && k.ends_with(".db")
+                && !k.contains("_fts") && !k.contains("_resource")
         })
         .cloned()
         .collect();
@@ -143,7 +144,9 @@ async fn run_watcher(
             let rows = stmt.query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, Vec<u8>>(1).unwrap_or_default(),
+                    row.get::<_, Vec<u8>>(1)
+                        .or_else(|_| row.get::<_, String>(1).map(|s| s.into_bytes()))
+                        .unwrap_or_default(),
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3).unwrap_or(0),
                     row.get::<_, String>(4).unwrap_or_default(),

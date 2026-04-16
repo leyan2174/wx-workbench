@@ -81,7 +81,7 @@ pub async fn q_sessions(db: &DbCache, names: &Names, limit: usize) -> Result<Val
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1).unwrap_or(0),
-                row.get::<_, Vec<u8>>(2).unwrap_or_default(),
+                get_content_bytes(row, 2),
                 row.get::<_, i64>(3).unwrap_or(0),
                 row.get::<_, i64>(4).unwrap_or(0),
                 row.get::<_, String>(5).unwrap_or_default(),
@@ -433,7 +433,7 @@ fn query_messages(
             row.get::<_, i64>(1)?,
             row.get::<_, i64>(2)?,
             row.get::<_, i64>(3)?,
-            row.get::<_, Vec<u8>>(4).unwrap_or_default(),
+            get_content_bytes(row, 4),
             row.get::<_, i64>(5).unwrap_or(0),
         ))
     })?
@@ -497,7 +497,7 @@ fn search_in_table(
             row.get::<_, i64>(1)?,
             row.get::<_, i64>(2)?,
             row.get::<_, i64>(3)?,
-            row.get::<_, Vec<u8>>(4).unwrap_or_default(),
+            get_content_bytes(row, 4),
             row.get::<_, i64>(5).unwrap_or(0),
         ))
     })?
@@ -559,6 +559,17 @@ fn sender_label(
         return names.get(&sender_uname).cloned().unwrap_or(sender_uname);
     }
     String::new()
+}
+
+/// 读取消息内容列（兼容 TEXT 和 BLOB 两种存储类型）
+///
+/// SQLite 中 message_content 在未压缩时为 TEXT，zstd 压缩后为 BLOB。
+/// rusqlite 的 Vec<u8> FromSql 只接受 BLOB，读 TEXT 会静默返回空。
+fn get_content_bytes(row: &rusqlite::Row<'_>, idx: usize) -> Vec<u8> {
+    // 先尝试 BLOB，再 fallback 到 TEXT→bytes
+    row.get::<_, Vec<u8>>(idx)
+        .or_else(|_| row.get::<_, String>(idx).map(|s| s.into_bytes()))
+        .unwrap_or_default()
 }
 
 fn decompress_message(data: &[u8], ct: i64) -> String {
