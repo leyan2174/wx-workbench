@@ -38,10 +38,6 @@ pbkdf2 = "0.12"
 # 解压
 zstd = "0.13"
 
-# IPC Windows named pipe（Unix 直接用 tokio::net::UnixListener）
-[target.'cfg(windows)'.dependencies]
-interprocess = { version = "2", features = ["tokio"] }
-
 # 错误处理
 anyhow = "1"
 
@@ -56,6 +52,10 @@ md5 = "0.7"
 
 # 正则表达式
 regex = "1"
+
+# IPC Windows named pipe（Unix 直接用 tokio::net::UnixListener）
+[target.'cfg(windows)'.dependencies]
+interprocess = { version = "2", features = ["tokio"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
