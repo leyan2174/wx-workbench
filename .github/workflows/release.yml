@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -88,10 +91,11 @@ jobs:
 
       - name: Copy binary (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          copy target\${{ matrix.target }}\release\wx.exe ${{ matrix.asset }}
-          if not exist npm\platforms\${{ matrix.npm_dir }}\bin mkdir npm\platforms\${{ matrix.npm_dir }}\bin
-          copy target\${{ matrix.target }}\release\wx.exe npm\platforms\${{ matrix.npm_dir }}\bin\wx.exe
+          Copy-Item "target\${{ matrix.target }}\release\wx.exe" "${{ matrix.asset }}"
+          New-Item -ItemType Directory -Force -Path "npm\platforms\${{ matrix.npm_dir }}\bin" | Out-Null
+          Copy-Item "target\${{ matrix.target }}\release\wx.exe" "npm\platforms\${{ matrix.npm_dir }}\bin\wx.exe"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -108,8 +112,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ matrix.asset }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-npm:
     needs: build
