@@ -28,6 +28,11 @@ pub fn cmd_watch(chat: Option<String>, json: bool) -> Result<()> {
         eprintln!("监听中（Ctrl+C 退出）...\n");
     }
 
+    #[cfg(windows)]
+    {
+        anyhow::bail!("watch 命令在 Windows 上暂不支持，请使用 Unix 系统");
+    }
+
     #[cfg(unix)]
     {
         let reader = std::io::BufReader::new(stream.try_clone()?);

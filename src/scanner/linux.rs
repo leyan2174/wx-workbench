@@ -87,8 +87,6 @@ pub fn scan_keys(db_dir: &Path) -> Result<Vec<KeyEntry>> {
     for (start, end) in &regions {
         scan_region(&mut mem_file, *start, *end, &mut raw_keys);
     }
-    // 去重
-    raw_keys.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
     eprintln!("找到 {} 个候选密钥", raw_keys.len());
 
     let mut entries = Vec::new();

@@ -193,8 +193,6 @@ fn scan_memory(task: mach_port_t) -> Result<Vec<(String, String)>> {
         addr = addr.saturating_add(size);
     }
 
-    // 去重
-    results.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
     Ok(results)
 }
 

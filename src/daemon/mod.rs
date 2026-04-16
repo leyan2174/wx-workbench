@@ -1,6 +1,5 @@
 pub mod cache;
 pub mod query;
-pub mod watcher;
 pub mod server;
 
 use anyhow::Result;
@@ -108,7 +107,7 @@ async fn run_watcher(
     use std::time::Duration;
     use crate::ipc::WatchEvent;
 
-    let mut last_mtime = 0.0f64;
+    let mut last_mtime = 0u64;
     let mut last_ts: HashMap<String, i64> = HashMap::new();
     let mut initialized = false;
 
@@ -119,11 +118,11 @@ async fn run_watcher(
             continue;
         }
 
-        let wal_mtime = match mtime_f64(&session_wal) {
-            Some(m) => m,
-            None => continue,
+        let wal_mtime = match mtime_nanos(&session_wal) {
+            0 => continue,
+            m => m,
         };
-        if (wal_mtime - last_mtime).abs() < 0.001 {
+        if wal_mtime == last_mtime {
             continue;
         }
         last_mtime = wal_mtime;
@@ -206,10 +205,11 @@ async fn run_watcher(
     }
 }
 
-fn mtime_f64(path: &std::path::Path) -> Option<f64> {
-    std::fs::metadata(path).ok()?
-        .modified().ok()
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64())
+fn mtime_nanos(path: &std::path::Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 fn decompress_or_str(data: &[u8]) -> String {

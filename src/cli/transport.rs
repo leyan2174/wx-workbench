@@ -66,13 +66,15 @@ fn start_daemon() -> Result<()> {
 
     #[cfg(unix)]
     {
-        let _ = std::process::Command::new(&exe)
-            .env("WX_DAEMON_MODE", "1")
+        use std::os::unix::process::CommandExt;
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.env("WX_DAEMON_MODE", "1")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("无法启动 daemon 进程")?;
+            .stderr(std::process::Stdio::null());
+        // SAFETY: setsid() 在 fork 后的子进程中调用，使 daemon 脱离控制终端
+        unsafe { cmd.pre_exec(|| { libc::setsid(); Ok(()) }); }
+        let _ = cmd.spawn().context("无法启动 daemon 进程")?;
     }
 
     #[cfg(windows)]

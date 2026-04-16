@@ -349,7 +349,7 @@ async fn find_msg_tables(
         return Ok(Vec::new());
     }
 
-    let mut results = Vec::new();
+    let mut results: Vec<(i64, std::path::PathBuf, String)> = Vec::new();
     for rel_key in &names.msg_db_keys {
         let path = match db.get(rel_key).await? {
             Some(p) => p,
@@ -357,9 +357,8 @@ async fn find_msg_tables(
         };
         let tname = table_name.clone();
         let path2 = path.clone();
-        let exists: Option<i64> = tokio::task::spawn_blocking(move || {
+        let max_ts: Option<i64> = tokio::task::spawn_blocking(move || {
             let conn = Connection::open(&path2)?;
-            // 检查表是否存在
             let table_exists: Option<i64> = conn.query_row(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                 [&tname],
@@ -368,21 +367,22 @@ async fn find_msg_tables(
             if table_exists.is_none() {
                 return Ok::<_, anyhow::Error>(None);
             }
-            let max_ts: Option<i64> = conn.query_row(
+            let ts: Option<i64> = conn.query_row(
                 &format!("SELECT MAX(create_time) FROM [{}]", tname),
                 [],
                 |row| row.get(0),
             ).ok().flatten();
-            Ok(max_ts)
+            Ok(ts)
         }).await??;
 
-        if exists.is_some() {
-            results.push((path.clone(), table_name.clone()));
+        if let Some(ts) = max_ts {
+            results.push((ts, path.clone(), table_name.clone()));
         }
     }
 
-    // 按最大时间戳排序（最新的优先）
-    Ok(results)
+    // 按最大时间戳降序排列（最新的优先）
+    results.sort_by_key(|(ts, _, _)| std::cmp::Reverse(*ts));
+    Ok(results.into_iter().map(|(_, p, t)| (p, t)).collect())
 }
 
 fn query_messages(

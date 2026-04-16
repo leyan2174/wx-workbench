@@ -11,15 +11,15 @@ use crate::crypto::wal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MtimeEntry {
-    db_mt: f64,
-    wal_mt: f64,
+    db_mt: u64,
+    wal_mt: u64,
     path: String,
 }
 
 #[derive(Debug, Clone)]
 struct CacheEntry {
-    db_mtime: f64,
-    wal_mtime: f64,
+    db_mtime: u64,
+    wal_mtime: u64,
     decrypted_path: PathBuf,
 }
 
@@ -83,10 +83,10 @@ impl DbCache {
             let wal_path_str = format!("{}-wal", db_path.display());
             let wal_path = Path::new(&wal_path_str);
 
-            let db_mt = mtime_f64(&db_path);
-            let wal_mt = if wal_path.exists() { mtime_f64(wal_path) } else { 0.0 };
+            let db_mt = mtime_nanos(&db_path);
+            let wal_mt = if wal_path.exists() { mtime_nanos(wal_path) } else { 0 };
 
-            if (db_mt - entry.db_mt).abs() < 0.001 && (wal_mt - entry.wal_mt).abs() < 0.001 {
+            if db_mt == entry.db_mt && wal_mt == entry.wal_mt {
                 inner.insert(rel_key.clone(), CacheEntry {
                     db_mtime: db_mt,
                     wal_mtime: wal_mt,
@@ -138,15 +138,15 @@ impl DbCache {
         let wal_path_str = format!("{}-wal", db_path.display());
         let wal_path = Path::new(&wal_path_str).to_path_buf();
 
-        let db_mt = mtime_f64(&db_path);
-        let wal_mt = if wal_path.exists() { mtime_f64(&wal_path) } else { 0.0 };
+        let db_mt = mtime_nanos(&db_path);
+        let wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
 
         // 检查缓存
         {
             let inner = self.inner.lock().await;
             if let Some(entry) = inner.get(rel_key) {
-                if (entry.db_mtime - db_mt).abs() < 0.001
-                    && (entry.wal_mtime - wal_mt).abs() < 0.001
+                if entry.db_mtime == db_mt
+                    && entry.wal_mtime == wal_mt
                     && entry.decrypted_path.exists()
                 {
                     return Ok(Some(entry.decrypted_path.clone()));
@@ -195,11 +195,11 @@ impl DbCache {
     }
 }
 
-fn mtime_f64(path: &Path) -> f64 {
+fn mtime_nanos(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64())
-        .unwrap_or(0.0)
+        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 fn hex_to_32bytes(s: &str) -> Result<[u8; 32]> {
