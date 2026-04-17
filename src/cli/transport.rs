@@ -39,10 +39,12 @@ pub fn is_alive() -> bool {
     }
     #[cfg(windows)]
     {
-        // 通过 named pipe 检测
-        let pipe_path = r"\\.\pipe\wx-cli-daemon";
-        use std::fs::OpenOptions;
-        OpenOptions::new().read(true).write(true).open(pipe_path).is_ok()
+        use interprocess::local_socket::{prelude::*, GenericNamespaced, Stream};
+        // 必须用 interprocess 自己的连接 API，和 server 保持一致
+        match "wx-cli-daemon".to_ns_name::<GenericNamespaced>() {
+            Ok(name) => Stream::connect(name).is_ok(),
+            Err(_) => false,
+        }
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -174,21 +176,20 @@ fn send_unix(req: Request) -> Result<Response> {
 
 #[cfg(windows)]
 fn send_windows(req: Request) -> Result<Response> {
-    use std::fs::OpenOptions;
-    use std::os::windows::fs::OpenOptionsExt;
+    use interprocess::local_socket::{prelude::*, GenericNamespaced, Stream};
 
-    let pipe_path = r"\\.\pipe\wx-cli-daemon";
-    let mut pipe = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(pipe_path)
+    let name = "wx-cli-daemon".to_ns_name::<GenericNamespaced>()
+        .context("构造 pipe name 失败")?;
+    let stream = Stream::connect(name)
         .context("连接 daemon named pipe 失败")?;
 
+    // interprocess::Stream 同时实现 Read + Write，但需要拆分读写端
+    let mut reader = BufReader::new(stream);
+
     let req_str = serde_json::to_string(&req)? + "\n";
-    pipe.write_all(req_str.as_bytes())?;
+    reader.get_mut().write_all(req_str.as_bytes())?;
 
     let mut line = String::new();
-    let mut reader = BufReader::new(pipe);
     reader.read_line(&mut line)?;
 
     let resp: Response = serde_json::from_str(&line)
