@@ -92,12 +92,13 @@ async fn serve_windows(
         tokio::prelude::*, GenericNamespaced, ListenerOptions,
     };
 
-    let pipe_name = r"\\.\pipe\wx-cli-daemon";
-    let name = pipe_name.to_ns_name::<GenericNamespaced>()?;
+    // interprocess 的 GenericNamespaced 在 Windows 上会自动拼接 `\\.\pipe\` 前缀，
+    // 这里必须传相对名；client 端用 `\\.\pipe\wx-cli-daemon` 直接打开可以对上
+    let name = "wx-cli-daemon".to_ns_name::<GenericNamespaced>()?;
     let opts = ListenerOptions::new().name(name);
     let listener = opts.create_tokio()?;
 
-    eprintln!("[server] 监听 {}", pipe_name);
+    eprintln!("[server] 监听 \\\\.\\pipe\\wx-cli-daemon");
 
     loop {
         let conn = listener.accept().await?;

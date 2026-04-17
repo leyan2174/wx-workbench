@@ -43,6 +43,12 @@ pub fn cmd_init(force: bool) -> Result<()> {
     println!("扫描加密密钥（需要 root 权限）...");
     let entries = scanner::scan_keys(&db_dir)?;
 
+    // 确保父目录存在（如 ~/.wx-cli/），必须在任何写入之前
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+    }
+
     // Step 3: 保存 all_keys.json
     let keys_file_path = config_path.parent()
         .unwrap_or(std::path::Path::new("."))
@@ -75,11 +81,6 @@ pub fn cmd_init(force: bool) -> Result<()> {
     cfg.entry("keys_file".into()).or_insert_with(|| json!("all_keys.json"));
     cfg.entry("decrypted_dir".into()).or_insert_with(|| json!("decrypted"));
 
-    // 确保父目录存在（如 ~/.wx-cli/）
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("创建目录失败: {}", parent.display()))?;
-    }
     std::fs::write(&config_path, serde_json::to_string_pretty(&cfg)?)
         .context("写入 config.json 失败")?;
     println!("配置已保存: {}", config_path.display());
