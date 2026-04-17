@@ -14,10 +14,21 @@ cargo check
 
 ```bash
 cargo check --target x86_64-unknown-linux-gnu
-cargo check --target x86_64-pc-windows-msvc
+cargo check --target x86_64-pc-windows-gnu   # 在 macOS 上用这个，msvc 需要 MSVC 工具链
 ```
 
-这两条命令在 macOS 上可以执行（只做类型检查，不需要链接器），用于提前暴露 Linux/Windows 特有的编译错误。
+macOS 上需要一次性安装 target 和交叉编译器：
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+brew install mingw-w64   # 提供 x86_64-w64-mingw32-gcc，zstd-sys 等 C 依赖需要
+```
+
+这两条 check 命令用于提前暴露 Linux/Windows 特有的编译错误，**只做类型检查**（不 link）。
+
+## IPC / 跨平台同库约定
+
+动任何 IPC / 网络代码时：**两端必须用同一个库、同一套 API**。例如 server 用 `interprocess::local_socket::tokio::Listener`，client 就必须用 `interprocess::local_socket::Stream::connect`，不能用 `std::fs::OpenOptions` 打开同名路径——即使 kernel 名字对上了，底层的 framing / overlapped 模式也不兼容。
 
 ## Cargo.toml 修改规则
 
