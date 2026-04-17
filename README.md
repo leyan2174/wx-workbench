@@ -125,13 +125,13 @@ sudo wx init
 wx init
 ```
 
-之后直接用，daemon 会在首次调用时自动启动：
+验证安装：
 
 ```bash
-wx sessions        # 查看最近会话
-wx history "张三"  # 查看聊天记录
-wx search "Claude" # 搜索消息
+wx sessions
 ```
+
+能看到最近会话即表示一切正常。daemon 在首次调用时自动启动。
 
 ---
 
@@ -153,7 +153,7 @@ wx search "会议" --in "工作群" --since 2026-01-01
 
 ```bash
 wx contacts                  # 联系人列表
-wx contacts -q "李"          # 按名字搜索
+wx contacts --query "李"     # 按名字搜索
 wx members "AI交流群"        # 群成员列表
 ```
 
@@ -162,7 +162,7 @@ wx members "AI交流群"        # 群成员列表
 ```bash
 wx favorites                          # 全部收藏
 wx favorites --type image             # 按类型筛选（text/image/article/card/video）
-wx favorites -q "关键词"              # 搜索收藏内容
+wx favorites --query "关键词"         # 搜索收藏内容
 wx stats "AI群"                       # 聊天统计
 wx stats "AI群" --since 2026-01-01   # 指定时间范围
 ```

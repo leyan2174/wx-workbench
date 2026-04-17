@@ -121,7 +121,7 @@ wx search "会议" --in "工作群" --since 2026-01-01
 ```bash
 # 联系人列表 / 搜索
 wx contacts
-wx contacts -q "李"
+wx contacts --query "李"
 
 # 群成员列表
 wx members "AI交流群"
@@ -137,7 +137,7 @@ wx favorites
 wx favorites --type image
 
 # 搜索收藏内容
-wx favorites -q "关键词"
+wx favorites --query "关键词"
 
 # 聊天统计（发言人、消息类型、活跃时段）
 wx stats "AI群"
@@ -175,7 +175,7 @@ wx search "关键词" --json
 wx history "张三" --json -n 50
 ```
 
-CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确名称时，先用 `wx contacts -q` 搜索。
+CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确名称时，先用 `wx contacts --query` 搜索。
 
 ---
 
@@ -198,4 +198,4 @@ CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确
 
 **daemon 无响应**：`wx daemon stop` 后重新调用任意命令自动重启。
 
-**找不到聊天**：用 `wx contacts -q` 确认昵称/备注名，或用微信 ID 直接查询。
+**找不到聊天**：用 `wx contacts --query` 确认昵称/备注名，或用微信 ID 直接查询。
