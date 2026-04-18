@@ -1502,3 +1502,431 @@ pub async fn q_stats(
     }))
 }
 
+
+/// 查询朋友圈互动通知（点赞 + 评论），对应微信 app 右上角的红点入口。
+/// 空 `content` 是点赞，非空是评论正文。
+pub async fn q_sns_notifications(
+    db: &DbCache,
+    names: &Names,
+    limit: usize,
+    since: Option<i64>,
+    until: Option<i64>,
+    include_read: bool,
+) -> Result<Value> {
+    let path = db.get("sns/sns.db").await?
+        .context("无法解密 sns.db")?;
+
+    let path2 = path.clone();
+    type Row = (i64, i64, i64, i64, String, String, String);
+    let rows: Vec<Row> = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&path2)?;
+        let mut clauses: Vec<&str> = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if !include_read {
+            clauses.push("is_unread = 1");
+        }
+        if let Some(s) = since {
+            clauses.push("create_time >= ?");
+            params.push(Box::new(s));
+        }
+        if let Some(u) = until {
+            clauses.push("create_time <= ?");
+            params.push(Box::new(u));
+        }
+        let where_clause = if clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", clauses.join(" AND "))
+        };
+        let sql = format!(
+            "SELECT local_id, create_time, type, feed_id, from_username, from_nickname, content
+             FROM SnsMessage_tmp3 {} ORDER BY create_time DESC LIMIT ?",
+            where_clause
+        );
+        params.push(Box::new(limit as i64));
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_ref.as_slice(), |row| Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2).unwrap_or(0),
+            row.get::<_, i64>(3).unwrap_or(0),
+            row.get::<_, String>(4).unwrap_or_default(),
+            row.get::<_, String>(5).unwrap_or_default(),
+            row.get::<_, String>(6).unwrap_or_default(),
+        )))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok::<_, anyhow::Error>(rows)
+    }).await??;
+
+    // 一次性取出涉及的 feed 原帖，避免 N+1 查询
+    let feed_ids: Vec<i64> = {
+        let mut v: Vec<i64> = rows.iter().map(|r| r.3).collect();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    let path3 = path.clone();
+    let feed_ids_clone = feed_ids.clone();
+    let feeds: HashMap<i64, (String, String)> = tokio::task::spawn_blocking(move || {
+        if feed_ids_clone.is_empty() {
+            return Ok::<_, anyhow::Error>(HashMap::new());
+        }
+        let conn = Connection::open(&path3)?;
+        let placeholders = std::iter::repeat("?").take(feed_ids_clone.len()).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT tid, user_name, content FROM SnsTimeLine WHERE tid IN ({})",
+            placeholders
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> =
+            feed_ids_clone.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut map = HashMap::new();
+        let mut rows2 = stmt.query(params.as_slice())?;
+        while let Some(row) = rows2.next()? {
+            let tid: i64 = row.get(0)?;
+            let author: String = row.get::<_, String>(1).unwrap_or_default();
+            let content: String = row.get::<_, String>(2).unwrap_or_default();
+            let preview = extract_xml_text(&content, "contentDesc")
+                .map(|s| s.chars().take(60).collect::<String>())
+                .unwrap_or_default();
+            // 原帖 user_name 偶尔为空（转发帖），再从 XML 兜一下
+            let author = if author.is_empty() {
+                extract_xml_text(&content, "username").unwrap_or_default()
+            } else {
+                author
+            };
+            map.insert(tid, (author, preview));
+        }
+        Ok(map)
+    }).await??;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (_local_id, ct, _typ, fid, from_u, from_nick, content) in rows {
+        let kind = if content.trim().is_empty() { "like" } else { "comment" };
+        let display = if !from_nick.is_empty() {
+            from_nick.clone()
+        } else {
+            names.display(&from_u)
+        };
+        let (feed_author_u, feed_preview) = feeds.get(&fid)
+            .cloned()
+            .unwrap_or_default();
+        let feed_author_display = if feed_author_u.is_empty() {
+            String::new()
+        } else {
+            names.display(&feed_author_u)
+        };
+        out.push(json!({
+            "type": kind,
+            "time": fmt_time(ct, "%m-%d %H:%M"),
+            "timestamp": ct,
+            "from_username": from_u,
+            "from_nickname": display,
+            "content": content,
+            "feed_id": fid,
+            "feed_author_username": feed_author_u,
+            "feed_author": feed_author_display,
+            "feed_preview": feed_preview,
+        }));
+    }
+    let total = out.len();
+    Ok(json!({ "notifications": out, "total": total }))
+}
+
+fn sns_media_count_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // 只在 <mediaList> 里数 <media> 开标签，避免匹配到嵌套的其他 <media*> 字段
+    RE.get_or_init(|| Regex::new(r"<media>").unwrap())
+}
+
+fn sns_location_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // location 是自闭合标签，poiName 在属性里
+    RE.get_or_init(|| Regex::new(r#"<location[^>]*poiName="([^"]*)""#).unwrap())
+}
+
+// 朋友圈扫描的硬上限：单次查询最多解析这么多行 SnsTimeLine，
+// 防止用户传超大 limit 或者底层数据异常时把 daemon 卡住。
+// 当前账号 ~10k+ 帖子，5w 上限留足缓冲。
+const SNS_MAX_LIMIT: usize = 10_000;
+const SNS_MAX_SCAN: usize = 50_000;
+
+/// 转义 SQL LIKE 模式中的元字符。配合 `ESCAPE '\\'` 使用。
+/// 反斜杠必须最先转义，否则后续替换出的 `\%` / `\_` 会被再次吞掉。
+fn escape_like_pattern(s: &str) -> String {
+    s.replace('\\', r"\\")
+        .replace('%', r"\%")
+        .replace('_', r"\_")
+}
+
+/// SnsTimeLine 行解析产物。不含 display name（依赖 Names，需要出 spawn_blocking 再补）。
+struct ParsedPost {
+    tid: i64,
+    create_time: i64,
+    author_username: String,
+    content: String,
+    media_count: i64,
+    location: String,
+}
+
+/// 纯 XML 解析，无 Names 依赖，可以在 spawn_blocking 里跑。
+/// user_name_column 为空时从 TimelineObject/<username> 兜底（转发帖）。
+fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
+    let create_time = extract_xml_text(content, "createTime")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let text = extract_xml_text(content, "contentDesc").unwrap_or_default();
+    let author_username = if user_name_column.is_empty() {
+        extract_xml_text(content, "username").unwrap_or_default()
+    } else {
+        user_name_column.to_string()
+    };
+    let media_count = sns_media_count_re().find_iter(content).count() as i64;
+    let location = sns_location_re()
+        .captures(content)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_default();
+    ParsedPost { tid, create_time, author_username, content: text, media_count, location }
+}
+
+fn post_to_value(p: ParsedPost, names: &Names) -> Value {
+    let author = if p.author_username.is_empty() {
+        String::new()
+    } else {
+        names.display(&p.author_username)
+    };
+    json!({
+        "tid": p.tid,
+        "timestamp": p.create_time,
+        "time": fmt_time(p.create_time, "%Y-%m-%d %H:%M"),
+        "author_username": p.author_username,
+        "author": author,
+        "content": p.content,
+        "media_count": p.media_count,
+        "location": p.location,
+    })
+}
+
+/// 查询朋友圈时间线：按时间/作者筛选。用于浏览自己或好友的朋友圈。
+pub async fn q_sns_feed(
+    db: &DbCache,
+    names: &Names,
+    limit: usize,
+    since: Option<i64>,
+    until: Option<i64>,
+    user: Option<&str>,
+) -> Result<Value> {
+    let path = db.get("sns/sns.db").await?
+        .context("无法解密 sns.db")?;
+
+    let limit = limit.min(SNS_MAX_LIMIT);
+    let user_uname = match user {
+        Some(q) => Some(
+            resolve_username(q, names)
+                .with_context(|| format!("找不到联系人: {}", q))?,
+        ),
+        None => None,
+    };
+
+    // user 过滤不在 SQL 层做：SnsTimeLine.user_name 列对部分（转发）帖子是空，
+    // 真正作者只在 XML <username> 里。SQL 层 `user_name = ?` 会把这部分提前漏掉，
+    // 让 parse_post_xml 的 fallback 失效。所以扫全表 → parse → 用 ParsedPost.author_username 过滤。
+    // (createTime 也不是列，本来就要扫全表 parse XML 才能正确按时间排序。)
+    let path2 = path.clone();
+    let parsed: Vec<ParsedPost> = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&path2)?;
+        let sql = "SELECT tid, user_name, content FROM SnsTimeLine ORDER BY tid DESC";
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([], |row| Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1).unwrap_or_default(),
+            row.get::<_, String>(2).unwrap_or_default(),
+        )))?;
+
+        let mut scanned = 0usize;
+        let mut out: Vec<ParsedPost> = Vec::new();
+        for row in rows {
+            scanned += 1;
+            if scanned > SNS_MAX_SCAN {
+                eprintln!(
+                    "[sns_feed] scan 超过硬上限 {}，结果可能不完整。建议加 --user / --since 缩小范围。",
+                    SNS_MAX_SCAN
+                );
+                break;
+            }
+            let (tid, uname, content) = row?;
+            let p = parse_post_xml(tid, &uname, &content);
+            if let Some(u) = user_uname.as_ref() { if &p.author_username != u { continue; } }
+            if let Some(s) = since { if p.create_time < s { continue; } }
+            if let Some(u) = until { if p.create_time > u { continue; } }
+            out.push(p);
+        }
+        // tid DESC 不严格等于 createTime DESC（不同账号 tid 生成算法不同），
+        // 所以要先收齐全部匹配的、按 create_time 排序，再 truncate —— 否则会丢帖。
+        out.sort_by_key(|p| std::cmp::Reverse(p.create_time));
+        out.truncate(limit);
+        Ok::<_, anyhow::Error>(out)
+    }).await??;
+
+    let posts: Vec<Value> = parsed.into_iter().map(|p| post_to_value(p, names)).collect();
+    let total = posts.len();
+    Ok(json!({ "posts": posts, "total": total }))
+}
+
+/// 搜索朋友圈全文：在 contentDesc（正文）里匹配 keyword，可叠加时间 / 作者过滤。
+pub async fn q_sns_search(
+    db: &DbCache,
+    names: &Names,
+    keyword: &str,
+    limit: usize,
+    since: Option<i64>,
+    until: Option<i64>,
+    user: Option<&str>,
+) -> Result<Value> {
+    if keyword.trim().is_empty() {
+        anyhow::bail!("搜索关键词不能为空");
+    }
+    let path = db.get("sns/sns.db").await?
+        .context("无法解密 sns.db")?;
+
+    let limit = limit.min(SNS_MAX_LIMIT);
+    let user_uname = match user {
+        Some(q) => Some(
+            resolve_username(q, names)
+                .with_context(|| format!("找不到联系人: {}", q))?,
+        ),
+        None => None,
+    };
+
+    // SQL LIKE 在 content 上粗筛 keyword（这步省掉绝大多数行的 XML parse 开销）。
+    // user 不在 SQL 层过滤，原因同 q_sns_feed：SnsTimeLine.user_name 列对部分（转发）
+    // 帖子为空，真实作者只在 XML <username> 里。
+    let like_pattern = format!("%{}%", escape_like_pattern(keyword));
+    let keyword_owned = keyword.to_string();
+
+    let path2 = path.clone();
+    let parsed: Vec<ParsedPost> = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&path2)?;
+        let sql = "SELECT tid, user_name, content FROM SnsTimeLine \
+                   WHERE content LIKE ? ESCAPE '\\' ORDER BY tid DESC";
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([&like_pattern], |row| Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1).unwrap_or_default(),
+            row.get::<_, String>(2).unwrap_or_default(),
+        )))?;
+
+        let needle = keyword_owned.to_lowercase();
+        let mut scanned = 0usize;
+        let mut out: Vec<ParsedPost> = Vec::new();
+        for row in rows {
+            scanned += 1;
+            if scanned > SNS_MAX_SCAN {
+                eprintln!(
+                    "[sns_search] scan 超过硬上限 {}，结果可能不完整。建议缩小 keyword 或加 --user / --since。",
+                    SNS_MAX_SCAN
+                );
+                break;
+            }
+            let (tid, uname, content) = row?;
+            let desc = extract_xml_text(&content, "contentDesc").unwrap_or_default();
+            if !desc.to_lowercase().contains(&needle) { continue; }
+
+            let p = parse_post_xml(tid, &uname, &content);
+            if let Some(u) = user_uname.as_ref() { if &p.author_username != u { continue; } }
+            if let Some(s) = since { if p.create_time < s { continue; } }
+            if let Some(u) = until { if p.create_time > u { continue; } }
+            out.push(p);
+        }
+        out.sort_by_key(|p| std::cmp::Reverse(p.create_time));
+        out.truncate(limit);
+        Ok::<_, anyhow::Error>(out)
+    }).await??;
+
+    let posts: Vec<Value> = parsed.into_iter().map(|p| post_to_value(p, names)).collect();
+    let total = posts.len();
+    Ok(json!({ "keyword": keyword, "posts": posts, "total": total }))
+}
+
+#[cfg(test)]
+mod sns_tests {
+    use super::*;
+
+    fn make_post_xml(create_time: &str, desc: &str, username_tag: Option<&str>, media: usize, location: Option<&str>) -> String {
+        let username = username_tag.map(|u| format!("<username>{}</username>", u)).unwrap_or_default();
+        let media_tags = "<media>...</media>".repeat(media);
+        let media_list = if media > 0 { format!("<mediaList>{}</mediaList>", media_tags) } else { String::new() };
+        let loc = location
+            .map(|p| format!(r#"<location poiName="{}" longitude="0" latitude="0" />"#, p))
+            .unwrap_or_default();
+        format!(
+            "<TimelineObject>{}<createTime>{}</createTime><contentDesc>{}</contentDesc>{}{}</TimelineObject>",
+            username, create_time, desc, media_list, loc
+        )
+    }
+
+    #[test]
+    fn parse_uses_user_name_column_when_present() {
+        let xml = make_post_xml("1700000000", "hello", Some("wxid_xml"), 0, None);
+        let p = parse_post_xml(1, "wxid_column", &xml);
+        assert_eq!(p.author_username, "wxid_column");
+        assert_eq!(p.create_time, 1700000000);
+        assert_eq!(p.content, "hello");
+        assert_eq!(p.media_count, 0);
+        assert_eq!(p.location, "");
+    }
+
+    #[test]
+    fn parse_falls_back_to_xml_username_when_column_empty() {
+        let xml = make_post_xml("1700000001", "world", Some("wxid_xml_only"), 0, None);
+        let p = parse_post_xml(2, "", &xml);
+        assert_eq!(p.author_username, "wxid_xml_only");
+    }
+
+    #[test]
+    fn parse_handles_missing_create_time() {
+        let xml = "<TimelineObject><contentDesc>x</contentDesc></TimelineObject>";
+        let p = parse_post_xml(3, "wxid", xml);
+        assert_eq!(p.create_time, 0);
+        assert_eq!(p.content, "x");
+    }
+
+    #[test]
+    fn parse_counts_media_and_extracts_location() {
+        let xml = make_post_xml("1700000002", "post", None, 3, Some("Wuxi"));
+        let p = parse_post_xml(4, "wxid", &xml);
+        assert_eq!(p.media_count, 3);
+        assert_eq!(p.location, "Wuxi");
+    }
+
+    #[test]
+    fn parse_when_both_column_and_xml_username_empty_returns_empty_author() {
+        let xml = "<TimelineObject><createTime>1700000003</createTime><contentDesc>orphan</contentDesc></TimelineObject>";
+        let p = parse_post_xml(5, "", xml);
+        assert_eq!(p.author_username, "");
+    }
+
+    #[test]
+    fn escape_like_pattern_escapes_backslash_first() {
+        // 反斜杠必须在 % / _ 之前转义；否则后面塞进去的 \% / \_ 会被再次双转义吃掉
+        assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
+        assert_eq!(escape_like_pattern("100%"), "100\\%");
+        assert_eq!(escape_like_pattern("foo_bar"), "foo\\_bar");
+    }
+
+    #[test]
+    fn escape_like_pattern_combined() {
+        // \%_ 三个元字符同时出现
+        let escaped = escape_like_pattern("a\\b%c_d");
+        assert_eq!(escaped, "a\\\\b\\%c\\_d");
+    }
+
+    #[test]
+    fn escape_like_pattern_no_special_chars_unchanged() {
+        assert_eq!(escape_like_pattern("hello world"), "hello world");
+        assert_eq!(escape_like_pattern("中文关键词"), "中文关键词");
+        assert_eq!(escape_like_pattern(""), "");
+    }
+}
