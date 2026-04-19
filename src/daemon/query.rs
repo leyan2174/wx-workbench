@@ -806,6 +806,21 @@ fn extract_xml_text(xml: &str, tag: &str) -> Option<String> {
     Some(xml[content_start..content_start + end].trim().to_string())
 }
 
+fn extract_xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
+    let open = format!("<{}", tag);
+    let start = xml.find(&open)?;
+    let tag_end = start + xml[start..].find('>')?;
+    let attr_pat = format!(r#"{}=""#, attr);
+    let attr_start = start + xml[start..tag_end].find(&attr_pat)? + attr_pat.len();
+    let attr_end = attr_start + xml[attr_start..tag_end].find('"')?;
+    let value = xml[attr_start..attr_end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 fn unescape_html(s: &str) -> String {
     s.replace("&lt;", "<")
      .replace("&gt;", ">")
@@ -1635,12 +1650,6 @@ pub async fn q_sns_notifications(
     Ok(json!({ "notifications": out, "total": total }))
 }
 
-fn sns_location_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    // location 是自闭合标签，poiName 在属性里
-    RE.get_or_init(|| Regex::new(r#"<location[^>]*poiName="([^"]*)""#).unwrap())
-}
-
 // 朋友圈扫描的硬上限：单次查询最多解析这么多行 SnsTimeLine，
 // 防止用户传超大 limit 或者底层数据异常时把 daemon 卡住。
 // 当前账号 ~10k+ 帖子，5w 上限留足缓冲。
@@ -1686,20 +1695,11 @@ fn insert_media_i64(out: &mut serde_json::Map<String, Value>, key: &str, value: 
     }
 }
 
-/// 从 `SnsTimeLine.content` XML 里抽每个 `<media>` 的完整字段。
-///
+/// 从已经定位到的 `<TimelineObject>` 节点里抽 `<mediaList>/<media>` 数组。
 /// 字段名与 artifacts 仓库 `wechat_sns_dump.py::_parse_media` 对齐，
 /// 便于跨实现 diff。缺失字段直接省略（不输出 null），供下游代理图片 / 离线渲染。
-fn parse_post_media(xml: &str) -> Vec<Value> {
-    let doc = match Document::parse(xml) {
-        Ok(doc) => doc,
-        Err(_) => return Vec::new(),
-    };
-
-    let Some(media_list) = doc
-        .descendants()
-        .find(|node| node.has_tag_name("TimelineObject"))
-        .and_then(|node| xml_child(node, "ContentObject"))
+fn parse_media_from_timeline(timeline: Node) -> Vec<Value> {
+    let Some(media_list) = xml_child(timeline, "ContentObject")
         .and_then(|node| xml_child(node, "mediaList"))
     else {
         return Vec::new();
@@ -1756,6 +1756,17 @@ fn parse_post_media(xml: &str) -> Vec<Value> {
         .collect()
 }
 
+/// 从 `SnsTimeLine.content` 整段 XML 抽 media[]。仅供单测使用 —— 生产路径走
+/// `parse_post_xml`，那边已经把整份 doc parse 一次直接复用 timeline 节点。
+#[cfg(test)]
+fn parse_post_media(xml: &str) -> Vec<Value> {
+    let Ok(doc) = Document::parse(xml) else { return Vec::new(); };
+    let Some(timeline) = doc.descendants().find(|n| n.has_tag_name("TimelineObject")) else {
+        return Vec::new();
+    };
+    parse_media_from_timeline(timeline)
+}
+
 /// SnsTimeLine 行解析产物。不含 display name（依赖 Names，需要出 spawn_blocking 再补）。
 struct ParsedPost {
     tid: i64,
@@ -1766,24 +1777,67 @@ struct ParsedPost {
     location: String,
 }
 
-/// 纯 XML 解析，无 Names 依赖，可以在 spawn_blocking 里跑。
-/// user_name_column 为空时从 TimelineObject/<username> 兜底（转发帖）。
-fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
+fn parse_post_xml_fallback(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
     let create_time = extract_xml_text(content, "createTime")
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
-    let text = extract_xml_text(content, "contentDesc").unwrap_or_default();
+    let text = extract_xml_text(content, "contentDesc")
+        .map(|s| unescape_html(&s))
+        .unwrap_or_default();
     let author_username = if user_name_column.is_empty() {
-        extract_xml_text(content, "username").unwrap_or_default()
+        extract_xml_text(content, "username")
+            .map(|s| unescape_html(&s))
+            .unwrap_or_default()
     } else {
         user_name_column.to_string()
     };
-    let media = parse_post_media(content);
-    let location = sns_location_re()
-        .captures(content)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
+    let location = extract_xml_attr(content, "location", "poiName")
+        .map(|s| unescape_html(&s))
         .unwrap_or_default();
+
+    ParsedPost {
+        tid,
+        create_time,
+        author_username,
+        content: text,
+        media: Vec::new(),
+        location,
+    }
+}
+
+/// 纯 XML 解析，无 Names 依赖，可以在 spawn_blocking 里跑。
+/// user_name_column 为空时从 TimelineObject/<username> 兜底（转发帖）。
+///
+/// 单 roxmltree DOM 解析一次出全部字段（createTime / contentDesc / username / media / location），
+/// 取代旧版 regex + DOM 双解析。XML entity 解码（`&lt;` / `&amp;` 等）由 roxmltree 自动处理，
+/// 旧版 `extract_xml_text` 是字符串扫描不解码 —— 因此 `content` / `location` / `username` 字段
+/// 现在会输出解码后的文本，对下游是更正确的语义。
+/// 如果 XML 已损坏到无法 DOM parse，或缺少 `TimelineObject`，则退回轻量 string
+/// fallback，尽量保住 createTime / contentDesc / username / location，避免一条帖子
+/// 因为局部坏 XML 被整体打成零值，影响排序 / 搜索 / 作者过滤语义。
+fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
+    let Ok(doc) = Document::parse(content) else {
+        return parse_post_xml_fallback(tid, user_name_column, content);
+    };
+    let Some(timeline) = doc.descendants().find(|n| n.has_tag_name("TimelineObject")) else {
+        return parse_post_xml_fallback(tid, user_name_column, content);
+    };
+
+    let create_time = xml_text(xml_child(timeline, "createTime"))
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let text = xml_text(xml_child(timeline, "contentDesc")).unwrap_or_default();
+    let author_username = if user_name_column.is_empty() {
+        xml_text(xml_child(timeline, "username")).unwrap_or_default()
+    } else {
+        user_name_column.to_string()
+    };
+    let media = parse_media_from_timeline(timeline);
+    let location = xml_child(timeline, "location")
+        .and_then(|n| n.attribute("poiName"))
+        .map(str::to_string)
+        .unwrap_or_default();
+
     ParsedPost { tid, create_time, author_username, content: text, media, location }
 }
 
@@ -2007,6 +2061,47 @@ mod sns_tests {
         let xml = "<TimelineObject><createTime>1700000003</createTime><contentDesc>orphan</contentDesc></TimelineObject>";
         let p = parse_post_xml(5, "", xml);
         assert_eq!(p.author_username, "");
+    }
+
+    #[test]
+    fn parse_decodes_xml_entities_in_content() {
+        // 单 DOM 解析的副作用：roxmltree 自动把 &lt; / &amp; / &quot; 等还原成原字符；
+        // 旧版 extract_xml_text 字符串扫描不解码，会把 "&lt;world&gt;" 原样输出。
+        // 新版语义对下游更正确（拿到的就是用户真实内容），把这个行为锁进测试。
+        let xml = "<TimelineObject><contentDesc>Hello &lt;world&gt; &amp; friends</contentDesc></TimelineObject>";
+        let p = parse_post_xml(6, "wxid", xml);
+        assert_eq!(p.content, "Hello <world> & friends");
+    }
+
+    #[test]
+    fn parse_malformed_xml_falls_back_to_string_fields_when_column_present() {
+        let xml = "<TimelineObject><createTime>1700000007</createTime><contentDesc>A &amp; B</contentDesc><location poiName=\"Wuxi &amp; Lake\" /><not valid xml";
+        let p = parse_post_xml(7, "wxid_fallback", xml);
+        assert_eq!(p.create_time, 1700000007);
+        assert_eq!(p.content, "A & B");
+        assert_eq!(p.author_username, "wxid_fallback");
+        assert!(p.media.is_empty());
+        assert_eq!(p.location, "Wuxi & Lake");
+    }
+
+    #[test]
+    fn parse_malformed_xml_can_still_use_xml_username_when_column_empty() {
+        let xml = "<TimelineObject><createTime>1700000008</createTime><contentDesc>broken</contentDesc><username>wxid_xml_only</username><not valid xml";
+        let p = parse_post_xml(8, "", xml);
+        assert_eq!(p.create_time, 1700000008);
+        assert_eq!(p.content, "broken");
+        assert_eq!(p.author_username, "wxid_xml_only");
+        assert!(p.media.is_empty());
+    }
+
+    #[test]
+    fn parse_without_timeline_object_falls_back_to_string_fields() {
+        let xml = "<SnsDataItem><createTime>1700000009</createTime><contentDesc>still here</contentDesc><username>wxid_outer</username></SnsDataItem>";
+        let p = parse_post_xml(9, "", xml);
+        assert_eq!(p.create_time, 1700000009);
+        assert_eq!(p.content, "still here");
+        assert_eq!(p.author_username, "wxid_outer");
+        assert!(p.media.is_empty());
     }
 
     #[test]
