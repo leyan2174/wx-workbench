@@ -211,6 +211,35 @@ wx biz-articles --json | jq '.[].url'             # 下游消费 URL
 
 每条返回：`account` / `account_username` / `title` / `url` / `digest` / `cover_url` / `time` / `timestamp` / `recv_time_str`。多图文推送会展开成多行。
 
+### 附件提取（图片）
+
+聊天里的附件本体存在 `xwechat_files/<wxid>/msg/attach/...` 下的 `.dat` 文件，需要按消息所在 `message_resource.db` 的 md5 + 平台相关 image key 解码才能拿到原图。
+
+```bash
+# 1) 列出会话里的图片附件，先拿到不透明的 attachment_id
+wx attachments "张三"
+wx attachments "AI群" --kind image -n 100
+wx attachments "AI群" --since 2026-04-01 --until 2026-04-15
+
+# 2) 把单个 attachment_id 解密写出去（扩展名建议保留 .jpg / .mp4 等）
+wx extract <attachment_id> -o ~/Desktop/photo.jpg
+wx extract <attachment_id> -o /tmp/x.jpg --overwrite
+```
+
+`attachments` 输出每条带：`attachment_id` / `kind` / `type` / `local_id` / `timestamp` / `time`，群聊里还有 `sender`。当前 `kind` 固定为 `image`；命令名保留成 `attachments` 是为了后续扩到其他附件类型时不 break CLI。
+
+`extract` 输出报告里带：`md5` / `dat_path` / `dat_size` / `output` / `output_size` / `format`（实际识别出的图片格式：jpg / png / gif / webp / hevc 等）/ `decoder`（实际选用的解码器：`legacy_xor` / `v1_aes` / `v2`）。
+
+支持的解码档位：
+- **legacy XOR**：早期单字节 XOR，无 magic（按文件首字节探测格式自动反推）
+- **V1 fixed-AES**（`07 08 V1 08 07`）：AES-128-ECB + 固定 key `cfcd208495d565ef`
+- **V2 AES + XOR**（`07 08 V2 08 07`）：AES-128-ECB + raw + XOR；AES key 平台派生
+
+V2 image key 提取：
+- **macOS**：`kvcomm` cache（`key_<uin>_*.statistic` 文件名取 uin → `md5(str(uin) + wxid)[:16]`）+ brute-force fallback（`md5(str(uin))[:4] == wxid_suffix` 枚举 2^24）；xor_key = `uin & 0xff`，**不是硬编码 0x88**
+- **Windows**：扫 `Weixin.exe` 内存匹配 `[A-Za-z0-9]{32|16}` 候选，按 V2 template ciphertext-block 反验
+- **Linux**：上游空白，遇到 V2 .dat 会报 unsupported
+
 ### 联系人 & 群组
 
 ```bash

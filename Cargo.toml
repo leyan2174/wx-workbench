@@ -50,6 +50,9 @@ dirs = "5"
 # MD5 (联系人表名 Msg_<md5>)
 md5 = "0.7"
 
+# 附件 ID 编码（base64url）
+base64 = "0.22"
+
 # 正则表达式
 regex = "1"
 roxmltree = "0.20"
