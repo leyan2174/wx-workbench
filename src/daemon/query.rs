@@ -3285,7 +3285,7 @@ pub async fn q_biz_articles(
     Ok(json!({ "count": results.len(), "articles": results }))
 }
 
-// ─── 附件（图片 / 视频 / 文件 / 语音）查询与提取 ─────────────────────────────────
+// ─── 附件（当前先支持图片）查询与提取 ─────────────────────────────────
 //
 // 设计要点：
 // - `q_attachments` 只走 `Msg_<chat_md5>` 表，按 `local_type & 0xFFFFFFFF IN (...)` 过滤
@@ -3296,7 +3296,7 @@ pub async fn q_biz_articles(
 // - V2 image AES key 通过 `image_key::default_provider()` 拿（codex 后续填实现）。
 //   缺 key 时 V2 解码会返回明确错误，CLI 直接抛给用户。
 
-/// 列出某会话内的附件消息（默认 image，可多选）。返回每条的 `attachment_id`，
+/// 列出某会话内的附件消息（当前仅 image）。返回每条的 `attachment_id`，
 /// 后续传给 `Extract` 才真正读 message_resource.db + 解密 .dat。
 pub async fn q_attachments(
     db: &DbCache,
@@ -3319,7 +3319,7 @@ pub async fn q_attachments(
     // 解析 kinds → 低 32 bit local_type 集合
     let kind_filters: Vec<(AttachmentKind, i64)> = parse_attachment_kinds(kinds.as_deref())?;
     if kind_filters.is_empty() {
-        anyhow::bail!("kinds 为空 — 至少传一种 image/video/file/voice");
+        anyhow::bail!("kinds 为空 — 当前至少传一种 image");
     }
     let lo32_types: Vec<i64> = kind_filters.iter().map(|(_, t)| *t).collect();
     // local_type → AttachmentKind 反查（mask 完后定 kind）
@@ -3569,7 +3569,7 @@ pub async fn q_extract(
 }
 
 /// 解析 `kinds` 参数到 `(AttachmentKind, lo32_local_type)` 列表。
-/// 缺省（None / 空）按 image 处理。
+/// 当前只支持 image；命令名保留成 `attachments` 是为了后续扩到其他附件类型时不 break CLI。
 fn parse_attachment_kinds(
     kinds: Option<&[String]>,
 ) -> Result<Vec<(crate::attachment::AttachmentKind, i64)>> {
@@ -3583,10 +3583,10 @@ fn parse_attachment_kinds(
     for k in raw {
         let (kind, t): (AttachmentKind, i64) = match k.to_ascii_lowercase().as_str() {
             "image" | "img" => (AttachmentKind::Image, 3),
-            "voice" | "audio" => (AttachmentKind::Voice, 34),
-            "video" => (AttachmentKind::Video, 43),
-            "file" => (AttachmentKind::File, 49),
-            other => anyhow::bail!("未知附件类型：{}（支持 image/voice/video/file）", other),
+            "voice" | "audio" | "video" | "file" => {
+                anyhow::bail!("当前只支持 image 提取；video/file/voice 的资源路径与 decoder 还没接通")
+            }
+            other => anyhow::bail!("未知附件类型：{}（当前仅支持 image）", other),
         };
         if seen.insert(kind.as_str()) {
             out.push((kind, t));

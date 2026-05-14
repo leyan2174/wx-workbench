@@ -48,6 +48,7 @@ pub fn lookup_md5_blocking(
     resource_db_path: &Path,
     chat: &str,
     local_id: i64,
+    create_time: i64,
     msg_local_type_lo32: i64,
 ) -> Result<Option<AttachmentMetadata>> {
     let conn = Connection::open_with_flags(
@@ -68,9 +69,25 @@ pub fn lookup_md5_blocking(
         return Ok(None);
     };
 
-    // 2) MessageResourceInfo: 同 chat 内 local_id 也会复用，按 create_time DESC 取最新
+    // 2) MessageResourceInfo:
+    //    同 chat 内 local_id 会复用，所以先用 create_time 精确命中；
+    //    若资源库里的时间戳跟 message_N.db 不完全对齐，再 fallback 到“同 local_id/type 取最新”
     //    message_local_type 高 32 bit 是版本/会话 flag，低 32 bit 才是真实类型
-    let packed: Option<Vec<u8>> = conn
+    let packed_exact: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT packed_info FROM MessageResourceInfo
+             WHERE chat_id = ?1
+               AND message_local_id = ?2
+               AND (message_local_type = ?3 OR message_local_type % 4294967296 = ?3)
+               AND message_create_time = ?4
+             ORDER BY rowid DESC
+             LIMIT 1",
+            rusqlite::params![chat_id, local_id, msg_local_type_lo32, create_time],
+            |row| row.get(0),
+        )
+        .ok();
+
+    let packed: Option<Vec<u8>> = packed_exact.or_else(|| conn
         .query_row(
             "SELECT packed_info FROM MessageResourceInfo
              WHERE chat_id = ?1
@@ -81,7 +98,7 @@ pub fn lookup_md5_blocking(
             rusqlite::params![chat_id, local_id, msg_local_type_lo32],
             |row| row.get(0),
         )
-        .ok();
+        .ok());
 
     let Some(blob) = packed else {
         return Ok(None);
@@ -235,7 +252,13 @@ pub fn resolve_blocking(
         super::AttachmentKind::File => 49,
     };
 
-    let meta = lookup_md5_blocking(resource_db_path, &id.chat, id.local_id, lo32_type)?
+    let meta = lookup_md5_blocking(
+        resource_db_path,
+        &id.chat,
+        id.local_id,
+        id.create_time,
+        lo32_type,
+    )?
         .ok_or_else(|| {
             anyhow!(
                 "message_resource.db 中找不到 chat={} local_id={} type={} 的资源行（可能是非附件消息或资源库未同步）",
@@ -304,6 +327,69 @@ mod tests {
     fn extract_md5_returns_none_on_garbage() {
         let blob = vec![0; 16];
         assert!(extract_md5_from_packed_info(&blob).is_none());
+    }
+
+    #[test]
+    fn lookup_md5_prefers_exact_create_time_over_latest_reuse() {
+        let dir = tempdir_for_test();
+        let db_path = dir.join("message_resource.db");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE ChatName2Id (user_name TEXT)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ChatName2Id (rowid, user_name) VALUES (1, 'room@chatroom')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "CREATE TABLE MessageResourceInfo (
+                chat_id INTEGER,
+                message_local_id INTEGER,
+                message_local_type INTEGER,
+                message_create_time INTEGER,
+                packed_info BLOB
+            )",
+            [],
+        )
+        .unwrap();
+
+        let old_blob = {
+            let mut blob = vec![0x12, 0x22, 0x0A, 0x20];
+            blob.extend_from_slice(b"11111111111111111111111111111111");
+            blob
+        };
+        let new_blob = {
+            let mut blob = vec![0x12, 0x22, 0x0A, 0x20];
+            blob.extend_from_slice(b"22222222222222222222222222222222");
+            blob
+        };
+
+        conn.execute(
+            "INSERT INTO MessageResourceInfo
+             (chat_id, message_local_id, message_local_type, message_create_time, packed_info)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![1i64, 7i64, 3i64, 1000i64, old_blob],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO MessageResourceInfo
+             (chat_id, message_local_id, message_local_type, message_create_time, packed_info)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![1i64, 7i64, 3i64, 2000i64, new_blob],
+        )
+        .unwrap();
+
+        let old = lookup_md5_blocking(&db_path, "room@chatroom", 7, 1000, 3)
+            .unwrap()
+            .unwrap();
+        let new = lookup_md5_blocking(&db_path, "room@chatroom", 7, 2000, 3)
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.md5, "11111111111111111111111111111111");
+        assert_eq!(new.md5, "22222222222222222222222222222222");
     }
 
     #[test]

@@ -264,13 +264,13 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// 列出某会话的附件（图片 / 视频 / 文件 / 语音），返回不透明 attachment_id
+    /// 列出某会话的图片附件，返回不透明 attachment_id
     Attachments {
         /// 会话名称（联系人显示名 / wxid / @chatroom username 都可以）
         chat: String,
-        /// 类型（多选，默认 image）。可选：image / voice / video / file
+        /// 类型（当前仅支持 image）
         #[arg(long = "kind", value_name = "KIND",
-              value_parser = ["image", "voice", "video", "file", "audio", "img"])]
+              value_parser = ["image", "img"])]
         kinds: Vec<String>,
         /// 显示数量
         #[arg(short = 'n', long, default_value = "50")]

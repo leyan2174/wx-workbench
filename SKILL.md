@@ -242,14 +242,14 @@ wx biz-articles --since 2026-05-10 --json | jq '.[].url'
 
 每条返回的字段：`account` / `account_username`（`gh_*`）/ `title` / `url`（`mp.weixin.qq.com` 链接）/ `digest` / `cover_url` / `time` + `timestamp`（文章发布时间）/ `recv_time_str` + `recv_time`（微信接收推送的时间）。多图文推送会展开为多行。
 
-### 附件提取（图片 / 视频 / 文件 / 语音）
+### 附件提取（图片）
 
-聊天里的图片/视频/文件本体在 `xwechat_files/<wxid>/msg/attach/...` 下加密存储（`.dat`），需要按消息所在 `message_resource.db` 的 md5 + 平台相关 image key 才能解码。两步走：
+聊天里的图片本体在 `xwechat_files/<wxid>/msg/attach/...` 下加密存储（`.dat`），需要按消息所在 `message_resource.db` 的 md5 + 平台相关 image key 才能解码。两步走：
 
 ```bash
-# 1) 先列出附件，拿到不透明的 attachment_id（默认 image，可多选）
+# 1) 先列出图片附件，拿到不透明的 attachment_id
 wx attachments "张三"
-wx attachments "AI群" --kind image --kind video -n 100
+wx attachments "AI群" --kind image -n 100
 wx attachments "AI群" --since 2026-04-01 --until 2026-04-15
 
 # 2) 用 attachment_id 把单个资源解密写到指定路径
@@ -257,7 +257,7 @@ wx extract <attachment_id> -o ~/Desktop/photo.jpg
 wx extract <attachment_id> -o /tmp/x.jpg --overwrite
 ```
 
-`attachments` 输出每条带：`attachment_id` / `kind`（image/voice/video/file）/ `type` / `local_id` / `timestamp` / `time`，群聊里另带 `sender`。
+`attachments` 输出每条带：`attachment_id` / `kind`（当前固定 `image`）/ `type` / `local_id` / `timestamp` / `time`，群聊里另带 `sender`。命令名保留成 `attachments` 是为了后续扩到其他附件类型时不 break CLI。
 
 `extract` 报告里带：`md5` / `dat_path` / `dat_size` / `output` / `output_size` / `format`（实际识别出的图片格式：jpg / png / gif / webp / hevc 等）/ `decoder`（实际选用的解码器：`legacy_xor` / `v1_aes` / `v2`）。
 

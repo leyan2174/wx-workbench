@@ -131,11 +131,11 @@ pub enum Request {
     },
     /// 重新加载配置和密钥（init --force 后 daemon 不会自动重读）
     ReloadConfig,
-    /// 列出某个会话里的附件（图片 / 视频 / 文件 / 语音）
+    /// 列出某个会话里的图片附件
     /// 输出每条带 `attachment_id`（不透明 base64url 句柄），传给 `Extract` 时取回本体
     Attachments {
         chat: String,
-        /// 类型过滤：image / video / file / voice，多选；缺省返回 image
+        /// 类型过滤：当前仅支持 image
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kinds: Option<Vec<String>>,
         #[serde(default = "default_limit_50")]
