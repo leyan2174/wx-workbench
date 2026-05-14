@@ -54,6 +54,12 @@ impl DbCache {
         Ok(cache)
     }
 
+    /// 数据库根目录（即 `<wxchat_base>/db_storage`）。
+    /// 上层（attachment resolver）需要 `db_dir.parent()` 来定位 `msg/attach/...` 解密图片。
+    pub fn db_dir(&self) -> &Path {
+        &self.db_dir
+    }
+
     fn cache_file_path(&self, rel_key: &str) -> PathBuf {
         let hash = format!("{:x}", md5::compute(rel_key.as_bytes()));
         self.cache_dir.join(format!("{}.db", hash))

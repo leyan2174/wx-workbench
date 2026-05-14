@@ -240,5 +240,17 @@ async fn dispatch(
                 Err(e) => Response::err(e.to_string()),
             }
         }
+        Attachments { chat, kinds, limit, offset, since, until } => {
+            match query::q_attachments(db, &names_arc, &chat, kinds, limit, offset, since, until).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
+        Extract { attachment_id, output, overwrite } => {
+            match query::q_extract(db, &names_arc, &attachment_id, &output, overwrite).await {
+                Ok(v) => Response::ok(v),
+                Err(e) => Response::err(e.to_string()),
+            }
+        }
     }
 }

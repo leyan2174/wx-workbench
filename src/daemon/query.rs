@@ -3285,6 +3285,318 @@ pub async fn q_biz_articles(
     Ok(json!({ "count": results.len(), "articles": results }))
 }
 
+// ─── 附件（图片 / 视频 / 文件 / 语音）查询与提取 ─────────────────────────────────
+//
+// 设计要点：
+// - `q_attachments` 只走 `Msg_<chat_md5>` 表，按 `local_type & 0xFFFFFFFF IN (...)` 过滤
+//   出附件消息行，再编出 `attachment_id`。**不**去翻 `message_resource.db`，因为列出动作
+//   要可枚举几千条；resource lookup 留到 `q_extract` 才做。
+// - `q_extract` 走完整链：`AttachmentId` → `message_resource.db` 查 md5 →
+//   `<wxchat_base>/msg/attach/...` 找 .dat → 按 magic 分发到 v1/v2 decoder → 写盘。
+// - V2 image AES key 通过 `image_key::default_provider()` 拿（codex 后续填实现）。
+//   缺 key 时 V2 解码会返回明确错误，CLI 直接抛给用户。
+
+/// 列出某会话内的附件消息（默认 image，可多选）。返回每条的 `attachment_id`，
+/// 后续传给 `Extract` 才真正读 message_resource.db + 解密 .dat。
+pub async fn q_attachments(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    kinds: Option<Vec<String>>,
+    limit: usize,
+    offset: usize,
+    since: Option<i64>,
+    until: Option<i64>,
+) -> Result<Value> {
+    use crate::attachment::{AttachmentId, AttachmentKind};
+
+    let username = resolve_username(chat, names)
+        .with_context(|| format!("找不到联系人: {}", chat))?;
+    let display = names.display(&username);
+    let chat_type = chat_type_of(&username, names);
+    let is_group = chat_type == "group";
+
+    // 解析 kinds → 低 32 bit local_type 集合
+    let kind_filters: Vec<(AttachmentKind, i64)> = parse_attachment_kinds(kinds.as_deref())?;
+    if kind_filters.is_empty() {
+        anyhow::bail!("kinds 为空 — 至少传一种 image/video/file/voice");
+    }
+    let lo32_types: Vec<i64> = kind_filters.iter().map(|(_, t)| *t).collect();
+    // local_type → AttachmentKind 反查（mask 完后定 kind）
+    let type_to_kind: HashMap<i64, AttachmentKind> = kind_filters.iter()
+        .map(|(k, t)| (*t, *k))
+        .collect();
+
+    let tables = find_msg_tables(db, names, &username).await?;
+    if tables.is_empty() {
+        anyhow::bail!("找不到 {} 的消息记录", display);
+    }
+
+    // 群聊需要 sender 显示名
+    let group_nicknames = if is_group {
+        load_group_nicknames(db, &username).await.unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
+    let mut all_rows: Vec<(i64, i64, i64, i64, String, i64, i64)> = Vec::new();
+    // 元组：(local_id, local_type_lo32, create_time, real_sender_id, sender_label, ts_for_sort, db_idx)
+    for (db_idx, (db_path, table_name)) in tables.iter().enumerate() {
+        let path = db_path.clone();
+        let tname = table_name.clone();
+        let uname = username.clone();
+        let is_group2 = is_group;
+        let names_map = names.map.clone();
+        let group_nicknames2 = group_nicknames.clone();
+        let lo32_types2 = lo32_types.clone();
+        let since2 = since;
+        let until2 = until;
+        // per-DB 软上限避免巨群全量加载
+        let per_db_cap = (offset + limit).max(limit) * 2;
+        let db_idx2 = db_idx as i64;
+
+        let rows: Vec<(i64, i64, i64, i64, String, i64, i64)> =
+            tokio::task::spawn_blocking(move || {
+                let conn = Connection::open(&path)?;
+                let id2u = load_id2u(&conn);
+
+                // local_type 在 DB 里可能带高位 flag，过滤要 mask 低 32 bit
+                let placeholders = lo32_types2.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let mut clauses: Vec<String> = vec![
+                    format!("(local_type & 4294967295) IN ({})", placeholders),
+                ];
+                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = lo32_types2.iter()
+                    .map(|t| Box::new(*t) as Box<dyn rusqlite::types::ToSql>)
+                    .collect();
+                if let Some(s) = since2 {
+                    clauses.push("create_time >= ?".into());
+                    params.push(Box::new(s));
+                }
+                if let Some(u) = until2 {
+                    clauses.push("create_time <= ?".into());
+                    params.push(Box::new(u));
+                }
+                let where_clause = format!("WHERE {}", clauses.join(" AND "));
+
+                let sql = format!(
+                    "SELECT local_id, local_type, create_time, real_sender_id,
+                            message_content, WCDB_CT_message_content
+                     FROM [{}] {} ORDER BY create_time DESC LIMIT ?",
+                    tname, where_clause
+                );
+                params.push(Box::new(per_db_cap as i64));
+
+                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                    params.iter().map(|p| p.as_ref()).collect();
+                let mut stmt = conn.prepare(&sql)?;
+                let rows: Vec<(i64, i64, i64, i64, String, i64, i64)> = stmt
+                    .query_map(params_ref.as_slice(), |row| {
+                        let local_id: i64 = row.get(0)?;
+                        let raw_type: i64 = row.get(1)?;
+                        let lo32 = (raw_type as u64 & 0xFFFFFFFF) as i64;
+                        let ts: i64 = row.get(2)?;
+                        let real_sender_id: i64 = row.get(3)?;
+                        let content_bytes = get_content_bytes(row, 4);
+                        let ct: i64 = row.get::<_, i64>(5).unwrap_or(0);
+                        let content = decompress_message(&content_bytes, ct);
+                        let sender = if is_group2 {
+                            sender_label(real_sender_id, &content, true, &uname,
+                                &id2u, &names_map, &group_nicknames2)
+                        } else {
+                            String::new()
+                        };
+                        Ok((local_id, lo32, ts, real_sender_id, sender, ts, db_idx2))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                Ok::<_, anyhow::Error>(rows)
+            })
+            .await??;
+        all_rows.extend(rows);
+    }
+
+    // 全局按 ts DESC 排序后分页
+    all_rows.sort_by_key(|r| std::cmp::Reverse(r.5));
+    let paged: Vec<_> = all_rows.into_iter().skip(offset).take(limit).collect();
+
+    // 翻成 JSON
+    let mut results: Vec<Value> = Vec::with_capacity(paged.len());
+    for (local_id, lo32, ts, _real_sender_id, sender, _ts2, _db_idx) in paged {
+        let kind = type_to_kind.get(&lo32).copied()
+            .unwrap_or(AttachmentKind::Image); // 理论不会 fallthrough
+        let id = AttachmentId {
+            v: 1,
+            chat: username.clone(),
+            local_id,
+            create_time: ts,
+            kind,
+            db: None,
+        };
+        let id_str = id.encode()?;
+
+        let mut row = json!({
+            "attachment_id": id_str,
+            "kind": kind.as_str(),
+            "type": fmt_type(lo32),
+            "local_id": local_id,
+            "timestamp": ts,
+            "time": fmt_time(ts, "%Y-%m-%d %H:%M"),
+        });
+        if is_group && !sender.is_empty() {
+            row["sender"] = Value::String(sender);
+        }
+        results.push(row);
+    }
+
+    Ok(json!({
+        "chat": display,
+        "username": username,
+        "is_group": is_group,
+        "chat_type": chat_type,
+        "count": results.len(),
+        "attachments": results,
+    }))
+}
+
+/// 解码 attachment_id → 查 message_resource.db → 找本地 .dat → 解密 → 写盘。
+pub async fn q_extract(
+    db: &DbCache,
+    _names: &Names,
+    attachment_id: &str,
+    output: &str,
+    overwrite: bool,
+) -> Result<Value> {
+    use crate::attachment::{
+        attachment_id::AttachmentId,
+        decoder::{self, V2KeyMaterial},
+        image_key,
+        resolver,
+    };
+
+    let id = AttachmentId::decode(attachment_id)
+        .context("解析 attachment_id 失败（不是合法 base64url(json)？）")?;
+
+    let output_path = std::path::PathBuf::from(output);
+    if output_path.exists() && !overwrite {
+        anyhow::bail!(
+            "目标已存在：{}（加 --overwrite 覆盖）",
+            output_path.display()
+        );
+    }
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            tokio::fs::create_dir_all(parent).await
+                .with_context(|| format!("创建输出目录失败：{}", parent.display()))?;
+        }
+    }
+
+    // 1) 拿 message_resource.db
+    let resource_path = db.get("message/message_resource.db").await?
+        .context("无法解密 message_resource.db（请确认 all_keys.json 包含该 DB 的密钥）")?;
+
+    // 2) 推 wxchat_base = db_dir.parent()，再拼 attach_root
+    let wxchat_base = db.db_dir().parent()
+        .ok_or_else(|| anyhow::anyhow!("db_dir 没有 parent，无法推断 xwechat_files 根目录"))?
+        .to_path_buf();
+    let attach_root = resolver::attach_root_for(&wxchat_base);
+
+    // 3) blocking pool 跑 resolver + 读盘 + 解码
+    let id_for_task = id.clone();
+    let resource_path2 = resource_path.clone();
+    let attach_root2 = attach_root.clone();
+    let wxchat_base2 = wxchat_base.clone();
+    let output_path2 = output_path.clone();
+
+    let report: Value = tokio::task::spawn_blocking(move || -> Result<Value> {
+        let resolved = resolver::resolve_blocking(&id_for_task, &resource_path2, &attach_root2)?;
+
+        let dat_bytes = std::fs::read(&resolved.dat_path)
+            .with_context(|| format!("读取 .dat 失败：{}", resolved.dat_path.display()))?;
+
+        // V2 image key — 平台相关。`ImageKeyMaterial` 同时给 aes_key + xor_key。
+        // xor_key 不能硬编码 0x88：实测 macOS 真实账号上是 `uin & 0xff` 派生的（0xa2 等），
+        // 所以这里桥接时必须把 provider 的 xor_key 透传给 V2KeyMaterial。
+        // 缺 key 时让 decoder 自己抛带诊断的错。
+        let provider = image_key::default_provider();
+        let key_material = if let Some(p) = provider.as_ref() {
+            // 从 wxchat_base 末段拿 wxid
+            let wxid = wxchat_base2.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if wxid.is_empty() {
+                None
+            } else {
+                match p.get_key(&wxid) {
+                    Ok(km) => Some(km),
+                    Err(e) => {
+                        eprintln!("[extract] image key 提取失败 (wxid={}): {} — V2 文件将无法解码", wxid, e);
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
+        let v2_key = match key_material.as_ref() {
+            Some(km) => V2KeyMaterial { aes_key: Some(&km.aes_key), xor_key: km.xor_key },
+            None => V2KeyMaterial::default(),
+        };
+
+        let decoded = decoder::dispatch(&dat_bytes, v2_key)?;
+
+        // 写盘
+        std::fs::write(&output_path2, &decoded.data)
+            .with_context(|| format!("写出文件失败：{}", output_path2.display()))?;
+
+        Ok(json!({
+            "ok": true,
+            "attachment_id": attachment_id_str(&id_for_task)?,
+            "kind": id_for_task.kind.as_str(),
+            "md5": resolved.md5,
+            "dat_path": resolved.dat_path.display().to_string(),
+            "dat_size": resolved.size,
+            "output": output_path2.display().to_string(),
+            "output_size": decoded.data.len(),
+            "format": decoded.format,
+            "decoder": decoded.decoder,
+        }))
+    }).await??;
+
+    Ok(report)
+}
+
+/// 解析 `kinds` 参数到 `(AttachmentKind, lo32_local_type)` 列表。
+/// 缺省（None / 空）按 image 处理。
+fn parse_attachment_kinds(
+    kinds: Option<&[String]>,
+) -> Result<Vec<(crate::attachment::AttachmentKind, i64)>> {
+    use crate::attachment::AttachmentKind;
+    let raw = kinds.unwrap_or(&[]);
+    if raw.is_empty() {
+        return Ok(vec![(AttachmentKind::Image, 3)]);
+    }
+    let mut out: Vec<(AttachmentKind, i64)> = Vec::with_capacity(raw.len());
+    let mut seen = HashSet::<&'static str>::new();
+    for k in raw {
+        let (kind, t): (AttachmentKind, i64) = match k.to_ascii_lowercase().as_str() {
+            "image" | "img" => (AttachmentKind::Image, 3),
+            "voice" | "audio" => (AttachmentKind::Voice, 34),
+            "video" => (AttachmentKind::Video, 43),
+            "file" => (AttachmentKind::File, 49),
+            other => anyhow::bail!("未知附件类型：{}（支持 image/voice/video/file）", other),
+        };
+        if seen.insert(kind.as_str()) {
+            out.push((kind, t));
+        }
+    }
+    Ok(out)
+}
+
+fn attachment_id_str(id: &crate::attachment::AttachmentId) -> Result<String> {
+    id.encode()
+}
+
 #[cfg(test)]
 mod biz_tests {
     use super::*;

@@ -1,5 +1,7 @@
 mod init;
+pub mod attachments;
 pub mod biz_articles;
+pub mod extract;
 pub mod sessions;
 pub mod history;
 pub mod search;
@@ -262,6 +264,44 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// 列出某会话的附件（图片 / 视频 / 文件 / 语音），返回不透明 attachment_id
+    Attachments {
+        /// 会话名称（联系人显示名 / wxid / @chatroom username 都可以）
+        chat: String,
+        /// 类型（多选，默认 image）。可选：image / voice / video / file
+        #[arg(long = "kind", value_name = "KIND",
+              value_parser = ["image", "voice", "video", "file", "audio", "img"])]
+        kinds: Vec<String>,
+        /// 显示数量
+        #[arg(short = 'n', long, default_value = "50")]
+        limit: usize,
+        /// 分页偏移
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// 起始时间 YYYY-MM-DD
+        #[arg(long)]
+        since: Option<String>,
+        /// 结束时间 YYYY-MM-DD
+        #[arg(long)]
+        until: Option<String>,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 把单个 attachment_id 对应的资源解密写到指定文件路径
+    Extract {
+        /// 由 `wx attachments` 输出的不透明 ID（base64url 字符串）
+        attachment_id: String,
+        /// 输出文件路径（绝对或相对当前工作目录均可；扩展名建议保留为 .jpg 等）
+        #[arg(short = 'o', long)]
+        output: String,
+        /// 目标已存在时覆盖
+        #[arg(long)]
+        overwrite: bool,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
     /// 管理 wx-daemon
     Daemon {
         #[command(subcommand)]
@@ -328,6 +368,12 @@ fn dispatch(cli: Cli) -> Result<()> {
         }
         Commands::BizArticles { limit, account, since, until, unread, json } => {
             biz_articles::cmd_biz_articles(limit, account, since, until, unread, json)
+        }
+        Commands::Attachments { chat, kinds, limit, offset, since, until, json } => {
+            attachments::cmd_attachments(chat, kinds, limit, offset, since, until, json)
+        }
+        Commands::Extract { attachment_id, output, overwrite, json } => {
+            extract::cmd_extract(attachment_id, output, overwrite, json)
         }
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
