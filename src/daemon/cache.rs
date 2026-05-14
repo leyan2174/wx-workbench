@@ -98,12 +98,17 @@ impl DbCache {
             let wal_path = wal_path_for(&db_path);
 
             let db_mt = mtime_nanos(&db_path);
-            let wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
+            let _wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
 
-            if db_mt == entry.db_mt && wal_mt == entry.wal_mt {
+            // 只要主 .db 没变，就把 cached 产物载回来。
+            // 如果 WAL mtime 变了，后续 `get()` 会自动走 Path 2：在已有 cached DB 上增量 apply_wal，
+            // 而不是 daemon 重启后第一条请求又退回全量解密。
+            if db_mt == entry.db_mt {
                 inner.insert(rel_key.clone(), CacheEntry {
                     db_mtime: db_mt,
-                    wal_mtime: wal_mt,
+                    // 保留"cached 产物构建时看到的 wal_mtime"，让 `get()` 去比较当前 WAL
+                    // 是否发生了变化，从而决定 exact-hit 还是 WAL 增量。
+                    wal_mtime: entry.wal_mt,
                     decrypted_path: dec_path,
                 });
                 reused += 1;
@@ -434,6 +439,59 @@ mod tests {
             new_size >= crate::crypto::PAGE_SZ,
             "expected full_decrypt to rewrite cached file to PAGE_SZ multiple, got size={}",
             new_size,
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_with_wal_change_still_reuses_cached_db_then_applies_wal() {
+        let root = unique_tmpdir("restart-wal");
+        let db_dir = root.join("db_storage");
+        let cache_dir = root.join("cache");
+        std::fs::create_dir_all(&db_dir).unwrap();
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let rel_key = "message_0.db".to_string();
+        let db_path = db_dir.join(&rel_key);
+        std::fs::write(&db_path, b"fake encrypted db").unwrap();
+
+        let wal_path = wal_path_for(&db_path);
+        std::fs::write(&wal_path, [0u8; 31]).unwrap(); // WAL 增量仍是 noop
+
+        let cached_hash = format!("{:x}", md5::compute(rel_key.as_bytes()));
+        let decrypted_path = cache_dir.join(format!("{}.db", cached_hash));
+        std::fs::write(&decrypted_path, ORIGINAL_CACHED_BYTES).unwrap();
+
+        let db_mt = mtime_nanos(&db_path);
+        let wal_mt0 = mtime_nanos(&wal_path);
+        let mtime_file = cache_dir.join("_mtimes.json");
+        let payload = serde_json::to_string(&serde_json::json!({
+            &rel_key: {
+                "db_mt": db_mt,
+                "wal_mt": wal_mt0,
+                "path": decrypted_path.display().to_string(),
+            }
+        }))
+        .unwrap();
+        std::fs::write(&mtime_file, payload).unwrap();
+
+        // 模拟 daemon 重启前又有新消息写入 WAL
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&wal_path, [0xffu8; 31]).unwrap();
+        let wal_mt1 = mtime_nanos(&wal_path);
+        assert_ne!(wal_mt0, wal_mt1);
+
+        let mut all_keys = HashMap::new();
+        all_keys.insert(rel_key.clone(), FAKE_KEY_HEX.to_string());
+        let cache = DbCache::with_dirs(db_dir, cache_dir, mtime_file, all_keys)
+            .await
+            .unwrap();
+
+        let p = cache.get(&rel_key).await.unwrap().expect("cache should reuse persisted DB");
+        assert_eq!(p, decrypted_path);
+        let body = std::fs::read(&decrypted_path).unwrap();
+        assert_eq!(
+            body, ORIGINAL_CACHED_BYTES,
+            "restart + WAL-only change should still reuse cached DB and avoid full_decrypt"
         );
     }
 }
