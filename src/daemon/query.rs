@@ -3549,9 +3549,11 @@ pub async fn q_extract(
         std::fs::write(&output_path2, &decoded.data)
             .with_context(|| format!("写出文件失败：{}", output_path2.display()))?;
 
+        // 注意：不要在这里塞 `ok: true`。dispatch 会用 Response::ok(v) 包一层，
+        // Response 的 `data: Value` 字段是 #[serde(flatten)] 写出的，本 payload
+        // 的 `ok` 会和 Response 自带的 `ok` 在线上拼成两个同名 key，CLI 反序列化时
+        // serde_json 直接报 "duplicate field"，业务请求看上去像 daemon 解析失败。
         Ok(json!({
-            "ok": true,
-            "attachment_id": attachment_id_str(&id_for_task)?,
             "kind": id_for_task.kind.as_str(),
             "md5": resolved.md5,
             "dat_path": resolved.dat_path.display().to_string(),
@@ -3591,10 +3593,6 @@ fn parse_attachment_kinds(
         }
     }
     Ok(out)
-}
-
-fn attachment_id_str(id: &crate::attachment::AttachmentId) -> Result<String> {
-    id.encode()
 }
 
 #[cfg(test)]
