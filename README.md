@@ -36,7 +36,7 @@ npx skills add jackwener/wx-cli -g
 
 - **零依赖安装** — 单一 Rust 二进制，一行命令装完
 - **毫秒级响应** — 后台 daemon 持久缓存解密数据库，mtime 不变则复用
-- **AI 友好** — 默认 YAML 输出，更省 token & 易读；`--json` 可切换为 JSON（方便 `jq` 处理等）
+- **AI 友好** — `history` / `search` / `sessions` / `new-messages` / `stats` / `attachments` 默认返回 `{..., meta}` wrapper，agent 能直接消费 freshness / source 信息
 - **完全本地** — 数据不出本机，实时解密，无需全量预解密
 
 ---
@@ -168,6 +168,15 @@ wx search "会议" --in "工作群" --since 2026-01-01
 
 群聊里的 `last_sender`、`sender` 和 `stats` 的 `top_senders` 会优先使用群昵称（群名片）。如果本地数据库里没有对应群昵称，则回退到联系人备注、微信昵称或 username。
 
+`history` / `search` / `sessions` / `unread` / `new-messages` / `stats` / `attachments` 现在都会附带 `meta`：
+
+- `status`: `ok` / `possibly_stale` / `possibly_stale_unknown_shards` / `windowed`
+- `unknown_shards`: 磁盘上存在、但 daemon 当前没有 key 的 `message_N.db` 分片；非空时应先跑 `wx init --force`
+- `chat_latest_timestamp` / `chat_latest_db`: 当前命中数据里最新一条消息的时间和分片来源
+- `session_last_timestamp`: `session.db` 里 WeChat 自己记录的最新时间；如果明显领先于 `chat_latest_timestamp`，说明结果可能漏了消息
+
+默认情况下，人类用户会在 stderr 看到可执行的 warning；agent / 脚本可直接读 stdout 里的 `meta`。传 `--with-meta` 会额外返回 `per_shard_latest` / `cache_mode_per_shard`，传隐藏 flag `--debug-source` 还会带真实 `shard_paths`。
+
 引用消息会在 `history` / `search` / `new-messages` 输出中显示当前回复和被引用原文：
 
 ```text
@@ -278,12 +287,14 @@ wx export "AI群" --since 2026-01-01 --format json
 
 ### 输出格式
 
-默认输出 YAML，更省 token & 易读；`--json` 可切换为 JSON（方便 `jq` 处理等）：
+默认输出 YAML；`--json` 可切换为 JSON。对 agent 而言，`history` / `search` / `sessions` / `new-messages` / `stats` / `attachments` 的 stdout 现在是 wrapper，而不是裸数组：
 
 ```bash
 wx sessions --json
-wx search "关键词" --json | jq '.[0].content'
+wx search "关键词" --json | jq '.results[0].content'
 wx new-messages --json
+wx history "张三" --json | jq '.meta'
+wx history "张三" --json --with-meta | jq '.meta.cache_mode_per_shard'
 ```
 
 ### Daemon 管理
