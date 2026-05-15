@@ -65,26 +65,25 @@ pub struct Meta {
 pub enum MetaStatus {
     #[default]
     Ok,
+    /// `session.db` 的最新时间明显领先于本次消息查询结果，说明数据可能过期或不完整。
     PossiblyStale,
+    /// 最强信号：磁盘上出现 daemon 不认识的新分片，通常必须重跑 `wx init --force`。
     PossiblyStaleUnknownShards,
+    /// 调用方主动传了 `since` / `until` / `offset` 等窗口条件，结果天然是局部视图。
     Windowed,
 }
 
-impl MetaStatus {
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            MetaStatus::Ok => "ok",
-            MetaStatus::PossiblyStale => "possibly_stale",
-            MetaStatus::PossiblyStaleUnknownShards => "possibly_stale_unknown_shards",
-            MetaStatus::Windowed => "windowed",
-        }
-    }
-}
-
-/// session 领先 history 多少秒就报 PossiblyStale。
+/// session 领先 history 多少秒就报 `PossiblyStale`。
+///
+/// 24h 的取值是故意保守的：活跃群聊/私聊很少会整整一天没有新消息，
+/// 超过这个窗口就值得显式提醒 agent 不要把结果当成“当前最新状态”。
 pub const STALE_THRESHOLD_SECS: i64 = 24 * 3600;
 
+/// 统一 freshness status 的优先级：
+/// 1. `unknown_shards` 非空：daemon 整体视图已经过期，优先返回 `PossiblyStaleUnknownShards`
+/// 2. `windowed=true`：调用方本来就在看局部窗口，不参与 stale 推导
+/// 3. `session_last - chat_latest > STALE_THRESHOLD_SECS`：返回 `PossiblyStale`
+/// 4. 其他情况：`Ok`
 pub fn derive_status(
     chat_latest: Option<i64>,
     session_last: Option<i64>,
@@ -103,6 +102,13 @@ pub fn derive_status(
     }
 }
 
+/// 扫描 `<db_dir>/message/` 下真实存在的 `message_*.db`，diff 出 daemon 当前没有 key
+/// 的未知分片。
+///
+/// 契约：
+/// - 返回值一律是 `/` 分隔的 rel_key（如 `message/message_3.db`），与 `all_keys.json` 对齐
+/// - 结果按字典序排序，方便测试和 CLI 稳定显示
+/// - 排除 `_fts*` / `_resource*`，因为它们是索引/附件库，不属于消息分片真相
 pub fn discover_unknown_shards(db_dir: &Path, known: &[String]) -> Vec<String> {
     let known_set: std::collections::HashSet<String> =
         known.iter().map(|k| k.replace('\\', "/")).collect();

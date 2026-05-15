@@ -23,14 +23,25 @@ struct CacheEntry {
     decrypted_path: PathBuf,
 }
 
+/// `DbCache::get_with_mode()` 本次解析 rel_key 时实际走了哪条路径。
+///
+/// latency tier:
+/// - `CacheHit`：~0ms，只返回已有解密产物
+/// - `WalIncremental`：典型 <10s，只在 cached DB 上增量 apply WAL
+/// - `FullDecrypt`：最慢路径，大库上可能到 ~120s
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheMode {
+    /// Path 1：主 `.db` 和 WAL 都没变，直接命中缓存。
     CacheHit,
+    /// Path 2：主 `.db` 没变、只有 WAL 变了，在 cached DB 上增量 apply。
     WalIncremental,
+    /// Path 3：主 `.db` 变了或缓存 miss，重新 full decrypt。
     FullDecrypt,
 }
 
 impl CacheMode {
+    /// 手工固定为 snake_case 字符串，避免未来给 enum 直接 derive `Serialize`
+    /// 时静默改变 wire 形态。
     pub fn as_str(self) -> &'static str {
         match self {
             CacheMode::CacheHit => "cache_hit",
@@ -56,7 +67,6 @@ pub struct DbCache {
     mtime_file: PathBuf,
     all_keys: HashMap<String, String>, // rel_key -> enc_key(hex)
     inner: Arc<Mutex<HashMap<String, CacheEntry>>>,
-    last_modes: Arc<Mutex<HashMap<String, CacheMode>>>,
 }
 
 impl DbCache {
@@ -79,7 +89,6 @@ impl DbCache {
             mtime_file,
             all_keys,
             inner: Arc::new(Mutex::new(HashMap::new())),
-            last_modes: Arc::new(Mutex::new(HashMap::new())),
         };
 
         cache.load_persistent().await;
@@ -90,18 +99,6 @@ impl DbCache {
     /// 上层（attachment resolver）需要 `db_dir.parent()` 来定位 `msg/attach/...` 解密图片。
     pub fn db_dir(&self) -> &Path {
         &self.db_dir
-    }
-
-    #[allow(dead_code)]
-    pub async fn last_mode(&self, rel_key: &str) -> Option<CacheMode> {
-        self.last_modes.lock().await.get(rel_key).copied()
-    }
-
-    async fn stamp_mode(&self, rel_key: &str, mode: CacheMode) {
-        self.last_modes
-            .lock()
-            .await
-            .insert(rel_key.to_string(), mode);
     }
 
     fn cache_file_path(&self, rel_key: &str) -> PathBuf {
@@ -237,7 +234,6 @@ impl DbCache {
         if let Some(entry) = cached.as_ref() {
             if entry.db_mtime == db_mt && entry.decrypted_path.exists() {
                 if entry.wal_mtime == wal_mt {
-                    self.stamp_mode(rel_key, CacheMode::CacheHit).await;
                     return Ok(Some(CacheResolve {
                         path: entry.decrypted_path.clone(),
                         mode: CacheMode::CacheHit,
@@ -274,7 +270,6 @@ impl DbCache {
                         },
                     );
                 }
-                self.stamp_mode(rel_key, CacheMode::WalIncremental).await;
                 self.save_persistent().await;
                 return Ok(Some(CacheResolve {
                     path: out_path,
@@ -317,7 +312,6 @@ impl DbCache {
                 },
             );
         }
-        self.stamp_mode(rel_key, CacheMode::FullDecrypt).await;
 
         self.save_persistent().await;
         Ok(Some(CacheResolve {
@@ -535,6 +529,72 @@ mod tests {
             "expected full_decrypt to rewrite cached file to PAGE_SZ multiple, got size={}",
             new_size,
         );
+    }
+
+    #[tokio::test]
+    async fn get_with_mode_reports_each_path() {
+        let root = unique_tmpdir("getwithmode");
+        let db_dir = root.join("db_storage");
+        let cache_dir = root.join("cache");
+        std::fs::create_dir_all(&db_dir).unwrap();
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let rel_key = "message_0.db".to_string();
+        let db_path = db_dir.join(&rel_key);
+        std::fs::write(&db_path, b"fake encrypted db").unwrap();
+        let wal_path = wal_path_for(&db_path);
+        std::fs::write(&wal_path, [0u8; 31]).unwrap();
+
+        let cached_hash = format!("{:x}", md5::compute(rel_key.as_bytes()));
+        let decrypted_path = cache_dir.join(format!("{}.db", cached_hash));
+        std::fs::write(&decrypted_path, ORIGINAL_CACHED_BYTES).unwrap();
+
+        let db_mt = mtime_nanos(&db_path);
+        let wal_mt0 = mtime_nanos(&wal_path);
+        let mtime_file = cache_dir.join("_mtimes.json");
+        let payload = serde_json::to_string(&serde_json::json!({
+            &rel_key: {
+                "db_mt": db_mt,
+                "wal_mt": wal_mt0,
+                "path": decrypted_path.display().to_string(),
+            }
+        }))
+        .unwrap();
+        std::fs::write(&mtime_file, payload).unwrap();
+
+        let mut all_keys = HashMap::new();
+        all_keys.insert(rel_key.clone(), FAKE_KEY_HEX.to_string());
+        let cache = DbCache::with_dirs(db_dir, cache_dir, mtime_file, all_keys)
+            .await
+            .unwrap();
+
+        let hit = cache
+            .get_with_mode(&rel_key)
+            .await
+            .unwrap()
+            .expect("cache should hit");
+        assert_eq!(hit.path, decrypted_path);
+        assert_eq!(hit.mode, CacheMode::CacheHit);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&wal_path, [0xffu8; 31]).unwrap();
+        let wal = cache
+            .get_with_mode(&rel_key)
+            .await
+            .unwrap()
+            .expect("WAL-only change should stay incremental");
+        assert_eq!(wal.path, decrypted_path);
+        assert_eq!(wal.mode, CacheMode::WalIncremental);
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&db_path, b"different bytes").unwrap();
+        let full = cache
+            .get_with_mode(&rel_key)
+            .await
+            .unwrap()
+            .expect("db mtime change should trigger full decrypt");
+        assert_eq!(full.path, decrypted_path);
+        assert_eq!(full.mode, CacheMode::FullDecrypt);
     }
 
     #[tokio::test]

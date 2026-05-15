@@ -699,6 +699,8 @@ pub async fn q_search(
     results.sort_by_key(|r| std::cmp::Reverse(r["timestamp"].as_i64().unwrap_or(0)));
     let paged: Vec<Value> = results.into_iter().take(limit).collect();
     let unknown_shards = current_unknown_shards(db, names);
+    // 全局搜索 / keyword 过滤天然是窗口化结果，没有稳定的 chat-level latest baseline，
+    // 不参与 stale 推导；这里只保留 unknown_shards 这类 daemon 全局健康信号。
     let meta = meta_for_global_query(
         scanned_rel_keys.len(),
         hit_rel_keys.len(),
