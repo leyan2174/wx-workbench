@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// CLI 向 daemon 发送的请求（换行符分隔 JSON，与 Python 版兼容）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,10 @@ pub enum Request {
     Sessions {
         #[serde(default = "default_limit_20")]
         limit: usize,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     History {
         chat: String,
@@ -23,6 +27,10 @@ pub enum Request {
         until: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         msg_type: Option<i64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     Search {
         keyword: String,
@@ -36,6 +44,10 @@ pub enum Request {
         until: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         msg_type: Option<i64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     Contacts {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +61,10 @@ pub enum Request {
         /// 按会话类型过滤：private / group / official / folded / all，支持多选
         #[serde(default, skip_serializing_if = "Option::is_none")]
         filter: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     Members {
         chat: String,
@@ -60,6 +76,10 @@ pub enum Request {
         state: Option<HashMap<String, i64>>,
         #[serde(default = "default_limit_200")]
         limit: usize,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     Stats {
         chat: String,
@@ -67,6 +87,10 @@ pub enum Request {
         since: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         until: Option<i64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     Favorites {
         #[serde(default = "default_limit_50")]
@@ -146,6 +170,10 @@ pub enum Request {
         since: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         until: Option<i64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        with_meta: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        debug_source: bool,
     },
     /// 提取（解密）单个附件的本体到指定路径
     Extract {
@@ -159,7 +187,6 @@ pub enum Request {
     },
 }
 
-
 /// daemon 的响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
@@ -172,11 +199,19 @@ pub struct Response {
 
 impl Response {
     pub fn ok(data: Value) -> Self {
-        Self { ok: true, error: None, data }
+        Self {
+            ok: true,
+            error: None,
+            data,
+        }
     }
 
     pub fn err(msg: impl Into<String>) -> Self {
-        Self { ok: false, error: Some(msg.into()), data: Value::Null }
+        Self {
+            ok: false,
+            error: Some(msg.into()),
+            data: Value::Null,
+        }
     }
 
     pub fn to_json_line(&self) -> anyhow::Result<String> {
@@ -185,6 +220,15 @@ impl Response {
     }
 }
 
-fn default_limit_20() -> usize { 20 }
-fn default_limit_50() -> usize { 50 }
-fn default_limit_200() -> usize { 200 }
+fn default_limit_20() -> usize {
+    20
+}
+fn default_limit_50() -> usize {
+    50
+}
+fn default_limit_200() -> usize {
+    200
+}
+fn is_false(v: &bool) -> bool {
+    !*v
+}

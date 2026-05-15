@@ -1,24 +1,25 @@
-mod init;
 pub mod attachments;
 pub mod biz_articles;
-pub mod extract;
-pub mod sessions;
-pub mod history;
-pub mod search;
 pub mod contacts;
-pub mod export;
 pub mod daemon_cmd;
-pub mod transport;
-pub mod output;
-pub mod unread;
+pub mod export;
+pub mod extract;
+pub mod favorites;
+pub mod history;
+mod init;
 pub mod members;
 pub mod new_messages;
-pub mod stats;
-pub mod favorites;
-pub mod sns_notifications;
+pub mod output;
+pub mod search;
+pub mod sessions;
 pub mod sns_feed;
+pub mod sns_notifications;
 pub mod sns_search;
+pub mod stats;
+pub mod transport;
+pub mod unread;
 
+use self::output::OutputOpts;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -26,6 +27,12 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "wx", version = env!("CARGO_PKG_VERSION"), about = "wx — 微信本地数据 CLI")]
 pub struct Cli {
+    /// 返回更重的 freshness/source 元数据（如 per-shard latest、cache modes）
+    #[arg(long, global = true)]
+    with_meta: bool,
+    /// 在 meta 里暴露真实 shard 路径（调试用）
+    #[arg(long, global = true, hide = true)]
+    debug_source: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -335,46 +342,184 @@ pub fn run() {
 }
 
 fn dispatch(cli: Cli) -> Result<()> {
+    let base_with_meta = cli.with_meta;
+    let base_debug_source = cli.debug_source;
     match cli.command {
         Commands::Init { force } => init::cmd_init(force),
-        Commands::Sessions { limit, json } => sessions::cmd_sessions(limit, json),
-        Commands::History { chat, limit, offset, since, until, msg_type, json } => {
-            history::cmd_history(chat, limit, offset, since, until, msg_type, json)
-        }
-        Commands::Search { keyword, chats, limit, since, until, msg_type, json } => {
-            search::cmd_search(keyword, chats, limit, since, until, msg_type, json)
-        }
+        Commands::Sessions { limit, json } => sessions::cmd_sessions(
+            limit,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
+        Commands::History {
+            chat,
+            limit,
+            offset,
+            since,
+            until,
+            msg_type,
+            json,
+        } => history::cmd_history(
+            chat,
+            limit,
+            offset,
+            since,
+            until,
+            msg_type,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
+        Commands::Search {
+            keyword,
+            chats,
+            limit,
+            since,
+            until,
+            msg_type,
+            json,
+        } => search::cmd_search(
+            keyword,
+            chats,
+            limit,
+            since,
+            until,
+            msg_type,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
         Commands::Contacts { query, limit, json } => contacts::cmd_contacts(query, limit, json),
-        Commands::Export { chat, since, until, limit, format, output } => {
-            export::cmd_export(chat, since, until, limit, format, output)
+        Commands::Export {
+            chat,
+            since,
+            until,
+            limit,
+            format,
+            output,
+        } => {
+            let export_json = format == "json";
+            export::cmd_export(
+                chat,
+                since,
+                until,
+                limit,
+                format,
+                output,
+                OutputOpts {
+                    json: export_json,
+                    with_meta: base_with_meta,
+                    debug_source: base_debug_source,
+                },
+            )
         }
-        Commands::Unread { limit, filter, json } => unread::cmd_unread(limit, filter, json),
+        Commands::Unread {
+            limit,
+            filter,
+            json,
+        } => unread::cmd_unread(
+            limit,
+            filter,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
         Commands::Members { chat, json } => members::cmd_members(chat, json),
-        Commands::NewMessages { limit, json } => new_messages::cmd_new_messages(limit, json),
-        Commands::Stats { chat, since, until, json } => {
-            stats::cmd_stats(chat, since, until, json)
-        }
-        Commands::Favorites { limit, fav_type, query, json } => {
-            favorites::cmd_favorites(limit, fav_type, query, json)
-        }
-        Commands::SnsNotifications { limit, since, until, include_read, json } => {
-            sns_notifications::cmd_sns_notifications(limit, since, until, include_read, json)
-        }
-        Commands::SnsFeed { limit, since, until, user, json } => {
-            sns_feed::cmd_sns_feed(limit, since, until, user, json)
-        }
-        Commands::SnsSearch { keyword, limit, since, until, user, json } => {
-            sns_search::cmd_sns_search(keyword, limit, since, until, user, json)
-        }
-        Commands::BizArticles { limit, account, since, until, unread, json } => {
-            biz_articles::cmd_biz_articles(limit, account, since, until, unread, json)
-        }
-        Commands::Attachments { chat, kinds, limit, offset, since, until, json } => {
-            attachments::cmd_attachments(chat, kinds, limit, offset, since, until, json)
-        }
-        Commands::Extract { attachment_id, output, overwrite, json } => {
-            extract::cmd_extract(attachment_id, output, overwrite, json)
-        }
+        Commands::NewMessages { limit, json } => new_messages::cmd_new_messages(
+            limit,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
+        Commands::Stats {
+            chat,
+            since,
+            until,
+            json,
+        } => stats::cmd_stats(
+            chat,
+            since,
+            until,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
+        Commands::Favorites {
+            limit,
+            fav_type,
+            query,
+            json,
+        } => favorites::cmd_favorites(limit, fav_type, query, json),
+        Commands::SnsNotifications {
+            limit,
+            since,
+            until,
+            include_read,
+            json,
+        } => sns_notifications::cmd_sns_notifications(limit, since, until, include_read, json),
+        Commands::SnsFeed {
+            limit,
+            since,
+            until,
+            user,
+            json,
+        } => sns_feed::cmd_sns_feed(limit, since, until, user, json),
+        Commands::SnsSearch {
+            keyword,
+            limit,
+            since,
+            until,
+            user,
+            json,
+        } => sns_search::cmd_sns_search(keyword, limit, since, until, user, json),
+        Commands::BizArticles {
+            limit,
+            account,
+            since,
+            until,
+            unread,
+            json,
+        } => biz_articles::cmd_biz_articles(limit, account, since, until, unread, json),
+        Commands::Attachments {
+            chat,
+            kinds,
+            limit,
+            offset,
+            since,
+            until,
+            json,
+        } => attachments::cmd_attachments(
+            chat,
+            kinds,
+            limit,
+            offset,
+            since,
+            until,
+            OutputOpts {
+                json,
+                with_meta: base_with_meta,
+                debug_source: base_debug_source,
+            },
+        ),
+        Commands::Extract {
+            attachment_id,
+            output,
+            overwrite,
+            json,
+        } => extract::cmd_extract(attachment_id, output, overwrite, json),
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
 }

@@ -159,6 +159,29 @@ wx search "会议" --in "工作群" --since 2026-01-01
 
 群聊消息里的 `last_sender`、`sender` 和 `stats.top_senders` 会优先显示群昵称（群名片）。如果本地数据库没有群昵称，再回退到联系人备注、微信昵称或 username。
 
+`sessions` / `unread` / `history` / `search` / `new-messages` / `stats` / `attachments` 的 stdout 现在统一是 wrapper：
+
+```json
+{
+  "messages": [...],
+  "meta": {
+    "status": "ok",
+    "unknown_shards": [],
+    "chat_latest_timestamp": 1715750400,
+    "chat_latest_db": "message/message_2.db",
+    "session_last_timestamp": 1715760000
+  }
+}
+```
+
+其中：
+
+- `status = possibly_stale_unknown_shards`：磁盘上出现 daemon 不认识的新 `message_N.db`，先跑 `wx init --force`
+- `status = possibly_stale`：`session.db` 记录的最新时间明显领先于本次查到的最新消息，结果可能漏消息
+- `status = windowed`：这次查询本来就是窗口化/过滤后的局部视图，不应把它当作"全量最新状态"
+- `--with-meta`：额外返回 `per_shard_latest` / `cache_mode_per_shard`
+- `--debug-source`：在 `--with-meta` 基础上再暴露真实 `shard_paths`
+
 引用消息（appmsg `type=57`）在 `history` / `search` / `new-messages` 输出里会展开为两行：第一行是当前回复，第二行以 `↳` 开头显示被引用原文，例如：
 
 ```text
@@ -315,8 +338,10 @@ wx daemon logs --follow
 ```bash
 wx sessions --json
 wx new-messages --json
-wx search "关键词" --json
-wx history "张三" --json -n 50
+wx search "关键词" --json | jq '.results[0]'
+wx history "张三" --json -n 50 | jq '.messages[0]'
+wx history "张三" --json | jq '.meta'
+wx history "张三" --json --with-meta | jq '.meta.cache_mode_per_shard'
 ```
 
 CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确名称时，先用 `wx contacts --query` 搜索。

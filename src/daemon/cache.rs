@@ -23,6 +23,29 @@ struct CacheEntry {
     decrypted_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheMode {
+    CacheHit,
+    WalIncremental,
+    FullDecrypt,
+}
+
+impl CacheMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CacheMode::CacheHit => "cache_hit",
+            CacheMode::WalIncremental => "wal_incremental",
+            CacheMode::FullDecrypt => "full_decrypt",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CacheResolve {
+    pub path: PathBuf,
+    pub mode: CacheMode,
+}
+
 /// 解密后数据库的 mtime-aware 缓存
 ///
 /// 当数据库文件（.db）或 WAL 文件（.db-wal）的 mtime 发生变化时，
@@ -33,13 +56,11 @@ pub struct DbCache {
     mtime_file: PathBuf,
     all_keys: HashMap<String, String>, // rel_key -> enc_key(hex)
     inner: Arc<Mutex<HashMap<String, CacheEntry>>>,
+    last_modes: Arc<Mutex<HashMap<String, CacheMode>>>,
 }
 
 impl DbCache {
-    pub async fn new(
-        db_dir: PathBuf,
-        all_keys: HashMap<String, String>,
-    ) -> Result<Self> {
+    pub async fn new(db_dir: PathBuf, all_keys: HashMap<String, String>) -> Result<Self> {
         Self::with_dirs(db_dir, config::cache_dir(), config::mtime_file(), all_keys).await
     }
 
@@ -58,6 +79,7 @@ impl DbCache {
             mtime_file,
             all_keys,
             inner: Arc::new(Mutex::new(HashMap::new())),
+            last_modes: Arc::new(Mutex::new(HashMap::new())),
         };
 
         cache.load_persistent().await;
@@ -68,6 +90,18 @@ impl DbCache {
     /// 上层（attachment resolver）需要 `db_dir.parent()` 来定位 `msg/attach/...` 解密图片。
     pub fn db_dir(&self) -> &Path {
         &self.db_dir
+    }
+
+    #[allow(dead_code)]
+    pub async fn last_mode(&self, rel_key: &str) -> Option<CacheMode> {
+        self.last_modes.lock().await.get(rel_key).copied()
+    }
+
+    async fn stamp_mode(&self, rel_key: &str, mode: CacheMode) {
+        self.last_modes
+            .lock()
+            .await
+            .insert(rel_key.to_string(), mode);
     }
 
     fn cache_file_path(&self, rel_key: &str) -> PathBuf {
@@ -94,23 +128,34 @@ impl DbCache {
             if !dec_path.exists() {
                 continue;
             }
-            let db_path = self.db_dir.join(rel_key.replace('\\', std::path::MAIN_SEPARATOR_STR).replace('/', std::path::MAIN_SEPARATOR_STR));
+            let db_path = self.db_dir.join(
+                rel_key
+                    .replace('\\', std::path::MAIN_SEPARATOR_STR)
+                    .replace('/', std::path::MAIN_SEPARATOR_STR),
+            );
             let wal_path = wal_path_for(&db_path);
 
             let db_mt = mtime_nanos(&db_path);
-            let _wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
+            let _wal_mt = if wal_path.exists() {
+                mtime_nanos(&wal_path)
+            } else {
+                0
+            };
 
             // 只要主 .db 没变，就把 cached 产物载回来。
             // 如果 WAL mtime 变了，后续 `get()` 会自动走 Path 2：在已有 cached DB 上增量 apply_wal，
             // 而不是 daemon 重启后第一条请求又退回全量解密。
             if db_mt == entry.db_mt {
-                inner.insert(rel_key.clone(), CacheEntry {
-                    db_mtime: db_mt,
-                    // 保留"cached 产物构建时看到的 wal_mtime"，让 `get()` 去比较当前 WAL
-                    // 是否发生了变化，从而决定 exact-hit 还是 WAL 增量。
-                    wal_mtime: entry.wal_mt,
-                    decrypted_path: dec_path,
-                });
+                inner.insert(
+                    rel_key.clone(),
+                    CacheEntry {
+                        db_mtime: db_mt,
+                        // 保留"cached 产物构建时看到的 wal_mtime"，让 `get()` 去比较当前 WAL
+                        // 是否发生了变化，从而决定 exact-hit 还是 WAL 增量。
+                        wal_mtime: entry.wal_mt,
+                        decrypted_path: dec_path,
+                    },
+                );
                 reused += 1;
             }
         }
@@ -123,13 +168,19 @@ impl DbCache {
     async fn save_persistent(&self) {
         let mtime_file = &self.mtime_file;
         let inner = self.inner.lock().await;
-        let data: HashMap<String, MtimeEntry> = inner.iter().map(|(k, v)| {
-            (k.clone(), MtimeEntry {
-                db_mt: v.db_mtime,
-                wal_mt: v.wal_mtime,
-                path: v.decrypted_path.to_string_lossy().into_owned(),
+        let data: HashMap<String, MtimeEntry> = inner
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    MtimeEntry {
+                        db_mt: v.db_mtime,
+                        wal_mt: v.wal_mtime,
+                        path: v.decrypted_path.to_string_lossy().into_owned(),
+                    },
+                )
             })
-        }).collect();
+            .collect();
         drop(inner);
 
         if let Ok(json) = serde_json::to_string_pretty(&data) {
@@ -148,14 +199,19 @@ impl DbCache {
     /// WeChat 在写消息时只 append WAL（除非触发 checkpoint），因此 path 2 是常态；
     /// 这条路径把"每次请求都全量解密 ~1.8GB DB（~120s）"压到"只解 WAL 帧（典型 < 10s）"。
     pub async fn get(&self, rel_key: &str) -> Result<Option<PathBuf>> {
+        Ok(self.get_with_mode(rel_key).await?.map(|r| r.path))
+    }
+
+    pub async fn get_with_mode(&self, rel_key: &str) -> Result<Option<CacheResolve>> {
         let enc_key_hex = match self.all_keys.get(rel_key) {
             Some(k) => k.clone(),
             None => return Ok(None),
         };
 
         let db_path = self.db_dir.join(
-            rel_key.replace('\\', std::path::MAIN_SEPARATOR_STR)
-                   .replace('/', std::path::MAIN_SEPARATOR_STR)
+            rel_key
+                .replace('\\', std::path::MAIN_SEPARATOR_STR)
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
         );
         if !db_path.exists() {
             return Ok(None);
@@ -163,21 +219,29 @@ impl DbCache {
 
         let wal_path = wal_path_for(&db_path);
         let db_mt = mtime_nanos(&db_path);
-        let wal_mt = if wal_path.exists() { mtime_nanos(&wal_path) } else { 0 };
+        let wal_mt = if wal_path.exists() {
+            mtime_nanos(&wal_path)
+        } else {
+            0
+        };
 
         let cached = {
             let inner = self.inner.lock().await;
             inner.get(rel_key).cloned()
         };
 
-        let enc_key_bytes = hex_to_32bytes(&enc_key_hex)
-            .with_context(|| format!("密钥格式错误: {}", rel_key))?;
+        let enc_key_bytes =
+            hex_to_32bytes(&enc_key_hex).with_context(|| format!("密钥格式错误: {}", rel_key))?;
 
         // Path 1 / Path 2：主 .db mtime 未变且 cached 产物仍在
         if let Some(entry) = cached.as_ref() {
             if entry.db_mtime == db_mt && entry.decrypted_path.exists() {
                 if entry.wal_mtime == wal_mt {
-                    return Ok(Some(entry.decrypted_path.clone()));
+                    self.stamp_mode(rel_key, CacheMode::CacheHit).await;
+                    return Ok(Some(CacheResolve {
+                        path: entry.decrypted_path.clone(),
+                        mode: CacheMode::CacheHit,
+                    }));
                 }
 
                 // Path 2: WAL-only 变化 → 在 cached 产物上重新 apply_wal
@@ -190,20 +254,32 @@ impl DbCache {
                     let key_copy = enc_key_bytes;
                     tokio::task::spawn_blocking(move || {
                         wal::apply_wal(&wal_path2, &out_path2, &key_copy)
-                    }).await??;
+                    })
+                    .await??;
                 }
-                eprintln!("[cache] WAL 增量 {} ({}ms)", rel_key, t0.elapsed().as_millis());
+                eprintln!(
+                    "[cache] WAL 增量 {} ({}ms)",
+                    rel_key,
+                    t0.elapsed().as_millis()
+                );
 
                 {
                     let mut inner = self.inner.lock().await;
-                    inner.insert(rel_key.to_string(), CacheEntry {
-                        db_mtime: db_mt,
-                        wal_mtime: wal_mt,
-                        decrypted_path: out_path.clone(),
-                    });
+                    inner.insert(
+                        rel_key.to_string(),
+                        CacheEntry {
+                            db_mtime: db_mt,
+                            wal_mtime: wal_mt,
+                            decrypted_path: out_path.clone(),
+                        },
+                    );
                 }
+                self.stamp_mode(rel_key, CacheMode::WalIncremental).await;
                 self.save_persistent().await;
-                return Ok(Some(out_path));
+                return Ok(Some(CacheResolve {
+                    path: out_path,
+                    mode: CacheMode::WalIncremental,
+                }));
             }
         }
 
@@ -213,39 +289,52 @@ impl DbCache {
         let db_path2 = db_path.clone();
         let out_path2 = out_path.clone();
         let key_copy = enc_key_bytes;
-        tokio::task::spawn_blocking(move || {
-            crypto::full_decrypt(&db_path2, &out_path2, &key_copy)
-        }).await??;
+        tokio::task::spawn_blocking(move || crypto::full_decrypt(&db_path2, &out_path2, &key_copy))
+            .await??;
 
         if wal_path.exists() {
             let out_path3 = out_path.clone();
             let wal_path3 = wal_path.clone();
             let key_copy2 = enc_key_bytes;
-            tokio::task::spawn_blocking(move || {
-                wal::apply_wal(&wal_path3, &out_path3, &key_copy2)
-            }).await??;
+            tokio::task::spawn_blocking(move || wal::apply_wal(&wal_path3, &out_path3, &key_copy2))
+                .await??;
         }
 
-        eprintln!("[cache] 全量解密 {} ({}ms)", rel_key, t0.elapsed().as_millis());
+        eprintln!(
+            "[cache] 全量解密 {} ({}ms)",
+            rel_key,
+            t0.elapsed().as_millis()
+        );
 
         {
             let mut inner = self.inner.lock().await;
-            inner.insert(rel_key.to_string(), CacheEntry {
-                db_mtime: db_mt,
-                wal_mtime: wal_mt,
-                decrypted_path: out_path.clone(),
-            });
+            inner.insert(
+                rel_key.to_string(),
+                CacheEntry {
+                    db_mtime: db_mt,
+                    wal_mtime: wal_mt,
+                    decrypted_path: out_path.clone(),
+                },
+            );
         }
+        self.stamp_mode(rel_key, CacheMode::FullDecrypt).await;
 
         self.save_persistent().await;
-        Ok(Some(out_path))
+        Ok(Some(CacheResolve {
+            path: out_path,
+            mode: CacheMode::FullDecrypt,
+        }))
     }
 }
 
 pub(super) fn mtime_nanos(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64)
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64
+        })
         .unwrap_or(0)
 }
 
@@ -273,8 +362,7 @@ mod tests {
     use super::*;
 
     /// 64 字符 hex（不需要是真 SQLCipher key — 仅用来证明"是否触发了 full_decrypt"）
-    const FAKE_KEY_HEX: &str =
-        "0000000000000000000000000000000000000000000000000000000000000000";
+    const FAKE_KEY_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
     /// 路径区分约定：
     /// - 完全 hit / WAL 增量 → `decrypted_path` **内容不变**
@@ -337,7 +425,11 @@ mod tests {
         let (cache, _db_path, decrypted_path, _mtime_file, rel_key) =
             setup_seeded_cache("exact").await;
 
-        let p = cache.get(&rel_key).await.unwrap().expect("cache should hit");
+        let p = cache
+            .get(&rel_key)
+            .await
+            .unwrap()
+            .expect("cache should hit");
         assert_eq!(p, decrypted_path);
 
         // 完全 hit → cached file 内容不应被改
@@ -387,7 +479,10 @@ mod tests {
         // 第一次：完全 hit
         let p1 = cache.get(&rel_key).await.unwrap().expect("first get hits");
         assert_eq!(p1, decrypted_path);
-        assert_eq!(std::fs::read(&decrypted_path).unwrap(), ORIGINAL_CACHED_BYTES);
+        assert_eq!(
+            std::fs::read(&decrypted_path).unwrap(),
+            ORIGINAL_CACHED_BYTES
+        );
 
         // bump WAL mtime（重写仍 31 bytes，apply_wal 仍 noop）
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -486,7 +581,11 @@ mod tests {
             .await
             .unwrap();
 
-        let p = cache.get(&rel_key).await.unwrap().expect("cache should reuse persisted DB");
+        let p = cache
+            .get(&rel_key)
+            .await
+            .unwrap()
+            .expect("cache should reuse persisted DB");
         assert_eq!(p, decrypted_path);
         let body = std::fs::read(&decrypted_path).unwrap();
         assert_eq!(
