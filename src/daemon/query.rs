@@ -1376,6 +1376,12 @@ fn pick_group_nickname(strings: &[(u64, String)], username: &str) -> Option<Stri
     let mut best = String::new();
 
     for (idx, (field_no, value)) in strings.iter().enumerate() {
+        // In current WeChat 4.x ext_buffer member chunks, field 2 is the group
+        // card/nickname. Field 4 is often another username-like value such as an
+        // inviter/owner and must not be promoted to a nickname.
+        if *field_no != 2 {
+            continue;
+        }
         let value = value.trim();
         if value.is_empty()
             || value == username
@@ -1388,9 +1394,6 @@ fn pick_group_nickname(strings: &[(u64, String)], username: &str) -> Option<Stri
         }
 
         let mut score = 0i64;
-        if *field_no == 2 {
-            score += 100;
-        }
         if !looks_like_username(value) {
             score += 20;
         }
@@ -4523,6 +4526,30 @@ mod group_nickname_tests {
             Some("Target Card")
         );
         assert!(!nicknames.contains_key("candidate_name"));
+    }
+
+    #[test]
+    fn ignores_non_card_string_fields_as_group_nicknames() {
+        let mut ext_buffer = Vec::new();
+
+        let mut member_without_card = Vec::new();
+        member_without_card.extend(string_field(1, "wxid_alice"));
+        member_without_card.extend(string_field(4, "owner_or_inviter"));
+        ext_buffer.extend(len_field(1, &member_without_card));
+
+        let mut member_with_card = Vec::new();
+        member_with_card.extend(string_field(1, "wxid_bob"));
+        member_with_card.extend(string_field(2, "Bob In Group"));
+        member_with_card.extend(string_field(4, "owner_or_inviter"));
+        ext_buffer.extend(len_field(1, &member_with_card));
+
+        let nicknames = parse_group_nickname_map(&ext_buffer, None);
+
+        assert!(!nicknames.contains_key("wxid_alice"));
+        assert_eq!(
+            nicknames.get("wxid_bob").map(String::as_str),
+            Some("Bob In Group")
+        );
     }
 
     #[test]
