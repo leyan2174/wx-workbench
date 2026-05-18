@@ -922,6 +922,7 @@ fn query_messages(
     let mut result = Vec::new();
     for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
         let content = decompress_message(&content_bytes, ct);
+        let sender_username = sender_username(real_sender_id, &content, is_group, chat_username, &id2u);
         let sender = sender_label(
             real_sender_id,
             &content,
@@ -942,6 +943,7 @@ fn query_messages(
             "type": fmt_type(local_type),
             "local_id": local_id,
         });
+        add_sender_identity(&mut msg, is_group, &sender_username, names_map, group_nicknames);
         if let Some(u) = url {
             msg["url"] = serde_json::Value::String(u);
         }
@@ -1027,6 +1029,7 @@ fn search_in_table(
     let mut result = Vec::new();
     for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
         let content = decompress_message(&content_bytes, ct);
+        let sender_username = sender_username(real_sender_id, &content, is_group, chat_username, &id2u);
         let sender = sender_label(
             real_sender_id,
             &content,
@@ -1051,6 +1054,7 @@ fn search_in_table(
             "content": text,
             "type": fmt_type(local_type),
         });
+        add_sender_identity(&mut msg, is_group, &sender_username, names_map, group_nicknames);
         if let Some(u) = url {
             msg["url"] = serde_json::Value::String(u);
         }
@@ -1492,10 +1496,12 @@ fn group_top_senders(
     let mut top_senders: Vec<Value> = sender_counts
         .iter()
         .map(|(username, count)| {
-            json!({
+            let mut row = json!({
                 "sender": sender_display(username, "", names, group_nicknames),
                 "count": count,
-            })
+            });
+            add_sender_identity(&mut row, true, username, names, group_nicknames);
+            row
         })
         .collect();
     top_senders.sort_by(|a, b| {
@@ -1512,6 +1518,48 @@ fn group_top_senders(
     });
     top_senders.truncate(limit);
     top_senders
+}
+
+fn sender_username(
+    real_sender_id: i64,
+    content: &str,
+    is_group: bool,
+    chat_username: &str,
+    id2u: &HashMap<i64, String>,
+) -> String {
+    let sender_uname = id2u.get(&real_sender_id).cloned().unwrap_or_default();
+    if !is_group {
+        if !sender_uname.is_empty() && sender_uname != chat_username {
+            return sender_uname;
+        }
+        return String::new();
+    }
+    if !sender_uname.is_empty() && sender_uname != chat_username {
+        return sender_uname;
+    }
+    if content.contains(":\n") {
+        return content.splitn(2, ":\n").next().unwrap_or("").to_string();
+    }
+    String::new()
+}
+
+fn add_sender_identity(
+    row: &mut Value,
+    is_group: bool,
+    username: &str,
+    names: &HashMap<String, String>,
+    group_nicknames: &HashMap<String, String>,
+) {
+    if !is_group || username.is_empty() {
+        return;
+    }
+    row["sender_username"] = Value::String(username.to_string());
+    row["sender_contact_display"] = Value::String(
+        names.get(username).cloned().unwrap_or_else(|| username.to_string())
+    );
+    row["sender_group_nickname"] = Value::String(
+        group_nicknames.get(username).cloned().unwrap_or_default()
+    );
 }
 
 fn sender_label(
@@ -2109,6 +2157,132 @@ mod appmsg_tests {
             rows[0]["content"].as_str(),
             Some("[引用] 我也没有用ai啊\n  \u{21b3} 不再熬夜: 昨天用 claude 爬小红书数据来着")
         );
+    }
+
+    #[test]
+    fn query_messages_includes_stable_group_sender_identity() {
+        let path = temp_db_path("query_messages_includes_stable_group_sender_identity");
+        {
+            let conn = Connection::open(&path).expect("open temp db");
+            conn.execute(
+                "CREATE TABLE Name2Id (
+                    user_name TEXT
+                )",
+                [],
+            )
+            .expect("create Name2Id table");
+            conn.execute(
+                "INSERT INTO Name2Id(rowid, user_name) VALUES (?1, ?2)",
+                rusqlite::params![42_i64, "wxid_alice"],
+            )
+            .expect("insert Name2Id row");
+            conn.execute(
+                "CREATE TABLE Msg_test (
+                    local_id INTEGER,
+                    local_type INTEGER,
+                    create_time INTEGER,
+                    real_sender_id INTEGER,
+                    message_content TEXT,
+                    WCDB_CT_message_content INTEGER
+                )",
+                [],
+            )
+            .expect("create message table");
+            conn.execute(
+                "INSERT INTO Msg_test VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    1_i64,
+                    1_i64,
+                    1775146911_i64,
+                    42_i64,
+                    "hello",
+                    0_i64
+                ],
+            )
+            .expect("insert text message");
+        }
+
+        let names = HashMap::from([("wxid_alice".to_string(), "Alice Contact".to_string())]);
+        let group_nicknames = HashMap::from([("wxid_alice".to_string(), "同名".to_string())]);
+        let rows = query_messages(
+            &path,
+            "Msg_test",
+            "123@chatroom",
+            true,
+            &names,
+            &group_nicknames,
+            None,
+            None,
+            None,
+            10,
+            0,
+        )
+        .expect("query messages");
+
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["sender"].as_str(), Some("同名"));
+        assert_eq!(rows[0]["sender_username"].as_str(), Some("wxid_alice"));
+        assert_eq!(rows[0]["sender_contact_display"].as_str(), Some("Alice Contact"));
+        assert_eq!(rows[0]["sender_group_nickname"].as_str(), Some("同名"));
+    }
+
+    #[test]
+    fn search_in_table_includes_stable_group_sender_identity() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        conn.execute(
+            "CREATE TABLE Name2Id (
+                user_name TEXT
+            )",
+            [],
+        )
+        .expect("create Name2Id table");
+        conn.execute(
+            "INSERT INTO Name2Id(rowid, user_name) VALUES (?1, ?2)",
+            rusqlite::params![42_i64, "wxid_alice"],
+        )
+        .expect("insert Name2Id row");
+        conn.execute(
+            "CREATE TABLE Msg_test (
+                local_id INTEGER,
+                local_type INTEGER,
+                create_time INTEGER,
+                real_sender_id INTEGER,
+                message_content TEXT,
+                WCDB_CT_message_content INTEGER
+            )",
+            [],
+        )
+        .expect("create message table");
+        conn.execute(
+            "INSERT INTO Msg_test VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![1_i64, 1_i64, 1775146911_i64, 42_i64, "needle", 0_i64],
+        )
+        .expect("insert text message");
+
+        let names = HashMap::from([("wxid_alice".to_string(), "Alice Contact".to_string())]);
+        let group_nicknames = HashMap::from([("wxid_alice".to_string(), "同名".to_string())]);
+        let rows = search_in_table(
+            &conn,
+            "Msg_test",
+            "123@chatroom",
+            true,
+            &names,
+            &group_nicknames,
+            "needle",
+            None,
+            None,
+            None,
+            10,
+        )
+        .expect("search messages");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["sender"].as_str(), Some("同名"));
+        assert_eq!(rows[0]["sender_username"].as_str(), Some("wxid_alice"));
+        assert_eq!(rows[0]["sender_contact_display"].as_str(), Some("Alice Contact"));
+        assert_eq!(rows[0]["sender_group_nickname"].as_str(), Some("同名"));
     }
 
     #[test]
@@ -2753,6 +2927,7 @@ pub async fn q_new_messages(
                 let mut result = Vec::new();
                 for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
                     let content = decompress_message(&content_bytes, ct);
+                    let sender_username = sender_username(real_sender_id, &content, is_group, &uname2, &id2u);
                     let sender = sender_label(
                         real_sender_id,
                         &content,
@@ -2775,6 +2950,7 @@ pub async fn q_new_messages(
                         "content": text,
                         "type": fmt_type(local_type),
                     });
+                    add_sender_identity(&mut msg, is_group, &sender_username, &names_map, &group_nicknames2);
                     if let Some(u) = url {
                         msg["url"] = serde_json::Value::String(u);
                     }
@@ -4569,8 +4745,14 @@ mod group_nickname_tests {
 
         assert_eq!(top.len(), 2);
         assert_eq!(top[0]["sender"].as_str(), Some("同名"));
+        assert_eq!(top[0]["sender_username"].as_str(), Some("wxid_alice"));
+        assert_eq!(top[0]["sender_contact_display"].as_str(), Some("Alice Contact"));
+        assert_eq!(top[0]["sender_group_nickname"].as_str(), Some("同名"));
         assert_eq!(top[0]["count"].as_i64(), Some(7));
         assert_eq!(top[1]["sender"].as_str(), Some("同名"));
+        assert_eq!(top[1]["sender_username"].as_str(), Some("wxid_bob"));
+        assert_eq!(top[1]["sender_contact_display"].as_str(), Some("Bob Contact"));
+        assert_eq!(top[1]["sender_group_nickname"].as_str(), Some("同名"));
         assert_eq!(top[1]["count"].as_i64(), Some(3));
     }
 }
