@@ -16,16 +16,22 @@ pub mod sns_feed;
 pub mod sns_notifications;
 pub mod sns_search;
 pub mod stats;
+pub mod toolkit;
 pub mod transport;
 pub mod unread;
+pub mod voices;
 
 use self::output::OutputOpts;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-/// wx — 微信本地数据 CLI
+/// wx — 微信本地数据 CLI（leyan 本地增强版）
 #[derive(Parser)]
-#[command(name = "wx", version = env!("CARGO_PKG_VERSION"), about = "wx — 微信本地数据 CLI")]
+#[command(
+    name = "wx",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "wx — 微信本地数据 CLI（leyan 本地增强版）"
+)]
 pub struct Cli {
     /// 返回更重的 freshness/source 元数据（如 per-shard latest、cache modes）
     #[arg(long, global = true)]
@@ -309,6 +315,37 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// 导出微信语音消息为 .silk，并生成 .voice.json 证据文件
+    Voices {
+        /// 会话名称（可选；省略则导出全部语音）
+        chat: Option<String>,
+        /// 输出目录
+        #[arg(short = 'o', long)]
+        output: String,
+        /// 最多导出条数
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+        /// 分页偏移
+        #[arg(long, default_value = "0")]
+        offset: usize,
+        /// 起始时间 YYYY-MM-DD
+        #[arg(long)]
+        since: Option<String>,
+        /// 结束时间 YYYY-MM-DD
+        #[arg(long)]
+        until: Option<String>,
+        /// 目标已存在时覆盖
+        #[arg(long)]
+        overwrite: bool,
+        /// 输出 JSON（默认 YAML）
+        #[arg(long)]
+        json: bool,
+    },
+    /// 调用本机 wechat-decrypt 工具箱能力（解密、图片、朋友圈、Web UI 等）
+    Toolkit {
+        #[command(subcommand)]
+        cmd: toolkit::ToolkitCommands,
+    },
     /// 管理 wx-daemon
     Daemon {
         #[command(subcommand)]
@@ -520,6 +557,17 @@ fn dispatch(cli: Cli) -> Result<()> {
             overwrite,
             json,
         } => extract::cmd_extract(attachment_id, output, overwrite, json),
+        Commands::Voices {
+            chat,
+            output,
+            limit,
+            offset,
+            since,
+            until,
+            overwrite,
+            json,
+        } => voices::cmd_voices(chat, output, limit, offset, since, until, overwrite, json),
+        Commands::Toolkit { cmd } => toolkit::cmd_toolkit(cmd),
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
 }

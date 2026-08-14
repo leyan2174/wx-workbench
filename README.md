@@ -313,6 +313,37 @@ wx daemon stop
 wx daemon logs --follow
 ```
 
+### 本机 wechat-decrypt 工具箱
+
+本机增强版 `wx` 是 leyan 自己维护的本地开发版本，当前自定义版本号为 `0.3.0-leyan.1`。它已接入 `ylytdeng/wechat-decrypt` 的 Python 工具箱。`wechat-decrypt` 源码已随包放在 `wx-cli` 源码树下，打包 `wx-cli` 时可形成完整源码包：
+
+```text
+vendor\wechat-decrypt
+```
+
+`wx toolkit` 不在源码中写死本机绝对路径。路径解析顺序：
+
+1. `WX_WECHAT_DECRYPT_DIR` / `WX_WECHAT_DECRYPT_PYTHON`
+2. 可执行文件旁的相对目录，如 `vendor\wechat-decrypt`
+3. 当前工作目录下的 `vendor\wechat-decrypt`
+4. Python 未指定时尝试 `.venv\Scripts\python.exe`，最后尝试 `python`
+
+本机安装时可以在 wrapper 脚本或系统环境变量里指定 Python 路径，避免把个人路径提交进源码。
+
+常用命令：
+
+```bash
+wx toolkit status --json
+wx toolkit run status
+wx toolkit decrypt
+wx toolkit export-chats
+wx toolkit export-sns --contacts "丁秋玲"
+wx toolkit decode-images --decoded-dir decoded_images
+wx toolkit decode-image input.dat output.jpg
+wx toolkit web
+wx toolkit gui
+```
+
 ---
 
 ## 架构
