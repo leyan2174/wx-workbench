@@ -2,13 +2,13 @@
 
 # wx-cli
 
-**从命令行查询本地微信数据**
+**从命令行查询、导出和整理本地微信数据**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#安装)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
-会话 · 聊天记录 · 搜索 · 联系人 · 群成员 · 群昵称 · 收藏 · 统计 · 导出
+会话 · 聊天记录 · 搜索 · 联系人 · 群成员 · 朋友圈 · 附件 · 语音 · 导出
 
 </div>
 
@@ -19,13 +19,13 @@
 通过 [skills CLI](https://github.com/vercel-labs/skills) 一键安装到 Claude Code、Cursor、Codex 等 agent：
 
 ```bash
-npx skills add jackwener/wx-cli
+npx skills add lvsong/wx-cli
 ```
 
 或全局安装：
 
 ```bash
-npx skills add jackwener/wx-cli -g
+npx skills add lvsong/wx-cli -g
 ```
 
 安装后 agent 会自动读取 `SKILL.md`，了解如何安装和调用 wx-cli。
@@ -38,35 +38,54 @@ npx skills add jackwener/wx-cli -g
 - **毫秒级响应** — 后台 daemon 持久缓存解密数据库，mtime 不变则复用
 - **AI 友好** — `history` / `search` / `sessions` / `new-messages` / `stats` / `attachments` 默认返回 `{..., meta}` wrapper，agent 能直接消费 freshness / source 信息
 - **完全本地** — 数据不出本机，实时解密，无需全量预解密
+- **语音原始导出** — 从微信媒体数据库导出 `.silk`，同时生成可追溯的 `.voice.json`
+- **工具箱集成** — 内置 `ylytdeng/wechat-decrypt` 源码入口，统一调用数据库、图片、朋友圈和语音处理能力
+
+### lvsong 增强内容
+
+本仓库在原版 `wx-cli` 基础上增加了 Windows 微信资料整理所需的两组能力：
+
+- `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
+- `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
+
+当前增强版版本号为 `0.3.0-leyan.1`。
 
 ---
 
 ## 安装
 
-**npm（推荐，全平台）**
+**从源码构建增强版（推荐）**
 
 ```bash
-npm install -g @jackwener/wx-cli
+git clone https://github.com/lvsong/wx-cli.git
+cd wx-cli
+cargo build --release
 ```
 
-**macOS / Linux（curl）**
+构建产物：
+
+```text
+target/release/wx
+target/release/wx.exe
+```
+
+验证增强命令：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jackwener/wx-cli/main/install.sh | bash
+wx --version
+wx voices --help
+wx toolkit status --json
 ```
 
-**Windows**（PowerShell，以管理员身份运行）
-
-```powershell
-irm https://raw.githubusercontent.com/jackwener/wx-cli/main/install.ps1 | iex
-```
+> `@jackwener/wx-cli` npm 包属于原始基础版，不包含本仓库新增的
+> `voices` 和 `toolkit` 功能。
 
 <details>
 <summary>其他安装方式</summary>
 
 **手动下载**
 
-从 [Releases](https://github.com/jackwener/wx-cli/releases) 下载对应平台文件：
+从 [Releases](https://github.com/lvsong/wx-cli/releases) 下载对应平台文件：
 
 | 平台 | 文件 |
 |------|------|
@@ -77,14 +96,6 @@ irm https://raw.githubusercontent.com/jackwener/wx-cli/main/install.ps1 | iex
 | Windows x86_64 | `wx-windows-x86_64.exe` |
 
 macOS / Linux：`chmod +x wx && sudo mv wx /usr/local/bin/`
-
-**从源码构建**
-
-```bash
-git clone git@github.com:jackwener/wx-cli.git && cd wx-cli
-cargo build --release
-# 产物：target/release/wx（Windows: wx.exe）
-```
 
 </details>
 
@@ -313,9 +324,51 @@ wx daemon stop
 wx daemon logs --follow
 ```
 
-### 本机 wechat-decrypt 工具箱
+### 语音原始文件导出
 
-本机增强版 `wx` 是 leyan 自己维护的本地开发版本，当前自定义版本号为 `0.3.0-leyan.1`。它已接入 `ylytdeng/wechat-decrypt` 的 Python 工具箱。`wechat-decrypt` 源码已随包放在 `wx-cli` 源码树下，打包 `wx-cli` 时可形成完整源码包：
+增强版可以直接读取微信媒体数据库中的 `VoiceInfo`，导出 SILK 原始语音：
+
+```bash
+# 导出全部语音
+wx voices -o ./voice-export --json
+
+# 只导出指定联系人或群聊
+wx voices "张三" -o ./voice-export --json
+
+# 按时间范围导出
+wx voices -o ./voice-export --since 2025-01-01 --until 2025-12-31 --json
+
+# 分页或覆盖已有文件
+wx voices -o ./voice-export --offset 100 -n 200 --overwrite --json
+```
+
+首次使用前需运行 `wx init --force`，确保 `all_keys.json` 中包含
+`message/media_*.db` 的密钥。
+
+每条语音会生成一份音频和一份证据文件：
+
+```text
+voice-export/
+├── 一对一聊天/
+│   └── 联系人名称/
+│       ├── <timestamp>_<local_id>.silk
+│       └── <timestamp>_<local_id>.voice.json
+├── 群聊/
+│   └── 群名称/
+│       ├── <timestamp>_<local_id>.silk
+│       └── <timestamp>_<local_id>.voice.json
+└── _voice_export_summary.json
+```
+
+`.voice.json` 保留会话标识、时间、消息 ID、媒体数据库来源、SILK
+头校验和文件路径，便于后续 ASR、校对和回写聊天记录。文件名使用
+`timestamp + local_id` 作为稳定键。
+
+### wechat-decrypt 工具箱
+
+增强版已接入
+[ylytdeng/wechat-decrypt](https://github.com/ylytdeng/wechat-decrypt) Python
+工具箱。相关源码随仓库保存在：
 
 ```text
 vendor\wechat-decrypt
@@ -328,7 +381,18 @@ vendor\wechat-decrypt
 3. 当前工作目录下的 `vendor\wechat-decrypt`
 4. Python 未指定时尝试 `.venv\Scripts\python.exe`，最后尝试 `python`
 
-本机安装时可以在 wrapper 脚本或系统环境变量里指定 Python 路径，避免把个人路径提交进源码。
+建议先复制配置模板并按本机环境填写：
+
+```powershell
+Copy-Item vendor\wechat-decrypt\config.example.json vendor\wechat-decrypt\config.json
+```
+
+`config.json` 已被 Git 忽略，不会误提交本机路径或密钥。也可以使用环境变量：
+
+```powershell
+$env:WX_WECHAT_DECRYPT_DIR='D:\tools\wechat-decrypt'
+$env:WX_WECHAT_DECRYPT_PYTHON='D:\tools\wechat-decrypt\.venv\Scripts\python.exe'
+```
 
 常用命令：
 
@@ -340,9 +404,40 @@ wx toolkit export-chats
 wx toolkit export-sns --contacts "丁秋玲"
 wx toolkit decode-images --decoded-dir decoded_images
 wx toolkit decode-image input.dat output.jpg
+wx toolkit batch-decrypt-images input_dir output_dir
+wx toolkit voice-to-mp3 input.silk output.mp3
+wx toolkit transcribe-chat exported_chat.json transcribed_chat.json
 wx toolkit web
 wx toolkit gui
 ```
+
+#### SILK 转 MP3
+
+`wx toolkit voice-to-mp3` 使用随仓库保存的
+`vendor\wechat-decrypt\wx_toolkit_voice_to_mp3.py`。该脚本用于转换单个
+微信 SILK 文件：
+
+```bash
+# 指定输出文件
+wx toolkit voice-to-mp3 input.silk output.mp3
+
+# 省略输出路径时，在输入文件旁生成同名 .mp3
+wx toolkit voice-to-mp3 input.silk
+```
+
+转换时会移除微信语音可能携带的 `0x02` 前缀，校验 `#!SILK_V3`
+文件头并补齐结束标记；随后通过 `pilk` 解码为 24 kHz、单声道、
+16-bit PCM，再调用 `ffmpeg` 编码为 MP3。
+
+运行前需在工具箱使用的 Python 环境中安装 `pilk`，并确保
+`ffmpeg` 已加入 `PATH`：
+
+```powershell
+& $env:WX_WECHAT_DECRYPT_PYTHON -m pip install pilk
+ffmpeg -version
+```
+
+运行前可以用 `wx toolkit status --json` 检查 Python、配置文件和各脚本是否可用。
 
 ---
 
