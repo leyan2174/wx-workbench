@@ -473,7 +473,29 @@ daemon 首次解密后将数据库和 mtime 持久化到 `~/.wx-cli/cache/`。�
 
 微信 4.x 使用 SQLCipher 4 加密本地数据库（AES-256-CBC + HMAC-SHA512，PBKDF2 256,000 次迭代）。WCDB 在进程内存中缓存派生后的 raw key，格式为 `x'<64hex_key><32hex_salt>'`。
 
-wx-cli 通过 macOS Mach VM API（`mach_vm_region` + `mach_vm_read`）、Linux `/proc/<pid>/mem` 或 Windows `VirtualQueryEx` + `ReadProcessMemory`（需要 `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION` 权限）扫描微信进程内存，匹配该模式提取密钥，daemon 按需解密并缓存。
+wx-cli 在 macOS 上通过 Mach VM API（`mach_vm_region` + `mach_vm_read`），在 Linux 上通过 `/proc/<pid>/mem` 扫描微信进程内存。Windows 根据 `Weixin.exe` 文件版本选择密钥提供器：
+
+- **微信 4.1.9 及更早版本**：使用 legacy raw-key provider，通过 `VirtualQueryEx` + `ReadProcessMemory` 扫描 `x'<key><salt>'` 候选，并使用数据库 salt 逐一验证。
+- **微信 4.1.10 及更新版本**：使用 `Config.Cipher` provider，从多个微信进程只读提取候选并验证；验证不完整时停止更新，不使用旧版扫描方式回退，也不会覆盖已有 `all_keys.json`。
+
+成功提取后，daemon 按需解密数据库并缓存结果。
+
+### Windows 兼容性验证
+
+2026-08-18 使用 `wx 0.3.0-leyan.2` 对 Windows 微信 `4.1.9.57` 完成实机回归测试：
+
+| 检查项 | 结果 |
+| --- | --- |
+| 版本识别与 provider 分流 | 正确识别 `4.1.9.57`，选择 legacy raw-key provider |
+| 加密数据库 | 发现 27 个 |
+| 内存候选 | 发现 38 个 |
+| 密钥匹配 | 27 个数据库全部匹配 |
+| 新旧结果一致性 | 原有 26 条密钥全部一致，无变更、无丢失 |
+| 新发现数据库 | `migrate/unspportmsg.db` 1 个 |
+| 输出完整性 | 27 条密钥格式均有效，27 个对应数据库文件均存在 |
+| 解密读取 | `wx sessions` 与 `wx contacts` 均可正常读取 |
+
+该测试确认微信 `4.1.9.x` 的 legacy 密钥导出路径在引入 `4.1.10+` provider 后没有发生兼容性回归。密钥值、账号信息和本机数据路径未写入测试记录。
 
 ---
 
