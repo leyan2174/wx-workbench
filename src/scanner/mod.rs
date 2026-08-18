@@ -20,16 +20,20 @@ pub struct KeyEntry {
     pub salt: String,
 }
 
-/// 从进程内存中扫描所有 SQLCipher 密钥
-///
-/// 需要以 root/Administrator 权限运行
+/// 从进程内存中扫描所有 SQLCipher 密钥。
+#[allow(dead_code)]
 pub fn scan_keys(db_dir: &Path) -> Result<Vec<KeyEntry>> {
+    scan_keys_with_options(db_dir, "Weixin.exe")
+}
+
+/// 从进程内存中扫描所有 SQLCipher 密钥，并允许 Windows 端指定进程名。
+pub fn scan_keys_with_options(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
     #[cfg(target_os = "macos")]
     return macos::scan_keys(db_dir);
     #[cfg(target_os = "linux")]
     return linux::scan_keys(db_dir);
     #[cfg(target_os = "windows")]
-    return windows::scan_keys(db_dir);
+    return windows::scan_keys(db_dir, process_name);
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         anyhow::bail!("当前平台不支持自动密钥扫描")

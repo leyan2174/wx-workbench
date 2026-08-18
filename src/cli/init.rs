@@ -46,7 +46,21 @@ pub fn cmd_init(force: bool) -> Result<()> {
 
     // Step 2: 扫描密钥（需要 root/sudo）
     println!("扫描加密密钥（需要 root 权限）...");
-    let entries = scanner::scan_keys(&db_dir)?;
+    let scan_config = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+    let process_name = scan_config
+        .as_ref()
+        .and_then(|cfg| cfg.get("wechat_process"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("Weixin.exe");
+    let entries = scanner::scan_keys_with_options(&db_dir, process_name)?;
+    if entries.is_empty() {
+        anyhow::bail!(
+            "未验证到任何数据库密钥，已保留现有 all_keys.json；请确认微信已登录且数据目录正确"
+        );
+    }
 
     // === 权限边界 ===
     // 扫描完成后立即 drop 到调用用户身份，后续文件写入都是用户属主。
