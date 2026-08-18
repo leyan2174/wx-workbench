@@ -101,6 +101,18 @@ impl DbCache {
         &self.db_dir
     }
 
+    /// 丢弃指定数据库的缓存记录，使下次访问重新完整解密。
+    pub async fn invalidate(&self, rel_key: &str) -> bool {
+        let removed = {
+            let mut inner = self.inner.lock().await;
+            inner.remove(rel_key).is_some()
+        };
+        if removed {
+            self.save_persistent().await;
+        }
+        removed
+    }
+
     fn cache_file_path(&self, rel_key: &str) -> PathBuf {
         let hash = format!("{:x}", md5::compute(rel_key.as_bytes()));
         self.cache_dir.join(format!("{}.db", hash))
@@ -429,6 +441,20 @@ mod tests {
         // 完全 hit → cached file 内容不应被改
         let body = std::fs::read(&decrypted_path).unwrap();
         assert_eq!(body, ORIGINAL_CACHED_BYTES);
+    }
+
+    #[tokio::test]
+    async fn invalidate_removes_memory_and_persistent_entries() {
+        let (cache, _db_path, _decrypted_path, mtime_file, rel_key) =
+            setup_seeded_cache("invalidate").await;
+
+        assert!(cache.invalidate(&rel_key).await);
+        assert!(!cache.inner.lock().await.contains_key(&rel_key));
+
+        let persisted: HashMap<String, MtimeEntry> =
+            serde_json::from_str(&std::fs::read_to_string(mtime_file).unwrap()).unwrap();
+        assert!(!persisted.contains_key(&rel_key));
+        assert!(!cache.invalidate(&rel_key).await);
     }
 
     #[tokio::test]

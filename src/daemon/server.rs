@@ -307,7 +307,24 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        ReloadConfig => Response::ok(serde_json::json!({ "reloading": true })),
+        ReloadConfig => {
+            match query::load_names_with_retry(
+                db,
+                3,
+                std::time::Duration::from_millis(300),
+            )
+            .await
+            {
+                Ok(mut fresh) => {
+                    fresh.msg_db_keys = names_arc.msg_db_keys.clone();
+                    fresh.biz_msg_db_keys = names_arc.biz_msg_db_keys.clone();
+                    let count = fresh.map.len();
+                    *names.write().await = Arc::new(fresh);
+                    Response::ok(serde_json::json!({ "reloaded": true, "contacts": count }))
+                }
+                Err(error) => Response::err(format!("重新加载联系人失败: {}", error)),
+            }
+        }
         BizArticles {
             limit,
             account,

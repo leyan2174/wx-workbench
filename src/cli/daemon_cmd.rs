@@ -1,14 +1,27 @@
 use crate::cli::transport;
 use crate::cli::DaemonCommands;
 use crate::config;
+use crate::ipc::Request;
 use anyhow::Result;
 
 pub fn cmd_daemon(cmd: DaemonCommands) -> Result<()> {
     match cmd {
         DaemonCommands::Status => cmd_status(),
         DaemonCommands::Stop => cmd_stop(),
+        DaemonCommands::Reload => cmd_reload(),
         DaemonCommands::Logs { follow, lines } => cmd_logs(follow, lines),
     }
+}
+
+fn cmd_reload() -> Result<()> {
+    let response = transport::send(Request::ReloadConfig)?;
+    let count = response
+        .data
+        .get("contacts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    println!("已重新加载联系人缓存（{} 个）", count);
+    Ok(())
 }
 
 fn cmd_status() -> Result<()> {

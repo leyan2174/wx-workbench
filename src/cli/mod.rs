@@ -359,6 +359,8 @@ pub enum DaemonCommands {
     Status,
     /// 停止 daemon
     Stop,
+    /// 重新加载联系人缓存
+    Reload,
     /// 查看 daemon 日志
     Logs {
         /// 持续输出（tail -f）

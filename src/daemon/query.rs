@@ -6,9 +6,12 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use super::cache::{CacheMode, DbCache};
 use super::meta::{derive_status, discover_unknown_shards, Meta};
+
+const CONTACT_DB_KEY: &str = "contact/contact.db";
 
 /// 静态编译的 Msg 表名正则，避免在热路径中重复编译
 fn msg_table_re() -> &'static Regex {
@@ -226,40 +229,42 @@ async fn session_last_timestamp(db: &DbCache, username: &str) -> Option<i64> {
 
 /// 加载联系人缓存（从 contact/contact.db）
 pub async fn load_names(db: &DbCache) -> Result<Names> {
-    let path = db.get("contact/contact.db").await?;
+    let path = db
+        .get(CONTACT_DB_KEY)
+        .await?
+        .context("找不到 contact/contact.db 的密钥或数据库文件")?;
     let mut map = HashMap::new();
     let mut verify_flags: HashMap<String, i64> = HashMap::new();
-    if let Some(p) = path {
-        let p2 = p.clone();
-        let rows: Vec<(String, String, String, i64)> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&p2).context("打开 contact.db 失败")?;
-            let mut stmt =
-                conn.prepare("SELECT username, nick_name, remark, verify_flag FROM contact")?;
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1).unwrap_or_default(),
-                        row.get::<_, String>(2).unwrap_or_default(),
-                        row.get::<_, i64>(3).unwrap_or(0),
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok::<_, anyhow::Error>(rows)
-        })
-        .await??;
+    let rows: Vec<(String, String, String, i64)> = tokio::task::spawn_blocking(move || {
+        let conn = Connection::open(&path).context("打开 contact.db 失败")?;
+        let mut stmt =
+            conn.prepare("SELECT username, nick_name, remark, verify_flag FROM contact")?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1).unwrap_or_default(),
+                    row.get::<_, String>(2).unwrap_or_default(),
+                    row.get::<_, i64>(3).unwrap_or(0),
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok::<_, anyhow::Error>(rows)
+    })
+    .await??;
 
-        for (uname, nick, remark, vf) in rows {
-            let display = if !remark.is_empty() {
-                remark
-            } else if !nick.is_empty() {
-                nick
-            } else {
-                uname.clone()
-            };
-            verify_flags.insert(uname.clone(), vf);
-            map.insert(uname, display);
-        }
+    anyhow::ensure!(!rows.is_empty(), "contact 表没有返回任何联系人");
+
+    for (uname, nick, remark, vf) in rows {
+        let display = if !remark.is_empty() {
+            remark
+        } else if !nick.is_empty() {
+            nick
+        } else {
+            uname.clone()
+        };
+        verify_flags.insert(uname.clone(), vf);
+        map.insert(uname, display);
     }
 
     let md5_to_uname: HashMap<String, String> = map
@@ -274,6 +279,39 @@ pub async fn load_names(db: &DbCache) -> Result<Names> {
         biz_msg_db_keys: Vec::new(),
         verify_flags,
     })
+}
+
+/// 加载联系人失败时丢弃损坏缓存并重试。
+pub async fn load_names_with_retry(
+    db: &DbCache,
+    attempts: usize,
+    delay: Duration,
+) -> Result<Names> {
+    let attempts = attempts.max(1);
+    let mut last_error = None;
+    for attempt in 1..=attempts {
+        match load_names(db).await {
+            Ok(names) => return Ok(names),
+            Err(error) => {
+                eprintln!(
+                    "[daemon] 加载联系人失败 ({}/{}): {}",
+                    attempt, attempts, error
+                );
+                last_error = Some(error);
+            }
+        }
+        if attempt < attempts {
+            db.invalidate(CONTACT_DB_KEY).await;
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    let error = last_error.expect("至少执行一次联系人加载");
+    Err(anyhow::anyhow!(
+        "重试 {} 次后仍无法加载联系人: {}",
+        attempts,
+        error
+    ))
 }
 
 /// 查询最近会话列表
@@ -724,6 +762,11 @@ pub async fn q_search(
 /// 折叠入口（`brandsessionholder` / `@placeholder_foldgroup`）以及微信内部 `@xxx` 系统账号。
 /// 这些都不应该出现在 `wx contacts` 输出里，统一走 `chat_type_of` 这条同样的真相判定。
 pub async fn q_contacts(names: &Names, query: Option<&str>, limit: usize) -> Result<Value> {
+    anyhow::ensure!(
+        !names.map.is_empty(),
+        "联系人缓存不可用，请执行 `wx daemon reload` 后重试"
+    );
+
     let mut contacts: Vec<Value> = names
         .map
         .iter()
@@ -755,6 +798,24 @@ pub async fn q_contacts(names: &Names, query: Option<&str>, limit: usize) -> Res
     let total = contacts.len();
     contacts.truncate(limit);
     Ok(json!({ "contacts": contacts, "total": total }))
+}
+
+#[cfg(test)]
+mod contact_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn empty_contact_cache_is_an_error() {
+        let names = Names {
+            map: HashMap::new(),
+            md5_to_uname: HashMap::new(),
+            msg_db_keys: Vec::new(),
+            biz_msg_db_keys: Vec::new(),
+            verify_flags: HashMap::new(),
+        };
+        let error = q_contacts(&names, None, 20).await.unwrap_err();
+        assert!(error.to_string().contains("wx daemon reload"));
+    }
 }
 
 // ─── 内部辅助函数 ────────────────────────────────────────────────────────────

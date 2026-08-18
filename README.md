@@ -48,7 +48,7 @@ npx skills add lvsong/wx-cli -g
 - `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
 - `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
 
-当前增强版版本号为 `0.3.0-leyan.1`。
+当前增强版版本号为 `0.3.0-leyan.2`。
 
 ---
 
@@ -320,9 +320,12 @@ wx history "张三" --json --with-meta | jq '.meta.cache_mode_per_shard'
 
 ```bash
 wx daemon status
+wx daemon reload
 wx daemon stop
 wx daemon logs --follow
 ```
+
+`wx daemon reload` 会丢弃并重新解密联系人数据库缓存，用于恢复微信更新数据库时 daemon 恰好启动所造成的联系人加载失败。
 
 ### 语音原始文件导出
 

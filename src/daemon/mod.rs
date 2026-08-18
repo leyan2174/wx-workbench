@@ -87,16 +87,12 @@ async fn async_run() -> Result<()> {
 
     // 预热：加载联系人 + 解密 session.db
     eprintln!("[daemon] 预热...");
-    let names_raw = query::load_names(&*db).await.unwrap_or_else(|e| {
-        eprintln!("[daemon] 加载联系人失败: {}", e);
-        query::Names {
-            map: HashMap::new(),
-            md5_to_uname: HashMap::new(),
-            msg_db_keys: Vec::new(),
-            biz_msg_db_keys: Vec::new(),
-            verify_flags: HashMap::new(),
-        }
-    });
+    let names_raw = query::load_names_with_retry(
+        &db,
+        5,
+        std::time::Duration::from_millis(300),
+    )
+    .await?;
     let mut names = names_raw;
     names.msg_db_keys = msg_db_keys;
     names.biz_msg_db_keys = biz_msg_db_keys;
