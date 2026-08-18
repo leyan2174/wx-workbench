@@ -50,6 +50,9 @@ npx skills add lvsong/wx-cli -g
 
 当前增强版版本号为 `0.3.0-leyan.2`。
 
+Windows 微信 4.1.12.26 的新版密钥提供器已经完成本机端到端验证，详见
+[Windows 新版微信密钥导出验证记录](docs/windows-wechat-4.1-key-provider-verification.md)。
+
 ---
 
 ## 安装
