@@ -237,7 +237,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// 导出指定联系人的朋友圈文字、图片和相册 HTML
+    /// 导出指定联系人的朋友圈文字、图片、视频和相册 HTML
     SnsAlbum {
         /// 作者昵称、备注名或微信 ID
         user: String,
@@ -253,9 +253,12 @@ enum Commands {
         /// 结束时间 YYYY-MM-DD
         #[arg(long)]
         until: Option<String>,
-        /// 只恢复本地缓存图片，不尝试 CDN 明文图片
+        /// 只恢复本地缓存媒体，不进行图片或视频网络下载
         #[arg(long)]
         no_remote: bool,
+        /// 不导出视频
+        #[arg(long)]
+        no_videos: bool,
     },
     /// 查询公众号文章推送（本地缓存）
     BizArticles {
@@ -544,7 +547,10 @@ fn dispatch(cli: Cli) -> Result<()> {
             since,
             until,
             no_remote,
-        } => sns_album::cmd_sns_album(user, output, limit, since, until, no_remote),
+            no_videos,
+        } => sns_album::cmd_sns_album(
+            user, output, limit, since, until, no_remote, no_videos,
+        ),
         Commands::SnsSearch {
             keyword,
             limit,

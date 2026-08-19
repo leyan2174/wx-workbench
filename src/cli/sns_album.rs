@@ -11,6 +11,7 @@ pub fn cmd_sns_album(
     since: Option<String>,
     until: Option<String>,
     no_remote: bool,
+    no_videos: bool,
 ) -> Result<()> {
     transport::ensure_daemon()?;
     let wx_exe = std::env::current_exe().context("无法定位当前 wx 可执行文件")?;
@@ -29,6 +30,9 @@ pub fn cmd_sns_album(
     push_option(&mut args, "--until", until);
     if no_remote {
         args.push("--no-remote".to_string());
+    }
+    if no_videos {
+        args.push("--no-videos".to_string());
     }
     toolkit::run_script("export_sns_album.py", args, None)
 }

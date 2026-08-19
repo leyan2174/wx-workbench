@@ -3675,8 +3675,10 @@ fn parse_media_from_timeline(timeline: Node) -> Vec<Value> {
             let url_el = xml_child(media, "url");
             let thumb_el = xml_child(media, "thumb");
             let size_el = xml_child(media, "size");
+            let enc_el = xml_child(media, "enc");
             let mut out = serde_json::Map::new();
 
+            insert_media_string(&mut out, "id", xml_text(xml_child(media, "id")));
             insert_media_string(&mut out, "type", xml_text(xml_child(media, "type")));
             insert_media_string(&mut out, "sub_type", xml_text(xml_child(media, "sub_type")));
             insert_media_string(&mut out, "url", xml_text(url_el));
@@ -3688,6 +3690,7 @@ fn parse_media_from_timeline(timeline: Node) -> Vec<Value> {
             insert_media_string(&mut out, "thumb_key", xml_attr(thumb_el, "key"));
             insert_media_string(&mut out, "thumb_token", xml_attr(thumb_el, "token"));
             insert_media_string(&mut out, "thumb_enc_idx", xml_attr(thumb_el, "enc_idx"));
+            insert_media_string(&mut out, "enc_key", xml_attr(enc_el, "key"));
             insert_media_i64(
                 &mut out,
                 "width",
@@ -3706,7 +3709,7 @@ fn parse_media_from_timeline(timeline: Node) -> Vec<Value> {
             insert_media_string(
                 &mut out,
                 "video_md5",
-                xml_text(xml_child(media, "videomd5")),
+                xml_text(xml_child(media, "videomd5")).or_else(|| xml_attr(url_el, "videomd5")),
             );
             insert_media_i64(
                 &mut out,
@@ -3735,6 +3738,7 @@ fn parse_post_media(xml: &str) -> Vec<Value> {
 /// SnsTimeLine 行解析产物。不含 display name（依赖 Names，需要出 spawn_blocking 再补）。
 struct ParsedPost {
     tid: i64,
+    post_id: String,
     create_time: i64,
     author_username: String,
     content: String,
@@ -3762,6 +3766,7 @@ fn parse_post_xml_fallback(tid: i64, user_name_column: &str, content: &str) -> P
 
     ParsedPost {
         tid,
+        post_id: extract_xml_text(content, "id").unwrap_or_default(),
         create_time,
         author_username,
         content: text,
@@ -3792,6 +3797,7 @@ fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
     let text = xml_text(xml_child(timeline, "contentDesc")).unwrap_or_default();
+    let post_id = xml_text(xml_child(timeline, "id")).unwrap_or_default();
     let author_username = if user_name_column.is_empty() {
         xml_text(xml_child(timeline, "username")).unwrap_or_default()
     } else {
@@ -3805,6 +3811,7 @@ fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost
 
     ParsedPost {
         tid,
+        post_id,
         create_time,
         author_username,
         content: text,
@@ -3821,6 +3828,7 @@ fn post_to_value(p: ParsedPost, names: &Names) -> Value {
     };
     json!({
         "tid": p.tid,
+        "post_id": p.post_id,
         "timestamp": p.create_time,
         "time": fmt_time(p.create_time, "%Y-%m-%d %H:%M"),
         "author_username": p.author_username,
@@ -5249,15 +5257,18 @@ mod sns_tests {
         let xml = r#"
 <SnsDataItem>
   <TimelineObject>
+    <id>18446744073709551610</id>
     <ContentObject>
       <mediaList>
         <media>
+          <id>12345678901234567890</id>
           <type>15</type>
           <url enc_idx="1" key="placeholder-video-key" token="placeholder-video-token">https://szmmsns.qpic.cn/&lt;redacted&gt;/video.mp4</url>
           <thumb>https://szmmsns.qpic.cn/&lt;redacted&gt;/video-thumb.jpg</thumb>
           <size width="720" height="1280" />
           <videomd5>&lt;placeholder-video-md5&gt;</videomd5>
           <videoDuration>37</videoDuration>
+          <enc key="9876543210">1</enc>
         </media>
       </mediaList>
     </ContentObject>
@@ -5274,7 +5285,31 @@ mod sns_tests {
             Some("<placeholder-video-md5>")
         );
         assert_eq!(item.get("video_duration").and_then(Value::as_i64), Some(37));
+        assert_eq!(
+            item.get("id").and_then(Value::as_str),
+            Some("12345678901234567890")
+        );
+        assert_eq!(
+            item.get("enc_key").and_then(Value::as_str),
+            Some("9876543210")
+        );
         assert!(!item.contains_key("total_size"));
+    }
+
+    #[test]
+    fn parse_exposes_timeline_post_id() {
+        let xml = r#"
+<SnsDataItem>
+  <TimelineObject>
+    <id>18446744073709551610</id>
+    <createTime>1700000000</createTime>
+    <contentDesc>hello</contentDesc>
+  </TimelineObject>
+</SnsDataItem>
+        "#;
+
+        let post = parse_post_xml(-6, "wxid_test", xml);
+        assert_eq!(post.post_id, "18446744073709551610");
     }
 
     #[test]
