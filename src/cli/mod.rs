@@ -12,6 +12,7 @@ pub mod new_messages;
 pub mod output;
 pub mod search;
 pub mod sessions;
+pub mod sns_album;
 pub mod sns_feed;
 pub mod sns_notifications;
 pub mod sns_search;
@@ -235,6 +236,26 @@ enum Commands {
         /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
+    },
+    /// 导出指定联系人的朋友圈文字、图片和相册 HTML
+    SnsAlbum {
+        /// 作者昵称、备注名或微信 ID
+        user: String,
+        /// 输出根目录；命令会在其下创建带时间戳的相册目录
+        #[arg(short = 'o', long, default_value = ".")]
+        output: String,
+        /// 最多读取的朋友圈条数
+        #[arg(short = 'n', long, default_value = "5000")]
+        limit: usize,
+        /// 起始时间 YYYY-MM-DD
+        #[arg(long)]
+        since: Option<String>,
+        /// 结束时间 YYYY-MM-DD
+        #[arg(long)]
+        until: Option<String>,
+        /// 只恢复本地缓存图片，不尝试 CDN 明文图片
+        #[arg(long)]
+        no_remote: bool,
     },
     /// 查询公众号文章推送（本地缓存）
     BizArticles {
@@ -516,6 +537,14 @@ fn dispatch(cli: Cli) -> Result<()> {
             user,
             json,
         } => sns_feed::cmd_sns_feed(limit, since, until, user, json),
+        Commands::SnsAlbum {
+            user,
+            output,
+            limit,
+            since,
+            until,
+            no_remote,
+        } => sns_album::cmd_sns_album(user, output, limit, since, until, no_remote),
         Commands::SnsSearch {
             keyword,
             limit,

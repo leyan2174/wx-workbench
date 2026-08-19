@@ -48,7 +48,7 @@ npx skills add lvsong/wx-cli -g
 - `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
 - `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
 
-当前增强版版本号为 `0.3.0-leyan.2`。
+当前增强版版本号为 `0.3.0-leyan.3`。
 
 ---
 
@@ -219,12 +219,30 @@ wx sns-feed --since 2026-04-01 -n 100            # 按时间
 
 wx sns-search "关键词"                           # 全文搜索朋友圈正文
 wx sns-search "婚礼" --user "李四" --since 2023-01-01
+
+# 导出指定联系人的文字、图片和手机相册 HTML
+wx sns-album "张三" -o ./moments-export
+wx sns-album "张三" -o ./moments-export --since 2025-01-01 --until 2025-12-31
 ```
 
 - **sns-notifications** 返回互动通知：`type`（`like`/`comment`）、`from_nickname`、`content`（评论正文）、`feed_preview` + `feed_author`（对应原帖）
 - **sns-feed** / **sns-search** 返回朋友圈帖子：`author`、`content`（正文）、`media`、`media_count`、`location`、`timestamp`；`media` 字段含每张图的 url/thumb/key/token/md5/enc_idx/size，供下游做图片代理或离线渲染。`media_count = media.len()`，按 DOM 解析的合法 `<media>` 子节点计数（malformed XML 返回 0）
 
 朋友圈数据只覆盖你本地刷到过的帖子（微信 app 按需下载）。
+
+`sns-album` 会在输出根目录下创建带时间戳的相册目录：
+
+```text
+张三-朋友圈相册-YYYYMMDD-HHMMSS/
+├── timeline.json       # 完整结构化记录和媒体元数据
+├── timeline.html       # 可离线打开、兼顾手机阅读的相册
+├── export_summary.json # 导出计数与缺失图片统计
+└── images/             # 从本地 SNS 缓存恢复的图片
+```
+
+图片优先从微信本地 SNS 缓存恢复和解密；本地没有时，默认尝试仍可访问的明文 CDN 图片。使用 `--no-remote` 可完全禁止网络兜底。HTML 只显示有正文或已恢复图片的记录，会过滤没有可读内容的链接/空记录；`timeline.json` 仍保留完整查询结果作为结构化证据。视频只计数，不下载。
+
+该命令不会主动向微信服务器拉取历史朋友圈。若目标记录还没有出现在 `wx sns-feed --user "张三"` 中，需要先在微信客户端打开该联系人的朋友圈并加载相应时间范围。
 
 ### 公众号文章
 

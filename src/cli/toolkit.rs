@@ -241,6 +241,7 @@ fn cmd_status(json: bool) -> Result<()> {
         "decrypt_db.py",
         "export_all_chats.py",
         "export_sns.py",
+        "export_sns_album.py",
         "decode_image.py",
         "batch_decrypt_images.py",
         "voice_to_mp3.py",
@@ -282,7 +283,7 @@ fn run_main(command: String, args: Vec<String>) -> Result<()> {
     run_script("main.py", argv, None)
 }
 
-fn run_script(
+pub(crate) fn run_script(
     script: &str,
     args: Vec<String>,
     extra_env: Option<Vec<(String, String)>>,
