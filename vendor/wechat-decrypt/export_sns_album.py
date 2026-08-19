@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import hashlib
 import html
 import json
+import queue
 import re
 import shutil
 import subprocess
@@ -14,6 +16,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 
@@ -283,12 +286,6 @@ def download_decrypt_video(
                     if total > MAX_VIDEO_BYTES:
                         raise ValueError("SNS video exceeds the maximum allowed size")
                     output.write(chunk)
-        try:
-            expected_size = int(media.get("total_size") or 0)
-        except (TypeError, ValueError):
-            expected_size = 0
-        if expected_size and total != expected_size:
-            raise ValueError(f"video size mismatch: expected {expected_size}, got {total}")
         temporary.replace(destination)
         media["local_file"] = f"videos/{destination.name}"
         media["video_source"] = "remote"
@@ -315,33 +312,110 @@ def save_image(data: bytes, destination: Path, media: dict) -> bool:
     return True
 
 
-def download_plain_image(url: str, destination: Path, media: dict) -> bool:
+def reuse_existing_image(destination: Path, media: dict) -> bool:
+    for extension in ("jpg", "png", "gif", "webp"):
+        candidate = destination.with_suffix(f".{extension}")
+        try:
+            with candidate.open("rb") as stream:
+                header = stream.read(16)
+        except OSError:
+            continue
+        if detect_image_extension(header) != extension:
+            continue
+        media["local_file"] = f"images/{candidate.name}"
+        media["image_source"] = "existing"
+        media.pop("image_error", None)
+        return True
+    return False
+
+
+def reuse_existing_video(destination: Path, media: dict) -> bool:
+    destination = destination.with_suffix(".mp4")
+    try:
+        with destination.open("rb") as stream:
+            header = stream.read(16)
+        if not is_mp4(header):
+            return False
+        media["local_file"] = f"videos/{destination.name}"
+        media["video_source"] = "existing"
+        media["video_complete"] = True
+        media["video_bytes"] = destination.stat().st_size
+        media.pop("video_error", None)
+        return True
+    except OSError:
+        return False
+
+
+def sns_image_url_candidates(url: str, token: str) -> list[str]:
+    value = html.unescape(str(url or "")).strip()
+    if not value:
+        return []
+    value = re.sub(r"^http://", "https://", value, flags=re.I)
+    token = str(token or "").strip()
+
+    def signed(candidate: str) -> str:
+        if token and not re.search(r"(?:\?|&)token=", candidate, flags=re.I):
+            connector = "&" if "?" in candidate else "?"
+            candidate = f"{candidate}{connector}token={quote(token, safe='')}&idx=1"
+        return candidate
+
+    original_size = signed(value)
+    full_size = signed(re.sub(r"/(?:150|200|480)(?=($|\?))", "/0", value))
+    return list(dict.fromkeys((full_size, original_size)))
+
+
+def fix_sns_image_url(url: str, token: str) -> str:
+    candidates = sns_image_url_candidates(url, token)
+    return candidates[0] if candidates else ""
+
+
+def download_sns_image(
+    url: str,
+    key: str,
+    token: str,
+    destination: Path,
+    media: dict,
+    keystream: WasmKeystream,
+) -> bool:
     headers = {
         "User-Agent": "MicroMessenger Client",
         "Accept": "*/*",
         "Referer": "https://mp.weixin.qq.com/",
     }
-    try:
-        with urlopen(Request(url, headers=headers), timeout=5) as response:
-            data = response.read(25 * 1024 * 1024 + 1)
-        if not data or len(data) > 25 * 1024 * 1024:
-            return False
-        return save_image(data, destination, media)
-    except Exception:
+    fixed_urls = sns_image_url_candidates(url, token)
+    if not fixed_urls:
+        media["image_error"] = "missing image URL"
         return False
+    errors = []
+    for fixed_url in fixed_urls:
+        try:
+            with urlopen(Request(fixed_url, headers=headers), timeout=10) as response:
+                data = response.read(25 * 1024 * 1024 + 1)
+            if not data or len(data) > 25 * 1024 * 1024:
+                errors.append("image response is empty or too large")
+                continue
+            encrypted = detect_image_extension(data) is None
+            key = str(key or "").strip()
+            if encrypted and key and key != "0":
+                stream = keystream.generate(key, len(data))
+                data = bytes(value ^ stream[index] for index, value in enumerate(data))
+            if not save_image(data, destination, media):
+                errors.append("decrypted image format is not supported")
+                continue
+            media["image_source"] = "remote_decrypted" if encrypted else "remote"
+            media.pop("image_error", None)
+            return True
+        except Exception as error:
+            errors.append(clean_text(error))
+    media["image_error"] = "; ".join(errors)
+    return False
 
 
 def load_cache_helpers():
     import export_sns  # type: ignore
 
-    cache_index = export_sns._build_sns_cache_index()
     video_root = Path(export_sns.XWECHAT_CACHE_DIR) if export_sns.XWECHAT_CACHE_DIR else None
-    return export_sns, cache_index, [entry[0] for entry in cache_index], build_video_cache_index(video_root)
-
-
-def write_cache_image(export_sns, matched_path: str, destination: Path, media: dict) -> bool:
-    data = export_sns._decrypt_sns_dat(matched_path)
-    return bool(data) and save_image(data, destination, media)
+    return build_video_cache_index(video_root)
 
 
 def post_images(post: dict) -> list[dict]:
@@ -443,96 +517,151 @@ def build_html(user: str, posts: list[dict], output: Path) -> int:
 def export_album(args: argparse.Namespace) -> dict:
     posts = run_wx_sns_feed(args.wx_exe, args.user, args.limit, args.since, args.until)
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_dir = args.output_root / f"{safe_stem(args.user, 'contact')}-朋友圈相册-{run_id}"
+    output_dir = args.output_dir or (
+        args.output_root / f"{safe_stem(args.user, 'contact')}-朋友圈相册-{run_id}"
+    )
     image_dir = output_dir / "images"
     video_dir = output_dir / "videos"
-    image_dir.mkdir(parents=True, exist_ok=False)
-    video_dir.mkdir()
+    image_dir.mkdir(parents=True, exist_ok=bool(args.output_dir))
+    video_dir.mkdir(exist_ok=bool(args.output_dir))
 
-    export_sns, cache_index, index_mtimes, video_cache_index = load_cache_helpers()
+    video_cache_index = load_cache_helpers()
+    image_existing = 0
     image_cache = 0
     image_remote = 0
     image_missing = 0
+    image_items = []
     video_items = []
     for post_index, post in enumerate(posts, 1):
-        image_items = []
         for media_index, media in enumerate(post.get("media", []), 1):
             media_type = str(media.get("type"))
+            tid = safe_stem(post.get("tid"), str(post_index))
             if media_type in VIDEO_TYPES:
-                tid = safe_stem(post.get("tid"), str(post_index))
                 video_items.append(
                     (post, media, video_dir / f"{post_index:05d}_{tid}_{media_index:02d}.mp4")
                 )
                 continue
-            if media_type != "2":
-                continue
-            tid = safe_stem(post.get("tid"), str(post_index))
-            image_items.append((media, image_dir / f"{post_index:05d}_{tid}_{media_index:02d}.jpg"))
+            if media_type == "2":
+                image_items.append(
+                    (media, image_dir / f"{post_index:05d}_{tid}_{media_index:02d}.jpg")
+                )
 
-        timestamp = int(post.get("timestamp") or 0)
-        matches = export_sns._match_cache_images(
-            timestamp,
-            [media for media, _ in image_items],
-            cache_index,
-            index_mtimes,
-        ) if timestamp and image_items else [(None, None)] * len(image_items)
+    image_workers = max(1, min(args.image_workers, 32))
+    keystreams: queue.Queue[WasmKeystream] = queue.Queue()
+    engines = [WasmKeystream() for _ in range(image_workers)]
+    for engine in engines:
+        keystreams.put(engine)
 
-        for (media, destination), (matched_path, _format) in zip(image_items, matches):
-            if matched_path and write_cache_image(export_sns, matched_path, destination, media):
-                image_cache += 1
-                continue
-            downloaded = False
-            if not args.no_remote:
-                urls = []
-                for key in ("url", "thumb"):
-                    value = str(media.get(key) or "").strip()
-                    if value and value not in urls:
-                        urls.append(value)
-                downloaded = any(download_plain_image(url, destination, media) for url in urls)
-            if downloaded:
-                image_remote += 1
-            else:
-                image_missing += 1
+    def process_image(item: tuple[dict, Path]) -> str:
+        media, destination = item
+        if reuse_existing_image(destination, media):
+            return "existing"
+        if args.no_remote:
+            media["image_error"] = "remote download disabled"
+            return "missing"
+        engine = keystreams.get()
+        try:
+            candidates = [
+                (media.get("url"), media.get("url_key"), media.get("url_token")),
+                (media.get("thumb"), media.get("thumb_key"), media.get("thumb_token")),
+            ]
+            for url, key, token in candidates:
+                if download_sns_image(url, key, token, destination, media, engine):
+                    return "remote"
+            return "missing"
+        finally:
+            keystreams.put(engine)
 
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=image_workers) as executor:
+            for image_index, result in enumerate(executor.map(process_image, image_items), 1):
+                if result == "existing":
+                    image_existing += 1
+                elif result == "remote":
+                    image_remote += 1
+                else:
+                    image_missing += 1
+                if image_index % 250 == 0 or image_index == len(image_items):
+                    print(
+                        f"  图片 {image_index}/{len(image_items)}: "
+                        f"已有 {image_existing}, 下载 {image_remote}, 缺失 {image_missing}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+    finally:
+        for engine in engines:
+            engine.close()
+
+    video_existing = 0
     video_cache = 0
     video_remote = 0
     video_partial_cache = 0
     video_missing = 0
     if not args.no_videos:
-        with WasmKeystream() as keystream:
-            for video_index, (post, media, destination) in enumerate(video_items, 1):
-                cached = find_cached_video(post, media, video_cache_index)
-                cache_result = (
-                    copy_cached_video(cached, destination, media, allow_partial=False)
-                    if cached else None
-                )
-                if cache_result == "complete":
-                    video_cache += 1
-                    continue
+        video_workers = max(1, min(args.video_workers, 16))
+        video_keystreams: queue.Queue[WasmKeystream] = queue.Queue()
+        video_engines = [WasmKeystream() for _ in range(video_workers)]
+        for engine in video_engines:
+            video_keystreams.put(engine)
 
-                downloaded = False
-                if not args.no_remote:
+        def process_video(item: tuple[dict, dict, Path]) -> str:
+            post, media, destination = item
+            if reuse_existing_video(destination, media):
+                return "existing"
+            cached = find_cached_video(post, media, video_cache_index)
+            cache_result = (
+                copy_cached_video(cached, destination, media, allow_partial=False)
+                if cached else None
+            )
+            if cache_result == "complete":
+                return "cache"
+
+            downloaded = False
+            if not args.no_remote:
+                engine = video_keystreams.get()
+                try:
                     downloaded = download_decrypt_video(
                         str(media.get("url") or "").strip(),
                         str(media.get("enc_key") or "").strip(),
                         destination,
                         media,
-                        keystream,
+                        engine,
                     )
-                if downloaded:
-                    video_remote += 1
-                    print(f"  视频 {video_index}/{len(video_items)}: CDN 解密成功", file=sys.stderr, flush=True)
-                    continue
+                finally:
+                    video_keystreams.put(engine)
+            if downloaded:
+                return "remote"
 
-                cache_result = (
-                    copy_cached_video(cached, destination, media, allow_partial=True)
-                    if cached else None
-                )
-                if cache_result == "partial":
-                    video_partial_cache += 1
-                else:
-                    video_missing += 1
-                    print(f"  视频 {video_index}/{len(video_items)}: 未恢复", file=sys.stderr, flush=True)
+            cache_result = (
+                copy_cached_video(cached, destination, media, allow_partial=True)
+                if cached else None
+            )
+            return "partial" if cache_result == "partial" else "missing"
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=video_workers) as executor:
+                for video_index, result in enumerate(executor.map(process_video, video_items), 1):
+                    if result == "existing":
+                        video_existing += 1
+                    elif result == "cache":
+                        video_cache += 1
+                    elif result == "remote":
+                        video_remote += 1
+                    elif result == "partial":
+                        video_partial_cache += 1
+                    else:
+                        video_missing += 1
+                    if video_index % 25 == 0 or video_index == len(video_items):
+                        print(
+                            f"  视频 {video_index}/{len(video_items)}: 已有 {video_existing}, "
+                            f"缓存 {video_cache}, 下载 {video_remote}, "
+                            f"部分 {video_partial_cache}, 缺失 {video_missing}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+        finally:
+            for engine in video_engines:
+                engine.close()
 
     timeline_path = output_dir / "timeline.json"
     html_path = output_dir / "timeline.html"
@@ -544,13 +673,15 @@ def export_album(args: argparse.Namespace) -> dict:
         "album_posts": album_posts,
         "first": posts[-1].get("time") if posts else None,
         "last": posts[0].get("time") if posts else None,
-        "image_ok": image_cache + image_remote,
+        "image_ok": image_existing + image_cache + image_remote,
+        "image_existing": image_existing,
         "image_cache": image_cache,
         "image_remote": image_remote,
         "image_missing": image_missing,
         "video_total": len(video_items),
-        "video_ok": video_cache + video_remote + video_partial_cache,
-        "video_complete": video_cache + video_remote,
+        "video_ok": video_existing + video_cache + video_remote + video_partial_cache,
+        "video_complete": video_existing + video_cache + video_remote,
+        "video_existing": video_existing,
         "video_cache": video_cache,
         "video_remote": video_remote,
         "video_partial_cache": video_partial_cache,
@@ -571,8 +702,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export one contact's Moments text, images, and videos.")
     parser.add_argument("--wx-exe", type=Path, required=True)
     parser.add_argument("--user", required=True)
-    parser.add_argument("--output-root", type=Path, required=True)
+    output_group = parser.add_mutually_exclusive_group(required=True)
+    output_group.add_argument("--output-root", type=Path)
+    output_group.add_argument("--output-dir", type=Path)
     parser.add_argument("--limit", type=int, default=5000)
+    parser.add_argument("--image-workers", type=int, default=8)
+    parser.add_argument("--video-workers", type=int, default=4)
     parser.add_argument("--since")
     parser.add_argument("--until")
     parser.add_argument("--no-remote", action="store_true")

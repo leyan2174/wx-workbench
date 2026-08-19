@@ -115,6 +115,117 @@ class ExportSnsAlbumTests(unittest.TestCase):
         self.assertEqual(media["local_file"], "videos/sample.mp4")
         self.assertEqual(media["video_source"], "remote")
 
+    def test_download_video_ignores_unreliable_xml_total_size(self):
+        plaintext = b"\0\0\0\x18ftypisom" + b"video-data" * 20
+
+        class FakeResponse(io.BytesIO):
+            headers = {"Content-Length": str(len(plaintext))}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        media = {"total_size": 12345}
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "videos" / "sample.mp4"
+            destination.parent.mkdir()
+            with mock.patch.object(export_sns_album, "urlopen", return_value=FakeResponse(plaintext)):
+                ok = export_sns_album.download_decrypt_video(
+                    "https://example.invalid/video",
+                    "",
+                    destination,
+                    media,
+                    mock.Mock(),
+                )
+            restored = destination.read_bytes()
+        self.assertTrue(ok)
+        self.assertEqual(restored, plaintext)
+
+    def test_download_sns_image_decrypts_with_its_own_key(self):
+        plaintext = b"\xff\xd8\xff" + b"image-data" * 20 + b"\xff\xd9"
+        encrypted = bytes(value ^ 0xAA for value in plaintext)
+
+        class FakeResponse(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+
+        class FakeKeystream:
+            @staticmethod
+            def generate(_key, size):
+                return b"\xAA" * size
+
+        media = {}
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "images" / "sample.jpg"
+            destination.parent.mkdir()
+            with mock.patch.object(export_sns_album, "urlopen", return_value=FakeResponse(encrypted)) as opened:
+                ok = export_sns_album.download_sns_image(
+                    "http://example.invalid/image/150",
+                    "123",
+                    "token-value",
+                    destination,
+                    media,
+                    FakeKeystream(),
+                )
+            restored = destination.read_bytes()
+            requested_url = opened.call_args.args[0].full_url
+        self.assertTrue(ok)
+        self.assertEqual(restored, plaintext)
+        self.assertEqual(media["image_source"], "remote_decrypted")
+        self.assertEqual(requested_url, "https://example.invalid/image/0?token=token-value&idx=1")
+
+    def test_fix_sns_image_url_percent_encodes_token(self):
+        fixed = export_sns_album.fix_sns_image_url(
+            "http://example.invalid/image/150",
+            "abc+/=",
+        )
+        self.assertEqual(
+            fixed,
+            "https://example.invalid/image/0?token=abc%2B%2F%3D&idx=1",
+        )
+
+    def test_download_sns_image_falls_back_to_original_size(self):
+        image = b"\xff\xd8\xff" + b"image-data" * 20 + b"\xff\xd9"
+
+        class FakeResponse(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.close()
+
+        media = {}
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "images" / "sample.jpg"
+            destination.parent.mkdir()
+            with mock.patch.object(
+                export_sns_album,
+                "urlopen",
+                side_effect=[RuntimeError("HTTP 400"), FakeResponse(image)],
+            ) as opened:
+                ok = export_sns_album.download_sns_image(
+                    "http://example.invalid/image/150",
+                    "0",
+                    "token-value",
+                    destination,
+                    media,
+                    mock.Mock(),
+                )
+            requested_urls = [call.args[0].full_url for call in opened.call_args_list]
+        self.assertTrue(ok)
+        self.assertEqual(
+            requested_urls,
+            [
+                "https://example.invalid/image/0?token=token-value&idx=1",
+                "https://example.invalid/image/150?token=token-value&idx=1",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

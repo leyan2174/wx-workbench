@@ -485,6 +485,9 @@ def _try_download_media(url, save_path):
                 ext = '.gif'
             elif data[:4] == b'RIFF' and data[8:12] == b'WEBP':
                 ext = '.webp'
+            elif len(data) >= 12 and data[4:8] == b'ftyp':
+                brand = data[8:12].lower()
+                ext = '.mov' if brand == b'qt  ' else '.mp4'
             else:
                 ext = '.bin'
             if not os.path.splitext(save_path)[1]:
@@ -905,7 +908,7 @@ def export_sns_timeline():
                     save_name = os.path.join(sns_dir, f"{final_name}_{i}")
                     if _try_download_media(media_url, save_name):
                         # 下载成功后更新 image_files
-                        for cand_ext in ('.jpg', '.png', '.gif', '.webp', '.bin'):
+                        for cand_ext in ('.jpg', '.png', '.gif', '.webp', '.mp4', '.mov', '.bin'):
                             if os.path.exists(save_name + cand_ext):
                                 if final_name not in image_files:
                                     image_files[final_name] = []

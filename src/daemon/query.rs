@@ -3615,8 +3615,9 @@ pub async fn q_sns_notifications(
 
 // 朋友圈扫描的硬上限：单次查询最多解析这么多行 SnsTimeLine，
 // 防止用户传超大 limit 或者底层数据异常时把 daemon 卡住。
-// 当前账号 ~10k+ 帖子，5w 上限留足缓冲。
-const SNS_MAX_LIMIT: usize = 10_000;
+// 当前账号单个联系人已有 10k+ 帖子，返回上限与扫描上限保持一致，
+// 避免完整导出时在结果阶段被二次截断。
+const SNS_MAX_LIMIT: usize = 50_000;
 const SNS_MAX_SCAN: usize = 50_000;
 
 /// 转义 SQL LIKE 模式中的元字符。配合 `ESCAPE '\\'` 使用。
