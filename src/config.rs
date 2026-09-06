@@ -121,6 +121,12 @@ fn home_config_path(home_dir: &Path) -> PathBuf {
 }
 
 pub fn cli_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("WX_CLI_HOME") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
     cli_home_dir().join(".wx-cli")
 }
 

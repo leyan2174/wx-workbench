@@ -428,6 +428,9 @@ fn collect_db_pages(root: &Path) -> Result<Vec<DbPage>> {
 fn collect_db_pages_recursive(root: &Path, dir: &Path, pages: &mut Vec<DbPage>) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
+        if super::super::is_migration_path(root, &path) {
+            continue;
+        }
         if path.is_dir() {
             collect_db_pages_recursive(root, &path, pages)?;
             continue;
@@ -553,6 +556,29 @@ fn verify_page1(enc_key: &[u8; KEY_SIZE], page: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_and_salt_collectors_exclude_the_same_migration_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "wx-scanner-scope-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        for relative in ["MiGrAtE/nested/old.db", "message/current.db", "message/migrate/keep.db"] {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, vec![0xcc; PAGE_SIZE]).unwrap();
+        }
+        let pages = collect_db_pages(&root).unwrap();
+        let page_names: BTreeSet<String> = pages.into_iter().map(|page| page.db_name).collect();
+        let salt_names: BTreeSet<String> = super::super::super::collect_db_salts(&root)
+            .into_iter().map(|(_, name)| name).collect();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(page_names, salt_names);
+        assert_eq!(page_names, BTreeSet::from([
+            "message/current.db".into(), "message/migrate/keep.db".into()
+        ]));
+    }
 
     #[test]
     fn decodes_config_cipher_blob() {

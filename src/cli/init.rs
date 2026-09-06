@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::config;
 use crate::scanner;
 
-pub fn cmd_init(force: bool) -> Result<()> {
+pub fn cmd_init(force: bool, db_dir_override: Option<String>) -> Result<()> {
     // 查找 config.json
     let config_path = find_or_create_config_path();
 
@@ -35,13 +35,21 @@ pub fn cmd_init(force: bool) -> Result<()> {
 
     // Step 1: 检测 db_dir
     println!("检测微信数据目录...");
-    let db_dir = config::auto_detect_db_dir().with_context(|| format!(
-        "未能自动检测到微信数据目录\n\
-         请编辑配置文件并填写 db_dir 字段:\n  \
-         {}\n\
-         （文件不存在则首次保存后自动创建；db_dir 示例: <data_root>\\xwechat_files\\<wxid>\\db_storage）",
-        config_path.display()
-    ))?;
+    let db_dir = if let Some(db_dir) = db_dir_override {
+        let path = std::path::PathBuf::from(db_dir);
+        if !path.is_dir() {
+            anyhow::bail!("指定的 db_storage 目录不存在: {}", path.display());
+        }
+        path
+    } else {
+        config::auto_detect_db_dir().with_context(|| format!(
+            "未能自动检测到微信数据目录\n\
+             请编辑配置文件并填写 db_dir 字段:\n  \
+             {}\n\
+             （文件不存在则首次保存后自动创建；db_dir 示例: <data_root>\\xwechat_files\\<wxid>\\db_storage）",
+            config_path.display()
+        ))?
+    };
     println!("找到数据目录: {}", db_dir.display());
 
     // Step 2: 扫描密钥（需要 root/sudo）

@@ -51,6 +51,9 @@ enum Commands {
         /// 强制重新扫描（覆盖已有配置）
         #[arg(long)]
         force: bool,
+        /// 显式指定微信账号的 db_storage 目录，避免多账号时自动选错
+        #[arg(long)]
+        db_dir: Option<String>,
     },
     /// 列出最近会话
     Sessions {
@@ -245,7 +248,7 @@ enum Commands {
         #[arg(short = 'o', long, default_value = ".")]
         output: String,
         /// 最多读取的朋友圈条数
-        #[arg(short = 'n', long, default_value = "5000")]
+        #[arg(short = 'n', long, default_value = "50000")]
         limit: usize,
         /// 起始时间 YYYY-MM-DD
         #[arg(long)]
@@ -408,7 +411,7 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_with_meta = cli.with_meta;
     let base_debug_source = cli.debug_source;
     match cli.command {
-        Commands::Init { force } => init::cmd_init(force),
+        Commands::Init { force, db_dir } => init::cmd_init(force, db_dir),
         Commands::Sessions { limit, json } => sessions::cmd_sessions(
             limit,
             OutputOpts {

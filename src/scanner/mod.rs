@@ -60,6 +60,14 @@ pub fn collect_db_salts(db_dir: &Path) -> Vec<(String, String)> {
     result
 }
 
+pub(super) fn is_migration_path(base: &Path, path: &Path) -> bool {
+    path.strip_prefix(base)
+        .ok()
+        .and_then(|relative| relative.components().next())
+        .map(|component| component.as_os_str().eq_ignore_ascii_case("migrate"))
+        .unwrap_or(false)
+}
+
 fn collect_recursive(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -68,6 +76,9 @@ fn collect_recursive(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
+            if is_migration_path(base, &path) {
+                continue;
+            }
             collect_recursive(base, &path, out);
         } else if path.extension().map(|e| e == "db").unwrap_or(false) {
             if let Some(salt) = read_db_salt(&path) {
@@ -211,6 +222,24 @@ mod tests {
         let names: Vec<&str> = salts.iter().map(|(_, n)| n.as_str()).collect();
         assert!(names.contains(&"root.db"));
         assert!(names.contains(&"sub/nested.db"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_collect_db_salts_skips_migrate_directory() {
+        let dir = make_temp_dir("collect-skip-migrate");
+        let message_dir = dir.join("message");
+        let migrate_dir = dir.join("migrate");
+        fs::create_dir_all(&message_dir).unwrap();
+        fs::create_dir_all(&migrate_dir).unwrap();
+
+        let header = [0xccu8; 16];
+        fs::write(message_dir.join("message_0.db"), &header).unwrap();
+        fs::write(migrate_dir.join("unspportmsg.db"), &header).unwrap();
+
+        let salts = collect_db_salts(&dir);
+        assert_eq!(salts.len(), 1);
+        assert_eq!(salts[0].1, "message/message_0.db");
         fs::remove_dir_all(&dir).ok();
     }
 

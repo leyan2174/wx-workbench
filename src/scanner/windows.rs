@@ -6,6 +6,7 @@
 /// - VirtualQueryEx: 枚举内存区域
 /// - ReadProcessMemory: 读取内存内容
 use anyhow::{Context, Result};
+use std::collections::BTreeSet;
 use std::path::Path;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -21,6 +22,7 @@ mod version;
 
 pub fn scan_keys(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
     let db_salts = collect_db_salts(db_dir);
+    let targets: BTreeSet<String> = db_salts.iter().map(|(_, name)| name.clone()).collect();
     eprintln!("找到 {} 个加密数据库", db_salts.len());
 
     let pids = find_wechat_pids(process_name);
@@ -69,26 +71,36 @@ pub fn scan_keys(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
             let _ = CloseHandle(process);
         }
         match result {
-            Ok(found) => merge_entries(&mut entries, found),
+            Ok(found) => merge_entries(
+                &mut entries,
+                found.into_iter().filter(|entry| targets.contains(&entry.db_name)).collect(),
+            ),
             Err(error) => eprintln!("Config.Cipher 扫描 PID {} 失败: {error:#}", pid),
         }
-        if entries.len() >= db_salts.len() {
+        if missing_databases(&targets, &entries).is_empty() {
             break;
         }
     }
-    if entries.len() >= db_salts.len() {
+    let missing = missing_databases(&targets, &entries);
+    if missing.is_empty() {
         eprintln!(
             "Config.Cipher 已完整验证 {}/{} 个数据库",
             entries.len(),
-            db_salts.len()
+            targets.len()
         );
         return Ok(entries);
     }
     anyhow::bail!(
-        "Config.Cipher 未完整验证数据库密钥：{}/{}；未执行旧版回退，现有密钥文件未修改",
-        entries.len(),
-        db_salts.len()
+        "Config.Cipher 未完整验证数据库密钥：{}/{}；缺失：{}；未执行旧版回退，现有密钥文件未修改",
+        targets.len() - missing.len(),
+        targets.len(),
+        missing.join(", ")
     )
+}
+
+fn missing_databases(targets: &BTreeSet<String>, entries: &[KeyEntry]) -> Vec<String> {
+    let verified: BTreeSet<&str> = entries.iter().map(|entry| entry.db_name.as_str()).collect();
+    targets.iter().filter(|name| !verified.contains(name.as_str())).cloned().collect()
 }
 
 fn detect_version(pids: &[u32]) -> Result<(version::WechatVersion, std::path::PathBuf)> {
@@ -148,5 +160,30 @@ fn merge_entries(target: &mut Vec<KeyEntry>, found: Vec<KeyEntry>) {
         {
             target.push(entry);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(name: &str) -> KeyEntry {
+        KeyEntry { db_name: name.into(), enc_key: String::new(), salt: String::new() }
+    }
+
+    #[test]
+    fn extra_and_duplicate_keys_cannot_hide_missing_database() {
+        let targets = BTreeSet::from(["message/a.db".into(), "message/b.db".into()]);
+        let entries = vec![entry("message/a.db"), entry("message/a.db"), entry("migrate/old.db")];
+        assert_eq!(missing_databases(&targets, &entries), vec!["message/b.db"]);
+    }
+
+    #[test]
+    fn complete_keys_can_be_merged_across_processes() {
+        let targets = BTreeSet::from(["message/a.db".into(), "message/b.db".into()]);
+        let mut entries = vec![entry("message/b.db")];
+        merge_entries(&mut entries, vec![entry("message/a.db"), entry("message/b.db")]);
+        assert!(missing_databases(&targets, &entries).is_empty());
+        assert_eq!(entries.len(), 2);
     }
 }
