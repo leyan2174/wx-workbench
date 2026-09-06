@@ -70,6 +70,14 @@ not cover migrated, re-keyed or newly created databases; validation is required.
 
 ## Build and validation
 
+Windows startup clears inheritance on the original standard handles before
+creating threads or children. This prevents a long-lived WeChat process or
+daemon from keeping a PowerShell caller's output pipe open after wx exits.
+Explicit child stdio redirection is preserved. Frida retains its default spawn
+stdio mode; piped Frida stdio is not used because it can delay Frida teardown.
+Process-level regression tests check EOF on both stdout and stderr while the
+background child is still alive, for Rust and Frida spawn paths.
+
 The Windows build downloads a Frida core devkit through `frida-sys` and uses
 libclang for bindgen. Set `LIBCLANG_PATH` to the directory containing
 `libclang.dll` when it is not already discoverable. This is a build dependency.

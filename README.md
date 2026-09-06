@@ -61,7 +61,11 @@ wx init --force --db-dir "<账号>\db_storage" --key-provider account --restart-
 - `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
 - `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
 
-当前增强版版本号为 `0.3.0-leyan.5`。
+当前增强版版本号为 `0.3.0-leyan.6`。
+
+Windows 命令启动时会清除原始标准句柄的可继承标记，防止微信或
+wx-daemon 在后台运行时占住调用脚本的输出管道。命令完成后可正常返回，
+无需关闭微信或停止 daemon；显式子进程输出重定向仍然有效。
 
 Windows 微信 4.1.12.26 的新版密钥提供器已经完成本机端到端验证，详见
 [Windows 新版微信密钥导出验证记录](docs/windows-wechat-4.1-key-provider-verification.md)。
