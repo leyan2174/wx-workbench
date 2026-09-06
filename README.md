@@ -43,12 +43,25 @@ npx skills add lvsong/wx-cli -g
 
 ### lvsong 增强内容
 
+Windows 现支持可选的账号级密钥捕获：
+
+```powershell
+wx init --force --db-dir "<账号>\db_storage" --key-provider account --restart-wechat
+```
+
+该命令会重启微信并等待重新登录，通过 Rust + Frida 获取账号原始派生密钥，
+逐库校验后以 Windows DPAPI 加密保存为配置目录下的 `account_key.dpapi`。
+以后普通 `wx init --force` 会优先尝试复用，新增数据库也会逐库派生并验证。
+`--key-provider memory` 可强制使用原有只读扫描。此提供器无需 Python/Node.js，
+但仍包含运行在 Frida 内置引擎中的 Hook JavaScript；独立媒体工具箱保持原有实现。
+用法、构建依赖与验证边界见 [账号级密钥提供器](docs/account-key-provider.md)。
+
 本仓库在原版 `wx-cli` 基础上增加了 Windows 微信资料整理所需的两组能力：
 
 - `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
 - `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
 
-当前增强版版本号为 `0.3.0-leyan.4`。
+当前增强版版本号为 `0.3.0-leyan.5`。
 
 Windows 微信 4.1.12.26 的新版密钥提供器已经完成本机端到端验证，详见
 [Windows 新版微信密钥导出验证记录](docs/windows-wechat-4.1-key-provider-verification.md)。

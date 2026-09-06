@@ -54,6 +54,18 @@ enum Commands {
         /// 显式指定微信账号的 db_storage 目录，避免多账号时自动选错
         #[arg(long)]
         db_dir: Option<String>,
+        /// 密钥来源：自动复用已保存密钥、只读扫描、或账号级捕获
+        #[arg(long, value_enum, default_value = "auto")]
+        key_provider: crate::scanner::KeyProvider,
+        /// 允许账号级捕获关闭并重新启动微信，需要再次登录
+        #[arg(long, requires = "force")]
+        restart_wechat: bool,
+        /// 账号级捕获使用的 Weixin.exe 路径
+        #[arg(long)]
+        wechat_exe: Option<std::path::PathBuf>,
+        /// 等待微信登录和捕获的秒数
+        #[arg(long, default_value = "300", value_parser = clap::value_parser!(u64).range(10..=1800))]
+        capture_timeout: u64,
     },
     /// 列出最近会话
     Sessions {
@@ -411,7 +423,8 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_with_meta = cli.with_meta;
     let base_debug_source = cli.debug_source;
     match cli.command {
-        Commands::Init { force, db_dir } => init::cmd_init(force, db_dir),
+        Commands::Init { force, db_dir, key_provider, restart_wechat, wechat_exe, capture_timeout } =>
+            init::cmd_init(force, db_dir, key_provider, restart_wechat, wechat_exe, capture_timeout),
         Commands::Sessions { limit, json } => sessions::cmd_sessions(
             limit,
             OutputOpts {

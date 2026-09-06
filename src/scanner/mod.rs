@@ -9,6 +9,46 @@ mod linux;
 #[cfg(target_os = "windows")]
 mod windows;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum KeyProvider {
+    Auto,
+    Memory,
+    Account,
+}
+
+pub fn scan_with_provider(
+    db_dir: &Path,
+    process_name: &str,
+    provider: KeyProvider,
+    restart: bool,
+    executable: Option<&Path>,
+    timeout: u64,
+    key_file: &Path,
+) -> Result<Vec<KeyEntry>> {
+    #[cfg(target_os = "windows")]
+    {
+        if provider == KeyProvider::Account {
+            anyhow::ensure!(restart, "账号级捕获会重启微信，请显式添加 --restart-wechat");
+            return windows::account::capture_and_save(db_dir, executable, timeout, key_file);
+        }
+        if provider == KeyProvider::Auto && key_file.is_file() {
+            match windows::account::derive_saved(db_dir, key_file) {
+                Ok(entries) => {
+                    eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
+                    return Ok(entries);
+                }
+                Err(_) => eprintln!("保存的账号密钥未通过完整验证，转为只读内存扫描；旧账号密钥保留"),
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (restart, executable, timeout, key_file);
+        anyhow::ensure!(provider != KeyProvider::Account, "账号级捕获目前只支持 Windows x64");
+    }
+    scan_keys_with_options(db_dir, process_name)
+}
+
 /// 扫描到的一条密钥记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyEntry {

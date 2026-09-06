@@ -17,6 +17,7 @@ use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, 
 use super::{collect_db_salts, KeyEntry};
 
 mod config_cipher;
+pub(super) mod account;
 mod legacy;
 mod version;
 

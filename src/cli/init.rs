@@ -5,7 +5,16 @@ use std::collections::HashMap;
 use crate::config;
 use crate::scanner;
 
-pub fn cmd_init(force: bool, db_dir_override: Option<String>) -> Result<()> {
+pub fn cmd_init(
+    force: bool, db_dir_override: Option<String>, provider: scanner::KeyProvider,
+    restart: bool, executable: Option<std::path::PathBuf>, timeout: u64,
+) -> Result<()> {
+    anyhow::ensure!(!restart || provider == scanner::KeyProvider::Account,
+        "--restart-wechat 仅用于 --key-provider account");
+    anyhow::ensure!(provider != scanner::KeyProvider::Account || (force && restart),
+        "账号级捕获需要 --force --key-provider account --restart-wechat");
+    anyhow::ensure!(executable.is_none() || provider == scanner::KeyProvider::Account,
+        "--wechat-exe 仅用于 --key-provider account");
     // 查找 config.json
     let config_path = find_or_create_config_path();
 
@@ -35,11 +44,25 @@ pub fn cmd_init(force: bool, db_dir_override: Option<String>) -> Result<()> {
 
     // Step 1: 检测 db_dir
     println!("检测微信数据目录...");
+    let scan_config = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+    let configured_db_dir = scan_config.as_ref()
+        .and_then(|cfg| cfg.get("db_dir"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.is_empty() && !value.contains("your_wxid"));
     let db_dir = if let Some(db_dir) = db_dir_override {
         let path = std::path::PathBuf::from(db_dir);
         if !path.is_dir() {
             anyhow::bail!("指定的 db_storage 目录不存在: {}", path.display());
         }
+        path
+    } else if let Some(db_dir) = configured_db_dir {
+        let path = std::path::PathBuf::from(db_dir);
+        let path = if path.is_absolute() { path } else {
+            config_path.parent().unwrap_or(std::path::Path::new(".")).join(path)
+        };
+        anyhow::ensure!(path.is_dir(), "配置中的账号目录不存在，请使用 --db-dir 指定");
         path
     } else {
         config::auto_detect_db_dir().with_context(|| format!(
@@ -54,16 +77,16 @@ pub fn cmd_init(force: bool, db_dir_override: Option<String>) -> Result<()> {
 
     // Step 2: 扫描密钥（需要 root/sudo）
     println!("扫描加密密钥（需要 root 权限）...");
-    let scan_config = std::fs::read_to_string(&config_path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
     let process_name = scan_config
         .as_ref()
         .and_then(|cfg| cfg.get("wechat_process"))
         .and_then(|value| value.as_str())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("Weixin.exe");
-    let entries = scanner::scan_keys_with_options(&db_dir, process_name)?;
+    let account_key_file = config_path.parent().unwrap_or(std::path::Path::new("."))
+        .join("account_key.dpapi");
+    let entries = scanner::scan_with_provider(&db_dir, process_name, provider,
+        restart, executable.as_deref(), timeout, &account_key_file)?;
     if entries.is_empty() {
         anyhow::bail!(
             "未验证到任何数据库密钥，已保留现有 all_keys.json；请确认微信已登录且数据目录正确"

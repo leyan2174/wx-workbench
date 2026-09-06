@@ -33,9 +33,9 @@ const PAGE_SIZE: usize = 4096;
 const KEY_SIZE: usize = 32;
 const SALT_SIZE: usize = 16;
 
-struct DbPage {
-    db_name: String,
-    page1_variants: Vec<Vec<u8>>,
+pub(super) struct DbPage {
+    pub(super) db_name: String,
+    pub(super) page1_variants: Vec<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -419,7 +419,7 @@ fn verify_candidate(
     matched_salts.len()
 }
 
-fn collect_db_pages(root: &Path) -> Result<Vec<DbPage>> {
+pub(super) fn collect_db_pages(root: &Path) -> Result<Vec<DbPage>> {
     let mut pages = Vec::new();
     collect_db_pages_recursive(root, root, &mut pages)?;
     Ok(pages)
@@ -535,7 +535,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|value| format!("{value:02x}")).collect()
 }
 
-fn verify_page1(enc_key: &[u8; KEY_SIZE], page: &[u8]) -> bool {
+pub(super) fn verify_page1(enc_key: &[u8; KEY_SIZE], page: &[u8]) -> bool {
     if page.len() < PAGE_SIZE {
         return false;
     }

@@ -1,6 +1,6 @@
 [package]
 name = "wx-cli"
-version = "0.3.0-leyan.4"
+version = "0.3.0-leyan.5"
 edition = "2021"
 description = "WeChat 4.x (macOS/Linux) local data CLI — decrypt SQLCipher DBs, query chat history, watch new messages"
 license = "Apache-2.0"
@@ -56,6 +56,7 @@ base64 = "0.22"
 # 正则表达式
 regex = "1"
 roxmltree = "0.20"
+zeroize = "1"
 
 # IPC Windows named pipe（Unix 直接用 tokio::net::UnixListener）
 [target.'cfg(windows)'.dependencies]
@@ -65,7 +66,9 @@ interprocess = { version = "2", features = ["tokio"] }
 libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+frida = { version = "=0.17.2", features = ["auto-download"] }
 windows = { version = "0.58", features = [
+    "Win32_Security_Cryptography",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
