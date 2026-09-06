@@ -28,7 +28,6 @@ datas = [
     ('transcribe_chat.py', '.'),
     ('find_all_keys.py', '.'),
     ('find_all_keys_windows.py', '.'),
-    ('find_all_keys_linux.py', '.'),
     ('find_image_key.py', '.'),
     ('find_image_key_monitor.py', '.'),
     ('find_wxwork_keys.py', '.'),

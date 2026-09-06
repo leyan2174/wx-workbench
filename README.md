@@ -5,7 +5,7 @@
 **从命令行查询、导出和整理本地微信数据**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg)](#安装)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-lightgrey.svg)](#安装)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org)
 
 会话 · 聊天记录 · 搜索 · 联系人 · 群成员 · 朋友圈 · 附件 · 语音 · 导出
@@ -61,7 +61,7 @@ wx init --force --db-dir "<账号>\db_storage" --key-provider account --restart-
 - `wx voices`：直接从 `message/media_*.db` 导出语音原始数据；
 - `wx toolkit`：通过同一个 `wx` 命令调用仓库内置的 `wechat-decrypt` 工具。
 
-当前增强版版本号为 `0.3.0-leyan.6`。
+当前增强版版本号为 `0.3.0-leyan.7`。
 
 Windows 命令启动时会清除原始标准句柄的可继承标记，防止微信或
 wx-daemon 在后台运行时占住调用脚本的输出管道。命令完成后可正常返回，
@@ -74,6 +74,10 @@ Windows 微信 4.1.12.26 的新版密钥提供器已经完成本机端到端验�
 
 ## 安装
 
+本版本仅支持 Windows x64（MSVC），其他平台实现及发布包已移除。
+构建需安装 Rust、Visual Studio C++ 构建工具和 libclang；详见
+[构建依赖](docs/account-key-provider.md#build-and-validation)。
+
 **从源码构建增强版（推荐）**
 
 ```bash
@@ -85,7 +89,6 @@ cargo build --release
 构建产物：
 
 ```text
-target/release/wx
 target/release/wx.exe
 ```
 
@@ -109,13 +112,8 @@ wx toolkit status --json
 
 | 平台 | 文件 |
 |------|------|
-| macOS Apple Silicon | `wx-macos-arm64` |
-| macOS Intel | `wx-macos-x86_64` |
-| Linux x86_64 | `wx-linux-x86_64` |
-| Linux arm64 | `wx-linux-arm64` |
 | Windows x86_64 | `wx-windows-x86_64.exe` |
 
-macOS / Linux：`chmod +x wx && sudo mv wx /usr/local/bin/`
 
 </details>
 
@@ -124,41 +122,6 @@ macOS / Linux：`chmod +x wx && sudo mv wx /usr/local/bin/`
 ## 快速开始
 
 保持微信运行，然后初始化（只需一次）：
-
-**macOS**（需要先对微信做 ad-hoc 签名，才能扫描其内存）
-
-```bash
-# 1. 签名（只需做一次，WeChat 更新后重做）
-codesign --force --deep --sign - /Applications/WeChat.app
-
-# 2. 清理旧 TCC 授权记录（重签名后必做，否则微信截图/通话权限可能 silent 失效）
-for s in ScreenCapture Camera Microphone AppleEvents AddressBook \
-         SystemPolicyDocumentsFolder SystemPolicyDownloadsFolder SystemPolicyDesktopFolder; do
-  tccutil reset "$s" com.tencent.xinWeChat
-done
-
-# 3. 重启微信，等待完全登录
-killall WeChat && open /Applications/WeChat.app
-
-# 4. 初始化
-sudo wx init
-```
-
-> 如果 `codesign` 报 `signature in use`，先执行：
-> ```bash
-> codesign --remove-signature "/Applications/WeChat.app/Contents/Frameworks/vlc_plugins/librtp_mpeg4_plugin.dylib"
-> codesign --force --deep --sign - /Applications/WeChat.app
-> ```
->
-> 重签名后 macOS 的 TCC 隐私授权按新 code signature 重新校验，旧记录会失效。如果跳过 `tccutil reset`，微信截图/视频通话/麦克风等权限可能"看起来已开启但实际拒绝"。详见 [macOS 权限与签名指南](docs/macos-permission-guide.md#五重签名后微信权限-silent-失效)。
-
-> **副作用提示**：完成上面的 ad-hoc 重签后，macOS 会比较频繁地弹 `"微信" 想访问其他 App 的数据`（在微信里打开公众号文章时尤其容易触发）。这是当前 macOS invasive init 路径的已知副作用：重签后 WeChat 的 code identity 变了，它再访问自己原来的 container / 缓存数据会被系统识别为"跨 App 访问"。点"允许"通常只是放行当前 WeChat 进程；想彻底不弹得恢复官方 WeChat——这只放弃**当前依赖重签的默认路径**，**不等于放弃 memory-scan**：在本机 GUI Terminal 下、Terminal.app 拿到「开发者工具」TCC 授权后，对 Apple 官方签名的 WeChat 应当仍可以走通（实证覆盖只有 Catalina / Big Sur，macOS 14+ 未在本项目内实测）；只有 SSH 远程 + Apple 签名 WeChat 这种组合才必须重签。详见 [macOS 权限与签名指南 §六](docs/macos-permission-guide.md#六微信-想访问其他-app-的数据-弹窗)。
-
-**Linux**
-
-```bash
-sudo wx init
-```
 
 **Windows**（以管理员身份运行 PowerShell）
 
@@ -308,9 +271,7 @@ wx extract <attachment_id> -o /tmp/x.jpg --overwrite
 - **V2 AES + XOR**（`07 08 V2 08 07`）：AES-128-ECB + raw + XOR；AES key 平台派生
 
 V2 image key 提取：
-- **macOS**：`kvcomm` cache（`key_<uin>_*.statistic` 文件名取 uin → `md5(str(uin) + wxid)[:16]`）+ brute-force fallback（`md5(str(uin))[:4] == wxid_suffix` 枚举 2^24）；xor_key = `uin & 0xff`，**不是硬编码 0x88**
 - **Windows**：扫 `Weixin.exe` 内存匹配 `[A-Za-z0-9]{32|16}` 候选，按 V2 template ciphertext-block 反验
-- **Linux**：上游空白，遇到 V2 .dat 会报 unsupported
 
 ### 联系人 & 群组
 
@@ -489,7 +450,7 @@ ffmpeg -version
 ## 架构
 
 ```
-wx (CLI) ──Unix socket──▶ wx-daemon (后台进程)
+wx (CLI) ──Windows named pipe──▶ wx-daemon (后台进程)
                               │
                     ┌─────────┴──────────┐
                DBCache               联系人缓存
@@ -502,7 +463,6 @@ daemon 首次解密后将数据库和 mtime 持久化到 `~/.wx-cli/cache/`。�
 ~/.wx-cli/
 ├── config.json       # 配置
 ├── all_keys.json     # 数据库密钥
-├── daemon.sock       # Unix socket
 ├── daemon.pid / .log
 └── cache/
     ├── _mtimes.json  # mtime 索引
@@ -515,7 +475,7 @@ daemon 首次解密后将数据库和 mtime 持久化到 `~/.wx-cli/cache/`。�
 
 微信 4.x 使用 SQLCipher 4 加密本地数据库（AES-256-CBC + HMAC-SHA512，PBKDF2 256,000 次迭代）。WCDB 在进程内存中缓存派生后的 raw key，格式为 `x'<64hex_key><32hex_salt>'`。
 
-wx-cli 在 macOS 上通过 Mach VM API（`mach_vm_region` + `mach_vm_read`），在 Linux 上通过 `/proc/<pid>/mem` 扫描微信进程内存。Windows 根据 `Weixin.exe` 文件版本选择密钥提供器：
+Windows 根据 `Weixin.exe` 文件版本选择密钥提供器：
 
 - **微信 4.1.9 及更早版本**：使用 legacy raw-key provider，通过 `VirtualQueryEx` + `ReadProcessMemory` 扫描 `x'<key><salt>'` 候选，并使用数据库 salt 逐一验证。
 - **微信 4.1.10 及更新版本**：使用 `Config.Cipher` provider，从多个微信进程只读提取候选并验证；验证不完整时停止更新，不使用旧版扫描方式回退，也不会覆盖已有 `all_keys.json`。

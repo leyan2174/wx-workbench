@@ -12,7 +12,6 @@ import functools
 import glob
 import json
 import os
-import platform
 import subprocess
 import sys
 
@@ -23,8 +22,6 @@ from key_utils import strip_key_metadata
 
 def check_wechat_running():
     """检查微信是否在运行，返回 True/False"""
-    if platform.system().lower() == "darwin":
-        return subprocess.run(["pgrep", "-x", "WeChat"], capture_output=True).returncode == 0
     from find_all_keys import get_pids
     try:
         get_pids()

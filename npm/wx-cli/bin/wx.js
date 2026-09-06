@@ -6,15 +6,15 @@ const path = require('path');
 const fs = require('fs');
 
 const PLATFORM_PACKAGES = {
-  'darwin-arm64': '@jackwener/wx-cli-darwin-arm64',
-  'darwin-x64':   '@jackwener/wx-cli-darwin-x64',
-  'linux-x64':    '@jackwener/wx-cli-linux-x64',
-  'linux-arm64':  '@jackwener/wx-cli-linux-arm64',
   'win32-x64':    '@jackwener/wx-cli-win32-x64',
 };
 
 const platformKey = `${process.platform}-${process.arch}`;
-const ext = process.platform === 'win32' ? '.exe' : '';
+const ext = '.exe';
+if (platformKey !== 'win32-x64') {
+  console.error('wx-cli supports Windows x64 only');
+  process.exit(1);
+}
 
 function getBinaryPath() {
   if (process.env.WX_CLI_BINARY) {

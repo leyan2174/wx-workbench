@@ -2,10 +2,6 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "linux")]
-mod linux;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -41,11 +37,6 @@ pub fn scan_with_provider(
             }
         }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (restart, executable, timeout, key_file);
-        anyhow::ensure!(provider != KeyProvider::Account, "账号级捕获目前只支持 Windows x64");
-    }
     scan_keys_with_options(db_dir, process_name)
 }
 
@@ -68,16 +59,7 @@ pub fn scan_keys(db_dir: &Path) -> Result<Vec<KeyEntry>> {
 
 /// 从进程内存中扫描所有 SQLCipher 密钥，并允许 Windows 端指定进程名。
 pub fn scan_keys_with_options(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
-    #[cfg(target_os = "macos")]
-    return macos::scan_keys(db_dir);
-    #[cfg(target_os = "linux")]
-    return linux::scan_keys(db_dir);
-    #[cfg(target_os = "windows")]
-    return windows::scan_keys(db_dir, process_name);
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        anyhow::bail!("当前平台不支持自动密钥扫描")
-    }
+    windows::scan_keys(db_dir, process_name)
 }
 
 /// 读取 DB 文件前 16 字节作为 salt（hex），如果是明文 SQLite 则返回 None

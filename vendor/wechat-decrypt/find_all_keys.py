@@ -178,24 +178,10 @@ def find_image_key_offline(cfg):
 
 @functools.lru_cache(maxsize=1)
 def _load_impl():
-    system = platform.system().lower()
-    if system == "windows":
-        import find_all_keys_windows as impl
-        return impl
-    if system == "linux":
-        import find_all_keys_linux as impl
-        return impl
-    if system == "darwin":
-        raise RuntimeError(
-            "macOS 请先运行 C 版扫描器提取数据库密钥：\n"
-            "\n"
-            "    sudo ./find_all_keys_macos\n"
-            "\n"
-            "    完成后再运行 python main.py decrypt"
-        )
-    raise RuntimeError(
-        f"当前平台暂不支持通过 find_all_keys.py 提取内存数据库密钥: {platform.system()}"
-    )
+    if platform.system().lower() != "windows":
+        raise RuntimeError("This toolkit supports Windows only")
+    import find_all_keys_windows as impl
+    return impl
 
 
 def get_pids():

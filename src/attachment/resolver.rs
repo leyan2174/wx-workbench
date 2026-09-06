@@ -9,8 +9,6 @@
 //!      下找对应文件，按 full > _h > _t 优先级选一个
 //!
 //! `<wxchat_base>` 由 daemon 已知（同 `db_dir` 的父目录），路径 layout 平台差异：
-//! - Linux: `~/Documents/xwechat_files/<wxid>`
-//! - macOS: `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/<wxid>`
 //!   ⚠️  msg/attach/... 子树 layout 待我用真实账号验证；上游 docstring 只写了 Windows
 //! - Windows: `<root>\xwechat_files\<wxid>`（root 从 `%APPDATA%\Tencent\xwechat\config\*.ini` 读）
 

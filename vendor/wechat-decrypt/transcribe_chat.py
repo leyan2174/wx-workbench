@@ -17,7 +17,7 @@
       与 MCP transcribe_voice 工具共享配置。详见 README "语音转录隐私" 章节。
     - 默认 local: 使用本地 Whisper (CPU，单线程)，首次运行下载 ~145 MB 权重。
     - 切到 openai: 语音上传至 OpenAI 服务器转录 (~$0.006/分钟)。
-    - 切到 whisper_cpp: 使用 whisper-cpp CLI (Metal GPU 加速，仅 macOS)。
+    - 切到 whisper_cpp: 使用已配置的 Windows whisper-cpp CLI。
     - 幂等: 已有 "transcription" 字段的消息会被跳过，因此崩溃/中断后可安全重跑。
     - 崩溃安全: 每处理完一条即整体重写输出 JSON，进程中断最多丢失当前一条。
 

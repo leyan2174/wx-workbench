@@ -73,7 +73,7 @@ fn find_config_file() -> Result<PathBuf> {
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
     let cli_home = cli_home_dir();
-    let home_dir = (cli_home != PathBuf::from("/tmp")).then_some(cli_home.as_path());
+    let home_dir = Some(cli_home.as_path());
 
     if let Some(path) = find_existing_config_path(cwd_dir.as_deref(), exe_dir.as_deref(), home_dir)
     {
@@ -131,44 +131,7 @@ pub fn cli_dir() -> PathBuf {
 }
 
 fn cli_home_dir() -> PathBuf {
-    resolve_cli_home(
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp")),
-        sudo_user_home_dir(),
-    )
-}
-
-fn resolve_cli_home(default_home: PathBuf, sudo_home: Option<PathBuf>) -> PathBuf {
-    sudo_home.unwrap_or(default_home)
-}
-
-#[cfg(unix)]
-fn sudo_user_home_dir() -> Option<PathBuf> {
-    use std::ffi::{CStr, CString};
-
-    let sudo_user = std::env::var("SUDO_USER").ok()?;
-    let sudo_user = sudo_user.trim();
-    if sudo_user.is_empty() {
-        return None;
-    }
-
-    let c_user = CString::new(sudo_user).ok()?;
-    unsafe {
-        let pwd = libc::getpwnam(c_user.as_ptr());
-        if pwd.is_null() || (*pwd).pw_dir.is_null() {
-            return None;
-        }
-        let dir = CStr::from_ptr((*pwd).pw_dir).to_str().ok()?;
-        Some(PathBuf::from(dir))
-    }
-}
-
-#[cfg(not(unix))]
-fn sudo_user_home_dir() -> Option<PathBuf> {
-    None
-}
-
-pub fn sock_path() -> PathBuf {
-    cli_dir().join("daemon.sock")
+    dirs::home_dir().unwrap_or_else(std::env::temp_dir)
 }
 
 pub fn pid_path() -> PathBuf {
@@ -188,45 +151,11 @@ pub fn mtime_file() -> PathBuf {
 }
 
 fn default_db_dir() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join("Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files")
-    }
-    #[cfg(target_os = "linux")]
-    {
-        dirs::home_dir()
-            .unwrap_or_default()
-            .join("Documents/xwechat_files")
-    }
-    #[cfg(target_os = "windows")]
-    {
-        PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("Tencent/xwechat")
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        PathBuf::from(".")
-    }
+    PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("Tencent/xwechat")
 }
 
 fn default_wechat_process() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "WeChat"
-    }
-    #[cfg(target_os = "linux")]
-    {
-        "wechat"
-    }
-    #[cfg(target_os = "windows")]
-    {
-        "Weixin.exe"
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        "WeChat"
-    }
+    "Weixin.exe"
 }
 
 /// 自动检测微信 db_storage 目录
@@ -234,63 +163,6 @@ pub fn auto_detect_db_dir() -> Option<PathBuf> {
     detect_db_dir_impl()
 }
 
-#[cfg(target_os = "macos")]
-fn detect_db_dir_impl() -> Option<PathBuf> {
-    let home = sudo_user_home_dir().or_else(dirs::home_dir)?;
-
-    let base = home.join("Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files");
-    if !base.exists() {
-        return None;
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&base) {
-        for entry in entries.flatten() {
-            let storage = entry.path().join("db_storage");
-            if storage.is_dir() {
-                candidates.push(storage);
-            }
-        }
-    }
-    candidates.sort_by_key(|p| {
-        std::fs::metadata(p)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-    });
-    candidates.into_iter().next_back()
-}
-
-#[cfg(target_os = "linux")]
-fn detect_db_dir_impl() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let sudo_home = sudo_user_home_dir();
-
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    for base_home in [Some(home.clone()), sudo_home].into_iter().flatten() {
-        let xwechat = base_home.join("Documents/xwechat_files");
-        if xwechat.exists() {
-            if let Ok(entries) = std::fs::read_dir(&xwechat) {
-                for entry in entries.flatten() {
-                    let storage = entry.path().join("db_storage");
-                    if storage.is_dir() {
-                        candidates.push(storage);
-                    }
-                }
-            }
-        }
-        let old = base_home.join(".local/share/weixin/data/db_storage");
-        if old.is_dir() {
-            candidates.push(old);
-        }
-    }
-    candidates.sort_by_key(|p| {
-        // 排序：取 db_storage 目录下所有 .db 文件的最新 mtime，而非目录自身的 mtime
-        // 这样当收到新消息时（只有 .db 文件被更新），能正确识别最新目录
-        latest_db_mtime(p).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-    });
-    candidates.into_iter().next_back()
-}
-
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 /// 递归查找 db_storage 目录下所有 .db 文件的最新 mtime
 fn latest_db_mtime(dir: &Path) -> Option<std::time::SystemTime> {
     let mut latest = None;
@@ -414,16 +286,10 @@ fn known_documents_dir() -> Option<PathBuf> {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-fn detect_db_dir_impl() -> Option<PathBuf> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         config_path_in_dir, default_config_path, find_existing_config_path, home_config_path,
-        resolve_cli_home,
     };
     #[cfg(target_os = "windows")]
     use super::{known_documents_dir, resolve_windows_data_root};
@@ -444,18 +310,6 @@ mod tests {
         let dir = std::env::temp_dir().join(unique);
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn resolve_cli_home_prefers_sudo_home_when_present() {
-        let home = resolve_cli_home(PathBuf::from("/root"), Some(PathBuf::from("/Users/alice")));
-        assert_eq!(home, PathBuf::from("/Users/alice"));
-    }
-
-    #[test]
-    fn resolve_cli_home_falls_back_to_default_home() {
-        let home = resolve_cli_home(PathBuf::from("/root"), None);
-        assert_eq!(home, PathBuf::from("/root"));
     }
 
     #[test]

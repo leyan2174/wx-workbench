@@ -9,7 +9,7 @@
 //! - `attachment_id`：跨 IPC / CLI 的不透明 ID（base64url(json)）
 //! - `resolver`：从 `attachment_id` 反查 message_resource.db，定位本地 .dat
 //! - `decoder`：根据文件 magic 分发到具体解码器（V1 / V2 等）
-//! - `image_key`：V2 image AES key 提取（macOS / Windows）
+//! - `image_key`：Windows V2 image AES key 提取
 //!
 //! V2 / image_key 模块由 codex 落地，先放空 stub 以便 V1 / resolver / CLI 不被 block。
 

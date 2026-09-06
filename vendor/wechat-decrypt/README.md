@@ -2,7 +2,7 @@
 
 > 💬 **交流群 / 防失联**: [Telegram - t.me/wechat_decrypt](https://t.me/wechat_decrypt)
 
-**微信 / 企业微信本地数据库解密 + 数据工具集** (Windows / macOS / Linux)
+**微信 / 企业微信本地数据库解密 + 数据工具集** (Windows x64)
 
 从运行中的进程内存提取加密密钥,解密 SQLite 加密数据库,衍生出一整套实用工具:
 
@@ -20,31 +20,6 @@
 
 ## ⭐ 快速开始
 
-<details open>
-<summary>macOS — 最小路径（展开查看）</summary>
-
-```bash
-# 1. 安装依赖
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-brew install whisper-cpp           # 语音转录加速（可选，推荐）
-
-# 2. 密钥提取（退出微信后先重签名）
-killall WeChat
-sudo codesign --force --deep --sign - /Applications/WeChat.app
-cc -O2 -o find_all_keys_macos find_all_keys_macos.c -framework Foundation
-sudo ./find_all_keys_macos         # 扫描内存提取密钥
-
-# 3. 解密 + 导出 + 转录
-python3 decrypt_db.py              # 解密所有数据库
-python3 export_all_chats.py -t     # 导出全部聊天并转录语音
-
-# 或一条命令从零到完成：
-make all
-```
-
-</details>
 
 <details>
 <summary>Windows — 最小路径 (CLI)</summary>
@@ -64,7 +39,7 @@ python export_all_chats.py
 </details>
 
 <details>
-<summary>Windows — Web UI (推荐, 跨平台 + 实时监听)</summary>
+<summary>Windows — Web UI (推荐, 实时监听)</summary>
 
 ```bash
 python monitor_web.py        # → 浏览器自动开 http://localhost:5678
@@ -110,23 +85,6 @@ python export_wxwork_messages.py
 
 </details>
 
-<details>
-<summary>Linux — 最小路径</summary>
-
-```bash
-# 1. 安装依赖
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# 2. 提取密钥（需要 root 或 CAP_SYS_PTRACE）
-sudo python3 main.py decrypt
-
-# 3. 批量导出
-python3 export_all_chats.py
-```
-
-</details>
 
 ---
 
@@ -137,17 +95,8 @@ python3 export_all_chats.py
 - Python 3.10+
 - 微信 4.x 正在运行
 
-**macOS**:
-- Xcode Command Line Tools: `xcode-select --install`
-- 需要对 `/Applications/WeChat.app` 做 ad-hoc 重签名（允许进程内存读取）
-- 需要 root 权限运行扫描器
-
 **Windows**:
 - 管理员权限（读取进程内存）
-- 微信正在运行
-
-**Linux**:
-- root 权限或 `CAP_SYS_PTRACE`
 - 微信正在运行
 
 ### 安装依赖
@@ -161,25 +110,25 @@ pip install -r requirements.txt
 
 **问题：`error: externally-managed-environment` (PEP 668)**
 
-Homebrew Python (3.12+) 和部分 Linux 发行版禁止 `pip install` 直接写入系统 Python 环境。
+建议使用独立虚拟环境安装 Python 依赖，避免影响系统 Python。
 
 **解决：使用虚拟环境**
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate   # 激活虚拟环境
+.venv\Scripts\Activate.ps1   # 激活虚拟环境
 pip install -r requirements.txt
 
 # 后续运行脚本时使用 .venv 中的 Python
-.venv/bin/python3 main.py
-.venv/bin/python3 decrypt_db.py
+.venv\Scripts\python.exe3 main.py
+.venv\Scripts\python.exe3 decrypt_db.py
 ```
 
-或使用 Makefile（已配置 `.venv/bin/python3`）：
+或使用 Makefile（已配置 `.venv\Scripts\python.exe3`）：
 
 ```bash
 make setup   # 一键安装所有依赖 + 编译扫描器
-make decrypt # 等价于 .venv/bin/python3 main.py decrypt
+make decrypt # 等价于 .venv\Scripts\python.exe3 main.py decrypt
 make all     # 从密钥提取到导出全部完成
 ```
 
@@ -205,16 +154,13 @@ py -m pip install --user -r requirements.txt
 ```
 
 各平台默认路径：
-- macOS: `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/<wxid>/db_storage`
 - Windows: 微信设置 → 文件管理中查看
-- Linux: `~/Documents/xwechat_files/<wxid>/db_storage`
 
 ### 常用命令
 
 | 用途 | 命令 |
 |------|------|
-| 提取密钥（macOS） | `sudo ./find_all_keys_macos` |
-| 提取密钥（Windows/Linux） | `python find_all_keys.py` |
+| 提取密钥（Windows） | `python find_all_keys.py` |
 | 解密全部数据库 | `python decrypt_db.py` |
 | 启动 Web UI（实时消息） | `python main.py` |
 | 批量导出聊天记录 | `python export_all_chats.py` |
@@ -305,7 +251,7 @@ claude mcp add wechat -- python /path/to/mcp_server.py
 |------|------|------|------|------|
 | `local`（默认） | CPU，较慢 | 数据不出本机 | `pip install -r requirements.txt` | 无需配置 |
 | `openai` | API，最快 | 语音上传至 OpenAI | `pip install openai` | 需 `openai_api_key` |
-| `whisper_cpp` | Metal GPU，3-5x | 数据不出本机 | `brew install whisper-cpp` + 模型 | 自动检测 |
+| `whisper_cpp` | Metal GPU，3-5x | 数据不出本机 | `安装 Windows whisper.cpp 并配置 whisper_cpp_binary` + 模型 | 自动检测 |
 
 **配置方式（config.json）：**
 
@@ -318,7 +264,7 @@ claude mcp add wechat -- python /path/to/mcp_server.py
 启用 whisper_cpp 前需安装：
 
 ```bash
-brew install whisper-cpp
+安装 Windows whisper.cpp 并配置 whisper_cpp_binary
 # 模型自动检测常见路径，或手动下载：
 # curl -L -o ~/whisper-models/ggml-base.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
 ```
@@ -339,29 +285,7 @@ brew install whisper-cpp
 | V1 | 过渡期 | AES-ECB + XOR |
 | V2 | 2025-08+ | AES-128-ECB + XOR |
 
-macOS 图片密钥从磁盘 kvcomm 缓存派生，无需扫描进程内存：
-
-```bash
-python find_image_key_macos.py
-```
-
-密钥自动保存到 `config.json`，之后 Web UI 自动显示图片预览。
-
-### Makefile 命令
-
-```bash
-make setup      # 全自动：venv → pip install → brew install → 编译扫描器 → 配置
-make build      # 编译 macOS 密钥扫描器
-make keys       # 提取密钥（需要 root）
-make decrypt    # 解密全部数据库
-make web        # 启动 Web UI
-make all        # 从零到完成：setup → keys → decrypt → export
-make status     # 显示当前数据状态
-make clean      # 交互式清理：选择删除 decrypted / exported_chats / 临时文件
-make help       # 列出所有命令
-```
-
----
+Windows 图片密钥通过 `find_image_key.py` 获取。
 
 ## 文件说明
 
@@ -375,7 +299,6 @@ make help       # 列出所有命令
 | `main.py` | **CLI 总入口** — 子命令 `decrypt` / `export` / `all` / `status` / `decode-images` / `help` |
 | `monitor_web.py` | **Web UI 总入口 (推荐)** — 浏览器界面: 实时监听 + 8 个工具按钮 + 导出筛选模态框, 也是 PyInstaller 单 exe 的入口 |
 | `app_gui.py` | **桌面 GUI (备用)** — tkinter 界面, 跟 Web UI 功能基本对齐, 适合不开浏览器场景 |
-| `setup.sh` | 一键安装依赖 (macOS / Linux / Windows Git Bash) |
 | `setup.py` | 交互式配置向导 (`python setup.py --check` 仅检查环境) |
 | `cleanup.py` | 磁盘清理工具 (`status` 查看用量 / `--dry-run` 预览) |
 
@@ -386,12 +309,9 @@ make help       # 列出所有命令
 
 | 文件 | 说明 |
 |---|---|
-| `find_all_keys.py` | 平台分发入口 (Windows / Linux) |
+| `find_all_keys.py` | Windows 密钥提取入口 |
 | `find_all_keys_windows.py` | Windows: 扫 Weixin.exe 内存找 SQLCipher raw key |
-| `find_all_keys_linux.py` | Linux: 同上, 走 /proc/<pid>/mem |
-| `find_all_keys_macos.c` | macOS: C + Mach VM API (需 codesign + 重签 WeChat.app) |
-| `find_image_key.py` | 从进程内存提取图片 AES 密钥 (Windows / Linux) |
-| `find_image_key_macos.py` | macOS: 从磁盘 kvcomm 缓存推算 (无需进程在线) |
+| `find_image_key.py` | 从进程内存提取图片 AES 密钥 (Windows) |
 | `find_image_key_monitor.py` | 持续监控模式 (Windows) |
 | `find_wxwork_keys.py` | **企业微信 5.x** wxSQLite3 raw key 提取 (cipher 结构体扫描) |
 | `key_scan_common.py` / `key_utils.py` | 扫描器共用工具 |
@@ -461,7 +381,6 @@ make help       # 列出所有命令
 | `build.bat` | Windows 一键打包为单 exe |
 | `requirements.txt` | Python 依赖 |
 | `EXE_USAGE.md` | GUI / EXE 使用说明 |
-| `Makefile` | 常用命令快捷方式 (`make all` / `make clean` / `make status`) |
 
 </details>
 
@@ -617,40 +536,6 @@ python decrypt_wxwork_db.py --key 00112233445566778899aabbccddeeff
 - `contact/contact.db` - 联系人
 - `media_*/media_*.db` - 媒体文件索引
 - 其他: head_image, favorite, sns, emoticon 等
-
-## macOS 数据库密钥扫描 (WeChat 4.x)
-
-macOS 版微信 4.x 使用 SQLCipher 4 加密本地数据库，密钥格式为 `x'<64hex_key><32hex_salt>'`。C 版扫描器通过 Mach VM API 扫描微信进程内存提取密钥。
-
-### 前置条件
-
-- macOS (Apple Silicon / Intel)
-- WeChat 4.x (macOS 版)
-- Xcode Command Line Tools: `xcode-select --install`
-- 微信需要 ad-hoc 签名（或安装了防撤回补丁）：
-  `sudo codesign --force --deep --sign - /Applications/WeChat.app`
-
-### 编译和使用
-
-```bash
-# 编译
-cc -O2 -o find_all_keys_macos find_all_keys_macos.c -framework Foundation
-
-# 运行（自动查找微信进程、扫描内存、匹配 DB salt）
-sudo ./find_all_keys_macos
-```
-
-<details>
-<summary>点击展开</summary>
-
-#### 2025-03-03 — 富媒体内容 & 组合消息修复
-- 表情包内联显示
-- 富媒体内容解析（链接卡片、文件、视频号、小程序等）
-- 文字+图片组合消息不再丢失
-- 隐藏消息检测机制
-- Web UI 改进
-
-</details>
 
 ### 免责声明
 

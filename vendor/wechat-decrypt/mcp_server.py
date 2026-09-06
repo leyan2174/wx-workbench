@@ -3784,7 +3784,7 @@ _openai_client = None
 _openai_warning_emitted = False
 _fallback_warning_emitted = False
 
-# whisper.cpp 后端（macOS Metal GPU 加速）
+# whisper.cpp 后端（Windows CLI）
 # 路径选项均为可选，默认自动检测
 WHISPER_CPP_BINARY = _cfg.get("whisper_cpp_binary", "")
 WHISPER_CPP_MODEL = _cfg.get("whisper_cpp_model", "")
@@ -3792,19 +3792,12 @@ WHISPER_CPP_LANGUAGE = _cfg.get("whisper_cpp_language", "zh")
 WHISPER_CPP_THREADS = _cfg.get("whisper_cpp_threads", 0)
 
 _WHISPER_CPP_BINARY_SEARCH_PATHS = [
-    "/opt/homebrew/bin/whisper-cpp",
-    "/usr/local/bin/whisper-cpp",
-    os.path.expanduser("~/.local/bin/whisper-cpp"),
 ]
 
 _WHISPER_CPP_MODEL_SEARCH_PATHS = [
-    os.path.expanduser("~/Library/Application Support/whisper-cpp"),
-    os.path.expanduser("~/Library/Application Support/Recordly/whisper"),
     os.path.expanduser("~/whisper-models"),
     os.path.expanduser("~/models"),
     os.path.expanduser("~/Downloads"),
-    "/opt/homebrew/share/whisper-cpp/models",
-    "/usr/local/share/whisper-cpp/models",
 ]
 
 _whisper_cpp_binary_resolved = None   # None=未检测, ""=未找到, str=路径
@@ -3867,7 +3860,7 @@ def _resolve_active_backend():
                 print(
                     "[whisper] transcription_backend=whisper_cpp 但未找到 "
                     "whisper-cpp 二进制文件，回退到本地模型。"
-                    "安装: brew install whisper-cpp",
+                    "请安装 Windows whisper.cpp 并配置 whisper_cpp_binary",
                     file=sys.stderr, flush=True,
                 )
                 _fallback_warning_emitted = True
@@ -3960,7 +3953,7 @@ def _transcribe_whisper_cpp(wav_path):
     """通过 whisper-cpp CLI（Metal GPU 加速）转录。失败抛 RuntimeError。"""
     binary = _resolve_whisper_cpp_binary()
     if not binary:
-        raise RuntimeError("whisper-cpp binary 未找到。安装: brew install whisper-cpp")
+        raise RuntimeError("whisper-cpp binary 未找到，请配置 Windows whisper_cpp_binary")
     model = _resolve_whisper_cpp_model()
     if not model:
         raise RuntimeError(
@@ -4024,7 +4017,7 @@ def transcribe_voice(chat_name: str, local_id: int) -> str:
       - 本地后端: pip install silk-python openai-whisper
         (silk-python 的 import 名为 pysilk)
       - OpenAI 后端: pip install silk-python openai
-      - whisper_cpp 后端: brew install whisper-cpp (macOS)
+      - whisper_cpp 后端: 配置 Windows whisper_cpp_binary
 
     Args:
         chat_name: 聊天对象的名字、备注名或wxid

@@ -8,9 +8,6 @@ use crate::config;
 use crate::ipc::{Request, Response};
 
 const STARTUP_TIMEOUT_SECS: u64 = 15;
-#[cfg(unix)]
-const STOP_TIMEOUT_MS: u64 = 2_000;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PidFile {
     pid: u32,
@@ -20,18 +17,7 @@ struct PidFile {
 
 /// 检查 daemon 是否存活
 pub fn is_alive() -> bool {
-    #[cfg(unix)]
-    {
-        ping_unix().unwrap_or(false)
-    }
-    #[cfg(windows)]
-    {
-        ping_windows().unwrap_or(false)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        false
-    }
+    ping_windows().unwrap_or(false)
 }
 
 /// 确保 daemon 运行，必要时自动启动
@@ -77,10 +63,7 @@ pub fn stop_daemon() -> Result<()> {
     Ok(())
 }
 
-/// 启动 daemon 前检查 `~/.wx-cli/` 可写，给出比"超时"更明确的错误。
-///
-/// 典型坑：旧版本 `sudo wx init` 把目录留成 root 属主，非 root 的 daemon
-/// 连 socket/log 都建不了，会静默失败 15s 超时。
+/// Check the runtime directory before starting the daemon.
 fn preflight_cli_dir_writable() -> Result<()> {
     let cli_dir = config::cli_dir();
     std::fs::create_dir_all(&cli_dir)
@@ -94,17 +77,7 @@ fn preflight_cli_dir_writable() -> Result<()> {
         }
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             let dir = cli_dir.display();
-            if cfg!(unix) {
-                bail!(
-                    "无法写入 {dir}（权限不足）\n\n\
-                     这通常是老版本的 `sudo wx init` 把目录属主留成了 root。\n\
-                     修复：\n\n    \
-                     sudo chown -R $(whoami) {dir}\n\n\
-                     （新版已修复此问题，下次 init 不会再发生）",
-                )
-            } else {
-                bail!("无法写入 {dir}: {e}")
-            }
+            bail!("无法写入 {dir}: {e}");
         }
         Err(e) => bail!("无法写入 {}: {}", cli_dir.display(), e),
     }
@@ -118,38 +91,6 @@ fn start_daemon() -> Result<()> {
     // 预检：当前用户是否能写 ~/.wx-cli/。如果不能，给出可操作的错误信息，
     // 而不是 spawn 一个注定失败的 daemon 然后超时 15s。
     preflight_cli_dir_writable()?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // 日志文件：~/.wx-cli/daemon.log
-        let log_path = config::log_path();
-        // 确保父目录存在
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let (stdout_stdio, stderr_stdio) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .and_then(|f| f.try_clone().map(|g| (f, g)))
-            .map(|(f, g)| (std::process::Stdio::from(f), std::process::Stdio::from(g)))
-            .unwrap_or_else(|_| (std::process::Stdio::null(), std::process::Stdio::null()));
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.env("WX_DAEMON_MODE", "1")
-            .stdin(std::process::Stdio::null())
-            .stdout(stdout_stdio)
-            .stderr(stderr_stdio);
-        // SAFETY: setsid() 在 fork 后的子进程中调用，使 daemon 脱离控制终端
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-        let child = cmd.spawn().context("无法启动 daemon 进程")?;
-        child_pid = child.id();
-    }
 
     #[cfg(windows)]
     {
@@ -227,30 +168,7 @@ fn read_pid_file(path: &Path) -> Result<Option<PidFile>> {
 }
 
 fn cleanup_ipc_files() {
-    let _ = std::fs::remove_file(config::sock_path());
     let _ = std::fs::remove_file(config::pid_path());
-}
-
-#[cfg(unix)]
-fn ping_unix() -> Result<bool> {
-    use std::os::unix::net::UnixStream;
-    let sock_path = config::sock_path();
-    if !sock_path.exists() {
-        return Ok(false);
-    }
-    let mut stream = UnixStream::connect(&sock_path)?;
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
-    stream.set_write_timeout(Some(Duration::from_secs(2))).ok();
-
-    let req = serde_json::to_string(&Request::Ping)? + "\n";
-    stream.write_all(req.as_bytes())?;
-
-    let mut line = String::new();
-    let mut reader = BufReader::new(&stream);
-    reader.read_line(&mut line)?;
-
-    let resp: Response = serde_json::from_str(&line)?;
-    Ok(resp.ok && resp.data.get("pong").and_then(|p| p.as_bool()) == Some(true))
 }
 
 #[cfg(windows)]
@@ -276,44 +194,7 @@ fn pid_belongs_to_daemon(pid_file: &PidFile) -> Result<bool> {
         .exe
         .clone()
         .or_else(|| std::env::current_exe().ok());
-    #[cfg(unix)]
-    {
-        unix_pid_matches_daemon(pid_file.pid, expected_exe.as_deref())
-    }
-    #[cfg(windows)]
-    {
-        windows_pid_matches_daemon(pid_file.pid, expected_exe.as_deref())
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = expected_exe;
-        Ok(true)
-    }
-}
-
-#[cfg(unix)]
-fn unix_pid_matches_daemon(pid: u32, expected_exe: Option<&Path>) -> Result<bool> {
-    let Some(expected_exe) = expected_exe else {
-        return Ok(false);
-    };
-    let output = std::process::Command::new("ps")
-        .args(["-o", "command=", "-p", &pid.to_string()])
-        .output()
-        .with_context(|| format!("读取 PID {} 的 command 失败", pid))?;
-    if !output.status.success() {
-        return Ok(false);
-    }
-    let command = String::from_utf8_lossy(&output.stdout);
-    let expected = expected_exe.to_string_lossy();
-    if command.contains(expected.as_ref()) {
-        return Ok(true);
-    }
-    let Some(exe_name) = expected_exe.file_name().and_then(|name| name.to_str()) else {
-        return Ok(false);
-    };
-    Ok(command
-        .split_whitespace()
-        .any(|part| part == exe_name || part.ends_with(&format!("/{}", exe_name))))
+    windows_pid_matches_daemon(pid_file.pid, expected_exe.as_deref())
 }
 
 #[cfg(windows)]
@@ -361,51 +242,7 @@ fn normalize_exe_path(path: &Path) -> String {
 }
 
 fn terminate_pid(pid: u32) -> Result<()> {
-    #[cfg(unix)]
-    {
-        terminate_pid_unix(pid)
-    }
-    #[cfg(windows)]
-    {
-        terminate_pid_windows(pid)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = pid;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-fn terminate_pid_unix(pid: u32) -> Result<()> {
-    let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-    if rc != 0 {
-        let err = std::io::Error::last_os_error();
-        if err.raw_os_error() == Some(libc::ESRCH) {
-            return Ok(());
-        }
-        bail!("停止 PID {} 失败: {}", pid, err);
-    }
-
-    let deadline = std::time::Instant::now() + Duration::from_millis(STOP_TIMEOUT_MS);
-    while std::time::Instant::now() < deadline {
-        if !unix_process_exists(pid) {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    bail!("等待 PID {} 退出超时", pid)
-}
-
-#[cfg(unix)]
-fn unix_process_exists(pid: u32) -> bool {
-    let rc = unsafe { libc::kill(pid as i32, 0) };
-    if rc == 0 {
-        return true;
-    }
-    let err = std::io::Error::last_os_error();
-    err.raw_os_error() == Some(libc::EPERM)
+    terminate_pid_windows(pid)
 }
 
 #[cfg(windows)]
@@ -424,44 +261,7 @@ fn terminate_pid_windows(pid: u32) -> Result<()> {
 pub fn send(req: Request) -> Result<Response> {
     ensure_daemon()?;
 
-    #[cfg(unix)]
-    {
-        send_unix(req)
-    }
-    #[cfg(windows)]
-    {
-        send_windows(req)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        bail!("不支持当前平台")
-    }
-}
-
-#[cfg(unix)]
-fn send_unix(req: Request) -> Result<Response> {
-    use std::os::unix::net::UnixStream;
-    let sock_path = config::sock_path();
-    let mut stream = UnixStream::connect(&sock_path).context("连接 daemon socket 失败")?;
-    stream.set_read_timeout(Some(Duration::from_secs(120))).ok();
-    stream
-        .set_write_timeout(Some(Duration::from_secs(120)))
-        .ok();
-
-    let req_str = serde_json::to_string(&req)? + "\n";
-    stream.write_all(req_str.as_bytes())?;
-
-    let mut line = String::new();
-    let mut reader = BufReader::new(&stream);
-    reader.read_line(&mut line)?;
-
-    let resp: Response = serde_json::from_str(&line).context("解析 daemon 响应失败")?;
-
-    if !resp.ok {
-        bail!("{}", resp.error.as_deref().unwrap_or("未知错误"));
-    }
-
-    Ok(resp)
+    send_windows(req)
 }
 
 #[cfg(windows)]

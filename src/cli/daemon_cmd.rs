@@ -62,12 +62,6 @@ fn cmd_logs(follow: bool, lines: usize) -> Result<()> {
     }
 
     if follow {
-        #[cfg(unix)]
-        {
-            std::process::Command::new("tail")
-                .args([&format!("-{}", lines), "-f", &log_path.to_string_lossy()])
-                .status()?;
-        }
         #[cfg(windows)]
         {
             use std::io::{Read, Seek, SeekFrom};

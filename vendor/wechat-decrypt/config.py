@@ -5,7 +5,6 @@
 import glob
 import json
 import os
-import platform
 import sys
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -27,20 +26,8 @@ def _config_file_path():
     return CONFIG_FILE
 
 
-_SYSTEM = platform.system().lower()
-
-if _SYSTEM == "linux":
-    _DEFAULT_TEMPLATE_DIR = os.path.expanduser("~/Documents/xwechat_files/your_wxid/db_storage")
-    _DEFAULT_PROCESS = "wechat"
-elif _SYSTEM == "darwin":
-    # macOS 使用独立的 C 扫描器 (find_all_keys_macos.c)，此处仅提供 config 默认值
-    _DEFAULT_TEMPLATE_DIR = os.path.expanduser(
-        "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/your_wxid/db_storage"
-    )
-    _DEFAULT_PROCESS = "WeChat"
-else:
-    _DEFAULT_TEMPLATE_DIR = r"D:\xwechat_files\your_wxid\db_storage"
-    _DEFAULT_PROCESS = "Weixin.exe"
+_DEFAULT_TEMPLATE_DIR = r"D:\xwechat_files\your_wxid\db_storage"
+_DEFAULT_PROCESS = "Weixin.exe"
 
 _DEFAULT = {
     "db_dir": _DEFAULT_TEMPLATE_DIR,
@@ -135,103 +122,8 @@ def _auto_detect_db_dir_windows():
     return _choose_candidate(candidates)
 
 
-def _auto_detect_db_dir_linux():
-    """自动检测 Linux 微信 db_storage 路径。
-
-    优先搜索当前用户的 home 目录。以 sudo 运行时通过 SUDO_USER 回退到
-    实际用户的 home，避免只搜索 /root 而遗漏真实数据目录。
-    """
-    seen = set()
-    candidates = []
-    search_roots = [
-        os.path.expanduser("~/Documents/xwechat_files"),
-    ]
-    # sudo 运行时，~ 展开为 /root；回退到实际用户的 home
-    sudo_user = os.environ.get("SUDO_USER")
-    if sudo_user:
-        # 验证 SUDO_USER 是合法系统用户，防止路径注入
-        import pwd
-        try:
-            sudo_home = pwd.getpwnam(sudo_user).pw_dir
-        except KeyError:
-            sudo_home = None
-        if sudo_home:
-            fallback = os.path.join(sudo_home, "Documents", "xwechat_files")
-            if fallback not in search_roots:
-                search_roots.append(fallback)
-
-    for root in search_roots:
-        if not os.path.isdir(root):
-            continue
-        pattern = os.path.join(root, "*", "db_storage")
-        for match in glob.glob(pattern):
-            normalized = os.path.normcase(os.path.normpath(match))
-            if os.path.isdir(match) and normalized not in seen:
-                seen.add(normalized)
-                candidates.append(match)
-
-    # 早期 Linux 微信版本（wine/容器方案）使用的数据路径
-    old_path = os.path.expanduser("~/.local/share/weixin/data/db_storage")
-    if os.path.isdir(old_path):
-        normalized = os.path.normcase(os.path.normpath(old_path))
-        if normalized not in seen:
-            candidates.append(old_path)
-
-    # 优先使用最近活跃账号：按 message 目录 mtime 降序（近似排序，best-effort）
-    def _mtime(path):
-        msg_dir = os.path.join(path, "message")
-        target = msg_dir if os.path.isdir(msg_dir) else path
-        try:
-            return os.path.getmtime(target)
-        except OSError:
-            return 0
-
-    candidates.sort(key=_mtime, reverse=True)
-    return _choose_candidate(candidates)
-
-
-def _auto_detect_db_dir_macos():
-    """自动检测 macOS 微信 db_storage 路径。
-
-    微信 4.x 数据目录位于 ~/Library/Containers/com.tencent.xinWeChat/.../xwechat_files/<wxid>/db_storage，
-    路径中包含随机 hash，需要搜索定位。
-    """
-    base = os.path.expanduser(
-        "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files"
-    )
-    if not os.path.isdir(base):
-        return None
-
-    seen = set()
-    candidates = []
-    pattern = os.path.join(base, "*", "db_storage")
-    for match in glob.glob(pattern):
-        normalized = os.path.normcase(os.path.normpath(match))
-        if os.path.isdir(match) and normalized not in seen:
-            seen.add(normalized)
-            candidates.append(match)
-
-    # 优先使用最近活跃账号：按 message 目录 mtime 降序
-    def _mtime(path):
-        msg_dir = os.path.join(path, "message")
-        target = msg_dir if os.path.isdir(msg_dir) else path
-        try:
-            return os.path.getmtime(target)
-        except OSError:
-            return 0
-
-    candidates.sort(key=_mtime, reverse=True)
-    return _choose_candidate(candidates)
-
-
 def auto_detect_db_dir():
-    if _SYSTEM == "windows":
-        return _auto_detect_db_dir_windows()
-    if _SYSTEM == "linux":
-        return _auto_detect_db_dir_linux()
-    if _SYSTEM == "darwin":
-        return _auto_detect_db_dir_macos()
-    return None
+    return _auto_detect_db_dir_windows()
 
 
 def load_config():
@@ -260,12 +152,7 @@ def load_config():
                     json.dump(_DEFAULT, f, indent=4, ensure_ascii=False)
             print(f"[!] 未能自动检测微信数据目录")
             print(f"    请手动编辑 {config_file} 中的 db_dir 字段")
-            if _SYSTEM == "linux":
-                print("    Linux 默认路径类似: ~/Documents/xwechat_files/<wxid>/db_storage")
-            elif _SYSTEM == "darwin":
-                print("    macOS 默认路径类似: ~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/<wxid>/db_storage")
-            else:
-                print(f"    路径可在 微信设置 → 文件管理 中找到")
+            print("    路径可在 微信设置 → 文件管理 中找到")
             sys.exit(1)
     else:
         cfg = {**_DEFAULT, **cfg}

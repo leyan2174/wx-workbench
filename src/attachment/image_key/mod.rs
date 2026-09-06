@@ -1,17 +1,5 @@
-//! V2 image AES key 提取 — 平台相关。
-//!
-//! 路径：
-//! - macOS：磁盘派生（`key_<uin>_*.statistic` 文件名拿 uin → `md5(str(uin) + wxid)[:16]`）
-//!   + brute-force fallback（`md5(str(uin))[:4] == wxid_suffix` 枚举 2^24）
-//! - Windows：扫 `Weixin.exe` 内存，匹配 `[a-zA-Z0-9]{32}` 候选，按已知 AES ciphertext-block
-//!   反验（`find_image_key.py` / `find_image_key.c` 已写实）
-//! - Linux：上游空白；当前不实现，遇到 V2 .dat 返回 unsupported 错误
+//! Windows V2 image key extraction from the logged-in Weixin process.
 
-#[cfg(target_os = "linux")]
-pub mod linux;
-#[cfg(target_os = "macos")]
-pub mod macos;
-#[cfg(target_os = "windows")]
 pub mod windows;
 
 use anyhow::Result;
@@ -25,7 +13,7 @@ use crate::attachment::decoder::{detect_image_format, V2_MAGIC};
 
 /// V2 图片真正需要的是两份材料：
 /// - 16 字节 ASCII AES key
-/// - XOR key（macOS 上来自 uin & 0xff，不是总能硬编码成 0x88）
+/// - XOR key（由图片内容验证）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageKeyMaterial {
     pub aes_key: [u8; 16],
@@ -49,22 +37,7 @@ pub trait ImageKeyProvider {
 
 /// 平台默认实现。
 pub fn default_provider() -> Option<Box<dyn ImageKeyProvider + Send + Sync>> {
-    #[cfg(target_os = "macos")]
-    {
-        return Some(Box::new(macos::MacosImageKeyProvider::from_current_config()));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        return Some(Box::new(windows::WindowsImageKeyProvider::from_current_config()));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        return Some(Box::new(linux::LinuxImageKeyProvider));
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        None
-    }
+    Some(Box::new(windows::WindowsImageKeyProvider::from_current_config()))
 }
 
 pub(crate) fn configured_db_dir_for_wxid(configured_db_dir: &Path, requested_wxid: &str) -> PathBuf {

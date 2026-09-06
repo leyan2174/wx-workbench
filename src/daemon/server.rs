@@ -6,74 +6,10 @@ use super::cache::DbCache;
 use super::query::Names;
 use crate::ipc::{Request, Response};
 
-/// 启动 IPC server（Unix socket / Windows named pipe）
+/// 启动 IPC server（Windows named pipe）
 pub async fn serve(db: Arc<DbCache>, names: Arc<tokio::sync::RwLock<Arc<Names>>>) -> Result<()> {
-    #[cfg(unix)]
-    serve_unix(db, names).await?;
     #[cfg(windows)]
     serve_windows(db, names).await?;
-    Ok(())
-}
-
-#[cfg(unix)]
-async fn serve_unix(db: Arc<DbCache>, names: Arc<tokio::sync::RwLock<Arc<Names>>>) -> Result<()> {
-    use tokio::net::UnixListener;
-    let sock_path = crate::config::sock_path();
-
-    // 删除旧 socket 文件
-    if sock_path.exists() {
-        let _ = tokio::fs::remove_file(&sock_path).await;
-    }
-
-    let listener = UnixListener::bind(&sock_path)?;
-    // 设置权限 0600
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&sock_path, std::fs::Permissions::from_mode(0o600))?;
-    }
-
-    eprintln!("[server] 监听 {}", sock_path.display());
-
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let db2 = Arc::clone(&db);
-        let names2 = Arc::clone(&names);
-
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection_unix(stream, db2, names2).await {
-                eprintln!("[server] 连接处理错误: {}", e);
-            }
-        });
-    }
-}
-
-#[cfg(unix)]
-async fn handle_connection_unix(
-    stream: tokio::net::UnixStream,
-    db: Arc<DbCache>,
-    names: Arc<tokio::sync::RwLock<Arc<Names>>>,
-) -> Result<()> {
-    let (reader, mut writer) = stream.into_split();
-    let mut lines = BufReader::new(reader).lines();
-
-    let line = match lines.next_line().await? {
-        Some(l) => l,
-        None => return Ok(()),
-    };
-
-    // 解析请求
-    let req: Request = match serde_json::from_str(&line) {
-        Ok(r) => r,
-        Err(e) => {
-            let resp = Response::err(format!("JSON 解析错误: {}", e));
-            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
-            return Ok(());
-        }
-    };
-
-    let resp = dispatch(req, &db, &names).await;
-    writer.write_all(resp.to_json_line()?.as_bytes()).await?;
     Ok(())
 }
 

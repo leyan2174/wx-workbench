@@ -312,7 +312,7 @@ def decode_all_dats(attach_dir, out_dir, aes_key=None, xor_key=0x88,
       到最终路径,中断不留半文件。
 
     错误隔离:单文件失败不阻塞批次。V2 文件遇到 aes_key=None 计入
-      skipped_no_key(可恢复:跑 find_image_key_macos.py 提取 key 后重跑)。
+      skipped_no_key(可恢复:跑 find_image_key.py 提取 key 后重跑)。
 
     Args:
       attach_dir:     微信 msg/attach 根目录(含 chat_hash 子目录)

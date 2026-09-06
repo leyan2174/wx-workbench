@@ -21,43 +21,7 @@ import sys
 
 def detect_wechat_dir():
     """自动检测微信数据目录"""
-    system = platform.system().lower()
-
-    if system == "darwin":
-        containers = (
-            os.path.expanduser(
-                "~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files"
-            )
-        )
-        if os.path.exists(containers):
-            dirs = [
-                os.path.join(containers, d, "db_storage")
-                for d in os.listdir(containers)
-                if os.path.isdir(os.path.join(containers, d))
-            ]
-            dirs = [d for d in dirs if os.path.exists(d)]
-            # 按修改时间排序，最近活跃的排最前
-            dirs.sort(key=lambda d: os.path.getmtime(d), reverse=True)
-            return dirs if dirs else None
-
-    elif system == "linux":
-        home = os.path.expanduser("~")
-        candidates = [
-            os.path.join(home, "Documents", "xwechat_files"),
-            os.path.join(home, ".xwechat", "files"),
-        ]
-        for c in candidates:
-            if os.path.exists(c):
-                dirs = [
-                    os.path.join(c, d, "db_storage")
-                    for d in os.listdir(c)
-                    if os.path.isdir(os.path.join(c, d))
-                ]
-                dirs = [d for d in dirs if os.path.exists(d)]
-                if dirs:
-                    return dirs
-
-    elif system == "windows":
+    if sys.platform == "win32":
         localappdata = os.environ.get("LOCALAPPDATA", "")
         candidates = [
             os.path.join(localappdata, "xwechat_files"),
@@ -85,9 +49,7 @@ def detect_transcription_backends():
     if shutil.which("whisper-cpp") or shutil.which("whisper-cli"):
         backends["whisper_cpp"] = True
         model_dirs = [
-            os.path.expanduser("~/Library/Application Support/whisper-cpp"),
             os.path.expanduser("~/whisper-models"),
-            "/opt/homebrew/share/whisper-cpp/models",
         ]
         for md in model_dirs:
             if os.path.exists(md):
@@ -122,7 +84,7 @@ def check_environment():
 
     # whisper-cpp
     whisper_bin = shutil.which("whisper-cpp") or shutil.which("whisper-cli")
-    print(f"[whisper-cpp] {'✓ ' + whisper_bin if whisper_bin else '✗ 未安装 (brew install whisper-cpp)'}")
+    print(f"[whisper-cpp] {'✓ ' + whisper_bin if whisper_bin else '✗ 请配置 Windows whisper_cpp_binary'}")
 
     # config
     if os.path.exists("config.json"):
@@ -186,7 +148,7 @@ def interactive_setup():
     backends = detect_transcription_backends()
     print(f"\n[2/3] 语音转录 backend:")
     print(f"      [1] local — 本地 CPU 转录（默认，隐私最佳，速度较慢）")
-    status_w = "✓" if backends.get("whisper_cpp") else "✗ (brew install whisper-cpp)"
+    status_w = "✓" if backends.get("whisper_cpp") else "✗ (请配置 Windows whisper_cpp_binary)"
     print(f"      [2] whisper_cpp — GPU 加速 ({status_w})")
     status_o = "✓" if backends.get("openai") else "✗ (pip install openai)"
     print(f"      [3] openai — API 转录 ({status_o})")

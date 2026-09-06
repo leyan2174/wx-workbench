@@ -61,9 +61,6 @@ async fn async_run() -> Result<()> {
 
     let pid = std::process::id();
 
-    // 注册 SIGTERM / SIGINT 处理
-    setup_signal_handler().await;
-
     eprintln!("[daemon] wx-daemon 启动 (PID {})", pid);
 
     // 加载配置
@@ -146,29 +143,7 @@ fn extract_keys(json: &serde_json::Value) -> HashMap<String, String> {
     result
 }
 
-/// 设置信号处理（Unix: SIGTERM/SIGINT）
-async fn setup_signal_handler() {
-    #[cfg(unix)]
-    tokio::spawn(async move {
-        use tokio::signal::unix::{signal, SignalKind};
-        let mut term = signal(SignalKind::terminate()).expect("无法监听 SIGTERM");
-        let mut int = signal(SignalKind::interrupt()).expect("无法监听 SIGINT");
-        tokio::select! {
-            _ = term.recv() => {},
-            _ = int.recv() => {},
-        }
-        cleanup_and_exit();
-    });
-}
-
-#[cfg(unix)]
-fn cleanup_and_exit() {
-    cleanup_ipc_files();
-    std::process::exit(0);
-}
-
 fn cleanup_ipc_files() {
-    let _ = std::fs::remove_file(config::sock_path());
     let _ = std::fs::remove_file(config::pid_path());
 }
 
