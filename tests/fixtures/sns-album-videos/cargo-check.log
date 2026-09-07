@@ -1,0 +1,180 @@
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\src\wx-cli)
+warning: unused imports: `export_database_with_cache` and `export_database`
+  --> src\toolkit\sns\mod.rs:12:18
+   |
+12 | pub use export::{export_database, export_database_with_cache, CacheRecovery, ExportOptions};
+   |                  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `export_for` is never used
+   --> src\cli\export_chats.rs:137:8
+    |
+137 | pub fn export_for(
+    |        ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `receipt` is never read
+  --> src\toolkit\asr\cached.rs:40:9
+   |
+38 | pub struct ReceiptOutcome {
+   |            -------------- field in this struct
+39 |     pub cached: CachedOutcome,
+40 |     pub receipt: ReceiptState,
+   |         ^^^^^^^
+
+warning: function `transcribe_cached_checked` is never used
+  --> src\toolkit\asr\cached.rs:49:8
+   |
+49 | pub fn transcribe_cached_checked(
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_BYTES` is never used
+  --> src\toolkit\sns\album_images.rs:13:7
+   |
+13 | const MAX_BYTES: usize = 25 * 1024 * 1024;
+   |       ^^^^^^^^^
+
+warning: constant `MAX_URL_BYTES` is never used
+  --> src\toolkit\sns\album_images.rs:14:7
+   |
+14 | const MAX_URL_BYTES: usize = 64 * 1024;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `TIMEOUT` is never used
+  --> src\toolkit\sns\album_images.rs:15:7
+   |
+15 | const TIMEOUT: Duration = Duration::from_secs(10);
+   |       ^^^^^^^
+
+warning: enum `ImageSource` is never used
+  --> src\toolkit\sns\album_images.rs:18:10
+   |
+18 | pub enum ImageSource {
+   |          ^^^^^^^^^^^
+
+warning: method `as_str` is never used
+  --> src\toolkit\sns\album_images.rs:24:12
+   |
+23 | impl ImageSource {
+   | ---------------- method in this implementation
+24 |     pub fn as_str(self) -> &'static str {
+   |            ^^^^^^
+
+warning: struct `Outcome` is never constructed
+  --> src\toolkit\sns\album_images.rs:35:12
+   |
+35 | pub struct Outcome {
+   |            ^^^^^^^
+
+warning: enum `ImageError` is never used
+  --> src\toolkit\sns\album_images.rs:43:10
+   |
+43 | pub enum ImageError {
+   |          ^^^^^^^^^^
+
+warning: struct `Failure` is never constructed
+  --> src\toolkit\sns\album_images.rs:75:12
+   |
+75 | pub struct Failure {
+   |            ^^^^^^^
+
+warning: type alias `Result` is never used
+  --> src\toolkit\sns\album_images.rs:95:6
+   |
+95 | type Result<T> = std::result::Result<T, ImageError>;
+   |      ^^^^^^
+
+warning: function `trim` is never used
+  --> src\toolkit\sns\album_images.rs:97:4
+   |
+97 | fn trim(value: &str) -> &str {
+   |    ^^^^
+
+warning: function `sns_image_url_candidates` is never used
+   --> src\toolkit\sns\album_images.rs:101:8
+    |
+101 | pub fn sns_image_url_candidates(url: &str, token: &str) -> Vec<String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `fix_sns_image_url` is never used
+   --> src\toolkit\sns\album_images.rs:149:8
+    |
+149 | pub fn fix_sns_image_url(url: &str, token: &str) -> String {
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `detect` is never used
+   --> src\toolkit\sns\album_images.rs:156:4
+    |
+156 | fn detect(data: &[u8]) -> Option<&'static str> {
+    |    ^^^^^^
+
+warning: function `destination` is never used
+   --> src\toolkit\sns\album_images.rs:170:4
+    |
+170 | fn destination(guard: &HostOutputGuard, name: &str, ext: &str) -> Result<std::path::PathBuf> {
+    |    ^^^^^^^^^^^
+
+warning: function `reuse_existing_image` is never used
+   --> src\toolkit\sns\album_images.rs:183:15
+    |
+183 | pub(crate) fn reuse_existing_image(name: &str, guard: &HostOutputGuard) -> Result<Option<Outcome>> {
+    |               ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `save_image` is never used
+   --> src\toolkit\sns\album_images.rs:226:15
+    |
+226 | pub(crate) fn save_image(data: &[u8], name: &str, guard: &HostOutputGuard) -> Result<Outcome> {
+    |               ^^^^^^^^^^
+
+warning: function `client` is never used
+   --> src\toolkit\sns\album_images.rs:259:4
+    |
+259 | fn client() -> Result<reqwest::blocking::Client> {
+    |    ^^^^^^
+
+warning: function `fetch` is never used
+   --> src\toolkit\sns\album_images.rs:283:4
+    |
+283 | fn fetch(client: &reqwest::blocking::Client, url: &str) -> Result<Vec<u8>> {
+    |    ^^^^^
+
+warning: function `download_sns_image` is never used
+   --> src\toolkit\sns\album_images.rs:324:15
+    |
+324 | pub(crate) fn download_sns_image<'a>(
+    |               ^^^^^^^^^^^^^^^^^^
+
+warning: function `download_with` is never used
+   --> src\toolkit\sns\album_images.rs:354:4
+    |
+354 | fn download_with(
+    |    ^^^^^^^^^^^^^
+
+warning: function `write_export` is never used
+   --> src\toolkit\sns\export.rs:344:8
+    |
+344 | pub fn write_export(data: &ExportData, output: &Path, timezone: TimeZone) -> Result<ExportReport> {
+    |        ^^^^^^^^^^^^
+
+warning: function `write_export_with_cache` is never used
+   --> src\toolkit\sns\export.rs:348:4
+    |
+348 | fn write_export_with_cache(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `export_database` is never used
+   --> src\toolkit\sns\export.rs:566:8
+    |
+566 | pub fn export_database(
+    |        ^^^^^^^^^^^^^^^
+
+warning: function `export_database_with_cache` is never used
+   --> src\toolkit\sns\export.rs:575:8
+    |
+575 | pub fn export_database_with_cache(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `wx-cli` (bin "wx") generated 28 warnings (run `cargo fix --bin "wx" -p wx-cli` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.49s

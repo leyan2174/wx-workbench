@@ -5,9 +5,6 @@
 //! encoded blob with `x'<key><salt>'` material.
 
 use anyhow::Result;
-use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2_hmac;
-use sha2::Sha512;
 use std::collections::{BTreeSet, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -51,11 +48,8 @@ struct Stats {
     verified_count: usize,
 }
 
-pub(super) fn scan(
-    process: HANDLE,
-    db_dir: &Path,
-) -> Result<Vec<KeyEntry>> {
-    let db_pages = collect_db_pages(db_dir)?;
+/// 所有页面由调用方从固定句柄读取；扫描阶段不按路径重开数据库。
+pub(super) fn scan(process: HANDLE, db_pages: &[DbPage]) -> Result<Vec<KeyEntry>> {
     let regions = enum_readable_regions(process);
     let needle_addresses = find_bytes_in_regions(process, &regions, NEEDLE);
     let mut stats = Stats {
@@ -157,7 +151,7 @@ pub(super) fn scan(
                     stats.candidate_count += 1;
                     let matched = verify_candidate(
                         &candidate,
-                        &db_pages,
+                        db_pages,
                         &mut remaining_databases,
                         &mut attempted_databases,
                         &mut entries,
@@ -463,20 +457,32 @@ fn collect_db_pages_recursive(root: &Path, dir: &Path, pages: &mut Vec<DbPage>) 
     Ok(())
 }
 
-/// In WAL mode, page 1 in the main file can be older than the page currently
-/// visible to SQLite. Use the last complete WAL frame for page 1 when present.
+/// 兼容账号捕获入口；checked 扫描直接传入已经固定的 WAL 句柄。
 fn read_wal_page1(db_path: &Path) -> Result<Option<Vec<u8>>> {
     let wal_path = db_path.with_extension("db-wal");
-    let Ok(mut file) = std::fs::File::open(wal_path) else {
-        return Ok(None);
+    let mut file = match std::fs::File::open(wal_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
     };
-    let length = file.metadata()?.len() as usize;
+    let mut frames_left = super::MAX_WAL_FRAMES;
+    let mut bytes_left = super::MAX_SOURCE_BYTES;
+    read_wal_page1_from(&mut file, &mut frames_left, &mut bytes_left)
+}
+
+/// 复用原有 WAL 页查找规则，使用固定句柄和整次库存共享的读取预算。
+pub(super) fn read_wal_page1_from(
+    file: &mut std::fs::File,
+    frames_left: &mut usize,
+    bytes_left: &mut u64,
+) -> Result<Option<Vec<u8>>> {
+    let length = usize::try_from(file.metadata()?.len())?;
     if length < 32 {
         return Ok(None);
     }
 
     let mut header = [0u8; 32];
-    file.read_exact(&mut header)?;
+    read_budgeted(file, &mut header, bytes_left)?;
     let magic = u32::from_be_bytes(header[..4].try_into().unwrap());
     if magic != 0x377f0682 && magic != 0x377f0683 {
         return Ok(None);
@@ -488,12 +494,15 @@ fn read_wal_page1(db_path: &Path) -> Result<Option<Vec<u8>>> {
 
     let frame_size = 24 + page_size;
     let frame_count = (length - 32) / frame_size;
+    *frames_left = frames_left
+        .checked_sub(frame_count)
+        .ok_or_else(|| anyhow::anyhow!("库存 WAL 帧数量超限"))?;
     let mut latest_page1 = None;
     for frame_index in 0..frame_count {
         let frame_offset = 32 + frame_index * frame_size;
         file.seek(SeekFrom::Start(frame_offset as u64))?;
         let mut frame_header = [0u8; 24];
-        file.read_exact(&mut frame_header)?;
+        read_budgeted(file, &mut frame_header, bytes_left)?;
         if frame_header[8..16] != header[16..24] {
             continue;
         }
@@ -502,20 +511,29 @@ fn read_wal_page1(db_path: &Path) -> Result<Option<Vec<u8>>> {
             continue;
         }
         let mut page1 = vec![0u8; PAGE_SIZE];
-        file.read_exact(&mut page1)?;
+        read_budgeted(file, &mut page1, bytes_left)?;
         latest_page1 = Some(page1);
     }
     Ok(latest_page1)
+}
+
+pub(super) fn read_budgeted(
+    file: &mut std::fs::File,
+    output: &mut [u8],
+    bytes_left: &mut u64,
+) -> Result<()> {
+    *bytes_left = bytes_left
+        .checked_sub(output.len() as u64)
+        .ok_or_else(|| anyhow::anyhow!("库存文件读取字节预算耗尽"))?;
+    file.read_exact(output)?;
+    Ok(())
 }
 
 fn decode_hex(value: &[u8]) -> Option<Vec<u8>> {
     if !value.len().is_multiple_of(2) {
         return None;
     }
-    value
-        .chunks_exact(2)
-        .map(hex_pair)
-        .collect()
+    value.chunks_exact(2).map(hex_pair).collect()
 }
 
 fn hex_pair(pair: &[u8]) -> Option<u8> {
@@ -536,21 +554,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 pub(super) fn verify_page1(enc_key: &[u8; KEY_SIZE], page: &[u8]) -> bool {
-    if page.len() < PAGE_SIZE {
-        return false;
-    }
-    let mut mac_salt = [0u8; SALT_SIZE];
-    for (index, value) in page[..SALT_SIZE].iter().enumerate() {
-        mac_salt[index] = value ^ 0x3a;
-    }
-    let mut mac_key = [0u8; KEY_SIZE];
-    pbkdf2_hmac::<Sha512>(enc_key, &mac_salt, 2, &mut mac_key);
-    let Ok(mut mac) = Hmac::<Sha512>::new_from_slice(&mac_key) else {
-        return false;
-    };
-    mac.update(&page[16..4032]);
-    mac.update(&1u32.to_le_bytes());
-    mac.verify_slice(&page[4032..PAGE_SIZE]).is_ok()
+    crate::crypto::verify_page1(enc_key, page)
 }
 
 #[cfg(test)]
@@ -562,9 +566,16 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "wx-scanner-scope-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
-        for relative in ["MiGrAtE/nested/old.db", "message/current.db", "message/migrate/keep.db"] {
+        for relative in [
+            "MiGrAtE/nested/old.db",
+            "message/current.db",
+            "message/migrate/keep.db",
+        ] {
             let path = root.join(relative);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, vec![0xcc; PAGE_SIZE]).unwrap();
@@ -572,12 +583,18 @@ mod tests {
         let pages = collect_db_pages(&root).unwrap();
         let page_names: BTreeSet<String> = pages.into_iter().map(|page| page.db_name).collect();
         let salt_names: BTreeSet<String> = super::super::super::collect_db_salts(&root)
-            .into_iter().map(|(_, name)| name).collect();
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect();
         std::fs::remove_dir_all(&root).unwrap();
         assert_eq!(page_names, salt_names);
-        assert_eq!(page_names, BTreeSet::from([
-            "message/current.db".into(), "message/migrate/keep.db".into()
-        ]));
+        assert_eq!(
+            page_names,
+            BTreeSet::from([
+                "message/current.db".into(),
+                "message/migrate/keep.db".into()
+            ])
+        );
     }
 
     #[test]
@@ -604,10 +621,8 @@ mod tests {
 
     #[test]
     fn reads_page1_from_current_wal_generation() {
-        let dir = std::env::temp_dir().join(format!(
-            "wx-cli-wal-test-{:?}",
-            std::thread::current().id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("wx-cli-wal-test-{:?}", std::thread::current().id()));
         std::fs::create_dir_all(&dir).unwrap();
         let db_path = dir.join("test.db");
         std::fs::write(&db_path, vec![0u8; PAGE_SIZE]).unwrap();

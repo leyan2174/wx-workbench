@@ -1,0 +1,6 @@
+[
+  {"time":"2026-09-07 10:00","content":"合成相册[微笑]\n保留未知表情[未收录]\n\n中文、English、Emoji 🌻\n<script>不是脚本</script>"},
+  {"time":"2026-09-06 09:00","media":[{"type":2,"local_file":"images/synthetic.png","width":480,"height":320}]},
+  {"time":"2025-08-01 12:30","content":"合成图片网格","media":[{"type":"2","local_file":"images/synthetic.png"},{"type":2,"local_file":"images/synthetic.png"},{"type":2,"local_file":"images/synthetic.png"}]},
+  {"time":"2024-05-01 08:00","content":"视频占位：空文件，仅用于检查原有播放器布局。","media":[{"type":"15","local_file":"videos/placeholder.mp4"}]}
+]

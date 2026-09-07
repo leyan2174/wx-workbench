@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="2220" viewBox="0 0 1640 2220">
+<style>text { font-family: "Microsoft YaHei", Arial, sans-serif; letter-spacing:0; }</style>
+<defs>
+<marker id="arrow-live" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#15803d"/></marker>
+<marker id="arrow-pending" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#c2410c"/></marker>
+<marker id="arrow-legacy" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#b91c1c"/></marker>
+<marker id="arrow-target" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#2563eb"/></marker>
+</defs>
+<rect data-graph-role="background" width="1640" height="2220" fill="#fff"/>
+<text x="60" y="54" font-size="32" fill="#111827" font-weight="600" data-owner="">SNS 原生时间线、相册与发布边界</text>
+<text x="60" y="89" font-size="18" fill="#4b5563" font-weight="400" data-owner="">export-sns 账号更新 | export-sns-native 静态 fresh / update | sns-album 独立 Feed 与媒体策略</text>
+<text x="60" y="119" font-size="16" fill="#4b5563" font-weight="400" data-owner="">源码核对快照：2026-09-07 / 时间线：20 targets，1142/0/11；check 待确认 | 证据待封存；现有 source-evidence.json 为旧快照</text>
+<text x="60" y="193" font-size="20" fill="#111827" font-weight="600" data-owner="">01 原生入口与身份：固定 RuntimeContext，最多六次只读尝试，不启动 Python / Node</text>
+<text x="60" y="463" font-size="20" fill="#111827" font-weight="600" data-owner="">02 图片严格优先序：existing → url → thumb；本相册不进行图片 cache 扫描</text>
+<text x="60" y="733" font-size="20" fill="#111827" font-weight="600" data-owner="">03 视频严格优先序：existing → 完整cache → remote → partial；不是任意缓存优先</text>
+<text x="60" y="1003" font-size="20" fill="#111827" font-weight="600" data-owner="">04 发布主链：来源预检 → 输出树外暂存 → 逐文件原子替换 → 可见结果（非整树事务）</text>
+<text x="60" y="1273" font-size="20" fill="#111827" font-weight="600" data-owner="">05 认领及资源边界（说明，不是额外调用链）</text>
+<text x="60" y="1543" font-size="20" fill="#111827" font-weight="600" data-owner="">06 独立入口与未迁移边界：以下并列，不是相册调用链</text>
+<text x="60" y="1813" font-size="20" fill="#111827" font-weight="600" data-owner="">07 时间线更新链：共享 export.rs / publish；不是相册 Feed，也不是旧时间线 JSON 合并</text>
+<path data-graph-role="edge" data-source="args" data-target="read" d="M 380 303.0 L 460 303.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="291.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">读取</text>
+<path data-graph-role="edge" data-source="read" data-target="feed" d="M 780 303.0 L 860 303.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="291.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">响应</text>
+<path data-graph-role="edge" data-source="feed" data-target="jobs" d="M 1180 303.0 L 1260 303.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="291.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">帖子</text>
+<path data-graph-role="edge" data-source="imgexisting" data-target="imgurl" d="M 380 573.0 L 460 573.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="561.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">未命中</text>
+<path data-graph-role="edge" data-source="imgurl" data-target="imgthumb" d="M 780 573.0 L 860 573.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="561.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">失败</text>
+<path data-graph-role="edge" data-source="videxisting" data-target="vidcache" d="M 380 843.0 L 460 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">未命中</text>
+<path data-graph-role="edge" data-source="vidcache" data-target="vidremote" d="M 780 843.0 L 860 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">未命中</text>
+<path data-graph-role="edge" data-source="vidremote" data-target="vidpartial" d="M 1180 843.0 L 1260 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">失败</text>
+<path data-graph-role="edge" data-source="binding" data-target="stage" d="M 380 1113.0 L 460 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">预检后</text>
+<path data-graph-role="edge" data-source="stage" data-target="publish" d="M 780 1113.0 L 860 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">逐文件</text>
+<path data-graph-role="edge" data-source="publish" data-target="result" d="M 1180 1113.0 L 1260 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">结果</text>
+<path data-graph-role="edge" data-source="timelinebind" data-target="timelinestage" d="M 380 1923.0 L 460 1923.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="1911.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">全批通过</text>
+<path data-graph-role="edge" data-source="timelinestage" data-target="timelinepublish" d="M 780 1923.0 L 860 1923.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="1911.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">暂存后</text>
+<path data-graph-role="edge" data-source="timelinepublish" data-target="timelinelimits" d="M 1180 1923.0 L 1260 1923.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="1911.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">边界</text>
+<rect id="args" data-graph-role="node" x="60" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="args">cli/sns_album</text>
+<text x="76" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="args">已接入</text>
+<text x="76" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="args">cmd_sns_album → album::export</text>
+<text x="76" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="args">日期 / 输出与输入隔离</text>
+<text x="76" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="args">no-remote / no-videos</text>
+<rect id="read" data-graph-role="node" x="460" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="read">账号固定 IPC</text>
+<text x="476" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="read">已接入</text>
+<text x="476" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="read">send_with_limits；最多6次</text>
+<text x="476" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="read">每次30s / 256MiB；失败退避</text>
+<text x="476" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="read">不是整批30秒时限</text>
+<rect id="feed" data-graph-role="node" x="860" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="feed">q_sns_feed 证据</text>
+<text x="876" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="feed">已接入</text>
+<text x="876" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="feed">resolved_user 精确作者</text>
+<text x="876" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="feed">scanned / scan_truncated</text>
+<text x="876" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="feed">缺作者拒绝；截断警告</text>
+<rect id="jobs" data-graph-role="node" x="1260" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="jobs">album 媒体编排</text>
+<text x="1276" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="jobs">已接入</text>
+<text x="1276" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="jobs">images / videos / render</text>
+<text x="1276" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="jobs">图片1–32；视频1–16线程</text>
+<text x="1276" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="jobs">清除输入伪造的本地引用</text>
+<rect id="imgexisting" data-graph-role="node" x="60" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="imgexisting">existing</text>
+<text x="76" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="imgexisting">已接入</text>
+<text x="76" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="imgexisting">reuse_existing_image</text>
+<text x="76" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="imgexisting">守卫下复用已有图片</text>
+<text x="76" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="imgexisting">命中不下载；image_cache=0</text>
+<rect id="imgurl" data-graph-role="node" x="460" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="imgurl">url</text>
+<text x="476" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="imgurl">已接入</text>
+<text x="476" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="imgurl">download_sns_image</text>
+<text x="476" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="imgurl">url_key / url_token</text>
+<text x="476" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="imgurl">受限响应读取与格式识别</text>
+<rect id="imgthumb" data-graph-role="node" x="860" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="imgthumb">thumb</text>
+<text x="876" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="imgthumb">已接入</text>
+<text x="876" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="imgthumb">仅原图未成功时回退</text>
+<text x="876" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="imgthumb">thumb_key / thumb_token</text>
+<text x="876" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="imgthumb">仍失败则 image_missing</text>
+<rect id="imgwasm" data-graph-role="node" x="1260" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="imgwasm">暂存与按需解码</text>
+<text x="1276" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="imgwasm">已接入</text>
+<text x="1276" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="imgwasm">images/ 引用 → 帖子</text>
+<text x="1276" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="imgwasm">明文不需要 WASM</text>
+<text x="1276" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="imgwasm">加密时线程 OnceLock 初始化</text>
+<rect id="videxisting" data-graph-role="node" x="60" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="videxisting">existing</text>
+<text x="76" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="videxisting">已接入</text>
+<text x="76" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="videxisting">reuse_existing_video</text>
+<text x="76" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="videxisting">video_bytes 保存实际大小</text>
+<text x="76" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="videxisting">已有有效结果不下载</text>
+<rect id="vidcache" data-graph-role="node" x="460" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="vidcache">完整 cache</text>
+<text x="476" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="vidcache">已接入</text>
+<text x="476" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="vidcache">build_video_cache_index</text>
+<text x="476" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="vidcache">本账号 Video；不扫描 Img</text>
+<text x="476" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="vidcache">copy_cached_video(..., false)</text>
+<rect id="vidremote" data-graph-role="node" x="860" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="vidremote">remote</text>
+<text x="876" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="vidremote">已接入</text>
+<text x="876" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="vidremote">download_video；明文直通</text>
+<text x="876" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="vidremote">加密前缀按需 WASM 解码</text>
+<text x="876" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="vidremote">no-remote 禁用此步骤</text>
+<rect id="vidpartial" data-graph-role="node" x="1260" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="vidpartial">partial cache</text>
+<text x="1276" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="vidpartial">已接入</text>
+<text x="1276" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="vidpartial">完整来源未成功才回退</text>
+<text x="1276" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="vidpartial">copy_cached_video(..., true)</text>
+<text x="1276" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="vidpartial">不完整单列；缺失不假报成功</text>
+<rect id="binding" data-graph-role="node" x="60" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="binding">publish::prepare</text>
+<text x="76" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="binding">已接入</text>
+<text x="76" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="binding">账号 / 作者 / tree_kind 绑定</text>
+<text x="76" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="binding">协作锁与全部候选预检</text>
+<text x="76" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="binding">绑定清单不是完成标记</text>
+<rect id="stage" data-graph-role="node" x="460" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="stage">兄弟目录暂存</text>
+<text x="476" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="stage">已接入</text>
+<text x="476" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="stage">.wx-album-* / album_render</text>
+<text x="476" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="stage">媒体及 timeline 数组 JSON</text>
+<text x="476" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="stage">timeline.html / summary</text>
+<rect id="publish" data-graph-role="node" x="860" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="publish">publish_all</text>
+<text x="876" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="publish">已接入</text>
+<text x="876" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="publish">媒体 → JSON → HTML → 汇总</text>
+<text x="876" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="publish">同目录暂存 / sync / persist</text>
+<text x="876" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="publish">复核身份；复制保持 mtime</text>
+<rect id="result" data-graph-role="node" x="1260" y="1030" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="1276" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="result">部分提交可见</text>
+<text x="1276" y="1084" font-size="14" fill="#2563eb" font-weight="400" data-owner="result">能力边界 / 待验收</text>
+<text x="1276" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="result">失败不回滚已提交文件</text>
+<text x="1276" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="result">没有整树事务或跨文件 CAS</text>
+<text x="1276" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="result">更新不删除未知旧文件</text>
+<rect id="adopt" data-graph-role="node" x="60" y="1300" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="76" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="adopt">explicit adopt</text>
+<text x="76" y="1354" font-size="14" fill="#2563eb" font-weight="400" data-owner="adopt">能力边界 / 待验收</text>
+<text x="76" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="adopt">无绑定非空目录须显式认领</text>
+<text x="76" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="adopt">已知账号 / 联系人冲突拒绝</text>
+<text x="76" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="adopt">legacy_unverified=true</text>
+<rect id="provenance" data-graph-role="node" x="460" y="1300" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="476" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="provenance">历史来源未核验</text>
+<text x="476" y="1354" font-size="14" fill="#2563eb" font-weight="400" data-owner="provenance">能力边界 / 待验收</text>
+<text x="476" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="provenance">认领旧媒体不是账号认证</text>
+<text x="476" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="provenance">复用文件不证明历史来源</text>
+<text x="476" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="provenance">未知旧文件和子树保持不动</text>
+<rect id="bounded" data-graph-role="node" x="860" y="1300" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="bounded">读取预算</text>
+<text x="876" y="1354" font-size="14" fill="#15803d" font-weight="400" data-owner="bounded">已接入</text>
+<text x="876" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="bounded">旧timeline 256MiB / 汇总1MiB</text>
+<text x="876" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="bounded">绑定清单64KiB；take(limit+1)</text>
+<text x="876" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="bounded">不是仅检查初始 metadata</text>
+<rect id="tests" data-graph-role="node" x="1260" y="1300" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="1276" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="tests">本轮测试通过</text>
+<text x="1276" y="1354" font-size="14" fill="#2563eb" font-weight="400" data-owner="tests">能力边界 / 待验收</text>
+<text x="1276" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="tests">20 targets：1142次通过</text>
+<text x="1276" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="tests">0失败 / 11忽略；check待定</text>
+<text x="1276" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="tests">host8 / core6 / CLI7 已包含</text>
+<rect id="offline" data-graph-role="node" x="60" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="offline">export-sns-native</text>
+<text x="76" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="offline">已接入</text>
+<text x="76" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="offline">显式库；默认 fresh rename</text>
+<text x="76" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="offline">--update；可 adopt-existing</text>
+<text x="76" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="offline">snapshot 绑定 / 缓存嵌套</text>
+<rect id="oldtimeline" data-graph-role="node" x="460" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="oldtimeline">toolkit export-sns</text>
+<text x="476" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="oldtimeline">已接入</text>
+<text x="476" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="oldtimeline">cli/sns_timeline；无 Python</text>
+<text x="476" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="oldtimeline">固定账号 / 默认 Update</text>
+<text x="476" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="oldtimeline">account 绑定 / 缓存平铺</text>
+<rect id="oldflows" data-graph-role="node" x="860" y="1570" width="320" height="166" rx="8" fill="#fef2f2" stroke="#b91c1c"/>
+<text x="876" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="oldflows">其他旧工作流</text>
+<text x="876" y="1624" font-size="14" fill="#b91c1c" font-weight="400" data-owner="oldflows">Python / Node</text>
+<text x="876" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="oldflows">export_all / transcribe_chat</text>
+<text x="876" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="oldflows">其他 run / GUI 仍有旧路径</text>
+<text x="876" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="oldflows">不宣称全量 Rust 迁移</text>
+<rect id="wasm" data-graph-role="node" x="1260" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="wasm">独立 ASR / 离线视频</text>
+<text x="1276" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="wasm">已接入</text>
+<text x="1276" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="wasm">ASR cache 不调用 SNS cache</text>
+<text x="1276" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="wasm">decode-sns-video 仍独立可用</text>
+<text x="1276" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="wasm">相册无需 Node 运行时</text>
+<rect id="timelinebind" data-graph-role="node" x="60" y="1840" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="timelinebind">全部联系人预检</text>
+<text x="76" y="1894" font-size="14" fill="#15803d" font-weight="400" data-owner="timelinebind">已接入</text>
+<text x="76" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="timelinebind">tree_kind=timeline / 精确作者</text>
+<text x="76" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="timelinebind">账号或静态路径身份绑定</text>
+<text x="76" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="timelinebind">adopt 不认证历史媒体</text>
+<rect id="timelinestage" data-graph-role="node" x="460" y="1840" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="timelinestage">恢复与下载暂存</text>
+<text x="476" y="1894" font-size="14" fill="#15803d" font-weight="400" data-owner="timelinestage">已接入</text>
+<text x="476" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="timelinestage">cache 优先 / 缺失项下载</text>
+<text x="476" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="timelinestage">生产 flag 或 env=1 授权</text>
+<text x="476" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="timelinestage">no-remote 优先禁止网络</text>
+<rect id="timelinepublish" data-graph-role="node" x="860" y="1840" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="timelinepublish">publish_all</text>
+<text x="876" y="1894" font-size="14" fill="#15803d" font-weight="400" data-owner="timelinepublish">已接入</text>
+<text x="876" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="timelinepublish">媒体 / 单帖 / timeline / HTML</text>
+<text x="876" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="timelinepublish">_media_recovery.json 报告</text>
+<text x="876" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="timelinepublish">逐文件原子替换；非整树事务</text>
+<rect id="timelinelimits" data-graph-role="node" x="1260" y="1840" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="1276" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="timelinelimits">更新不等于历史合并</text>
+<text x="1276" y="1894" font-size="14" fill="#2563eb" font-weight="400" data-owner="timelinelimits">能力边界 / 待验收</text>
+<text x="1276" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="timelinelimits">汇总由本轮数据库重建</text>
+<text x="1276" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="timelinelimits">未计划旧文件不删除</text>
+<text x="1276" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="timelinelimits">空筛选不改输出；失败可部分提交</text>
+<rect data-graph-role="legend" x="60" y="2101" width="14" height="14" fill="#15803d"/>
+<text x="84" y="2115" font-size="17" fill="#15803d" font-weight="400" data-owner="">已接入</text>
+<rect data-graph-role="legend" x="460" y="2101" width="14" height="14" fill="#c2410c"/>
+<text x="484" y="2115" font-size="17" fill="#c2410c" font-weight="400" data-owner="">开发中 / 待接线</text>
+<rect data-graph-role="legend" x="860" y="2101" width="14" height="14" fill="#b91c1c"/>
+<text x="884" y="2115" font-size="17" fill="#b91c1c" font-weight="400" data-owner="">Python / Node</text>
+<rect data-graph-role="legend" x="1260" y="2101" width="14" height="14" fill="#2563eb"/>
+<text x="1284" y="2115" font-size="17" fill="#2563eb" font-weight="400" data-owner="">能力边界 / 待验收</text>
+<text x="60" y="2156" font-size="17" fill="#4b5563" font-weight="400" data-owner="">绿色为源码已接线；媒体回退箭头仅在前序失败时推进。WASM 懒加载，不把 ftyp 检查当作完整播放验证。</text>
+<text x="60" y="2183" font-size="17" fill="#4b5563" font-weight="400" data-owner="">全量日志：wx-cli-sns-timeline-all-retest.log；1142含重复执行；check待确认，源码证据待封存。</text>
+</svg>

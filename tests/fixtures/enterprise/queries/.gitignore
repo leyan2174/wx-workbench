@@ -1,0 +1,4 @@
+# 仅允许本目录三份虚构数据库。
+!user.db
+!session.db
+!message.db

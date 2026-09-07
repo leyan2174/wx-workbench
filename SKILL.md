@@ -21,15 +21,16 @@ description: "wx-cli — 从本地微信数据库查询聊天记录、联系人�
 ## Prerequisites
 
 - Windows x64，微信桌面版 4.x 已安装并登录。
-- 使用本仓库源码构建的 `wx.exe`；媒体工具箱另需 Python/Node.js。
+- 使用本仓库源码构建的 `wx.exe`；直接运行不需要 Node。MP3 编码需 FFmpeg，模型依赖按 ASR 后端选择。
+- 旧批量转录配置缺省 `local` 使用 Python Whisper/PyTorch；显式 whisper.cpp 路径不需要 Python。MCP 的 Python 后端须宿主使用 `--configured-local-python`。不要自动安装模型或启用云上传。
 
 ## 安装
 
 ```powershell
 git clone https://github.com/lvsong/wx-cli.git
 cd wx-cli
-cargo build --release
-.\target\release\wx.exe --version
+cargo build --release --target x86_64-pc-windows-msvc
+.\target\x86_64-pc-windows-msvc\release\wx.exe --version
 ```
 
 构建需要 MSVC 和 libclang，见 `docs/account-key-provider.md`。
@@ -48,7 +49,7 @@ wx init --force --db-dir "<账号>\db_storage" --key-provider memory
 
 ## 命令速查
 
-所有命令默认输出 YAML，更省 token & 易读；`--json` 可切换为 JSON（方便 `jq` 处理等）。
+普通查询默认输出 YAML，`--json` 可切换为 JSON。工具箱批处理通常输出 JSON 报告，MCP 仅输出 JSON-RPC，Web/GUI 是持续服务；不要假设所有命令共享同一输出契约。
 
 ### 会话与消息
 
@@ -70,6 +71,7 @@ wx new-messages --json          # JSON 输出，适合 agent 解析
 wx history "张三"
 wx history "张三" -n 2000
 wx history "AI群" --since 2026-04-01 --until 2026-04-15 -n 100
+wx history "AI群" --types text,image --oldest-first -n 50
 
 # 全库搜索
 wx search "关键词"
@@ -263,9 +265,32 @@ wx daemon stop
 wx daemon logs --follow
 ```
 
+### 原生工作流
+
+```powershell
+# 只读配置检查，不扫描密钥、不下载模型
+wx toolkit setup --check
+# 先预览目标，再按需导出 CSV/HTML/JSON 与媒体目录
+wx toolkit export-messages --contacts wxid_example --output-dir C:\exports\chat-directory --dry-run
+# 批量导出附加选项放在 -- 后；预览不执行 ASR
+wx toolkit export-chats C:\exports\chats -- --dry-run --users wxid_example
+wx sns-album wxid_example --output-root C:\exports\moments --no-remote
+# 本地 Web 工作台；gui 是自动打开浏览器的同一服务
+wx toolkit web --open
+wx toolkit gui
+# MCP 只在标准输出写 JSON-RPC
+wx mcp --help
+```
+
+完整选项与输出约束见 [README](README.md)、[MCP 协议](src/mcp/PROTOCOL.md) 和 [文档索引](docs/README.md)。查询会话列表不等于全历史目录，消息表中无法映射的身份可保留为 `unknown_<完整表哈希>`；不能猜测真实联系人。
+
+输出与源库、缓存和密钥必须分离。媒体目录缺失项会保留诊断且默认返回非零；不能把“生成了文件”当作全部成功。MCP 媒体写入必须由宿主配置预存输出根，工具请求不能选择任意目录、密钥或云授权。云 ASR 上传须用户明确授权；SNS `--no-remote` 用于禁止媒体联网。企业微信既有入口保留，但不在本次个人微信迁移验收范围内。
+
 ---
 
 ## Agent 使用建议
+
+后台批处理优先使用 `wx tasks`；它与 Web 共用所选账号 daemon 的任务记录。先用 `wx tasks info` 检查绑定，必要时 `wx tasks configure`；`submit --wait` 的最终 JSON 写 stdout，日志和预生成的 request_id 写 stderr。收到超时或断开时先 `tasks get <ID>`，不要直接换 ID 重发。Ctrl+C 只退出等待客户端；取消用 `tasks cancel <ID>`，停机用 `daemon stop`。旧直接命令与 MCP 不是本次任务服务的完整镜像，详见 [任务服务边界](docs/daemon-tasks.md)。
 
 查询结果需要程序处理时，统一加 `--json`：
 
@@ -288,9 +313,13 @@ CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确
 ~/.wx-cli/
 ├── config.json       # 配置
 ├── all_keys.json     # 数据库密钥（敏感，勿分享）
-├── daemon.pid / .log
-└── cache/            # 解密后的数据库缓存
+└── accounts/
+    └── <runtime-id>/
+        ├── daemon.pid / daemon.log
+        └── cache/    # 当前账号解密缓存
 ```
+
+以上是缺省运行根示意。`WX_CLI_HOME` 指定运行根，`WX_CLI_CONFIG` 固定配置；runtime 身份同时隔离账号、配置工作区和运行根。命名管道由 Windows 管理，不是目录内文件。不要删除旧账号缓存来处理另一个账号的故障，也不要凭此示意覆盖自定义 `keys_file`。
 
 ---
 
@@ -302,4 +331,4 @@ CHAT 参数支持昵称、备注名、微信 ID，模糊匹配。不确定准确
 
 **找不到聊天**：用 `wx contacts --query` 确认昵称/备注名，或用微信 ID 直接查询。
 
-**为什么只能获取 500 条消息？**：这是默认输出条数，不是硬限制。显式传 `-n` 即可，例如 `wx history "张三" -n 2000` 或 `wx export "张三" -n 2000 -o chat.md`。
+**结果条数少于预期？**：先检查命令默认值、筛选条件、`meta` 和本地分片完整性。`history` 默认 50 条，不是所有命令都默认 500；可显式传 `-n`，例如 `wx history "张三" -n 2000`。增大条数不保证本地包含在线全历史。

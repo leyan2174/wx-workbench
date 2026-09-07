@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 9 tests
+test security_tests::final_symlink_is_rejected_without_touching_target ... ignored, 当前宿主创建文件符号链接返回 Windows 1314；需显式权限环境重跑
+COMMAND: "cmd.exe" "/d" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpVBCLdv\\cache.json" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpVBCLdv\\target"
+test security_tests::stale_cooperative_lock_is_preserved_and_never_stolen ... ok
+test security_tests::malformed_or_wrong_account_replacement_after_open_is_never_overwritten ... ok
+test security_tests::failure_credentials_and_identity_plaintext_are_not_persisted ... ok
+test security_tests::hardlink_publication_replaces_cache_name_not_alias_contents ... ok
+test security_tests::unknown_large_numbers_and_nested_fields_survive_new_entry ... ok
+test security_tests::envelope_versions_and_entries_are_validated_without_claiming_file ... ok
+STDOUT: Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpVBCLdv\cache.json <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpVBCLdv\target
+
+STDERR: 
+test security_tests::final_directory_junction_is_rejected_without_touching_target ... ok
+test security_tests::oversize_file_is_rejected_by_read_limit_before_json_parse ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 127 filtered out; finished in 0.12s
+

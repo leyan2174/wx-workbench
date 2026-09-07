@@ -1,0 +1,4854 @@
+{
+  "schema_version": 1,
+  "scope": "全部受版本控制的 wechat-decrypt Python/JavaScript 生产源码",
+  "note": "这是迁移起点清单，不是完成率报告；函数可合并重构，但每项功能必须有去向和验收。",
+  "modules": [
+    {
+      "path": "vendor/wechat-decrypt/app_gui.py",
+      "sha256": "2646cd2e1069fed4637715ab9138a173e6d35ff3c74a95a2292ded68b4406932",
+      "lines": 939,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_run_subtask",
+          "kind": "function",
+          "line": 37,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_contact_map",
+          "kind": "function",
+          "line": 122,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_display_name",
+          "kind": "function",
+          "line": 143,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_discover_contacts",
+          "kind": "function",
+          "line": 148,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog",
+          "kind": "class",
+          "line": 220,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog.__init__",
+          "kind": "function",
+          "line": 221,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._bind_mousewheel",
+          "kind": "function",
+          "line": 324,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._unbind_mousewheel",
+          "kind": "function",
+          "line": 328,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._toggle_all",
+          "kind": "function",
+          "line": 331,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._filter_list",
+          "kind": "function",
+          "line": 337,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._on_ok",
+          "kind": "function",
+          "line": 345,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ExportOptionsDialog._on_cancel",
+          "kind": "function",
+          "line": 369,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog",
+          "kind": "class",
+          "line": 374,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog.__init__",
+          "kind": "function",
+          "line": 375,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._format_time",
+          "kind": "function",
+          "line": 450,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._bind_mousewheel",
+          "kind": "function",
+          "line": 459,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._unbind_mousewheel",
+          "kind": "function",
+          "line": 463,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._toggle_all",
+          "kind": "function",
+          "line": 466,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._filter_list",
+          "kind": "function",
+          "line": 472,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._on_ok",
+          "kind": "function",
+          "line": 480,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WxworkExportOptionsDialog._on_cancel",
+          "kind": "function",
+          "line": 498,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App",
+          "kind": "class",
+          "line": 503,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App.__init__",
+          "kind": "function",
+          "line": 504,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._build_ui",
+          "kind": "function",
+          "line": 524,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._log",
+          "kind": "function",
+          "line": 612,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._clear_log",
+          "kind": "function",
+          "line": 618,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._set_buttons",
+          "kind": "function",
+          "line": 624,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._run_task",
+          "kind": "function",
+          "line": 634,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._discover_and_select",
+          "kind": "function",
+          "line": 676,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._show_contact_dialog",
+          "kind": "function",
+          "line": 692,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._discover_wxwork_and_select",
+          "kind": "function",
+          "line": 729,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._show_wxwork_dialog",
+          "kind": "function",
+          "line": 746,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._run_subprocess",
+          "kind": "function",
+          "line": 775,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._exec_combined",
+          "kind": "function",
+          "line": 824,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._exec_wxwork_decrypt",
+          "kind": "function",
+          "line": 866,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._exec_wxwork_export",
+          "kind": "function",
+          "line": 891,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._exec_task",
+          "kind": "function",
+          "line": 909,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "App._on_task_done",
+          "kind": "function",
+          "line": 927,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from config import load_config",
+        "from datetime import datetime",
+        "from export_wxwork_messages import discover_conversations",
+        "from tkinter import messagebox",
+        "from tkinter import ttk, scrolledtext",
+        "import Crypto, Crypto.Cipher, Crypto.Cipher.AES, Crypto.Util.Padding",
+        "import ctypes",
+        "import export_wxwork_messages",
+        "import functools, platform, ctypes, ctypes.wintypes",
+        "import glob as globmod",
+        "import hashlib",
+        "import importlib.util",
+        "import os",
+        "import pilk",
+        "import sqlite3",
+        "import sqlite3, hashlib, csv, json, re, glob, tempfile",
+        "import subprocess",
+        "import sys",
+        "import threading",
+        "import tkinter as tk",
+        "import wxwork_crypto",
+        "import xml.etree.ElementTree",
+        "import zstandard"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/batch_decrypt_images.py",
+      "sha256": "425b1f3207eff43140b8f5aefcc184bc53858688462b5bc08719b820d37f157a",
+      "lines": 181,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_detect_format",
+          "kind": "function",
+          "line": 37,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_dat",
+          "kind": "function",
+          "line": 55,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 111,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Util import Padding",
+        "from config import load_config",
+        "import glob",
+        "import os",
+        "import struct",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/chat_export_helpers.py",
+      "sha256": "36337fe33e8b4fcf64c5a3992f41e8f94c3331dcef9e7a6b6f19295b09e765fb",
+      "lines": 201,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_msg_type_str",
+          "kind": "function",
+          "line": 27,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_sender",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decode_sticker_desc",
+          "kind": "function",
+          "line": 56,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_sticker_message",
+          "kind": "function",
+          "line": 81,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_system_message",
+          "kind": "function",
+          "line": 93,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_video_message",
+          "kind": "function",
+          "line": 105,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_transfer_extras",
+          "kind": "function",
+          "line": 116,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_content",
+          "kind": "function",
+          "line": 158,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "import base64",
+        "import mcp_server"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/cleanup.py",
+      "sha256": "afd8c23760cacf47b581cf818f862555f3aaec10a6c96c16914a2c0a9149b39d",
+      "lines": 240,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "format_size",
+          "kind": "function",
+          "line": 21,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "CleanupItem",
+          "kind": "class",
+          "line": 33,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "CleanupItem.__init__",
+          "kind": "function",
+          "line": 34,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "CleanupItem.size",
+          "kind": "function",
+          "line": 41,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "CleanupItem.exists",
+          "kind": "function",
+          "line": 57,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "CleanupItem.delete",
+          "kind": "function",
+          "line": 62,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_items",
+          "kind": "function",
+          "line": 71,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "show_status",
+          "kind": "function",
+          "line": 120,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "cleanup",
+          "kind": "function",
+          "line": 145,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 222,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 226,
+          "declaration": "parser.add_argument('mode', nargs='?', default='interactive', choices=['interactive', 'status'], help='interactive（默认）或 status（仅显示）')"
+        },
+        {
+          "line": 229,
+          "declaration": "parser.add_argument('--dry-run', action='store_true', help='预览模式，不实际删除')"
+        }
+      ],
+      "imports": [
+        "import argparse",
+        "import glob",
+        "import json",
+        "import os",
+        "import shutil",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/config.py",
+      "sha256": "3ab5dbfa1948006b98843dc82e28577bea4c125bd4894de426540d8e0c4b1b29",
+      "lines": 221,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_app_base_dir",
+          "kind": "function",
+          "line": 13,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_config_file_path",
+          "kind": "function",
+          "line": 20,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_choose_candidate",
+          "kind": "function",
+          "line": 51,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_auto_detect_db_dir_windows",
+          "kind": "function",
+          "line": 80,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "auto_detect_db_dir",
+          "kind": "function",
+          "line": 125,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "load_config",
+          "kind": "function",
+          "line": 129,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "import glob",
+        "import json",
+        "import os",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/decode_image.py",
+      "sha256": "05ff955666273296616a4988b0d765e3788e710816d4d16c395825f161b12dc9",
+      "lines": 671,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "aligned_aes_block_size",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_v2_format",
+          "kind": "function",
+          "line": 57,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "detect_xor_key",
+          "kind": "function",
+          "line": 67,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "detect_image_format",
+          "kind": "function",
+          "line": 112,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "v2_decrypt_file",
+          "kind": "function",
+          "line": 129,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "xor_decrypt_file",
+          "kind": "function",
+          "line": 236,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_dat_file",
+          "kind": "function",
+          "line": 265,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_all_dats",
+          "kind": "function",
+          "line": 292,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "extract_md5_from_packed_info",
+          "kind": "function",
+          "line": 426,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver",
+          "kind": "class",
+          "line": 465,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver.__init__",
+          "kind": "function",
+          "line": 468,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver.get_image_md5",
+          "kind": "function",
+          "line": 484,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver.find_dat_files",
+          "kind": "function",
+          "line": 525,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver.decode_image",
+          "kind": "function",
+          "line": 544,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ImageResolver.list_chat_images",
+          "kind": "function",
+          "line": 599,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Util import Padding",
+        "import glob",
+        "import hashlib",
+        "import os",
+        "import sqlite3",
+        "import struct",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/decode_transfer.py",
+      "sha256": "2fe2a030a3f05941e088a3423740a4790906934a733f2f555cf22b01a67747e5",
+      "lines": 51,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 24,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 29,
+          "declaration": "parser.add_argument('chat_name', help='联系人名/备注/wxid')"
+        },
+        {
+          "line": 30,
+          "declaration": "parser.add_argument('local_id', type=int, help='转账消息的 local_id')"
+        },
+        {
+          "line": 31,
+          "declaration": "parser.add_argument('ts', nargs='?', type=int, default=0, help='消息的 unix 时间戳（跨分片唯一定位时需要，可省略）')"
+        }
+      ],
+      "imports": [
+        "import argparse",
+        "import mcp_server",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/decrypt_db.py",
+      "sha256": "361f78f3e5ccbfef77e45adddbf3c3bb094f8d931e417deaf7d02a78642a5163",
+      "lines": 242,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "derive_mac_key",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_page",
+          "kind": "function",
+          "line": 38,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_database",
+          "kind": "function",
+          "line": 56,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 109,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 113,
+          "declaration": "parser.add_argument('-i', '--incremental', action='store_true', help='增量模式：仅当源 .db 更新于已解密文件时才重新解密')"
+        },
+        {
+          "line": 118,
+          "declaration": "parser.add_argument('--dry-run', action='store_true', help='预览模式：显示将要解密的数据库列表')"
+        }
+      ],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from config import load_config",
+        "from key_utils import get_key_info, strip_key_metadata",
+        "import argparse",
+        "import functools",
+        "import hashlib, struct, os, sys, json",
+        "import hmac as hmac_mod",
+        "import sqlite3"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/decrypt_sns.py",
+      "sha256": "77c048e25ac3ab16d940bc8901fbb4eb5b5540ad71a143da16a3b709b1255761",
+      "lines": 273,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_detect_format",
+          "kind": "function",
+          "line": 39,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_dat",
+          "kind": "function",
+          "line": 57,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_xwechat_sns_files",
+          "kind": "function",
+          "line": 113,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 149,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_process_dir_stats",
+          "kind": "function",
+          "line": 209,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_process_file_list",
+          "kind": "function",
+          "line": 221,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Util import Padding",
+        "from config import load_config",
+        "from decode_image import aligned_aes_block_size",
+        "import glob",
+        "import os",
+        "import struct",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/decrypt_wxwork_db.py",
+      "sha256": "8276f8174994ee9938f17e3e7a22093be4504d2e335f285316b752a5b1758c41",
+      "lines": 176,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_app_paths",
+          "kind": "function",
+          "line": 23,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_config",
+          "kind": "function",
+          "line": 29,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_key_hex",
+          "kind": "function",
+          "line": 62,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_keys",
+          "kind": "function",
+          "line": 71,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_iter_db_files",
+          "kind": "function",
+          "line": 78,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 89,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 91,
+          "declaration": "parser.add_argument('--key', help='16-byte raw key as 32 hex chars')"
+        }
+      ],
+      "imports": [
+        "from config import _app_base_dir, _config_file_path",
+        "from find_wxwork_keys import auto_detect_wxwork_db_dir",
+        "from key_utils import get_key_info, strip_key_metadata",
+        "from wxwork_crypto import decrypt_wxwork_database, is_plain_sqlite_page, is_wxsqlite3_aes128_page1, verify_sqlite_file, verify_wxsqlite3_aes128_key",
+        "import argparse",
+        "import json",
+        "import os",
+        "import shutil",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/emoticons.py",
+      "sha256": "eb31024b5fd7bf008d51958a86018c97867247415326458e36b524542f759e44",
+      "lines": 286,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_full_decrypt",
+          "kind": "function",
+          "line": 23,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decrypt_wal",
+          "kind": "function",
+          "line": 39,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "build_emoji_lookup",
+          "kind": "function",
+          "line": 70,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "convert_hevc_to_jpeg",
+          "kind": "function",
+          "line": 162,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "download_emoji",
+          "kind": "function",
+          "line": 208,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from decrypt_db import decrypt_page",
+        "from key_utils import get_key_info",
+        "import av",
+        "import os",
+        "import re",
+        "import sqlite3",
+        "import struct",
+        "import tempfile",
+        "import urllib.request"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_all_chats.py",
+      "sha256": "0bb85332c8f8e0b25692aec4fc0f832a62add8ba7d46ae679d47261fc195fc86",
+      "lines": 1742,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_parse_timestamp",
+          "kind": "function",
+          "line": 69,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_last_message_ts",
+          "kind": "function",
+          "line": 85,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_existing_messages",
+          "kind": "function",
+          "line": 98,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_export_index_path",
+          "kind": "function",
+          "line": 108,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_empty_export_index",
+          "kind": "function",
+          "line": 112,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_safe_export_filename_part",
+          "kind": "function",
+          "line": 116,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_delta_run_id",
+          "kind": "function",
+          "line": 121,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_delta_filename",
+          "kind": "function",
+          "line": 126,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_content_hash_for_uid",
+          "kind": "function",
+          "line": 133,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_delta_msg_uid",
+          "kind": "function",
+          "line": 139,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_export_filename",
+          "kind": "function",
+          "line": 148,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collision_export_filename",
+          "kind": "function",
+          "line": 154,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_safe_index_filename",
+          "kind": "function",
+          "line": 161,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_read_json_string_field",
+          "kind": "function",
+          "line": 172,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_read_export_file_identity",
+          "kind": "function",
+          "line": 184,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_file_mtime",
+          "kind": "function",
+          "line": 205,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_index_entry_from_identity",
+          "kind": "function",
+          "line": 212,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_bootstrap_export_index",
+          "kind": "function",
+          "line": 225,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_normalize_export_index",
+          "kind": "function",
+          "line": 265,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_export_index",
+          "kind": "function",
+          "line": 294,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_export_index",
+          "kind": "function",
+          "line": 306,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_choose_export_filename",
+          "kind": "function",
+          "line": 315,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_indexed_export_path",
+          "kind": "function",
+          "line": 333,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_update_export_index",
+          "kind": "function",
+          "line": 379,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_session_usernames",
+          "kind": "function",
+          "line": 403,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_chat_rows",
+          "kind": "function",
+          "line": 413,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_plan_time",
+          "kind": "function",
+          "line": 436,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_date_from_message_ts",
+          "kind": "function",
+          "line": 442,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_contact_metadata_for_export",
+          "kind": "function",
+          "line": 448,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_where_for_time_range",
+          "kind": "function",
+          "line": 468,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_query_message_table_plan_stats",
+          "kind": "function",
+          "line": 481,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_message_resource_db_path",
+          "kind": "function",
+          "line": 499,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_query_resource_estimated_bytes",
+          "kind": "function",
+          "line": 519,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_query_voice_estimated_bytes",
+          "kind": "function",
+          "line": 548,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_scan_dir_bytes",
+          "kind": "function",
+          "line": 582,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_scan_local_attachment_bytes",
+          "kind": "function",
+          "line": 596,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_chat_plan_stats",
+          "kind": "function",
+          "line": 623,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_new_plan_accumulator",
+          "kind": "function",
+          "line": 687,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_message_table_name_for_username",
+          "kind": "function",
+          "line": 699,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_iter_message_db_paths",
+          "kind": "function",
+          "line": 704,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_fetch_existing_message_tables",
+          "kind": "function",
+          "line": 714,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_query_message_table_plan_stats_conn",
+          "kind": "function",
+          "line": 732,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_message_stats_batch",
+          "kind": "function",
+          "line": 749,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_resource_estimates_batch",
+          "kind": "function",
+          "line": 803,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_voice_estimates_batch",
+          "kind": "function",
+          "line": 844,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_finalize_plan_stats",
+          "kind": "function",
+          "line": 892,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_all_plan_stats",
+          "kind": "function",
+          "line": 909,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_plan_csv_rows",
+          "kind": "function",
+          "line": 954,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_validate_plan_mode",
+          "kind": "function",
+          "line": 983,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_plan_csv",
+          "kind": "function",
+          "line": 989,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_selected_usernames_from_plan_csv",
+          "kind": "function",
+          "line": 1003,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_one",
+          "kind": "function",
+          "line": 1037,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_transcribe_delta_voice_messages",
+          "kind": "function",
+          "line": 1209,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_delta_one",
+          "kind": "function",
+          "line": 1231,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_delta_manifest",
+          "kind": "function",
+          "line": 1370,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_backend",
+          "kind": "function",
+          "line": 1414,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 1425,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 1444,
+          "declaration": "parser.add_argument('output_dir', nargs='?', default=None, help='输出目录路径 (默认: ./exported_chats)')"
+        },
+        {
+          "line": 1450,
+          "declaration": "parser.add_argument('-t', '--with-transcriptions', action='store_true', help='导出时一并转录语音消息（依赖 config.json 配置的 backend）')"
+        },
+        {
+          "line": 1456,
+          "declaration": "parser.add_argument('--write-plan-csv', default=None, help='生成可人工编辑的导出计划 CSV，不导出聊天')"
+        },
+        {
+          "line": 1461,
+          "declaration": "parser.add_argument('--from-plan-csv', default=None, help='读取导出计划 CSV，按 --plan-mode 判断哪些 username 需要导出')"
+        },
+        {
+          "line": 1466,
+          "declaration": "parser.add_argument('--plan-mode', choices=(PLAN_MODE_BLACKLIST, PLAN_MODE_WHITELIST), default=PLAN_MODE_BLACKLIST, help='导出计划模式：blacklist=只有 export=0 跳过；whitelist=只有 export=1 导出')"
+        },
+        {
+          "line": 1475,
+          "declaration": "parser.add_argument('--size-mode', choices=('estimate', 'scan'), default='estimate', help='生成计划 CSV 时的大小统计方式：estimate=快估，scan=尝试扫描本地附件')"
+        },
+        {
+          "line": 1481,
+          "declaration": "parser.add_argument('-i', '--incremental', action='store_true', help='增量导出：只追加新消息到已有 JSON 文件')"
+        },
+        {
+          "line": 1487,
+          "declaration": "parser.add_argument('--delta-only', action='store_true', help='只导出 --start/--end 时间窗口内的增量 delta JSON，不读取或覆盖已有完整 JSON')"
+        },
+        {
+          "line": 1492,
+          "declaration": "parser.add_argument('--start', default=None, help='起始日期 (如 2025-01-01 或 Unix 时间戳)')"
+        },
+        {
+          "line": 1497,
+          "declaration": "parser.add_argument('--end', default=None, help='结束日期 (如 2025-01-31 或 Unix 时间戳)')"
+        },
+        {
+          "line": 1502,
+          "declaration": "parser.add_argument('--dry-run', action='store_true', help='预览模式：显示将导出的会话，不实际写入')"
+        },
+        {
+          "line": 1507,
+          "declaration": "parser.add_argument('--users', default=None, help='只导出指定 username 的会话, 逗号分隔 (如 wxid_xxx,12345@chatroom). 为空时导出全部 (旧行为). 也可用 env WECHAT_EXPORT_USERS')"
+        }
+      ],
+      "imports": [
+        "from chat_export_helpers import _extract_content, _msg_type_str, _resolve_sender",
+        "from contextlib import closing",
+        "from datetime import datetime",
+        "from pathlib import Path",
+        "from tqdm import tqdm as _tqdm",
+        "import argparse",
+        "import csv",
+        "import hashlib",
+        "import json",
+        "import mcp_server",
+        "import os",
+        "import re",
+        "import sqlite3",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_chat.py",
+      "sha256": "0b162bff05bce10925254ced506ce2d1fbbe4164a5b000e32756716f06b3a46b",
+      "lines": 134,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "export_chat",
+          "kind": "function",
+          "line": 51,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from chat_export_helpers import _extract_content, _msg_type_str, _resolve_sender",
+        "from contextlib import closing",
+        "from datetime import datetime",
+        "import json",
+        "import mcp_server",
+        "import sqlite3",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_emoticons.py",
+      "sha256": "2524bd60a8b29cdb2f8494148a7882d4e8dc02a78ea57008dd88a22cd264a5d6",
+      "lines": 125,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 22,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 34,
+          "declaration": "parser.add_argument('output_dir', nargs='?', default=None, help='输出目录路径 (默认: ./exported_emoticons)')"
+        },
+        {
+          "line": 40,
+          "declaration": "parser.add_argument('--dry-run', action='store_true', help='预览模式：显示表情列表，不实际下载')"
+        },
+        {
+          "line": 45,
+          "declaration": "parser.add_argument('--filter', default=None, help='按关键词过滤（匹配 caption 或 product_id）')"
+        }
+      ],
+      "imports": [
+        "from config import load_config",
+        "from emoticons import build_emoji_lookup, download_emoji",
+        "from key_utils import strip_key_metadata",
+        "from tqdm import tqdm",
+        "import argparse",
+        "import functools",
+        "import json",
+        "import os",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_messages.py",
+      "sha256": "3b7e64f9c888079d5a3c488298b25ea197179bc177abcb454238663da597d612",
+      "lines": 713,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_extract_md5_from_packed_info",
+          "kind": "function",
+          "line": 56,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_resource_md5_map",
+          "kind": "function",
+          "line": 86,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_find_dat_file",
+          "kind": "function",
+          "line": 113,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_detect_image_format",
+          "kind": "function",
+          "line": 152,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decrypt_dat_to_bytes",
+          "kind": "function",
+          "line": 178,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_chat_images",
+          "kind": "function",
+          "line": 232,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_chat_images._priority",
+          "kind": "function",
+          "line": 261,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decompress_zstd",
+          "kind": "function",
+          "line": 349,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_content",
+          "kind": "function",
+          "line": 355,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "safe_dirname",
+          "kind": "function",
+          "line": 364,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "xml_extract",
+          "kind": "function",
+          "line": 369,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "friendly_content",
+          "kind": "function",
+          "line": 385,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_html_escape",
+          "kind": "function",
+          "line": 449,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_html",
+          "kind": "function",
+          "line": 452,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "display_name",
+          "kind": "function",
+          "line": 534,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES as _AES",
+        "from Crypto.Util import Padding",
+        "from config import load_config",
+        "from datetime import datetime",
+        "import base64",
+        "import csv",
+        "import glob",
+        "import hashlib",
+        "import json",
+        "import os",
+        "import re",
+        "import sqlite3",
+        "import struct",
+        "import sys",
+        "import xml.etree.ElementTree as ET",
+        "import zstandard as zstd"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_sns.py",
+      "sha256": "95539b459f4c38d6e106f8a601b9fdb21edf0f1ef916c3d15c662a1f19b44df3",
+      "lines": 956,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_decode_sns_content_blob",
+          "kind": "function",
+          "line": 68,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_sanitize_sns_pseudo_xml",
+          "kind": "function",
+          "line": 107,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_sanitize_sns_pseudo_xml._esc",
+          "kind": "function",
+          "line": 125,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decrypt_sns_dat",
+          "kind": "function",
+          "line": 173,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_detect_format",
+          "kind": "function",
+          "line": 223,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_image_size_from_bytes",
+          "kind": "function",
+          "line": 236,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_sns_cache_index",
+          "kind": "function",
+          "line": 274,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_match_cache_images",
+          "kind": "function",
+          "line": 379,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_try_download_media",
+          "kind": "function",
+          "line": 456,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_media_list",
+          "kind": "function",
+          "line": 502,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_timeline_xml",
+          "kind": "function",
+          "line": 540,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_comments",
+          "kind": "function",
+          "line": 606,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_safe_dirname",
+          "kind": "function",
+          "line": 640,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_contact_map",
+          "kind": "function",
+          "line": 647,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_timestamp_filename",
+          "kind": "function",
+          "line": 665,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_html_escape",
+          "kind": "function",
+          "line": 673,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_generate_timeline_html",
+          "kind": "function",
+          "line": 678,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_sns_timeline",
+          "kind": "function",
+          "line": 770,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Cipher import AES as _AES",
+        "from Crypto.Util import Padding",
+        "from config import load_config",
+        "from datetime import datetime",
+        "from decode_image import aligned_aes_block_size",
+        "from urllib.error import URLError",
+        "from urllib.request import urlopen, Request",
+        "import base64",
+        "import binascii",
+        "import bisect",
+        "import html",
+        "import json",
+        "import os",
+        "import re",
+        "import sqlite3",
+        "import struct",
+        "import sys",
+        "import xml.etree.ElementTree as ET",
+        "import zstandard as zstd"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_sns_album.py",
+      "sha256": "fa0833d15e8ce044c8469811b231901984c7741affd16ad4e8836d7326900cee",
+      "lines": 730,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "clean_text",
+          "kind": "function",
+          "line": 47,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "render_text",
+          "kind": "function",
+          "line": 53,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "render_text.replace",
+          "kind": "function",
+          "line": 56,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "safe_stem",
+          "kind": "function",
+          "line": 63,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "run_wx_sns_feed",
+          "kind": "function",
+          "line": 68,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "detect_image_extension",
+          "kind": "function",
+          "line": 107,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_mp4",
+          "kind": "function",
+          "line": 119,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream",
+          "kind": "class",
+          "line": 123,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.__init__",
+          "kind": "function",
+          "line": 124,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.available",
+          "kind": "function",
+          "line": 130,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.generate",
+          "kind": "function",
+          "line": 133,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.close",
+          "kind": "function",
+          "line": 164,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.__enter__",
+          "kind": "function",
+          "line": 176,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "WasmKeystream.__exit__",
+          "kind": "function",
+          "line": 179,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "video_cache_key",
+          "kind": "function",
+          "line": 183,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "build_video_cache_index",
+          "kind": "function",
+          "line": 188,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_cached_video",
+          "kind": "function",
+          "line": 204,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "copy_cached_video",
+          "kind": "function",
+          "line": 221,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "download_decrypt_video",
+          "kind": "function",
+          "line": 245,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "save_image",
+          "kind": "function",
+          "line": 305,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "reuse_existing_image",
+          "kind": "function",
+          "line": 315,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "reuse_existing_video",
+          "kind": "function",
+          "line": 332,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "sns_image_url_candidates",
+          "kind": "function",
+          "line": 349,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "sns_image_url_candidates.signed",
+          "kind": "function",
+          "line": 356,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "fix_sns_image_url",
+          "kind": "function",
+          "line": 367,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "download_sns_image",
+          "kind": "function",
+          "line": 372,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "load_cache_helpers",
+          "kind": "function",
+          "line": 414,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "post_images",
+          "kind": "function",
+          "line": 421,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "post_videos",
+          "kind": "function",
+          "line": 429,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "readable_posts",
+          "kind": "function",
+          "line": 437,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "image_tag",
+          "kind": "function",
+          "line": 445,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "video_tag",
+          "kind": "function",
+          "line": 458,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "build_html",
+          "kind": "function",
+          "line": 463,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_album",
+          "kind": "function",
+          "line": 517,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_album.process_image",
+          "kind": "function",
+          "line": 555,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_album.process_video",
+          "kind": "function",
+          "line": 607,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "parse_args",
+          "kind": "function",
+          "line": 701,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 718,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 703,
+          "declaration": "parser.add_argument('--wx-exe', type=Path, required=True)"
+        },
+        {
+          "line": 704,
+          "declaration": "parser.add_argument('--user', required=True)"
+        },
+        {
+          "line": 706,
+          "declaration": "output_group.add_argument('--output-root', type=Path)"
+        },
+        {
+          "line": 707,
+          "declaration": "output_group.add_argument('--output-dir', type=Path)"
+        },
+        {
+          "line": 708,
+          "declaration": "parser.add_argument('--limit', type=int, default=5000)"
+        },
+        {
+          "line": 709,
+          "declaration": "parser.add_argument('--image-workers', type=int, default=8)"
+        },
+        {
+          "line": 710,
+          "declaration": "parser.add_argument('--video-workers', type=int, default=4)"
+        },
+        {
+          "line": 711,
+          "declaration": "parser.add_argument('--since')"
+        },
+        {
+          "line": 712,
+          "declaration": "parser.add_argument('--until')"
+        },
+        {
+          "line": 713,
+          "declaration": "parser.add_argument('--no-remote', action='store_true')"
+        },
+        {
+          "line": 714,
+          "declaration": "parser.add_argument('--no-videos', action='store_true')"
+        }
+      ],
+      "imports": [
+        "from __future__ import annotations",
+        "from datetime import datetime",
+        "from pathlib import Path",
+        "from urllib.parse import quote",
+        "from urllib.request import Request, urlopen",
+        "import argparse",
+        "import base64",
+        "import concurrent.futures",
+        "import export_sns",
+        "import hashlib",
+        "import html",
+        "import json",
+        "import queue",
+        "import re",
+        "import shutil",
+        "import subprocess",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/export_wxwork_messages.py",
+      "sha256": "ec4fc5b7b6fb2b509d9f7887e8d30a9a19f2a56258accb5796d5ddf407dfa61e",
+      "lines": 745,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_app_paths",
+          "kind": "function",
+          "line": 39,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_config",
+          "kind": "function",
+          "line": 45,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_infer_self_id",
+          "kind": "function",
+          "line": 69,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_safe_dirname",
+          "kind": "function",
+          "line": 79,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_table_exists",
+          "kind": "function",
+          "line": 85,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_open_db",
+          "kind": "function",
+          "line": 93,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_user_map",
+          "kind": "function",
+          "line": 99,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_group_member_names",
+          "kind": "function",
+          "line": 130,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_conversation_kind",
+          "kind": "function",
+          "line": 162,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_name_from_conversation_id",
+          "kind": "function",
+          "line": 176,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_message_counts",
+          "kind": "function",
+          "line": 195,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "discover_conversations",
+          "kind": "function",
+          "line": 221,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_read_varint",
+          "kind": "function",
+          "line": 284,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_clean_text",
+          "kind": "function",
+          "line": 297,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_looks_like_plain_text",
+          "kind": "function",
+          "line": 307,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decode_text_segment",
+          "kind": "function",
+          "line": 317,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_protobuf_strings",
+          "kind": "function",
+          "line": 335,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_dedupe_texts",
+          "kind": "function",
+          "line": 374,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_content",
+          "kind": "function",
+          "line": 386,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_time",
+          "kind": "function",
+          "line": 416,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_message_type_name",
+          "kind": "function",
+          "line": 428,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_display_message_content",
+          "kind": "function",
+          "line": 432,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_message",
+          "kind": "function",
+          "line": 439,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_iter_message_rows",
+          "kind": "function",
+          "line": 479,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_html",
+          "kind": "function",
+          "line": 540,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_csv",
+          "kind": "function",
+          "line": 577,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_write_json",
+          "kind": "function",
+          "line": 600,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_selected_from_env",
+          "kind": "function",
+          "line": 614,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_formats_from_env",
+          "kind": "function",
+          "line": 621,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "export_messages",
+          "kind": "function",
+          "line": 630,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 710,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 712,
+          "declaration": "parser.add_argument('--list', action='store_true', help='list conversations and exit')"
+        },
+        {
+          "line": 713,
+          "declaration": "parser.add_argument('--conversation', action='append', help='conversation ID to export; can be passed multiple times')"
+        },
+        {
+          "line": 718,
+          "declaration": "parser.add_argument('--formats', help='comma separated formats: csv,html,json')"
+        }
+      ],
+      "imports": [
+        "from collections import defaultdict",
+        "from config import _app_base_dir, _config_file_path",
+        "from datetime import datetime",
+        "from html import escape",
+        "import argparse",
+        "import csv",
+        "import json",
+        "import os",
+        "import re",
+        "import sqlite3",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/find_all_keys.py",
+      "sha256": "bd9cbbb1a283c17c50b4b6e5d4f2d2a08c020cb6fc8a46ee28ec0383ea6b600d",
+      "lines": 205,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "find_v2_ciphertext",
+          "kind": "function",
+          "line": 14,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_xor_key",
+          "kind": "function",
+          "line": 30,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "try_key",
+          "kind": "function",
+          "line": 60,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_brute_worker",
+          "kind": "function",
+          "line": 74,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_image_key_offline",
+          "kind": "function",
+          "line": 88,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_impl",
+          "kind": "function",
+          "line": 180,
+          "decorators": [
+            "functools.lru_cache(maxsize=1)"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_pids",
+          "kind": "function",
+          "line": 187,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 191,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from config import load_config",
+        "import find_all_keys_windows as impl",
+        "import functools",
+        "import glob",
+        "import hashlib",
+        "import json",
+        "import multiprocessing",
+        "import os",
+        "import platform",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/find_all_keys_windows.py",
+      "sha256": "53ab0d35780c85af4c1ba7830ebc6693ed276071eb8f5a65aad02b48e5e56e34",
+      "lines": 154,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "MBI",
+          "kind": "class",
+          "line": 23,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_pids",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "read_mem",
+          "kind": "function",
+          "line": 54,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "enum_regions",
+          "kind": "function",
+          "line": 62,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 78,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from config import load_config",
+        "from key_scan_common import collect_db_files, scan_memory_for_keys, cross_verify_keys, save_results",
+        "import ctypes",
+        "import ctypes.wintypes as wt",
+        "import functools",
+        "import os, sys, time, re",
+        "import subprocess"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/find_image_key.py",
+      "sha256": "a2022756a91b0d9945dbf4868ed46c86bbacc77e972a111086f39b0bcbcf5778",
+      "lines": 419,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "MEMORY_BASIC_INFORMATION",
+          "kind": "class",
+          "line": 38,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_wechat_pids",
+          "kind": "function",
+          "line": 57,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_v2_ciphertext",
+          "kind": "function",
+          "line": 72,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_xor_key",
+          "kind": "function",
+          "line": 91,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "try_key",
+          "kind": "function",
+          "line": 124,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_rw_protect",
+          "kind": "function",
+          "line": 144,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "scan_memory_for_aes_key",
+          "kind": "function",
+          "line": 151,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_scan_regions",
+          "kind": "function",
+          "line": 211,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "verify_and_decrypt",
+          "kind": "function",
+          "line": 272,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 335,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Util import Padding",
+        "from config import _config_file_path, load_config",
+        "from ctypes import wintypes",
+        "import ctypes",
+        "import glob",
+        "import json",
+        "import os",
+        "import re",
+        "import struct",
+        "import subprocess",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/find_image_key_monitor.py",
+      "sha256": "e9a04a01cb8831021ea4e2d2ee32fb3e94adcb8f6ac219d17550194ef5e9718c",
+      "lines": 326,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "MEMORY_BASIC_INFORMATION",
+          "kind": "class",
+          "line": 31,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_wechat_pids",
+          "kind": "function",
+          "line": 49,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_v2_ciphertext",
+          "kind": "function",
+          "line": 64,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "find_xor_key",
+          "kind": "function",
+          "line": 79,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "try_key",
+          "kind": "function",
+          "line": 102,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_rw_protect",
+          "kind": "function",
+          "line": 116,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_rw_regions",
+          "kind": "function",
+          "line": 122,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "quick_scan",
+          "kind": "function",
+          "line": 147,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "verify_and_decrypt",
+          "kind": "function",
+          "line": 181,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 228,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from Crypto.Util import Padding",
+        "from config import _config_file_path, load_config",
+        "from ctypes import wintypes",
+        "import ctypes",
+        "import glob",
+        "import json",
+        "import os",
+        "import re",
+        "import struct",
+        "import subprocess",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/find_wxwork_keys.py",
+      "sha256": "01524cfa3463e9ace3e26470af5ca169caebbe1e85af0472c7b794bda6389392",
+      "lines": 668,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "MBI",
+          "kind": "class",
+          "line": 38,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "read_mem",
+          "kind": "function",
+          "line": 47,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "enum_regions",
+          "kind": "function",
+          "line": 55,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "verify_enc_key_wxwork",
+          "kind": "function",
+          "line": 93,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_wxwork_pids",
+          "kind": "function",
+          "line": 118,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_wxwork_data_dir_mtime",
+          "kind": "function",
+          "line": 143,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_is_noninteractive_mode",
+          "kind": "function",
+          "line": 163,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "auto_detect_wxwork_db_dir",
+          "kind": "function",
+          "line": 172,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "filter_encrypted_dbs",
+          "kind": "function",
+          "line": 229,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "scan_memory_for_wxwork_keys",
+          "kind": "function",
+          "line": 249,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_find_region",
+          "kind": "function",
+          "line": 331,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_read_u32",
+          "kind": "function",
+          "line": 341,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_valid_ptr",
+          "kind": "function",
+          "line": 349,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_wxwork_page_size_chain",
+          "kind": "function",
+          "line": 353,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_record_candidate_key",
+          "kind": "function",
+          "line": 375,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "scan_memory_for_wxwork_cipher_structs",
+          "kind": "function",
+          "line": 397,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "cross_verify_wxwork_keys",
+          "kind": "function",
+          "line": 467,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "save_wxwork_results",
+          "kind": "function",
+          "line": 486,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_wxwork_config",
+          "kind": "function",
+          "line": 530,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 569,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from config import _config_file_path, _app_base_dir",
+        "from key_scan_common import collect_db_files",
+        "from wxwork_crypto import is_plain_sqlite_page, is_wxsqlite3_aes128_page1, verify_wxsqlite3_aes128_key",
+        "import bisect",
+        "import ctypes",
+        "import ctypes.wintypes as wt",
+        "import functools",
+        "import hashlib",
+        "import hmac as hmac_mod",
+        "import json",
+        "import os",
+        "import re",
+        "import struct",
+        "import subprocess",
+        "import sys",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/key_scan_common.py",
+      "sha256": "2d519cc3018cb8b8ff44542c2c70a7f31c452b76025c1c821f31a430c065e116",
+      "lines": 169,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "verify_enc_key",
+          "kind": "function",
+          "line": 19,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "collect_db_files",
+          "kind": "function",
+          "line": 31,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "scan_memory_for_keys",
+          "kind": "function",
+          "line": 57,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "cross_verify_keys",
+          "kind": "function",
+          "line": 121,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "save_results",
+          "kind": "function",
+          "line": 139,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "import hashlib",
+        "import hmac as hmac_mod",
+        "import json",
+        "import os",
+        "import re",
+        "import struct",
+        "import time"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/key_utils.py",
+      "sha256": "0325564789cdc3914e2b6ec6390a1f9e1931d9e58b51f26637adf4c7900d91b9",
+      "lines": 38,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "strip_key_metadata",
+          "kind": "function",
+          "line": 5,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_is_safe_rel_path",
+          "kind": "function",
+          "line": 10,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "key_path_variants",
+          "kind": "function",
+          "line": 16,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_key_info",
+          "kind": "function",
+          "line": 31,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "import os",
+        "import posixpath"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/latency_test.py",
+      "sha256": "bcde9dec62f0a1b993cf714e341e2077e9d57c48d437ae440def916a1521854f",
+      "lines": 175,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "decrypt_page",
+          "kind": "function",
+          "line": 26,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "full_decrypt",
+          "kind": "function",
+          "line": 40,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_wal_full",
+          "kind": "function",
+          "line": 51,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from config import load_config",
+        "from datetime import datetime",
+        "import time, os, sys, io, hashlib, struct, sqlite3, json"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/main.py",
+      "sha256": "c6bf3e30b8ce025f6ddfc80ad23418fddbe70cb2a5f0dd88b60b0c06f5cf83e5",
+      "lines": 365,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "check_wechat_running",
+          "kind": "function",
+          "line": 23,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_run_decode_images",
+          "kind": "function",
+          "line": 33,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ensure_keys",
+          "kind": "function",
+          "line": 124,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "show_status",
+          "kind": "function",
+          "line": 168,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "print_usage",
+          "kind": "function",
+          "line": 254,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_call_with_argv",
+          "kind": "function",
+          "line": 266,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 276,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 53,
+          "declaration": "parser.add_argument('--attach-dir', default=None, help=f'微信 msg/attach 根目录,覆盖默认推断(默认: {default_attach})')"
+        },
+        {
+          "line": 57,
+          "declaration": "parser.add_argument('--decoded-dir', default=None, help=f'明文图片输出根目录,覆盖 config.json 的 decoded_image_dir(默认: {default_out})')"
+        },
+        {
+          "line": 61,
+          "declaration": "parser.add_argument('--aes-key', default=None, help='V2 AES key(16 字节 ASCII 字符串),覆盖 config.json 的 image_aes_key')"
+        },
+        {
+          "line": 65,
+          "declaration": "parser.add_argument('--xor-key', default=None, help='V2 XOR key(可十进制或 0x 十六进制),覆盖 config.json 的 image_xor_key(默认: 0x88)')"
+        },
+        {
+          "line": 69,
+          "declaration": "parser.add_argument('--force', action='store_true', help='忽略已存在目标重新解密(默认按 basename 跳过)')"
+        }
+      ],
+      "imports": [
+        "from config import _config_file_path",
+        "from config import load_config",
+        "from decode_image import decode_all_dats",
+        "from decrypt_db import main as decrypt_all",
+        "from export_all_chats import main as export_all",
+        "from export_emoticons import main as export_emojis",
+        "from find_all_keys import get_pids",
+        "from find_all_keys import main as extract_keys",
+        "from key_utils import strip_key_metadata",
+        "from mcp_server import _resolve_active_backend",
+        "from monitor_web import main as start_web",
+        "import argparse",
+        "import functools",
+        "import glob",
+        "import json",
+        "import os",
+        "import subprocess",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/mcp_server.py",
+      "sha256": "cb1fec139d911c6b8f78c85805e88c77c5be4d215c33ef007536410c2424c180",
+      "lines": 4095,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "decrypt_page",
+          "kind": "function",
+          "line": 70,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "full_decrypt",
+          "kind": "function",
+          "line": 84,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_wal",
+          "kind": "function",
+          "line": 100,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache",
+          "kind": "class",
+          "line": 135,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache.__init__",
+          "kind": "function",
+          "line": 141,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache._cache_path",
+          "kind": "function",
+          "line": 146,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache._load_persistent_cache",
+          "kind": "function",
+          "line": 151,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache._save_persistent_cache",
+          "kind": "function",
+          "line": 179,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache.get",
+          "kind": "function",
+          "line": 190,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "DBCache.cleanup",
+          "kind": "function",
+          "line": 220,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_invalidate_contact_caches",
+          "kind": "function",
+          "line": 238,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_contacts_from",
+          "kind": "function",
+          "line": 250,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_contact_db_path",
+          "kind": "function",
+          "line": 306,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_contact_names",
+          "kind": "function",
+          "line": 335,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_contact_full",
+          "kind": "function",
+          "line": 352,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_contact_tag_names_by_username",
+          "kind": "function",
+          "line": 357,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_pb_field_30",
+          "kind": "function",
+          "line": 371,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_contact_tags",
+          "kind": "function",
+          "line": 416,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "format_msg_type",
+          "kind": "function",
+          "line": 476,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_split_msg_type",
+          "kind": "function",
+          "line": 485,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "resolve_username",
+          "kind": "function",
+          "line": 496,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decompress_content",
+          "kind": "function",
+          "line": 519,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_message_content",
+          "kind": "function",
+          "line": 534,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collapse_text",
+          "kind": "function",
+          "line": 560,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_self_username",
+          "kind": "function",
+          "line": 566,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_name2id_maps",
+          "kind": "function",
+          "line": 592,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_display_name_for_username",
+          "kind": "function",
+          "line": 606,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_sender_label",
+          "kind": "function",
+          "line": 614,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_quote_sender_label",
+          "kind": "function",
+          "line": 631,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_safe_basename",
+          "kind": "function",
+          "line": 659,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_path_under_root",
+          "kind": "function",
+          "line": 682,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_md5_file_chunked",
+          "kind": "function",
+          "line": 698,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_xml_root",
+          "kind": "function",
+          "line": 723,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_int",
+          "kind": "function",
+          "line": 733,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_app_message_outer",
+          "kind": "function",
+          "line": 740,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_namecard_text",
+          "kind": "function",
+          "line": 753,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_location_info",
+          "kind": "function",
+          "line": 800,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_location_info._attr",
+          "kind": "function",
+          "line": 813,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_location_info._f",
+          "kind": "function",
+          "line": 816,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_is_location_poiname_placeholder",
+          "kind": "function",
+          "line": 832,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_location_text",
+          "kind": "function",
+          "line": 843,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_app_message_text",
+          "kind": "function",
+          "line": 878,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_record_dataitem",
+          "kind": "function",
+          "line": 939,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_record_message_text",
+          "kind": "function",
+          "line": 979,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_refer_info",
+          "kind": "function",
+          "line": 1065,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_summarize_refer_content",
+          "kind": "function",
+          "line": 1092,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_refer_message_text",
+          "kind": "function",
+          "line": 1137,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_transfer_info",
+          "kind": "function",
+          "line": 1166,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_transfer_info._pick",
+          "kind": "function",
+          "line": 1176,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_transfer_message_text",
+          "kind": "function",
+          "line": 1205,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_redpacket_message_text",
+          "kind": "function",
+          "line": 1234,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_finder_message_text",
+          "kind": "function",
+          "line": 1266,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_voip_message_text",
+          "kind": "function",
+          "line": 1283,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_voice_text",
+          "kind": "function",
+          "line": 1312,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_message_text",
+          "kind": "function",
+          "line": 1327,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_message_text._id_suffix",
+          "kind": "function",
+          "line": 1334,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_is_safe_msg_table_name",
+          "kind": "function",
+          "line": 1371,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_find_msg_table_for_user",
+          "kind": "function",
+          "line": 1384,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_find_msg_tables_for_user",
+          "kind": "function",
+          "line": 1412,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_validate_pagination",
+          "kind": "function",
+          "line": 1449,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_time_value",
+          "kind": "function",
+          "line": 1458,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_parse_time_range",
+          "kind": "function",
+          "line": 1482,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_pagination_hint",
+          "kind": "function",
+          "line": 1490,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_msg_types",
+          "kind": "function",
+          "line": 1515,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_message_filters",
+          "kind": "function",
+          "line": 1536,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_query_messages",
+          "kind": "function",
+          "line": 1555,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_chat_context",
+          "kind": "function",
+          "line": 1575,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_chat_contexts",
+          "kind": "function",
+          "line": 1606,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_normalize_chat_names",
+          "kind": "function",
+          "line": 1635,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_format_history_lines",
+          "kind": "function",
+          "line": 1654,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_search_entry",
+          "kind": "function",
+          "line": 1667,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_history_line",
+          "kind": "function",
+          "line": 1697,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_chat_message_tables",
+          "kind": "function",
+          "line": 1717,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_iter_table_contexts",
+          "kind": "function",
+          "line": 1725,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_candidate_page_size",
+          "kind": "function",
+          "line": 1737,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_message_query_batch_size",
+          "kind": "function",
+          "line": 1741,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_history_query_batch_size",
+          "kind": "function",
+          "line": 1745,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_page_ranked_entries",
+          "kind": "function",
+          "line": 1749,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_chat_history_lines",
+          "kind": "function",
+          "line": 1756,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_chat_search_entries",
+          "kind": "function",
+          "line": 1803,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_search_contexts_from_db",
+          "kind": "function",
+          "line": 1830,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_collect_search_entries",
+          "kind": "function",
+          "line": 1860,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_page_search_entries",
+          "kind": "function",
+          "line": 1900,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_search_single_chat",
+          "kind": "function",
+          "line": 1904,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_search_multiple_chats",
+          "kind": "function",
+          "line": 1932,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_search_all_messages",
+          "kind": "function",
+          "line": 1992,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_recent_sessions",
+          "kind": "function",
+          "line": 2047,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_chat_history",
+          "kind": "function",
+          "line": 2105,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "search_messages",
+          "kind": "function",
+          "line": 2166,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_contacts",
+          "kind": "function",
+          "line": 2235,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_contact_tags",
+          "kind": "function",
+          "line": 2282,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_tag_members",
+          "kind": "function",
+          "line": 2298,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_new_messages",
+          "kind": "function",
+          "line": 2340,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_image",
+          "kind": "function",
+          "line": 2441,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_file_message",
+          "kind": "function",
+          "line": 2472,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_record_item",
+          "kind": "function",
+          "line": 2743,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_transfer",
+          "kind": "function",
+          "line": 3030,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_transfer._fmt_ts",
+          "kind": "function",
+          "line": 3131,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_refer",
+          "kind": "function",
+          "line": 3173,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_refer._fmt_ts",
+          "kind": "function",
+          "line": 3283,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_location",
+          "kind": "function",
+          "line": 3318,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_chat_images",
+          "kind": "function",
+          "line": 3440,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_iter_media_db_paths",
+          "kind": "function",
+          "line": 3524,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_chat_name_id",
+          "kind": "function",
+          "line": 3531,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_fetch_voice_row",
+          "kind": "function",
+          "line": 3538,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_silk_to_wav",
+          "kind": "function",
+          "line": 3555,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_voice_messages",
+          "kind": "function",
+          "line": 3578,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decode_voice",
+          "kind": "function",
+          "line": 3651,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_voice_transcription_cache_key",
+          "kind": "function",
+          "line": 3707,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_load_voice_transcription_cache",
+          "kind": "function",
+          "line": 3712,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_save_voice_transcription_cache",
+          "kind": "function",
+          "line": 3734,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_whisper_cpp_binary",
+          "kind": "function",
+          "line": 3807,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_whisper_cpp_model",
+          "kind": "function",
+          "line": 3823,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_active_backend",
+          "kind": "function",
+          "line": 3842,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_cache_signature",
+          "kind": "function",
+          "line": 3872,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_get_whisper_model",
+          "kind": "function",
+          "line": 3884,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_transcribe_local",
+          "kind": "function",
+          "line": 3894,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_transcribe_openai",
+          "kind": "function",
+          "line": 3903,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_transcribe_whisper_cpp",
+          "kind": "function",
+          "line": 3952,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_transcribe",
+          "kind": "function",
+          "line": 3996,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "transcribe_voice",
+          "kind": "function",
+          "line": 4005,
+          "decorators": [
+            "mcp.tool()"
+          ],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from config import _config_file_path, _DEFAULT",
+        "from contextlib import closing",
+        "from datetime import datetime, timedelta",
+        "from decode_image import ImageResolver",
+        "from key_utils import get_key_info, key_path_variants, strip_key_metadata",
+        "from mcp.server.fastmcp import FastMCP",
+        "from openai import AuthenticationError, RateLimitError, APIError",
+        "from openai import OpenAI",
+        "import glob",
+        "import glob as glob_mod",
+        "import hmac as hmac_mod",
+        "import io",
+        "import os, sys, json, time, sqlite3, tempfile, struct, hashlib, atexit, re, threading, subprocess",
+        "import pysilk",
+        "import wave",
+        "import whisper",
+        "import xml.etree.ElementTree as ET",
+        "import zstandard as zstd"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/monitor.py",
+      "sha256": "9820055ca95734ddfedbc0936a9a3770e80d511d294e08fa529f8e4279759456",
+      "lines": 260,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "derive_mac_key",
+          "kind": "function",
+          "line": 38,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_page",
+          "kind": "function",
+          "line": 43,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_db_to_memory",
+          "kind": "function",
+          "line": 58,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_db_to_sqlite",
+          "kind": "function",
+          "line": 80,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "load_contact_names",
+          "kind": "function",
+          "line": 94,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "get_session_state",
+          "kind": "function",
+          "line": 113,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "format_msg_type",
+          "kind": "function",
+          "line": 137,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 146,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from config import load_config",
+        "from datetime import datetime",
+        "from key_utils import get_key_info, strip_key_metadata",
+        "import functools",
+        "import hashlib, struct, os, sys, json, time, sqlite3, io",
+        "import hmac as hmac_mod",
+        "import zstandard as zstd"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/monitor_web.py",
+      "sha256": "0e0439677d91333c4372c847821ea4f6de559420e2f548cfadd2b134d16e1095",
+      "lines": 2918,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_build_emoji_lookup",
+          "kind": "function",
+          "line": 66,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_download_emoji",
+          "kind": "function",
+          "line": 76,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache",
+          "kind": "class",
+          "line": 105,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache.__init__",
+          "kind": "function",
+          "line": 108,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache._get_lock",
+          "kind": "function",
+          "line": 116,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache.invalidate",
+          "kind": "function",
+          "line": 122,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache.peek",
+          "kind": "function",
+          "line": 128,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "MonitorDBCache.get",
+          "kind": "function",
+          "line": 147,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "build_username_db_map",
+          "kind": "function",
+          "line": 200,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_page",
+          "kind": "function",
+          "line": 240,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "full_decrypt",
+          "kind": "function",
+          "line": 255,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_wal_full",
+          "kind": "function",
+          "line": 276,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "load_contact_names",
+          "kind": "function",
+          "line": 329,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_extract_pb_field_30",
+          "kind": "function",
+          "line": 347,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "load_contact_tags",
+          "kind": "function",
+          "line": 391,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "format_msg_type",
+          "kind": "function",
+          "line": 437,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "msg_type_icon",
+          "kind": "function",
+          "line": 445,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "broadcast_sse",
+          "kind": "function",
+          "line": 453,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor",
+          "kind": "class",
+          "line": 475,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor.__init__",
+          "kind": "function",
+          "line": 480,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._maybe_refresh_contacts",
+          "kind": "function",
+          "line": 496,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor.resolve_image",
+          "kind": "function",
+          "line": 530,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._async_resolve_image",
+          "kind": "function",
+          "line": 709,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._fresh_decrypt_query",
+          "kind": "function",
+          "line": 742,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._lookup_latest_message",
+          "kind": "function",
+          "line": 783,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._check_hidden_messages",
+          "kind": "function",
+          "line": 835,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._query_msg_content",
+          "kind": "function",
+          "line": 986,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._parse_rich_content",
+          "kind": "function",
+          "line": 1043,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor._async_resolve_rich",
+          "kind": "function",
+          "line": 1260,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor.query_state",
+          "kind": "function",
+          "line": 1281,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor.do_full_refresh",
+          "kind": "function",
+          "line": 1297,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "SessionMonitor.check_updates",
+          "kind": "function",
+          "line": 1313,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "monitor_thread",
+          "kind": "function",
+          "line": 1436,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_export_steps",
+          "kind": "function",
+          "line": 2353,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_build_wxwork_export_steps",
+          "kind": "function",
+          "line": 2363,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_list_sessions",
+          "kind": "function",
+          "line": 2428,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_broadcast_tool_event",
+          "kind": "function",
+          "line": 2498,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_run_tool_task",
+          "kind": "function",
+          "line": 2503,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "Handler",
+          "kind": "class",
+          "line": 2590,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "Handler.log_message",
+          "kind": "function",
+          "line": 2591,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "Handler.handle",
+          "kind": "function",
+          "line": 2592,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "Handler.do_GET",
+          "kind": "function",
+          "line": 2598,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "Handler.do_POST",
+          "kind": "function",
+          "line": 2720,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "ThreadedServer",
+          "kind": "class",
+          "line": 2796,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_start_monitor_if_ready",
+          "kind": "function",
+          "line": 2801,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_start_monitor_if_ready._warmup",
+          "kind": "function",
+          "line": 2866,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 2894,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "from concurrent.futures import ThreadPoolExecutor",
+        "from config import load_config",
+        "from contextlib import closing",
+        "from datetime import datetime",
+        "from decode_image import extract_md5_from_packed_info, decrypt_dat_file, is_v2_format",
+        "from emoticons import build_emoji_lookup as _build_emoji_lookup_mod, download_emoji as _download_emoji_mod, convert_hevc_to_jpeg as _convert_hevc_to_jpeg",
+        "from http.server import HTTPServer, BaseHTTPRequestHandler",
+        "from key_utils import get_key_info, strip_key_metadata",
+        "from socketserver import ThreadingMixIn",
+        "from urllib.parse import urlparse, parse_qs, urlencode, urlunparse",
+        "import glob as glob_mod",
+        "import hashlib, struct, os, sys, json, time, sqlite3, io, threading, queue, traceback, subprocess",
+        "import hmac as hmac_mod",
+        "import mcp_server",
+        "import tempfile",
+        "import urllib.parse",
+        "import uuid",
+        "import webbrowser",
+        "import xml.etree.ElementTree as ET",
+        "import zstandard as zstd"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/setup.py",
+      "sha256": "458efdd2945f3b6951cc3071584fed7910f375c95b3ca3f109e0de9b36a37cf7",
+      "lines": 207,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "detect_wechat_dir",
+          "kind": "function",
+          "line": 22,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "detect_transcription_backends",
+          "kind": "function",
+          "line": 44,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "check_environment",
+          "kind": "function",
+          "line": 73,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "interactive_setup",
+          "kind": "function",
+          "line": 112,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 189,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 193,
+          "declaration": "parser.add_argument('--check', action='store_true', help='仅检查环境，不修改文件')"
+        }
+      ],
+      "imports": [
+        "import argparse",
+        "import glob",
+        "import json",
+        "import openai",
+        "import os",
+        "import platform",
+        "import shutil",
+        "import subprocess",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/sns_media_wasm/wasm_video_decode.js",
+      "sha256": "78faf7621959e30ba05c0acf7182dd14bcbd7dfe45529476649f39b20e5dbea3",
+      "lines": 4707,
+      "migration": "requires-review",
+      "language": "javascript",
+      "note": "需单独核对导出接口、WASM 交互和运行时；未按文本正则推断完整接口。"
+    },
+    {
+      "path": "vendor/wechat-decrypt/sns_media_wasm/weflow_wasm_keystream.js",
+      "sha256": "5571983f6707b18141e4a9be419ecb7b618fdfa8d29dd3156bb23815d40d1cac",
+      "lines": 151,
+      "migration": "requires-review",
+      "language": "javascript",
+      "note": "需单独核对导出接口、WASM 交互和运行时；未按文本正则推断完整接口。"
+    },
+    {
+      "path": "vendor/wechat-decrypt/transcribe_chat.py",
+      "sha256": "3e89d5b443a7c905d11e2f9e25d37db461a6a3864969016665b17bad3d6b7ec8",
+      "lines": 111,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_transcribe_local_id",
+          "kind": "function",
+          "line": 35,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "transcribe_export",
+          "kind": "function",
+          "line": 53,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from datetime import datetime",
+        "import json",
+        "import mcp_server",
+        "import os",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/voice_to_mp3.py",
+      "sha256": "974246db157476a452ac96b1229703c7612b5e581758a54ffff76696640e745c",
+      "lines": 146,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "silk_to_mp3",
+          "kind": "function",
+          "line": 39,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "display_name",
+          "kind": "function",
+          "line": 93,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "safe_dirname",
+          "kind": "function",
+          "line": 98,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from config import load_config",
+        "from datetime import datetime",
+        "import os",
+        "import pilk",
+        "import shutil as _shutil",
+        "import sqlite3",
+        "import subprocess",
+        "import sys",
+        "import tempfile"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/wechat_decrypt_launcher.py",
+      "sha256": "28d362188d692a208f7ba2705cbf830b93d9f270609f38ef724bac8728456adc",
+      "lines": 139,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_app_base_dir",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_script_dir",
+          "kind": "function",
+          "line": 38,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_prepare_runtime",
+          "kind": "function",
+          "line": 42,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_configure_stdio",
+          "kind": "function",
+          "line": 48,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "print_usage",
+          "kind": "function",
+          "line": 54,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_resolve_script",
+          "kind": "function",
+          "line": 74,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "run_script",
+          "kind": "function",
+          "line": 90,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "dispatch",
+          "kind": "function",
+          "line": 115,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 133,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "import os",
+        "import runpy",
+        "import sys"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/wx_toolkit_voice_to_mp3.py",
+      "sha256": "412249986d3c5cc14e9cd80ad4bb60d20acf28f4999af613fadea4df3964e5b5",
+      "lines": 74,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "convert_silk_to_mp3",
+          "kind": "function",
+          "line": 20,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "main",
+          "kind": "function",
+          "line": 63,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [
+        {
+          "line": 65,
+          "declaration": "parser.add_argument('input', type=Path)"
+        },
+        {
+          "line": 66,
+          "declaration": "parser.add_argument('output', type=Path)"
+        }
+      ],
+      "imports": [
+        "from __future__ import annotations",
+        "from pathlib import Path",
+        "import argparse",
+        "import os",
+        "import pilk",
+        "import shutil",
+        "import subprocess",
+        "import sys",
+        "import tempfile"
+      ]
+    },
+    {
+      "path": "vendor/wechat-decrypt/wxwork_crypto.py",
+      "sha256": "719119d662949118618ffd8dafd890e26caf64e86fe4ed7a8f52c54d86153861",
+      "lines": 132,
+      "migration": "requires-review",
+      "language": "python",
+      "symbols": [
+        {
+          "name": "_modmult",
+          "kind": "function",
+          "line": 14,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "generate_initial_vector",
+          "kind": "function",
+          "line": 22,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "derive_wxsqlite3_aes128_page_key",
+          "kind": "function",
+          "line": 32,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_plain_sqlite_page",
+          "kind": "function",
+          "line": 40,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "has_wxsqlite3_plain_header_fragment",
+          "kind": "function",
+          "line": 44,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "is_wxsqlite3_aes128_page1",
+          "kind": "function",
+          "line": 62,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "_decrypt_aes128_cbc",
+          "kind": "function",
+          "line": 66,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_wxsqlite3_aes128_page",
+          "kind": "function",
+          "line": 72,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "looks_like_sqlite_page1",
+          "kind": "function",
+          "line": 91,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "verify_wxsqlite3_aes128_key",
+          "kind": "function",
+          "line": 100,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "decrypt_wxwork_database",
+          "kind": "function",
+          "line": 110,
+          "decorators": [],
+          "migration": "requires-review"
+        },
+        {
+          "name": "verify_sqlite_file",
+          "kind": "function",
+          "line": 125,
+          "decorators": [],
+          "migration": "requires-review"
+        }
+      ],
+      "arguments": [],
+      "imports": [
+        "from Crypto.Cipher import AES",
+        "import hashlib",
+        "import os",
+        "import sqlite3",
+        "import struct"
+      ]
+    }
+  ]
+}

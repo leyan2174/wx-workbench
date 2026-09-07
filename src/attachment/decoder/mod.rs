@@ -32,22 +32,34 @@ pub struct DecodedImage {
 
 /// 由 caller 提供的 V2 image AES key（codex 的 `image_key` 模块负责拿到）。
 /// 缺省时遇到 V2 文件会返回 `Err`，caller 可以拿到具体错误信息再处理。
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct V2KeyMaterial<'a> {
     pub aes_key: Option<&'a [u8; 16]>,
     /// XOR key — WeChat 4.x 默认 0x88，可 override
     pub xor_key: u8,
 }
 
+impl Default for V2KeyMaterial<'_> {
+    fn default() -> Self {
+        Self {
+            aes_key: None,
+            xor_key: 0x88,
+        }
+    }
+}
+
 impl<'a> V2KeyMaterial<'a> {
     pub fn with_aes(key: &'a [u8; 16]) -> Self {
-        Self { aes_key: Some(key), xor_key: 0x88 }
+        Self {
+            aes_key: Some(key),
+            ..Self::default()
+        }
     }
 }
 
 /// 根据 `dat_bytes` 头部 magic 自动分发到对应 decoder。
 ///
-/// `v2_key` 仅在文件是 V2 magic 时被消费。
+/// AES 参数仅用于 V2；XOR 参数同时用于 V1 和 V2，显式账号值不能被默认值覆盖。
 pub fn dispatch(dat_bytes: &[u8], v2_key: V2KeyMaterial<'_>) -> Result<DecodedImage> {
     if dat_bytes.len() >= 6 {
         let head: &[u8; 6] = dat_bytes[..6].try_into().unwrap();
@@ -59,7 +71,10 @@ pub fn dispatch(dat_bytes: &[u8], v2_key: V2KeyMaterial<'_>) -> Result<DecodedIm
             let fixed_key: [u8; 16] = *b"cfcd208495d565ef";
             return v2::decode(
                 dat_bytes,
-                V2KeyMaterial { aes_key: Some(&fixed_key), xor_key: v2_key.xor_key },
+                V2KeyMaterial {
+                    aes_key: Some(&fixed_key),
+                    xor_key: v2_key.xor_key,
+                },
             )
             .map(|mut d| {
                 d.decoder = "v1_aes";
@@ -105,6 +120,41 @@ pub fn detect_image_format(bytes: &[u8]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v1_default_xor_and_explicit_account_values_decode_exact_bytes() {
+        use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+        assert!(V2KeyMaterial::default().aes_key.is_none());
+        assert_eq!(V2KeyMaterial::default().xor_key, 0x88);
+        let mut padded = [13u8; 16];
+        padded[..3].copy_from_slice(&[0xff, 0xd8, 0xff]);
+        let mut block = GenericArray::clone_from_slice(&padded);
+        aes::Aes128::new(b"cfcd208495d565ef".into()).encrypt_block(&mut block);
+        let mut expected = vec![0xff, 0xd8, 0xff];
+        expected.extend_from_slice(b"synthetic raw segment");
+        expected.extend_from_slice(&[0xff, 0xd9]);
+        for xor_key in [0x88u8, 0x00, 0xa2] {
+            let mut bytes = V1_MAGIC.to_vec();
+            bytes.extend_from_slice(&3u32.to_le_bytes());
+            bytes.extend_from_slice(&2u32.to_le_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&block);
+            bytes.extend_from_slice(b"synthetic raw segment");
+            bytes.extend_from_slice(&[0xff ^ xor_key, 0xd9 ^ xor_key]);
+            let key = if xor_key == 0x88 {
+                V2KeyMaterial::default()
+            } else {
+                V2KeyMaterial {
+                    xor_key,
+                    ..V2KeyMaterial::default()
+                }
+            };
+            let decoded = dispatch(&bytes, key).unwrap();
+            assert_eq!(decoded.data, expected);
+            assert_eq!(decoded.format, "jpg");
+            assert_eq!(decoded.decoder, "v1_aes");
+        }
+    }
 
     #[test]
     fn detect_basic_formats() {

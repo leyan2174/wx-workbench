@@ -1,0 +1,363 @@
+{
+  "source": "../architecture.md",
+  "sourceSha256": "a86cd2701f69bcea4853b6b03b6252347c82a90e67283ad0d05ad9731b5fb6dc",
+  "mermaidSha256": "581ed7d74bd9048d0e3a91363927d72ef22942d7722546b27f7cc29e35390eb8",
+  "diagrams": [
+    {
+      "name": "diagram-01",
+      "title": "共享私有文件边界",
+      "classification": "current-structure",
+      "sourceLine": 53,
+      "sourceSha256": "660bb37e250f7616efaa0efc7a467c2eef511696db5e49b2ae4a2342e528fa44",
+      "width": 1520,
+      "height": 246,
+      "nodes": 6,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-02",
+      "title": "总览导航",
+      "classification": "current-structure",
+      "sourceLine": 89,
+      "sourceSha256": "e19c2a333e0fbd011611d6ba4fed74cc94ed643dfa0fb718b30a5fe31ed06151",
+      "width": 586,
+      "height": 710,
+      "nodes": 8,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-03",
+      "title": "入口、配置与账号捕获",
+      "classification": "current-structure",
+      "sourceLine": 103,
+      "sourceSha256": "b4eb240706274c277ab7004969eda996696f2f6bb8bbda9197c1d339e1145cdd",
+      "width": 741,
+      "height": 910,
+      "nodes": 12,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-04",
+      "title": "MCP 宿主与账号传输",
+      "classification": "current-structure",
+      "sourceLine": 134,
+      "sourceSha256": "0c7b910cea9b3b6b5b456a3824cf7ed6abab750f87ea4a295abaaef3c4aec1fa",
+      "width": 931,
+      "height": 966,
+      "nodes": 12,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-05",
+      "title": "历史、联系人与引用附件",
+      "classification": "current-structure",
+      "sourceLine": 165,
+      "sourceSha256": "10603ba78b51037d02de17c6a72442bde84257ed3ed967f8628a9a3931287546",
+      "width": 1528,
+      "height": 398,
+      "nodes": 9,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-06",
+      "title": "图片定位与发布边界",
+      "classification": "current-structure",
+      "sourceLine": 189,
+      "sourceSha256": "c8e3ed6c4f4d7935adb529e4eb46c5721139dda4a1378afe3a4c43352105e371",
+      "width": 743,
+      "height": 630,
+      "nodes": 7,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-07",
+      "title": "MCP 语音准备与执行",
+      "classification": "current-structure",
+      "sourceLine": 208,
+      "sourceSha256": "aa574045ba9791acf1bcb015993c876f2fd53d57bac9618939c59c28d85aa52b",
+      "width": 896,
+      "height": 734,
+      "nodes": 10,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-08",
+      "title": "缓存、数据库与基础媒体",
+      "classification": "current-structure",
+      "sourceLine": 233,
+      "sourceSha256": "35357f799ae7ac787618bc08e9845cb0cc62244fe16ed8c510e87228237a6a19",
+      "width": 1638,
+      "height": 630,
+      "nodes": 13,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-09",
+      "title": "ASR 编排、兼容推理与缓存",
+      "classification": "current-structure",
+      "sourceLine": 264,
+      "sourceSha256": "c17c6bc89ac67399351d69dbe9b3b94ad1c382596c9f36ac9a989c0fc4de9da6",
+      "width": 606,
+      "height": 886,
+      "nodes": 10,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-10",
+      "title": "视频引擎与保留企微实现",
+      "classification": "current-structure",
+      "sourceLine": 291,
+      "sourceSha256": "23ab62fc6c4675a910a39351bbc3101612c7b5ab94a53f55df66f1caf10bf973",
+      "width": 596,
+      "height": 654,
+      "nodes": 8,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-11",
+      "title": "SNS 时间线与发布",
+      "classification": "current-structure",
+      "sourceLine": 312,
+      "sourceSha256": "ca683b83e44c862b58c8ada87bdbb6c4b136921f0f0e0bd0a594a3228d888fb6",
+      "width": 979,
+      "height": 862,
+      "nodes": 13,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-12",
+      "title": "SNS 相册媒体编排",
+      "classification": "current-structure",
+      "sourceLine": 344,
+      "sourceSha256": "51eb5d92223bb4dfdf3eeaa72800b3128bf56c604337527bbddd2b738ef895ee",
+      "width": 956,
+      "height": 1118,
+      "nodes": 13,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-13",
+      "title": "聊天批量导出与转录入口",
+      "classification": "current-structure",
+      "sourceLine": 376,
+      "sourceSha256": "11d62fb871d18b6240b7e3a01e1f853445668c7ca4674b862a687779e001b132",
+      "width": 741,
+      "height": 502,
+      "nodes": 6,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-14",
+      "title": "聊天增量与计划",
+      "classification": "current-structure",
+      "sourceLine": 394,
+      "sourceSha256": "8055470f83f4f6ae902c4fb6b8eb140bae42c18c5567779ca8434d0901e7eedc",
+      "width": 896,
+      "height": 374,
+      "nodes": 8,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-15",
+      "title": "导出正文与基础验证",
+      "classification": "current-structure",
+      "sourceLine": 414,
+      "sourceSha256": "d40d08fa0851c90b6905ef854f7062b014cc77d2cace984618047679012a1dc7",
+      "width": 1322,
+      "height": 350,
+      "nodes": 9,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-16",
+      "title": "文件发布、界面与诊断",
+      "classification": "current-structure",
+      "sourceLine": 435,
+      "sourceSha256": "347888fa780c27ec32efea96e19ed49bd4bcd3334b222f704a4d36b36d2fe4c6",
+      "width": 1649,
+      "height": 630,
+      "nodes": 15,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-17",
+      "title": "双入口与初始化",
+      "classification": "current-structure",
+      "sourceLine": 472,
+      "sourceSha256": "54bd244b8b65361c808211f41feb95f5bd6f0a89878e7fe689cd9d2a2e332b46",
+      "width": 1296,
+      "height": 2127,
+      "nodes": 16,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-18",
+      "title": "批量导出与 ASR",
+      "classification": "current-structure",
+      "sourceLine": 502,
+      "sourceSha256": "575793c69c649122d2f7e56134fe6585a1f562388dad8a6927a6f0694e27efec",
+      "width": 864,
+      "height": 2534,
+      "nodes": 20,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-19",
+      "title": "本地 Web 与 GUI",
+      "classification": "current-structure",
+      "sourceLine": 538,
+      "sourceSha256": "6ebf196eb3b66c810a482f833cc2dea072139257fea04eee1455cf8fbf0e4452",
+      "width": 1527,
+      "height": 1806,
+      "nodes": 22,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-20",
+      "title": "清理与其他新链路",
+      "classification": "current-structure",
+      "sourceLine": 576,
+      "sourceSha256": "ccdbbd8c0b4956e243d3ab727f5616e419903347f74fa9f267e22e1d36a16ac1",
+      "width": 900,
+      "height": 1157,
+      "nodes": 12,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-21",
+      "title": "数据库快照时序",
+      "classification": "current-structure",
+      "sourceLine": 693,
+      "sourceSha256": "8515687e6270a4cf0845e1639df258e67dbb53d2145761237ca8db46398d1d42",
+      "width": 1702,
+      "height": 1489,
+      "nodes": 0,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-22",
+      "title": "MCP 图片发布",
+      "classification": "current-structure",
+      "sourceLine": 738,
+      "sourceSha256": "8ea3e04740b05630bb872e6a1e6ecd0c6b7a90895aaf4bf6f774c6cce1b198db",
+      "width": 2095,
+      "height": 1274,
+      "nodes": 0,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-23",
+      "title": "MCP 语音准备与宿主执行",
+      "classification": "current-structure",
+      "sourceLine": 776,
+      "sourceSha256": "b805a1544f822af5a509411295553d43b154ecee971f08556ad6a30099e58555",
+      "width": 1830,
+      "height": 1994,
+      "nodes": 0,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-24",
+      "title": "工具箱既有批处理",
+      "classification": "current-structure",
+      "sourceLine": 825,
+      "sourceSha256": "ce27a17a2314571f94f036c3d8bb583059a786305b362832aa61d39e21baa383",
+      "width": 1852,
+      "height": 281,
+      "nodes": 10,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-25",
+      "title": "原始目标架构（历史设计）",
+      "classification": "historical-design",
+      "sourceLine": 851,
+      "sourceSha256": "0d7fdb1d8eb440ebc6cb88b8668753d210118fbf1d9999af7144f8ed121ec2b6",
+      "width": 1221,
+      "height": 758,
+      "nodes": 11,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-26",
+      "title": "账号运行身份与生命周期",
+      "classification": "current-structure",
+      "sourceLine": 898,
+      "sourceSha256": "4507b79a7341e1ef70bb89182b38cc442f66bc1e0355c8fa7764805294150928",
+      "width": 1359,
+      "height": 558,
+      "nodes": 13,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-27",
+      "title": "转账能力的分层移植",
+      "classification": "current-structure",
+      "sourceLine": 928,
+      "sourceSha256": "531542274690e6fbe67021ed7ccbf0b7dc95f1192e1e046ba43fdd90353c36c3",
+      "width": 758,
+      "height": 1086,
+      "nodes": 11,
+      "overlaps": [],
+      "overflows": []
+    },
+    {
+      "name": "diagram-28",
+      "title": "消息解析层补充",
+      "classification": "current-structure",
+      "sourceLine": 950,
+      "sourceSha256": "f416d7cb9aecb9ec40459a4e7e9ff3702f79ba256bf7a09404697814796e2944",
+      "width": 1143,
+      "height": 326,
+      "nodes": 6,
+      "overlaps": [],
+      "overflows": []
+    }
+  ],
+  "aliases": {
+    "runtime-current": [
+      2
+    ],
+    "current-runtime": [
+      2
+    ],
+    "mcp-voice-flow": [
+      23
+    ],
+    "asr-wasm-wiring": [
+      9,
+      10
+    ],
+    "sns-cache-publish": [
+      11,
+      12
+    ]
+  },
+  "checks": "Flowchart node overlap and label bounds only; sequence diagrams rendered, not automatically collision-audited."
+}

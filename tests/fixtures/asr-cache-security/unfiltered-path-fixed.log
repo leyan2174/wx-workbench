@@ -1,0 +1,171 @@
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.41s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-2833fa7b51d54241.exe)
+
+running 140 tests
+test asr::byte_pipeline_tests::byte_input_limit_is_checked_before_decode_or_backend ... ok
+test asr::cache::tests::verified_digest_recovers_key_without_original_audio ... ok
+test asr::byte_pipeline_tests::forged_cloud_backend_is_denied_before_bytes_or_path_access ... ok
+test asr::database_media::tests::complete_column_check_rejects_stored_aliases_but_allows_ordinary_rowid_tables ... ok
+test asr::cached::tests::oversized_input_is_rejected_before_container_or_model_access ... ok
+test adapter_tests::denied_cloud_checks_authorization_before_invalid_audio_account_or_cache ... ok
+COMMAND: "rustc" "--edition=2021" "--crate-name" "cache_security_probe" "C:\\CodexLocal\\src\\wx-cli\\tests\\fixtures\\asr-cache-security\\probe.rs" "-o" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmprvdP31\\probe.exe"
+test asr::cache::tests::legacy_and_corrupt_files_are_not_claimed_or_destroyed ... ok
+test asr::cache::tests::isolates_accounts_audio_source_and_configuration ... ok
+test asr::cache::tests::persists_empty_success_and_reopens ... ok
+test asr::byte_pipeline_tests::file_and_byte_conversion_are_identical_for_wav_and_silk ... ok
+test asr::cache::tests::stale_publication_and_cooperative_lock_preserve_data ... ok
+test asr::cache::tests::two_instances_merge_and_malformed_same_key_is_preserved ... ok
+test asr::cache::tests::protects_existing_records_and_unknown_fields ... ok
+test asr::database_media::tests::duplicate_username_mapping_is_rejected ... ok
+test asr::database_media::tests::malformed_uppercase_media_candidate_is_not_silently_skipped ... ok
+test asr::database_media::tests::exact_bytes_evidence_and_read_only ... ok
+test asr::database_media::tests::immutable_uri_handles_unicode_spaces_percent_and_hash ... ok
+test asr::database_media::tests::corrupt_database_is_reported_and_missing_media_is_not_created ... ok
+test asr::database_media::tests::duplicate_message_is_rejected_before_type_filter ... ok
+test asr::cached::tests::cloud_upload_hit_identity_isolation_and_authorization ... ok
+test asr::database_media::tests::missing_message_media_and_source_do_not_fallback ... ok
+test asr::database_media::tests::media_hard_link_aliases_are_rejected_even_without_matching_contact ... ok
+test asr::database_media::tests::missing_server_evidence_is_unsupported_even_with_matching_local_id ... ok
+test asr::database_media::tests::quoted_username_is_bound_not_interpolated ... ok
+test asr::database_media::tests::non_voice_and_high_type_flags ... ok
+STDOUT: 
+STDERR: 
+test asr::database_media::tests::shadowed_rowid_is_not_an_identity_proof ... ok
+test asr::local::tests::invalid_config ... ok
+test asr::database_media::tests::source_path_injection_traversal_bare_name_and_relative_root_rejected ... ok
+test asr::database_media::tests::duplicate_media_rows_or_shards_are_never_first_match_wins ... ok
+test asr::database_media::tests::uppercase_media_preserves_disk_name_and_canonical_evidence ... ok
+test asr::local::tests::parsing ... ok
+test asr::database_media::tests::roots_are_separate_accounts_even_for_identical_identity ... ok
+test asr::database_media::tests::same_ids_across_contacts_and_nocase_collation_do_not_leak ... ok
+test asr::database_media::tests::same_local_id_across_message_shards_uses_selected_server_id ... ok
+test asr::database_media::tests::uppercase_media_does_not_hide_cross_shard_ambiguity ... ok
+test asr::database_media::tests::timestamp_conflict_and_zero_server_id_reject_local_id_guessing ... ok
+test adapter_tests::existing_cache_never_bypasses_audio_validation_or_input_limit ... ok
+test asr::database_media::tests::sidecars_cannot_be_silently_ignored_by_immutable_mode ... ok
+test asr::cached::tests::cache_write_failure_keeps_success ... ok
+test asr::cached::tests::invalid_local_configuration_cannot_use_old_hit ... ok
+test adapter_tests::backend_failure_and_corrupt_cache_keep_separate_error_models ... ok
+test asr::openai::tests::compatible_base_path_and_model_are_explicit ... ok
+test adapter_tests::backend_cannot_modify_pinned_model_and_wrong_model_never_hits ... ok
+test asr::openai::tests::errors_and_debug_never_echo_secrets ... ok
+test asr::openai::tests::invalid_config_does_not_echo_input ... ok
+test asr::openai::tests::exact_custom_limit_is_accepted ... ok
+test asr::openai::tests::multipart_contains_exact_audio_auth_and_fields ... ok
+test asr::openai::tests::optional_language_and_null_text_match_legacy ... ok
+test asr::openai::tests::preflight_never_connects_without_consent_or_with_invalid_size ... ok
+test asr::openai::tests::malformed_success_and_non_json_http_error ... ok
+test asr::database_media::tests::empty_non_silk_non_blob_and_oversized_data_fail_without_outputs ... ok
+test asr::openai::tests::response_limit_is_enforced ... ok
+test asr::pipeline_tests::cli_local_configuration_and_no_cloud_defaults ... ok
+test asr::pipeline_tests::cli_registration_contract ... ok
+test asr::pipeline_tests::corrupt_wav_is_rejected ... ok
+test asr::pipeline_tests::chat_unknown_source_saved_as_failure_not_guessed ... ok
+test asr::pipeline_tests::explicit_cloud_pipeline_uploads_wav_to_loopback_only ... ok
+test asr::pipeline_tests::media_identity_is_exact_and_duplicates_fail ... ok
+test asr::pipeline_tests::media_rejects_traversal_and_unknown_source ... ok
+test asr::pipeline_tests::native_silk_fixture_decodes_to_wav ... ok
+test asr::pipeline_tests::pcm_header_and_wav_roundtrip ... ok
+test asr::pipeline_tests::upload_denied_before_input_or_key_access ... ok
+test asr::writeback::tests::checks_again_after_serialization_before_publication ... ok
+test asr::writeback::tests::cooperating_publisher_is_rejected_before_callback ... ok
+test asr::writeback::tests::existing_fields_including_null_are_skipped ... ok
+test asr::writeback::tests::failures_are_counted_and_retryable ... ok
+test asr::writeback::tests::hard_link_output_does_not_truncate_source ... ok
+test asr::writeback::tests::invalid_identities_never_reach_callback ... ok
+test asr::writeback::tests::locked_target_replace_failure_preserves_old_results ... ok
+test asr::writeback::tests::malformed_root_is_transactional ... ok
+test asr::writeback::tests::one_failure_does_not_block_later_success ... ok
+test asr::local::tests::both_output_streams_are_bounded_and_private ... ok
+test asr::writeback::tests::preserves_unknowns_and_cross_shard_identity ... ok
+test asr::local::tests::response_growth_is_stopped ... ok
+test asr::writeback::tests::partial_write_failure_keeps_old_bytes_and_cleans_temp ... ok
+test asr::writeback::tests::rejects_database_and_other_chat_before_callback ... ok
+test asr::local::tests::temporary_entry_count_is_bounded ... ok
+test audio::batch::tests::config_resolves_database_and_account_output_paths ... ok
+test audio::batch::tests::failed_batch_publication_preserves_directory_and_cleans_staging ... ok
+test audio::batch::tests::filter_matches_legacy_exact_usernames ... ok
+test audio::batch::tests::late_existing_mp3_is_not_overwritten_and_staging_is_removed ... ok
+test asr::local::tests::temporary_disk_growth_is_stopped ... ok
+test asr::cached::tests::failure_never_creates_or_changes_cache ... ok
+test asr::cached::tests::hit_including_empty_success_calls_backend_once ... ok
+test audio::batch::tests::real_sqlite_batch_converts_and_repeated_run_skips ... ignored, requires ffmpeg in PATH; synthetic SQLite end-to-end audio batch
+test adapter_tests::malformed_hit_or_wrong_timestamp_preserves_record_and_returns_fresh_success ... ok
+test asr::writeback::tests::separate_output_preserves_input_and_same_path_resumes ... ok
+test audio::batch::tests::windows_names_are_safe_and_bounded ... ok
+test asr::database_media::tests::views_and_without_rowid_are_rejected_in_every_evidence_table ... ok
+test audio::tests::mp3_matches_legacy_pcm_pipeline_and_has_expected_format ... ignored, requires native ffmpeg and ffprobe in PATH; run explicitly for audio integration
+test audio::tests::normalizes_prefix_and_tail_without_mutating_source ... ok
+test audio::tests::payload_ffff_is_not_a_terminator ... ok
+test audio::tests::rejects_malformed_containers ... ok
+test audio::tests::rejects_source_alias_and_preserves_outputs_on_failure ... ok
+test asr::writeback::tests::refuses_callback_changes_even_with_same_owner ... ok
+test audio::tests::synthetic_sdk_pcm_matches_pilk ... ok
+test cli::asr_database::tests::args_and_handler_contract_require_full_explicit_identity ... ok
+test cli::asr_database::tests::cache_flags_are_paired_and_preflight_protects_sources ... ok
+test cli::asr_database::tests::cloud_authorization_precedes_credentials_and_database_access ... ok
+test asr::cached::tests::program_content_change_invalidates_cache ... ok
+test audio::batch::tests::missing_main_database_and_unsafe_output_fail_before_writing ... ok
+test audio::tests::missing_or_failed_encoder_preserves_target_and_cleans_temporary_files ... ok
+test asr::database_media::tests::generated_rowid_aliases_are_rejected_in_every_evidence_table ... ok
+synthetic junction command: "cmd" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpzV0QFD\\message" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpBaP2Xh"
+test cli::asr_database::tests::source_inventory_is_nonrecursive_and_rejects_source_aliases_and_directories ... ok
+test asr::openai::tests::body_read_timeout_is_also_classified ... ok
+test audio::batch::tests::malformed_sqlite_rows_are_individual_failures ... ok
+test audio::batch::tests::absent_contact_database_falls_back_without_creating_database ... ok
+DATABASE HARDLINK ERROR: cache aliases a database input
+test audio::batch::tests::same_display_names_have_separate_info_and_keep_existing_info ... ok
+test cli_path_tests::cli_external_database_hardlink_must_be_rejected_at_path_preflight ... ok
+PROTECTED ALIAS program.json: cache aliases a protected input
+COMMAND: "cmd.exe" "/d" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpg4qMU4\\cache.json" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpg4qMU4\\target"
+test asr::openai::tests::timeout_is_bounded_and_sanitized ... ok
+test security_tests::final_symlink_is_rejected_without_touching_target ... ignored, 当前宿主创建文件符号链接返回 Windows 1314；需显式权限环境重跑
+PROTECTED ALIAS model.json: cache aliases a protected input
+PROTECTED ALIAS key.json: cache aliases a protected input
+test security_tests::envelope_versions_and_entries_are_validated_without_claiming_file ... ok
+test cli_path_tests::cli_rejects_source_directory_and_protected_file_aliases_before_database_access ... ok
+test cli::asr_database::tests::external_database_hardlinks_are_rejected_before_sqlite_access ... ok
+test security_tests::malformed_or_wrong_account_replacement_after_open_is_never_overwritten ... ok
+test security_tests::identity_plaintext_is_not_persisted ... ok
+test asr::local::tests::job_reaps_descendants_after_parent_exits ... ok
+test security_tests::stale_cooperative_lock_is_preserved_and_never_stolen ... ok
+test security_tests::hardlink_publication_replaces_cache_name_not_alias_contents ... ok
+test asr::local::tests::process_timeout_cleanup ... ok
+synthetic compiler command: "rustc" "--edition=2021" "C:\\CodexLocal\\src\\wx-cli\\tests\\fixtures\\asr-cache-security\\tests/fixtures/asr-local/fake.rs" "-o" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpy4laA9\\fake.exe"
+test asr::local::tests::process_json ... ok
+test audio::batch::tests::sqlite_filters_skips_existing_and_counts_bad_records ... ok
+test cli::asr_database::tests::ambiguous_database_stops_before_starting_backend ... ok
+test asr::local::tests::process_missing_output ... ok
+test asr::local::tests::process_invalid_json ... ok
+test audio::batch::tests::missing_encoder_counts_failure_and_removes_temporary_silk ... ok
+test asr::local::tests::process_text ... ok
+synthetic compiler command: "rustc" "--edition=2021" "C:\\CodexLocal\\src\\wx-cli\\tests\\fixtures\\asr-cache-security\\tests/fixtures/asr-local/fake.rs" "-o" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp0klito\\fake.exe"
+test asr::local::tests::job_reaps_descendants_on_disk_limit ... ok
+test security_tests::unknown_large_numbers_and_nested_fields_survive_new_entry ... ok
+test asr::local::tests::process_failure ... ok
+test asr::cached::tests::account_audio_and_same_basename_model_changes_do_not_hit ... ok
+STDOUT: Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpg4qMU4\cache.json <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpg4qMU4\target
+
+STDERR: 
+test security_tests::final_directory_junction_is_rejected_without_touching_target ... ok
+Ϊ C:\Users\leyan\AppData\Local\Temp\.tmpzV0QFD\message <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpBaP2Xh ����������
+test cli::asr_database::tests::unsupported_silk_is_not_staged_or_sent_to_model ... ok
+synthetic junction command: "cmd" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpHfUKJl\\contact" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpUTNTXg"
+Ϊ C:\Users\leyan\AppData\Local\Temp\.tmpHfUKJl\contact <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpUTNTXg ����������
+test cli::asr_database::tests::source_inventory_rejects_directory_junctions_without_reading_target ... ok
+test security_tests::oversize_file_is_rejected_by_read_limit_before_json_parse ... ok
+test cli::asr_database::tests::synthetic_database_to_local_bytes_pipeline_has_evidence_without_audio ... ok
+test asr::pipeline_tests::local_pipeline_and_chat_writeback_end_to_end ... ok
+test cli::asr_database::tests::database_cache_hits_and_preserves_foreign_account_and_sources ... ok
+test asr::local::tests::job_reaps_descendants_on_timeout ... ok
+test cli::asr_database::tests::source_inventory_bounds_even_unrelated_directory_entries ... ok
+
+test result: ok. 137 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.22s
+
+   Doc-tests asr_cache_security
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

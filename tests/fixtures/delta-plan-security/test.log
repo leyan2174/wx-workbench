@@ -1,0 +1,275 @@
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\src\wx-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.88s
+     Running tests\delta_plan_security.rs (target\debug\deps\delta_plan_security-03a6c94cb939915f.exe)
+
+running 7 tests
+COMMAND: cmd.exe /d /c mklink /J "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpeAPIuL\\junction" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpeAPIuL"
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--chats-json", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\chats.json", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\existing.csv"]
+STDOUT:
+Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpeAPIuL\junction <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpeAPIuL
+
+STDERR:
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpeAPIuL\\junction\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpeAPIuL\\plan.csv"]
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "../escape"]
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpktFjod\\delta", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "security"]
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9UrPrP\\delta", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "broken"]
+COMMAND: cmd.exe /d /c mklink /J "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpbN8vIn\\junction" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpbN8vIn\\outside"
+STDOUT:
+
+STDERR:
+错误: 聊天清单 username 不能为空或重复
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--chats-json", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\chats.json", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 输出已存在或不可访问，禁止覆盖
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache\\new.csv"]
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "..\\escape"]
+STDOUT:
+
+thread 'plan_rejects_junction_ancestors_of_decrypted_source' (21252) panicked at tests\delta_plan_security.rs:164:5:
+意外成功: 已写入计划 CSV：C:\Users\leyan\AppData\Local\Temp\.tmpeAPIuL\plan.csv（1 个聊天）
+
+已写入计划 CSV：C:\Users\leyan\AppData\Local\Temp\.tmpeAPIuL\plan.csv（1 个聊天）
+
+STDERR:
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test plan_rejects_junction_ancestors_of_decrypted_source ... FAILED
+STDOUT:
+Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpbN8vIn\junction <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpbN8vIn\outside
+
+STDERR:
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpbN8vIn\\junction\\new", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "safe"]
+STDOUT:
+
+STDERR:
+错误: 聊天清单必须是 JSON 数组
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--chats-json", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\chats.json", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 输出必须位于解密缓存和扫描源目录之外
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache\\messages.db"]
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "C:stream"]
+STDOUT:
+
+STDERR:
+错误: not a plain directory: C:\Users\leyan\AppData\Local\Temp\.tmpbN8vIn\junction
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpbN8vIn\\cache", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpbN8vIn\\junction\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 聊天清单必须是 JSON 数组
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--chats-json", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\chats.json", "--user", "victim", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 输出必须位于解密缓存和扫描源目录之外
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\profile/config.json"]
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "CON"]
+STDOUT:
+
+STDERR:
+错误: 输出父路径不是普通目录
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["daemon", "stop"]
+STDOUT:
+
+STDERR:
+错误: 用户过滤包含清单中不存在的 username
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--user", "alpha", "--message-db", "../outside.db", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 输出已存在或不可访问，禁止覆盖
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9ZB8BM\\cache/../escape.csv"]
+STDOUT:
+
+STDERR:
+错误: reserved Windows path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "run."]
+STDOUT:
+当前账号 wx-daemon 已停止或未运行
+
+STDERR:
+
+test delta_and_plan_reject_junction_output_ancestors ... ok
+STDOUT:
+
+STDERR:
+错误: 库路径必须是根目录内的相对路径
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--user", "alpha", "--message-db", "messages.db:secret", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: 输出路径不能包含 ..
+
+test plan_refuses_source_and_existing_targets_without_exposing_body ... ok
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "run "]
+STDOUT:
+
+STDERR:
+错误: 拒绝备用数据流路径
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\cache", "--user", "alpha", "--message-db", "C:\\outside.db", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpNm6YDC\\plan.csv"]
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "run\ncontrol"]
+STDOUT:
+
+STDERR:
+错误: 库路径必须是根目录内的相对路径
+
+test plan_rejects_identity_pollution_and_database_traversal_without_output ... ok
+STDOUT:
+
+STDERR:
+错误: unsafe path component
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\profile/db_storage/new", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "safe"]
+STDOUT:
+
+STDERR:
+错误: Output must be outside the source directory
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\profile/all_keys.json", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "safe"]
+STDOUT:
+
+STDERR:
+错误: 导出不能覆盖账号配置或密钥文件
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\profile/config.json", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "safe"]
+STDOUT:
+{
+  "chats_checked": 1,
+  "manifest_path": "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9UrPrP\\delta\\deltas\\broken\\manifest.json",
+  "messages_exported": 0,
+  "results": [
+    {
+      "message_count": 0,
+      "reason": "delta query error: 正文适配失败: message/message_0.db, local_id=2",
+      "success": false,
+      "username": "../../escape' OR 1=1 --"
+    }
+  ],
+  "success": false
+}
+
+STDERR:
+启动当前账号 wx-daemon...
+错误: 部分增量会话导出失败，详见 manifest
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["daemon", "stop"]
+STDOUT:
+{
+  "chats_checked": 1,
+  "manifest_path": "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpktFjod\\delta\\deltas\\security\\manifest.json",
+  "messages_exported": 1,
+  "results": [
+    {
+      "chat": "../malicious",
+      "message_count": 1,
+      "metadata_warnings": [
+        "contact tags fallback: no such table: contact_label"
+      ],
+      "path": "chats/single_.._malicious__.._.._escape' OR 1=1 --.delta.json",
+      "success": true,
+      "username": "../../escape' OR 1=1 --"
+    }
+  ],
+  "success": true
+}
+
+STDERR:
+启动当前账号 wx-daemon...
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpktFjod\\delta", "--users", "victim", "--start", "100", "--run-id", "security"]
+STDOUT:
+
+STDERR:
+错误: 导出不能覆盖账号配置或密钥文件
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\profile/db_storage/../db_storage/escape", "--users", "../../escape' OR 1=1 --", "--start", "100", "--run-id", "safe"]
+STDOUT:
+当前账号 wx-daemon 已停止或未运行
+
+STDERR:
+
+test delta_query_failure_never_publishes_partial_chat ... ok
+STDOUT:
+
+STDERR:
+错误: delta root must be new and exclusive
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["daemon", "stop"]
+STDOUT:
+
+STDERR:
+错误: 输出路径不能包含 ..
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "export-delta-native", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpCPkPEb\\output", "--users", "../../escape' OR 1=1 --", "--start", "101", "--end", "100", "--run-id", "safe"]
+STDOUT:
+当前账号 wx-daemon 已停止或未运行
+
+STDERR:
+
+STDOUT:
+
+STDERR:
+错误: 起始时间不能晚于结束时间
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["daemon", "stop"]
+test delta_untrusted_metadata_and_content_cannot_forge_identity_or_paths ... ok
+STDOUT:
+当前账号 wx-daemon 已停止或未运行
+
+STDERR:
+
+test delta_rejects_run_ids_and_protected_paths_without_writing ... ok
+
+failures:
+
+failures:
+    plan_rejects_junction_ancestors_of_decrypted_source
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+error: test failed, to rerun pass `--test delta_plan_security`

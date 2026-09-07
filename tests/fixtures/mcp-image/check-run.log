@@ -1,0 +1,86 @@
+临时源码副本: C:\CodexLocal\build\mcp-image-source-8959a9ecf20e46898f53d3473a1e2c8b
+注意: 当前生产尚缺 resource_db_keys；仅在副本添加建议接口，本轮不证明生产公共接线。
+cargo check --offline --manifest-path C:\CodexLocal\build\mcp-image-source-8959a9ecf20e46898f53d3473a1e2c8b\Cargo.toml --target x86_64-pc-windows-msvc --target-dir C:/CodexLocal/src/wx-cli/target --bin wx
+   Compiling bindgen v0.72.1
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\build\mcp-image-source-8959a9ecf20e46898f53d3473a1e2c8b)
+   Compiling frida-sys v0.17.2
+   Compiling silk-codec v0.3.1
+    Checking frida v0.17.2
+warning: method `resource_db_keys` is never used
+   --> src\daemon\cache.rs:743:19
+    |
+741 | impl DbCache {
+    | ------------ method in this implementation
+742 |     // 仅测试副本使用的建议接口：返回原始键，不暴露密钥值。
+743 |     pub(crate) fn resource_db_keys(&self) -> Vec<String> {
+    |                   ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `RESOURCE_KEY` is never used
+  --> src\daemon\query\mcp_image.rs:15:7
+   |
+15 | const RESOURCE_KEY: &str = "message/message_resource.db";
+   |       ^^^^^^^^^^^^
+
+warning: constant `MAX_INVENTORY_ENTRIES` is never used
+  --> src\daemon\query\mcp_image.rs:16:7
+   |
+16 | const MAX_INVENTORY_ENTRIES: usize = 20_000;
+   |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `q_decode_image` is never used
+  --> src\daemon\query\mcp_image.rs:19:14
+   |
+19 | pub async fn q_decode_image(
+   |              ^^^^^^^^^^^^^^
+
+warning: function `failure` is never used
+  --> src\daemon\query\mcp_image.rs:94:4
+   |
+94 | fn failure(code: i32, text: &str) -> Value {
+   |    ^^^^^^^
+
+warning: function `normalize` is never used
+  --> src\daemon\query\mcp_image.rs:98:4
+   |
+98 | fn normalize(key: &str) -> String {
+   |    ^^^^^^^^^
+
+warning: struct `SourceState` is never constructed
+   --> src\daemon\query\mcp_image.rs:102:8
+    |
+102 | struct SourceState {
+    |        ^^^^^^^^^^^
+
+warning: associated items `read` and `unchanged` are never used
+   --> src\daemon\query\mcp_image.rs:110:8
+    |
+109 | impl SourceState {
+    | ---------------- associated items in this implementation
+110 |     fn read(path: PathBuf) -> Result<Self> {
+    |        ^^^^
+...
+132 |     fn unchanged(&self, other: &Self) -> bool {
+    |        ^^^^^^^^^
+
+warning: struct `Inventory` is never constructed
+   --> src\daemon\query\mcp_image.rs:140:8
+    |
+140 | struct Inventory {
+    |        ^^^^^^^^^
+
+warning: associated items `capture` and `verify` are never used
+   --> src\daemon\query\mcp_image.rs:145:8
+    |
+144 | impl Inventory {
+    | -------------- associated items in this implementation
+145 |     fn capture(db_dir: &Path, message_keys: &[String], resource_key: &str) -> Result<Self> {
+    |        ^^^^^^^
+...
+202 |     fn verify(&self, db_dir: &Path, message_keys: &[String], resource_key: &str) -> Result<()> {
+    |        ^^^^^^
+
+warning: `wx-cli` (bin "wx") generated 10 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.98s
+执行退出码: 0

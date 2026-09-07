@@ -1,0 +1,26 @@
+flowchart TB
+    SERVICES[daemon/query：查询、名称解析及消息语义]
+    CACHE[daemon/cache：解密缓存和增量刷新]
+    CRYPTO[crypto：主文件解密及 WAL 处理]
+    CLI[cli：参数解析和命令分发]
+    NATIVE[toolkit：原生批处理]
+    DB[databases：数据库快照]
+    IMG[images：图片目录及命名规则]
+    AUDIO[audio：原生 SILK 解码]
+    VOICEBATCH[audio/batch：显式配置、媒体库、联系人及逐条转换]
+    FFMPEG[ffmpeg：MP3 编码及原子发布]
+    ASR[asr：显式音频或媒体清单、WAV 校验及转录回写]
+    LOCALASR[本地 whisper.cpp：模型显式提供、输出限额及 Job Object]
+    CLOUDASR[OpenAI 兼容端点：显式上传授权、HTTPS、禁止重定向和代理]
+    SERVICES --> CACHE
+    CACHE --> CRYPTO
+    CLI --> NATIVE
+    NATIVE --> DB
+    NATIVE --> IMG
+    NATIVE --> AUDIO
+    AUDIO --> VOICEBATCH
+    AUDIO --> FFMPEG
+    NATIVE --> ASR
+    ASR --> AUDIO
+    ASR --> LOCALASR
+    ASR --> CLOUDASR

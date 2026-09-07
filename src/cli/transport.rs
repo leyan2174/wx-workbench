@@ -1,292 +1,503 @@
-use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-
-use crate::config;
+//! 命名管道客户端与后台生命周期；每次操作固定一个账号运行上下文。
 use crate::ipc::{Request, Response};
+use crate::runtime::RuntimeContext;
+use anyhow::{bail, ensure, Context, Result};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-const STARTUP_TIMEOUT_SECS: u64 = 15;
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PidFile {
     pid: u32,
-    #[serde(default)]
-    exe: Option<PathBuf>,
+    exe: PathBuf,
+    created: u64,
+    runtime_id: String,
 }
 
-/// 检查 daemon 是否存活
 pub fn is_alive() -> bool {
-    ping_windows().unwrap_or(false)
+    RuntimeContext::load()
+        .ok()
+        .is_some_and(|runtime| ping(&runtime).unwrap_or(false))
 }
 
-/// 确保 daemon 运行，必要时自动启动
-pub fn ensure_daemon() -> Result<()> {
-    if is_alive() {
+pub(crate) fn ensure_running(runtime: &RuntimeContext) -> Result<()> {
+    if ping(runtime).unwrap_or(false) {
         return Ok(());
     }
-    eprintln!("启动 wx-daemon...");
-    start_daemon()?;
-    Ok(())
+    // 并发客户端串行确认并启动；持锁期间第二个客户端不能再次启动同一后台。
+    let deadline = Instant::now() + STARTUP_TIMEOUT;
+    let _lock = loop {
+        match runtime.lock("startup.lock") {
+            Ok(lock) => break lock,
+            Err(error) => {
+                if ping(runtime).unwrap_or(false) {
+                    return Ok(());
+                }
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    };
+    if ping(runtime).unwrap_or(false) {
+        return Ok(());
+    }
+    ensure!(
+        !recorded_process_alive(runtime)?,
+        "当前账号后台仍存活但未响应，未覆盖其身份记录；请先执行 daemon stop 或检查日志"
+    );
+    start_daemon(runtime)
 }
 
-/// 停止 daemon（如果正在运行）
-pub fn stop_daemon() -> Result<()> {
-    let pid_path = config::pid_path();
-    let pid_file = read_pid_file(&pid_path)?;
-    let daemon_alive = is_alive();
+fn recorded_process_alive(runtime: &RuntimeContext) -> Result<bool> {
+    let bytes = match std::fs::read(runtime.pid_path()) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let record: PidFile =
+        serde_json::from_slice(&bytes).context("后台身份记录损坏，未覆盖原记录")?;
+    ensure!(
+        record.runtime_id == runtime.id,
+        "后台身份记录不属于当前账号"
+    );
+    match process_handle(record.pid, false) {
+        Ok(handle) => active_process_matches(handle.0, &record),
+        Err(error) if missing_process(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
 
-    match pid_file {
-        Some(pid_file) => {
-            let belongs = pid_belongs_to_daemon(&pid_file)?;
-            if daemon_alive && !belongs {
+fn missing_process(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<windows::core::Error>()
+        .is_some_and(|error| {
+            error.code()
+                == windows::core::HRESULT::from_win32(
+                    windows::Win32::Foundation::ERROR_INVALID_PARAMETER.0,
+                )
+        })
+}
+
+fn process_active(handle: windows::Win32::Foundation::HANDLE) -> Result<bool> {
+    let mut code = 0;
+    unsafe {
+        windows::Win32::System::Threading::GetExitCodeProcess(handle, &mut code)?;
+    }
+    Ok(code == 259) // Windows STILL_ACTIVE；本程序不使用该退出码。
+}
+
+fn start_daemon(runtime: &RuntimeContext) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe()?.canonicalize()?;
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(runtime.log_path())?;
+    eprintln!("启动当前账号 wx-daemon...");
+    let mut child = Command::new(&exe)
+        .env("WX_DAEMON_MODE", "1")
+        .env("WX_CLI_CONFIG", &runtime.config_path)
+        .env("WX_CLI_HOME", &runtime.root)
+        .env("WX_CLI_EXPECTED_RUNTIME", &runtime.id)
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .creation_flags(0x08000008) // 隐藏窗口并脱离控制台。
+        .spawn()
+        .context("无法启动后台进程")?;
+    let result = (|| -> Result<()> {
+        let handle = process_handle(child.id(), false)?;
+        let record = PidFile {
+            pid: child.id(),
+            exe,
+            created: process_created(handle.0)?,
+            runtime_id: runtime.id.clone(),
+        };
+        std::fs::write(runtime.pid_path(), serde_json::to_vec(&record)?)?;
+        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        while Instant::now() < deadline {
+            if let Some(status) = child.try_wait()? {
                 bail!(
-                    "daemon 正在运行，但 {} 指向的 PID {} 无法确认属于当前 wx-daemon",
-                    pid_path.display(),
-                    pid_file.pid
+                    "后台提前退出：{status}，日志：{}",
+                    runtime.log_path().display()
                 );
             }
-            if belongs {
-                terminate_pid(pid_file.pid)?;
+            if ping(runtime).unwrap_or(false) {
+                return Ok(());
             }
+            std::thread::sleep(Duration::from_millis(100));
         }
-        None if daemon_alive => {
-            bail!(
-                "daemon 正在运行，但 {} 缺失或损坏，无法安全停止",
-                pid_path.display()
+        bail!("后台启动超时，日志：{}", runtime.log_path().display())
+    })();
+    if result.is_err() {
+        // 只终止本次创建且仍持有句柄的子进程，不凭一个可能复用的 PID 清理。
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_file(runtime.pid_path());
+    }
+    result
+}
+
+pub fn stop_daemon() -> Result<()> {
+    stop_runtime(&RuntimeContext::load()?)
+}
+
+pub(crate) fn stop_runtime(runtime: &RuntimeContext) -> Result<()> {
+    let _lock = runtime.lock("startup.lock")?;
+    let path = runtime.pid_path();
+    let text = match std::fs::read(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            ensure!(
+                !ping(runtime).unwrap_or(false),
+                "后台正在运行但缺少身份记录，拒绝盲目停止"
             );
-        }
-        None => {}
-    }
-
-    cleanup_ipc_files();
-    Ok(())
-}
-
-/// Check the runtime directory before starting the daemon.
-fn preflight_cli_dir_writable() -> Result<()> {
-    let cli_dir = config::cli_dir();
-    std::fs::create_dir_all(&cli_dir)
-        .with_context(|| format!("创建 {} 失败", cli_dir.display()))?;
-
-    let probe = cli_dir.join(".daemon_probe");
-    match std::fs::File::create(&probe) {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&probe);
-            Ok(())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-            let dir = cli_dir.display();
-            bail!("无法写入 {dir}: {e}");
-        }
-        Err(e) => bail!("无法写入 {}: {}", cli_dir.display(), e),
-    }
-}
-
-/// 启动 daemon 进程（自身二进制，设置 WX_DAEMON_MODE=1）
-fn start_daemon() -> Result<()> {
-    let exe = std::env::current_exe().context("无法获取当前可执行文件路径")?;
-    let child_pid: u32;
-
-    // 预检：当前用户是否能写 ~/.wx-cli/。如果不能，给出可操作的错误信息，
-    // 而不是 spawn 一个注定失败的 daemon 然后超时 15s。
-    preflight_cli_dir_writable()?;
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let log_path = config::log_path();
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let (stdout_stdio, stderr_stdio) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .and_then(|f| f.try_clone().map(|g| (f, g)))
-            .map(|(f, g)| (std::process::Stdio::from(f), std::process::Stdio::from(g)))
-            .unwrap_or_else(|_| (std::process::Stdio::null(), std::process::Stdio::null()));
-        let child = std::process::Command::new(&exe)
-            .env("WX_DAEMON_MODE", "1")
-            .stdin(std::process::Stdio::null())
-            .stdout(stdout_stdio)
-            .stderr(stderr_stdio)
-            .creation_flags(0x00000008) // DETACHED_PROCESS
-            .spawn()
-            .context("无法启动 daemon 进程")?;
-        child_pid = child.id();
-    }
-
-    // 等待 daemon 就绪（最多 STARTUP_TIMEOUT_SECS 秒）
-    let deadline = std::time::Instant::now() + Duration::from_secs(STARTUP_TIMEOUT_SECS);
-    while std::time::Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(300));
-        if is_alive() {
-            write_pid_file(child_pid, &exe)?;
             return Ok(());
         }
-    }
-
-    bail!(
-        "wx-daemon 启动超时（>{}s）\n请查看日志: {}",
-        STARTUP_TIMEOUT_SECS,
-        config::log_path().display()
-    )
-}
-
-fn write_pid_file(pid: u32, exe: &Path) -> Result<()> {
-    if let Some(parent) = config::pid_path().parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("创建 {} 失败", parent.display()))?;
-    }
-    let pid_file = PidFile {
-        pid,
-        exe: Some(exe.to_path_buf()),
+        Err(e) => return Err(e.into()),
     };
-    let content = serde_json::to_string(&pid_file)?;
-    std::fs::write(config::pid_path(), content)
-        .with_context(|| format!("写入 {} 失败", config::pid_path().display()))?;
+    let record: PidFile =
+        serde_json::from_slice(&text).context("后台身份记录损坏，拒绝盲目停止")?;
+    ensure!(
+        record.runtime_id == runtime.id,
+        "后台身份记录不属于当前账号"
+    );
+    match process_handle(record.pid, true) {
+        Ok(handle) => {
+            if active_process_matches(handle.0, &record)? {
+                use windows::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+                // New daemons own task workers. Give them time to cancel and reap before fallback.
+                let graceful = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                    .and_then(|rt| rt.block_on(crate::service::client::request(
+                        runtime, crate::service::protocol::Call::Shutdown {},
+                    )).map(|_| ()).map_err(std::io::Error::other));
+                unsafe {
+                    if graceful.is_err() || WaitForSingleObject(handle.0, 15000).0 != 0 {
+                        TerminateProcess(handle.0, 0)?;
+                    }
+                    ensure!(
+                        WaitForSingleObject(handle.0, 5000).0 == 0,
+                        "等待后台退出超时"
+                    );
+                }
+            } else {
+                ensure!(
+                    !ping(runtime).unwrap_or(false),
+                    "PID 已复用或身份不符，拒绝停止"
+                );
+            }
+        }
+        Err(e) => {
+            // 仅在操作系统明确报告 PID 无效时当作陈旧记录；权限不足不能视为进程已退出。
+            if !missing_process(&e) {
+                return Err(e);
+            }
+        }
+    }
+    std::fs::remove_file(path)?;
     Ok(())
 }
 
-fn read_pid_file(path: &Path) -> Result<Option<PidFile>> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err).with_context(|| format!("读取 {} 失败", path.display())),
-    };
-    if let Ok(pid_file) = serde_json::from_str::<PidFile>(&content) {
-        return Ok(Some(pid_file));
+struct ProcessHandle(windows::Win32::Foundation::HANDLE);
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
     }
-    if let Ok(pid) = content.trim().parse::<u32>() {
-        return Ok(Some(PidFile {
-            pid,
-            exe: std::env::current_exe().ok(),
-        }));
-    }
-    bail!("{} 不是合法的 PID 文件", path.display())
 }
 
-fn cleanup_ipc_files() {
-    let _ = std::fs::remove_file(config::pid_path());
-}
-
-#[cfg(windows)]
-fn ping_windows() -> Result<bool> {
-    use interprocess::local_socket::{prelude::*, GenericNamespaced, Stream};
-
-    let name = "wx-cli-daemon".to_ns_name::<GenericNamespaced>()?;
-    let stream = Stream::connect(name)?;
-    let mut reader = BufReader::new(stream);
-
-    let req = serde_json::to_string(&Request::Ping)? + "\n";
-    reader.get_mut().write_all(req.as_bytes())?;
-
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
-
-    let resp: Response = serde_json::from_str(&line)?;
-    Ok(resp.ok && resp.data.get("pong").and_then(|p| p.as_bool()) == Some(true))
-}
-
-fn pid_belongs_to_daemon(pid_file: &PidFile) -> Result<bool> {
-    let expected_exe = pid_file
-        .exe
-        .clone()
-        .or_else(|| std::env::current_exe().ok());
-    windows_pid_matches_daemon(pid_file.pid, expected_exe.as_deref())
-}
-
-#[cfg(windows)]
-fn windows_pid_matches_daemon(pid: u32, expected_exe: Option<&Path>) -> Result<bool> {
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::CloseHandle;
+fn process_handle(pid: u32, terminate: bool) -> Result<ProcessHandle> {
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
+    let mut rights = PROCESS_QUERY_LIMITED_INFORMATION;
+    if terminate {
+        rights |= PROCESS_TERMINATE | PROCESS_SYNCHRONIZE;
+    }
+    Ok(ProcessHandle(unsafe { OpenProcess(rights, false, pid)? }))
+}
 
-    let Some(expected_exe) = expected_exe else {
+fn process_created(handle: windows::Win32::Foundation::HANDLE) -> Result<u64> {
+    use windows::Win32::Foundation::FILETIME;
+    let mut created = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    unsafe {
+        windows::Win32::System::Threading::GetProcessTimes(
+            handle,
+            &mut created,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )?;
+    }
+    Ok(((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64)
+}
+
+fn process_matches(handle: windows::Win32::Foundation::HANDLE, record: &PidFile) -> Result<bool> {
+    use windows::core::PWSTR;
+    use windows::Win32::System::Threading::{QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
+    if process_created(handle)? != record.created {
         return Ok(false);
-    };
-    let handle = match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
-        Ok(handle) => handle,
-        Err(_) => return Ok(false),
-    };
-
-    let mut buf = vec![0u16; 260];
-    let mut len = buf.len() as u32;
-    let actual = unsafe {
-        let result = QueryFullProcessImageNameW(
+    }
+    let mut name = vec![0u16; 32768];
+    let mut len = name.len() as u32;
+    unsafe {
+        QueryFullProcessImageNameW(
             handle,
             PROCESS_NAME_FORMAT(0),
-            PWSTR(buf.as_mut_ptr()),
+            PWSTR(name.as_mut_ptr()),
             &mut len,
-        );
-        let _ = CloseHandle(handle);
-        result
-    };
-    if actual.is_err() {
+        )?;
+    }
+    let actual = PathBuf::from(String::from_utf16_lossy(&name[..len as usize]));
+    Ok(normalized_exe(&actual) == normalized_exe(&record.exe))
+}
+
+fn active_process_matches(
+    handle: windows::Win32::Foundation::HANDLE,
+    record: &PidFile,
+) -> Result<bool> {
+    // 已退出进程的内核对象仍可能被其他句柄保留，查询映像路径不一定可用。
+    if !process_active(handle)? {
         return Ok(false);
     }
-
-    let actual_path = PathBuf::from(String::from_utf16_lossy(&buf[..len as usize]));
-    Ok(normalize_exe_path(&actual_path) == normalize_exe_path(expected_exe))
-}
-
-#[cfg(windows)]
-fn normalize_exe_path(path: &Path) -> String {
-    path.to_string_lossy()
-        .replace('\\', "/")
-        .to_ascii_lowercase()
-}
-
-fn terminate_pid(pid: u32) -> Result<()> {
-    terminate_pid_windows(pid)
-}
-
-#[cfg(windows)]
-fn terminate_pid_windows(pid: u32) -> Result<()> {
-    let status = std::process::Command::new("taskkill")
-        .args(["/F", "/PID", &pid.to_string()])
-        .status()
-        .with_context(|| format!("执行 taskkill /PID {} 失败", pid))?;
-    if !status.success() {
-        bail!("停止 PID {} 失败: taskkill exit {:?}", pid, status.code());
+    match process_matches(handle, record) {
+        Ok(matches) => Ok(matches && process_active(handle)?),
+        Err(error) => {
+            // 身份查询期间也可能退出；仅凭同一句柄的退出状态解除陈旧记录。
+            if process_active(handle)? {
+                Err(error)
+            } else {
+                Ok(false)
+            }
+        }
     }
-    Ok(())
 }
 
-/// 向 daemon 发送请求并返回响应
+fn normalized_exe(path: &Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.into())
+        .to_string_lossy()
+        .to_lowercase()
+}
+
+fn ping(runtime: &RuntimeContext) -> Result<bool> {
+    // 健康检查只接受小型 Pong，不能绕过 MCP 等调用方的查询响应限额。
+    let response =
+        request_with_options(runtime, Request::Ping, Duration::from_secs(1), Some(1024))?;
+    Ok(response.data.get("pong").and_then(|v| v.as_bool()) == Some(true))
+}
+
 pub fn send(req: Request) -> Result<Response> {
-    ensure_daemon()?;
-
-    send_windows(req)
+    let runtime = RuntimeContext::load()?;
+    send_for(&runtime, req)
 }
 
-#[cfg(windows)]
-fn send_windows(req: Request) -> Result<Response> {
-    use interprocess::local_socket::{prelude::*, GenericNamespaced, Stream};
+/// 同一批次固定账号身份；配置切换不能将后续请求发往另一条账号管道。
+pub(super) fn send_for(runtime: &RuntimeContext, req: Request) -> Result<Response> {
+    ensure_running(runtime)?;
+    request(runtime, req)
+}
 
-    let name = "wx-cli-daemon"
-        .to_ns_name::<GenericNamespaced>()
-        .context("构造 pipe name 失败")?;
-    let stream = Stream::connect(name).context("连接 daemon named pipe 失败")?;
+/// MCP 使用已经固定的账号上下文，并在分配完整响应前执行大小限制。
+pub(super) fn send_with_limits(
+    runtime: &RuntimeContext,
+    req: Request,
+    timeout: Duration,
+    max_response_bytes: usize,
+) -> Result<Response> {
+    ensure!(
+        max_response_bytes > 0 && max_response_bytes < usize::MAX,
+        "后台响应限额无效"
+    );
+    ensure!(!timeout.is_zero(), "后台请求超时");
+    let started = Instant::now();
+    ensure_running(runtime)?;
+    let remaining = timeout.saturating_sub(started.elapsed());
+    ensure!(!remaining.is_zero(), "后台启动后请求已超时");
+    request_with_options(runtime, req, remaining, Some(max_response_bytes))
+}
 
-    // interprocess::Stream 同时实现 Read + Write，但需要拆分读写端
-    let mut reader = BufReader::new(stream);
+fn request(runtime: &RuntimeContext, req: Request) -> Result<Response> {
+    let seconds: u64 = std::env::var("WX_CLI_REQUEST_TIMEOUT_SECS")
+        .map(|value| {
+            value
+                .parse()
+                .context("WX_CLI_REQUEST_TIMEOUT_SECS 必须是正整数")
+        })
+        .unwrap_or(Ok(300))?;
+    ensure!(seconds > 0, "WX_CLI_REQUEST_TIMEOUT_SECS 必须大于零");
+    request_with_timeout(runtime, req, Duration::from_secs(seconds))
+}
 
-    let req_str = serde_json::to_string(&req)? + "\n";
-    reader.get_mut().write_all(req_str.as_bytes())?;
+fn request_with_timeout(
+    runtime: &RuntimeContext,
+    req: Request,
+    timeout: Duration,
+) -> Result<Response> {
+    request_with_options(runtime, req, timeout, None)
+}
 
+fn request_with_options(
+    runtime: &RuntimeContext,
+    req: Request,
+    timeout: Duration,
+    max_response_bytes: Option<usize>,
+) -> Result<Response> {
+    use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
+    use tokio::io::{AsyncWriteExt, BufReader};
+    // 异步 I/O 可在连接、写入和读取任一阶段取消，不留下占用管道的工作线程。
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            tokio::time::timeout(timeout, async {
+                let pipe = runtime.pipe_name();
+                let name = pipe.to_ns_name::<GenericNamespaced>()?;
+                let stream = interprocess::local_socket::tokio::Stream::connect(name)
+                    .await
+                    .context("连接当前账号的后台失败")?;
+                let mut reader = BufReader::new(stream);
+                reader
+                    .get_mut()
+                    .write_all((serde_json::to_string(&req)? + "\n").as_bytes())
+                    .await?;
+                read_response(reader, max_response_bytes).await
+            })
+            .await
+            .context("后台请求超时；可通过 WX_CLI_REQUEST_TIMEOUT_SECS 调整查询期限")?
+        })
+}
+
+async fn read_response<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: R,
+    max_response_bytes: Option<usize>,
+) -> Result<Response> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+    let limit = max_response_bytes
+        .map(|max| max.checked_add(1).context("后台响应限额溢出"))
+        .transpose()?
+        .map(|max| max as u64)
+        .unwrap_or(u64::MAX);
+    let mut reader = reader.take(limit);
     let mut line = String::new();
-    reader.read_line(&mut line)?;
+    reader.read_line(&mut line).await?;
+    if let Some(max) = max_response_bytes {
+        ensure!(line.len() <= max, "后台响应超过大小限制");
+    }
+    let response: Response = serde_json::from_str(&line).context("解析后台响应失败")?;
+    ensure!(
+        response.ok,
+        "{}",
+        response.error.as_deref().unwrap_or("后台请求失败")
+    );
+    Ok(response)
+}
 
-    let resp: Response = serde_json::from_str(&line).context("解析 daemon 响应失败")?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    if !resp.ok {
-        bail!("{}", resp.error.as_deref().unwrap_or("未知错误"));
+    #[tokio::test]
+    async fn bounded_response_checks_limit_before_json_parse() {
+        let reply = b"{\"ok\":true,\"pong\":true}\n";
+        assert_eq!(
+            read_response(&reply[..], Some(reply.len()))
+                .await
+                .unwrap()
+                .data["pong"],
+            true
+        );
+        assert!(read_response(&reply[..], Some(reply.len() - 1))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("大小限制"));
+        let oversized = vec![b'x'; 1025];
+        assert!(read_response(&oversized[..], Some(1024))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("大小限制"));
+        assert!(read_response(&b"not-json\n"[..], Some(1024))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("解析"));
+        assert_eq!(
+            read_response(&reply[..], None).await.unwrap().data["pong"],
+            true
+        );
     }
 
-    Ok(resp)
+    #[test]
+    fn process_birth_time_prevents_pid_reuse_confusion() {
+        let handle = process_handle(std::process::id(), false).unwrap();
+        let mut record = PidFile {
+            pid: std::process::id(),
+            exe: std::env::current_exe().unwrap(),
+            created: process_created(handle.0).unwrap(),
+            runtime_id: "test".into(),
+        };
+        assert!(process_matches(handle.0, &record).unwrap());
+        record.created += 1;
+        assert!(!process_matches(handle.0, &record).unwrap());
+    }
+
+    #[test]
+    fn connected_but_silent_server_times_out_without_leaking_reader() {
+        let runtime = RuntimeContext {
+            config: crate::config::Config {
+                db_dir: PathBuf::new(),
+                keys_file: PathBuf::new(),
+                decrypted_dir: PathBuf::new(),
+                wechat_process: String::new(),
+            },
+            config_path: PathBuf::new(),
+            root: PathBuf::new(),
+            directory: PathBuf::new(),
+            id: format!(
+                "timeout-test-{}-{}",
+                std::process::id(),
+                chrono::Utc::now().timestamp_nanos_opt().unwrap()
+            ),
+        };
+        let pipe = runtime.pipe_name();
+        let (ready, wait) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            use interprocess::local_socket::{
+                tokio::prelude::*, GenericNamespaced, ListenerOptions,
+            };
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let listener = ListenerOptions::new()
+                        .name(pipe.to_ns_name::<GenericNamespaced>().unwrap())
+                        .create_tokio()
+                        .unwrap();
+                    ready.send(()).unwrap();
+                    if let Ok(Ok(_stream)) =
+                        tokio::time::timeout(Duration::from_secs(2), listener.accept()).await
+                    {
+                        // 接受连接但不返回消息，模拟后台卡在查询中的情况。
+                        tokio::time::sleep(Duration::from_millis(300)).await;
+                    }
+                });
+        });
+        wait.recv_timeout(Duration::from_secs(2)).unwrap();
+        let start = Instant::now();
+        let result = request_with_timeout(&runtime, Request::Ping, Duration::from_millis(50));
+        let elapsed = start.elapsed();
+        server.join().unwrap();
+        assert!(result.unwrap_err().to_string().contains("超时"));
+        assert!(elapsed < Duration::from_secs(1));
+    }
 }

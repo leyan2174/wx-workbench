@@ -1,0 +1,32 @@
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\src\wx-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.87s
+     Running tests\delta_plan_security.rs (target\debug\deps\delta_plan_security-03a6c94cb939915f.exe)
+
+running 1 test
+COMMAND: cmd.exe /d /c mklink /J "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpC19qG8\\junction" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpC19qG8"
+STDOUT:
+Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpC19qG8\junction <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpC19qG8
+
+STDERR:
+
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" ["toolkit", "chat-plan-native", "--decrypted-dir", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpC19qG8\\junction\\cache", "--message-db", "messages.db", "--user", "alpha", "--output", "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpC19qG8\\plan.csv"]
+STDOUT:
+已写入计划 CSV：C:\Users\leyan\AppData\Local\Temp\.tmpC19qG8\plan.csv（1 个聊天）
+
+STDERR:
+
+
+thread 'plan_rejects_junction_ancestors_of_decrypted_source' (22768) panicked at tests\delta_plan_security.rs:164:5:
+意外成功: 已写入计划 CSV：C:\Users\leyan\AppData\Local\Temp\.tmpC19qG8\plan.csv（1 个聊天）
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test plan_rejects_junction_ancestors_of_decrypted_source ... FAILED
+
+failures:
+
+failures:
+    plan_rejects_junction_ancestors_of_decrypted_source
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.35s
+
+error: test failed, to rerun pass `--test delta_plan_security`

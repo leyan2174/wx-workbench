@@ -1,0 +1,16 @@
+[package]
+name = "contact-rows-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde_json = "=1.0.140"
+tempfile = "3"

@@ -10,11 +10,24 @@ pub fn cmd_history(
     since: Option<String>,
     until: Option<String>,
     msg_type: Option<String>,
+    msg_types: Vec<String>,
+    oldest_first: bool,
     opts: OutputOpts,
 ) -> Result<()> {
     let since_ts = since.as_deref().map(parse_time).transpose()?;
     let until_ts = until.as_deref().map(parse_time_end).transpose()?;
     let type_val = msg_type.as_deref().and_then(parse_msg_type);
+    anyhow::ensure!(
+        msg_type.is_none() || msg_types.is_empty(),
+        "不能同时指定 --type 和 --types"
+    );
+    let mut types = Vec::new();
+    for name in msg_types {
+        let value = parse_msg_type(&name).ok_or_else(|| anyhow::anyhow!("未知消息类型: {name}"))?;
+        if !types.contains(&value) {
+            types.push(value);
+        }
+    }
     let (with_meta, debug_source) = opts.request_flags();
 
     let req = Request::History {
@@ -24,6 +37,8 @@ pub fn cmd_history(
         since: since_ts,
         until: until_ts,
         msg_type: type_val,
+        msg_types: (!types.is_empty()).then_some(types),
+        oldest_first,
         with_meta,
         debug_source,
     };

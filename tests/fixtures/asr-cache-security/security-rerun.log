@@ -1,0 +1,468 @@
+     Locking 171 packages to latest compatible versions
+      Adding ahash v0.8.12
+      Adding aho-corasick v1.1.5
+      Adding android_system_properties v0.1.6
+      Adding arrayvec v0.7.8
+      Adding atomic-waker v1.1.2
+      Adding autocfg v1.5.1
+      Adding base64 v0.22.1
+      Adding bindgen v0.72.1
+      Adding bumpalo v3.20.3
+      Adding bytes v1.12.1
+      Adding cc v1.4.5
+      Adding cexpr v0.6.0
+      Adding cfg_aliases v0.2.2
+      Adding chacha20 v0.10.2
+      Adding chrono v0.4.45
+      Adding clang-sys v1.9.1
+      Adding core-foundation-sys v0.8.7
+      Adding cpufeatures v0.3.1
+      Adding displaydoc v0.2.7
+      Adding downcast-rs v2.0.2
+      Adding either v1.18.0
+      Adding equivalent v1.0.2
+      Adding fallible-iterator v0.3.0
+      Adding fallible-streaming-iterator v0.1.9
+      Adding find-msvc-tools v0.1.12
+      Adding foldhash v0.1.5
+      Adding form_urlencoded v1.2.2
+      Adding futures-channel v0.3.34
+      Adding futures-core v0.3.34
+      Adding futures-io v0.3.34
+      Adding futures-sink v0.3.34
+      Adding futures-task v0.3.34
+      Adding futures-util v0.3.34
+      Adding getrandom v0.2.17
+      Adding glob v0.3.4
+      Adding hashbrown v0.14.5
+      Adding hashbrown v0.15.5
+      Adding hashbrown v0.17.1
+      Adding hashlink v0.9.1
+      Adding http v1.5.0
+      Adding http-body v1.1.0
+      Adding http-body-util v0.1.5
+      Adding httparse v1.10.1
+      Adding hyper v1.11.1
+      Adding hyper-rustls v0.27.9
+      Adding hyper-util v0.1.20
+      Adding iana-time-zone v0.1.65
+      Adding iana-time-zone-haiku v0.1.2
+      Adding icu_collections v2.3.0
+      Adding icu_locale_core v2.3.0
+      Adding icu_normalizer v2.3.0
+      Adding icu_normalizer_data v2.3.0
+      Adding icu_properties v2.3.0
+      Adding icu_properties_data v2.3.0
+      Adding icu_provider v2.3.1
+      Adding idna v1.1.0
+      Adding idna_adapter v1.2.2
+      Adding indexmap v2.14.2
+      Adding ipnet v2.12.2
+      Adding itertools v0.13.0
+      Adding js-sys v0.3.105
+      Adding libloading v0.8.9
+      Adding libm v0.2.16
+      Adding libsqlite3-sys v0.28.0
+      Adding litemap v0.8.3
+      Adding log v0.4.34
+      Adding lru-slab v0.1.2
+      Adding md5 v0.7.0
+      Adding mime v0.3.17
+      Adding mime_guess v2.0.5
+      Adding minimal-lexical v0.2.1
+      Adding mio v1.2.3
+      Adding multi-stash v0.2.0
+      Adding nom v7.1.3
+      Adding num-traits v0.2.19
+      Adding percent-encoding v2.3.2
+      Adding pin-project-lite v0.2.17
+      Adding pkg-config v0.3.34
+      Adding potential_utf v0.1.6
+      Adding prettyplease v0.2.37
+      Adding quinn v0.11.11
+      Adding quinn-proto v0.11.17
+      Adding quinn-udp v0.5.15
+      Adding rand v0.10.2
+      Adding rand_core v0.10.1
+      Adding rand_pcg v0.10.2
+      Adding regex v1.13.1
+      Adding regex-automata v0.4.18
+      Adding regex-syntax v0.8.11
+      Adding reqwest v0.12.28
+      Adding ring v0.17.14
+      Adding rusqlite v0.31.0
+      Adding rustc-hash v2.1.3
+      Adding rustls v0.23.43
+      Adding rustls-pki-types v1.15.1
+      Adding rustls-webpki v0.103.15
+      Adding rustversion v1.0.23
+      Adding serde_urlencoded v0.7.1
+      Adding shlex v1.3.0
+      Adding shlex v2.0.1
+      Adding silk-codec v0.3.1
+      Adding slab v0.4.12
+      Adding smallvec v1.16.0
+      Adding socket2 v0.6.5
+      Adding spin v0.9.9
+      Adding stable_deref_trait v1.2.1
+      Adding string-interner v0.19.0
+      Adding subtle v2.6.1
+      Adding syn v2.0.119
+      Adding sync_wrapper v1.0.2
+      Adding synstructure v0.13.2
+      Adding thiserror v2.0.20
+      Adding thiserror-impl v2.0.20
+      Adding tinystr v0.8.4
+      Adding tinyvec v1.13.2
+      Adding tinyvec_macros v0.1.1
+      Adding tokio v1.53.1
+      Adding tokio-rustls v0.26.5
+      Adding tower v0.5.3
+      Adding tower-http v0.6.11
+      Adding tower-layer v0.3.3
+      Adding tower-service v0.3.3
+      Adding tracing v0.1.44
+      Adding tracing-core v0.1.36
+      Adding try-lock v0.2.5
+      Adding unicase v2.9.0
+      Adding untrusted v0.9.0
+      Adding url v2.5.8
+      Adding utf8_iter v1.0.4
+      Adding vcpkg v0.2.15
+      Adding want v0.3.1
+      Adding wasi v0.11.1+wasi-snapshot-preview1
+      Adding wasm-bindgen v0.2.128
+      Adding wasm-bindgen-futures v0.4.78
+      Adding wasm-bindgen-macro v0.2.128
+      Adding wasm-bindgen-macro-support v0.2.128
+      Adding wasm-bindgen-shared v0.2.128
+      Adding wasmi v0.46.0
+      Adding wasmi_collections v0.46.0
+      Adding wasmi_core v0.46.0
+      Adding wasmi_ir v0.46.0
+      Adding wasmparser v0.228.0
+      Adding web-sys v0.3.105
+      Adding web-time v1.1.0
+      Adding webpki-roots v1.0.9
+      Adding windows-core v0.62.2
+      Adding windows-implement v0.60.2
+      Adding windows-interface v0.59.3
+      Adding windows-result v0.4.1
+      Adding windows-strings v0.5.1
+      Adding windows-sys v0.52.0
+      Adding windows-targets v0.52.6
+      Adding windows_aarch64_gnullvm v0.52.6
+      Adding windows_aarch64_msvc v0.52.6
+      Adding windows_i686_gnu v0.52.6
+      Adding windows_i686_gnullvm v0.52.6
+      Adding windows_i686_msvc v0.52.6
+      Adding windows_x86_64_gnu v0.52.6
+      Adding windows_x86_64_gnullvm v0.52.6
+      Adding windows_x86_64_msvc v0.52.6
+      Adding writeable v0.6.4
+      Adding yoke v0.8.3
+      Adding yoke-derive v0.8.2
+      Adding zerocopy v0.8.56
+      Adding zerocopy-derive v0.8.56
+      Adding zerofrom v0.1.8
+      Adding zerofrom-derive v0.1.7
+      Adding zeroize v1.9.0
+      Adding zerotrie v0.2.5
+      Adding zerovec v0.11.8
+      Adding zerovec-derive v0.11.6
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling find-msvc-tools v0.1.12
+   Compiling shlex v2.0.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling once_cell v1.21.4
+   Compiling smallvec v1.16.0
+   Compiling bytes v1.12.1
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling litemap v0.8.3
+   Compiling bitflags v2.13.1
+   Compiling writeable v0.6.4
+   Compiling icu_properties_data v2.3.0
+   Compiling glob v0.3.4
+   Compiling futures-sink v0.3.34
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling libc v0.2.189
+   Compiling windows-sys v0.61.2
+   Compiling prettyplease v0.2.37
+   Compiling memchr v2.8.3
+   Compiling percent-encoding v2.3.2
+   Compiling zeroize v1.9.0
+   Compiling getrandom v0.2.17
+   Compiling slab v0.4.12
+   Compiling regex-syntax v0.8.11
+   Compiling httparse v1.10.1
+   Compiling futures-io v0.3.34
+   Compiling futures-task v0.3.34
+   Compiling rustls-pki-types v1.15.1
+   Compiling zerocopy v0.8.56
+   Compiling untrusted v0.9.0
+   Compiling minimal-lexical v0.2.1
+   Compiling ahash v0.8.12
+   Compiling libloading v0.8.9
+   Compiling log v0.4.34
+   Compiling cc v1.4.5
+   Compiling rustls v0.23.43
+   Compiling tower-service v0.3.3
+   Compiling clang-sys v1.9.1
+   Compiling http v1.5.0
+   Compiling nom v7.1.3
+   Compiling futures-util v0.3.34
+   Compiling libm v0.2.16
+   Compiling bindgen v0.72.1
+   Compiling either v1.18.0
+   Compiling try-lock v0.2.5
+   Compiling form_urlencoded v1.2.2
+   Compiling tracing-core v0.1.36
+   Compiling futures-channel v0.3.34
+   Compiling pkg-config v0.3.34
+   Compiling rustc-hash v2.1.3
+   Compiling subtle v2.6.1
+   Compiling regex-automata v0.4.18
+   Compiling want v0.3.1
+   Compiling itertools v0.13.0
+   Compiling autocfg v1.5.1
+   Compiling http-body v1.1.0
+   Compiling vcpkg v0.2.15
+   Compiling atomic-waker v1.1.2
+   Compiling shlex v1.3.0
+   Compiling unicase v2.9.0
+   Compiling sync_wrapper v1.0.2
+   Compiling tracing v0.1.44
+   Compiling base64 v0.22.1
+   Compiling thiserror v2.0.20
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling downcast-rs v2.0.2
+   Compiling wasmparser v0.228.0
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling mime_guess v2.0.5
+   Compiling ipnet v2.12.2
+   Compiling tower-layer v0.3.3
+   Compiling num-traits v0.2.19
+   Compiling webpki-roots v1.0.9
+   Compiling ring v0.17.14
+   Compiling mime v0.3.17
+   Compiling winapi-util v0.1.11
+   Compiling http-body-util v0.1.5
+   Compiling wasmi_collections v0.46.0
+   Compiling spin v0.9.9
+   Compiling tokio v1.53.1
+   Compiling cexpr v0.6.0
+   Compiling arrayvec v0.7.8
+   Compiling wasmi_core v0.46.0
+   Compiling fallible-iterator v0.3.0
+   Compiling multi-stash v0.2.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling tempfile v3.27.0
+   Compiling same-file v1.0.6
+   Compiling libsqlite3-sys v0.28.0
+   Compiling md5 v0.7.0
+   Compiling regex v1.13.1
+   Compiling wasmi_ir v0.46.0
+   Compiling chrono v0.4.45
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling hashbrown v0.14.5
+   Compiling synstructure v0.13.2
+   Compiling hashlink v0.9.1
+   Compiling rusqlite v0.31.0
+   Compiling hyper v1.11.1
+   Compiling tower v0.5.3
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling rustls-webpki v0.103.15
+   Compiling serde v1.0.229
+   Compiling hyper-util v0.1.20
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling serde_json v1.0.140
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling wasmi v0.46.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling tokio-rustls v0.26.5
+   Compiling hyper-rustls v0.27.9
+   Compiling url v2.5.8
+   Compiling silk-codec v0.3.1
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+error[E0432]: unresolved import `crate::cli`
+ --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:4:12
+  |
+4 | use crate::cli::asr as cli;
+  |            ^^^ could not find `cli` in the crate root
+
+error[E0432]: unresolved import `clap`
+ --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:2:5
+  |
+2 | use clap::Parser;
+  |     ^^^^ use of unresolved module or unlinked crate `clap`
+  |
+  = help: if you wanted to use a crate named `clap`, use `cargo add clap` to add it to your `Cargo.toml`
+
+error[E0432]: unresolved import `clap`
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:20:9
+   |
+20 |     use clap::CommandFactory;
+   |         ^^^^ use of unresolved module or unlinked crate `clap`
+   |
+   = help: if you wanted to use a crate named `clap`, use `cargo add clap` to add it to your `Cargo.toml`
+
+error: cannot find attribute `command` in this scope
+ --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:8:7
+  |
+8 |     #[command(flatten)]
+  |       ^^^^^^^
+
+error: cannot find attribute `command` in this scope
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:14:7
+   |
+14 |     #[command(flatten)]
+   |       ^^^^^^^
+
+error[E0433]: cannot find `openai` in `super`
+  --> ..\..\..\src\toolkit\asr\cached_tests.rs:26:30
+   |
+26 |     let client=super::super::openai::OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+   |                              ^^^^^^ unresolved import
+   |
+help: a similar path exists
+   |
+26 |     let client=super::super::crate::asr::openai::OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+   |                              ++++++++++++
+help: consider importing this struct
+   |
+ 1 + use crate::asr::openai::OpenAiTranscriber;
+   |
+help: if you import `OpenAiTranscriber`, refer to it directly
+   |
+26 -     let client=super::super::openai::OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+26 +     let client=OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+   |
+
+error[E0433]: cannot find `openai` in `super`
+  --> ..\..\..\src\toolkit\asr\cached_tests.rs:26:75
+   |
+26 |     let client=super::super::openai::OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+   |                                                                           ^^^^^^ unresolved import
+   |
+help: a similar path exists
+   |
+26 |     let client=super::super::openai::OpenAiTranscriber::new(super::super::crate::asr::openai::OpenAiConfig {
+   |                                                                           ++++++++++++
+help: consider importing this module
+   |
+ 1 + use crate::asr::openai;
+   |
+help: if you import `openai`, refer to it directly
+   |
+26 -     let client=super::super::openai::OpenAiTranscriber::new(super::super::openai::OpenAiConfig {
+26 +     let client=super::super::openai::OpenAiTranscriber::new(openai::OpenAiConfig {
+   |
+
+error[E0433]: cannot find `openai` in `super`
+  --> ..\..\..\src\toolkit\asr\cached_tests.rs:29:39
+   |
+29 |         max_audio_bytes:super::super::openai::OPENAI_AUDIO_LIMIT_BYTES,
+   |                                       ^^^^^^ unresolved import
+   |
+help: a similar path exists
+   |
+29 |         max_audio_bytes:super::super::crate::asr::openai::OPENAI_AUDIO_LIMIT_BYTES,
+   |                                       ++++++++++++
+help: consider importing this module
+   |
+ 1 + use crate::asr::openai;
+   |
+help: if you import `openai`, refer to it directly
+   |
+29 -         max_audio_bytes:super::super::openai::OPENAI_AUDIO_LIMIT_BYTES,
+29 +         max_audio_bytes:openai::OPENAI_AUDIO_LIMIT_BYTES,
+   |
+
+error[E0599]: no associated function or constant named `command` found for struct `AudioCli` in the current scope
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:21:15
+   |
+ 7 | struct AudioCli {
+   | --------------- associated function or constant `command` not found for this struct
+...
+21 |     AudioCli::command().debug_assert();
+   |               ^^^^^^^ associated function or constant not found in `AudioCli`
+
+error[E0599]: no associated function or constant named `command` found for struct `ChatCli` in the current scope
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:22:14
+   |
+13 | struct ChatCli {
+   | -------------- associated function or constant `command` not found for this struct
+...
+22 |     ChatCli::command().debug_assert();
+   |              ^^^^^^^ associated function or constant not found in `ChatCli`
+
+error[E0599]: no associated function or constant named `try_parse_from` found for struct `AudioCli` in the current scope
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:70:28
+   |
+ 7 | struct AudioCli {
+   | --------------- associated function or constant `try_parse_from` not found for this struct
+...
+70 |     let parsed = AudioCli::try_parse_from([
+   |                            ^^^^^^^^^^^^^^ associated function or constant not found in `AudioCli`
+   |
+help: there is an associated function `try_from` with a similar name
+   |
+70 -     let parsed = AudioCli::try_parse_from([
+70 +     let parsed = AudioCli::try_from([
+   |
+
+error[E0599]: no associated function or constant named `try_parse_from` found for struct `AudioCli` in the current scope
+  --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:97:26
+   |
+ 7 | struct AudioCli {
+   | --------------- associated function or constant `try_parse_from` not found for this struct
+...
+97 |     let args = AudioCli::try_parse_from([
+   |                          ^^^^^^^^^^^^^^ associated function or constant not found in `AudioCli`
+   |
+help: there is an associated function `try_from` with a similar name
+   |
+97 -     let args = AudioCli::try_parse_from([
+97 +     let args = AudioCli::try_from([
+   |
+
+error[E0599]: no associated function or constant named `try_parse_from` found for struct `AudioCli` in the current scope
+   --> ..\..\..\src\toolkit\asr\pipeline_tests.rs:113:26
+    |
+  7 | struct AudioCli {
+    | --------------- associated function or constant `try_parse_from` not found for this struct
+...
+113 |     let args = AudioCli::try_parse_from([
+    |                          ^^^^^^^^^^^^^^ associated function or constant not found in `AudioCli`
+    |
+help: there is an associated function `try_from` with a similar name
+    |
+113 -     let args = AudioCli::try_parse_from([
+113 +     let args = AudioCli::try_from([
+    |
+
+Some errors have detailed explanations: E0432, E0433, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `asr-cache-security` (lib test) due to 13 previous errors

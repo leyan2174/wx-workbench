@@ -1,0 +1,545 @@
+{
+  "sql": {
+    "messages.db": "\nCREATE TABLE [Msg_2c1743a391305fbf367df8e4f069f9f9] (create_time INTEGER, message_content, compress_content, packed_info_data);\nINSERT INTO [Msg_2c1743a391305fbf367df8e4f069f9f9] VALUES (NULL,NULL,NULL,NULL),(0,'zero',NULL,NULL),(99,'before',NULL,NULL),(100,'中文',x'010203',NULL),(101,NULL,NULL,NULL),(102,'abc',NULL,x'00ff'),(103,'after',NULL,NULL);\nCREATE TABLE [Msg_54ddc3c7d064822eed932015d8740336] (wrong INTEGER);\nCREATE TABLE [Msg_a2e4822a98337283e39f7b60acf85ec9] (create_time INTEGER, message_content, compress_content, packed_info_data);\n",
+    "resource.db": "\nCREATE TABLE ChatName2Id(user_name TEXT);\nINSERT INTO ChatName2Id VALUES ('alpha');\nCREATE TABLE MessageResourceInfo(chat_id INTEGER, message_id INTEGER, message_create_time INTEGER);\nCREATE TABLE MessageResourceDetail(message_id INTEGER,size INTEGER);\nINSERT INTO MessageResourceInfo VALUES (1,1,100),(1,2,102),(1,3,103),(1,4,101);\nINSERT INTO MessageResourceDetail VALUES (1,12),(1,NULL),(2,30),(3,900);\n",
+    "media.db": "\nCREATE TABLE Name2Id(user_name TEXT);\nINSERT INTO Name2Id VALUES ('alpha');\nCREATE TABLE VoiceInfo(chat_name_id INTEGER,create_time INTEGER,voice_data BLOB);\nINSERT INTO VoiceInfo VALUES (1,100,x'0102'),(1,102,x'010203'),(1,101,NULL),(1,103,x'00000000');\n",
+    "bad.db": "CREATE TABLE unrelated(value INTEGER);",
+    "media_later.db": "\nCREATE TABLE Name2Id(user_name TEXT);\nINSERT INTO Name2Id VALUES ('alpha');\nCREATE TABLE VoiceInfo(chat_name_id INTEGER,create_time INTEGER,voice_data BLOB);\nINSERT INTO VoiceInfo VALUES (1,100,x'0102'),(1,102,x'010203'),(1,101,NULL),(1,103,x'00000000');\n"
+  },
+  "users": [
+    "alpha",
+    "empty",
+    "broken",
+    "absent",
+    "x' OR 1=1 --"
+  ],
+  "scenarios": [
+    {
+      "name": "bounded",
+      "message": [
+        "messages.db"
+      ],
+      "resource": "resource.db",
+      "media": [
+        "media.db"
+      ],
+      "start": 100,
+      "end": 102,
+      "expected": {
+        "alpha": {
+          "message_count": 3,
+          "message_body_bytes": 10,
+          "attachment_estimated_bytes": 47,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 57,
+          "size_status": "ok",
+          "first_ts": 100,
+          "last_ts": 102
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:message_error,no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "unbounded",
+      "message": [
+        "messages.db"
+      ],
+      "resource": "resource.db",
+      "media": [
+        "media.db"
+      ],
+      "start": null,
+      "end": null,
+      "expected": {
+        "alpha": {
+          "message_count": 7,
+          "message_body_bytes": 25,
+          "attachment_estimated_bytes": 951,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 976,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": 103
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:message_error,no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "empty_range",
+      "message": [
+        "messages.db"
+      ],
+      "resource": null,
+      "media": [],
+      "start": 200,
+      "end": 200,
+      "expected": {
+        "alpha": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_error,no_message_table,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,no_message_table,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,no_message_table,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "missing",
+      "message": [],
+      "resource": null,
+      "media": [],
+      "start": null,
+      "end": null,
+      "expected": {
+        "alpha": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_db_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_db_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_db_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_db_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_missing,message_db_missing,resource_missing",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "broken_resources",
+      "message": [
+        "messages.db"
+      ],
+      "resource": "bad.db",
+      "media": [
+        "media.db",
+        "bad.db",
+        "media_later.db"
+      ],
+      "start": 100,
+      "end": 102,
+      "expected": {
+        "alpha": {
+          "message_count": 3,
+          "message_body_bytes": 10,
+          "attachment_estimated_bytes": 5,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 15,
+          "size_status": "partial:media_error,resource_error",
+          "first_ts": 100,
+          "last_ts": 102
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_error,resource_error",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_error,message_error,no_message_table,resource_error",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_error,no_message_table,resource_error",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:media_error,no_message_table,resource_error",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "start_only",
+      "message": [
+        "messages.db"
+      ],
+      "resource": "resource.db",
+      "media": [
+        "media.db"
+      ],
+      "start": 102,
+      "end": null,
+      "expected": {
+        "alpha": {
+          "message_count": 2,
+          "message_body_bytes": 10,
+          "attachment_estimated_bytes": 937,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 947,
+          "size_status": "ok",
+          "first_ts": 102,
+          "last_ts": 103
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:message_error,no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    },
+    {
+      "name": "end_only",
+      "message": [
+        "messages.db"
+      ],
+      "resource": "resource.db",
+      "media": [
+        "media.db"
+      ],
+      "start": null,
+      "end": 100,
+      "expected": {
+        "alpha": {
+          "message_count": 3,
+          "message_body_bytes": 15,
+          "attachment_estimated_bytes": 14,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 29,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": 100
+        },
+        "empty": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "ok",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "broken": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:message_error,no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "absent": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        },
+        "x' OR 1=1 --": {
+          "message_count": 0,
+          "message_body_bytes": 0,
+          "attachment_estimated_bytes": 0,
+          "attachment_scanned_bytes": null,
+          "total_estimated_bytes": 0,
+          "size_status": "partial:no_message_table",
+          "first_ts": null,
+          "last_ts": null
+        }
+      }
+    }
+  ],
+  "direct": [
+    {
+      "start": null,
+      "end": null,
+      "values": [
+        7,
+        0,
+        103,
+        25
+      ]
+    },
+    {
+      "start": 100,
+      "end": 102,
+      "values": [
+        3,
+        100,
+        102,
+        10
+      ]
+    },
+    {
+      "start": 200,
+      "end": 200,
+      "values": [
+        0,
+        null,
+        null,
+        0
+      ]
+    },
+    {
+      "start": 0,
+      "end": 0,
+      "values": [
+        1,
+        0,
+        0,
+        4
+      ]
+    }
+  ],
+  "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n,1,alpha,\"中文, \"\"quoted\"\"\r\nline\",single,0,,,0,,0,ok\r\n",
+  "scan": {
+    "files": {
+      "msg/attach/2c1743a391305fbf367df8e4f069f9f9/a.bin": 13,
+      "msg/attach/2c1743a391305fbf367df8e4f069f9f9/nested/copy.bin": 13,
+      "msg/file/2c1743a391305fbf367df8e4f069f9f9/document": 7,
+      "msg/video/2c1743a391305fbf367df8e4f069f9f9/clip": 11,
+      "msg/attach/a2e4822a98337283e39f7b60acf85ec9/a.bin": 5,
+      "msg/file/unattributed.bin": 1000,
+      "cache/ignored.bin": 2000
+    },
+    "hardlinks": {
+      "msg/attach/2c1743a391305fbf367df8e4f069f9f9/hard.bin": "msg/attach/2c1743a391305fbf367df8e4f069f9f9/a.bin"
+    },
+    "expected": {
+      "alpha": [
+        57,
+        null
+      ],
+      "empty": [
+        5,
+        "scan_limited"
+      ],
+      "broken": [
+        0,
+        "scan_limited"
+      ],
+      "absent": [
+        0,
+        "scan_limited"
+      ],
+      "x' OR 1=1 --": [
+        0,
+        "scan_limited"
+      ]
+    },
+    "missing_base": [
+      0,
+      "scan_base_missing"
+    ]
+  }
+}

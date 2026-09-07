@@ -1,0 +1,16 @@
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.68s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 8 tests
+test asr::cache::tests::verified_digest_recovers_key_without_original_audio ... ok
+test asr::cache::tests::legacy_and_corrupt_files_are_not_claimed_or_destroyed ... ok
+test asr::cache::tests::persists_empty_success_and_reopens ... ok
+test asr::cache::tests::isolates_accounts_audio_source_and_configuration ... ok
+test asr::cache::tests::stale_publication_and_cooperative_lock_preserve_data ... ok
+test asr::cache::tests::failure_never_creates_or_changes_cache ... ok
+test asr::cache::tests::two_instances_merge_and_malformed_same_key_is_preserved ... ok
+test asr::cache::tests::protects_existing_records_and_unknown_fields ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 128 filtered out; finished in 0.01s
+

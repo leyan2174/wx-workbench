@@ -1,0 +1,23 @@
+[package]
+name = "native-attachment-security"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+attachment-refs-contract = { path = "../attachment-refs" }
+native-image-fixture = { path = "../native-image" }
+rusqlite = { version = "0.31", features = ["bundled"] }
+md5 = "0.7"
+serde_json = "1"
+tempfile = "3"
+anyhow = "1"
+regex = "1"
+zstd = "0.13"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+mcp-readonly-security-harness = { path = "../mcp-readonly-security" }

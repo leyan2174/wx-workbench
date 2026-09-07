@@ -1,0 +1,6 @@
+*.exe
+*.pdb
+*.rcgu.o
+*.log
+rustc*/
+__pycache__/

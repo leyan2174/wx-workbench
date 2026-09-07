@@ -1,0 +1,103 @@
+临时源码副本: C:\CodexLocal\build\mcp-image-source-66b495bbae614bd79c41ae611cb62181
+使用真实 raw_db_keys，cache.rs 原样复制，SHA256: F71CF1F965824FF070C748CAE450A8988DC515597DE4064A827DC4F618DCA816
+cargo test --offline --manifest-path C:\CodexLocal\build\mcp-image-source-66b495bbae614bd79c41ae611cb62181\Cargo.toml --target x86_64-pc-windows-msvc --target-dir C:/CodexLocal/src/wx-cli/target --bin wx image -- --nocapture
+   Compiling bindgen v0.72.1
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\build\mcp-image-source-66b495bbae614bd79c41ae611cb62181)
+   Compiling frida-sys v0.17.2
+   Compiling silk-codec v0.3.1
+   Compiling frida v0.17.2
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.57s
+     Running unittests src\main.rs (target\x86_64-pc-windows-msvc\debug\deps\wx-85590532d806c602.exe)
+
+running 59 tests
+test attachment::image_key::tests::wxid_normalization_matches_expected_forms ... ok
+test attachment::native_image::tests::host_output_guard_rejects_missing_and_relative_outputs ... ok
+test attachment::image_key::tests::regex_candidates_ignore_embedded_runs ... ok
+test attachment::image_key::tests::regex_candidates_respect_boundaries ... ok
+test attachment::native_image::tests::bounded_enumeration_and_unsafe_roots ... ok
+test cli::mcp::tests::image_host_policy_is_explicit_and_does_not_create_paths ... ok
+test attachment::native_image::tests::pinned_file_blocks_writers_and_detects_changed_directory ... ok
+test daemon::cache::tests::image_output_paths_include_context_cached_files_and_refuse_busy_metadata ... ok
+test attachment::native_image::tests::host_key_inside_output_or_directory_is_rejected ... ok
+test attachment::native_image::tests::invalid_identity_is_rejected_before_path_access ... ok
+test attachment::native_image::tests::host_guard_accepts_local_canonical_paths_and_future_protected_files ... ok
+test daemon::query::mcp_image::tests::host_key_json_uses_cli_parsers_and_default_xor ... ok
+test attachment::native_image::tests::host_key_read_is_bounded_and_keeps_readonly_handle ... ok
+test attachment::native_image::tests::host_output_guard_isolates_directories_and_protected_files ... ok
+test attachment::native_image::tests::directory_junction_rejected_without_following_target ... ok
+test attachment::native_image::tests::same_rank_duplicates_reject_even_identical_content ... ok
+test daemon::query::mcp_image::tests::malformed_key_json_errors_never_echo_secret_content ... ok
+test attachment::native_image::tests::resource_hardlink_output_never_overwritten ... ok
+[cache] 复用 3 个已解密 DB
+test attachment::native_image::tests::dat_and_resource_size_limits_are_enforced ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test attachment::native_image::tests::broad_prefix_and_other_chat_never_match ... ok
+test attachment::native_image::tests::output_inside_source_or_existing_hardlink_rejected ... ok
+test attachment::native_image::tests::duplicate_chat_and_duplicate_exact_row_rejected ... ok
+[cache] 复用 2 个已解密 DB
+[cache] 复用 4 个已解密 DB
+test attachment::native_image::tests::malformed_dat_and_wrong_v2_key_leave_no_output ... ok
+[cache] 复用 2 个已解密 DB
+test attachment::native_image::tests::legacy_exact_identity_source_unchanged_and_no_overwrite ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test attachment::native_image::tests::virtual_resource_tables_rejected_before_queries ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 2 个已解密 DB
+test daemon::query::mcp_image::tests::missing_host_output_precedes_account_and_key_file_access ... ok
+test daemon::query::sns_tests::single_image_media ... ok
+test daemon::query::sns_tests::three_images_media ... ok
+test mcp::protocol::tests::image_listing_admits_missing_metadata_and_never_decodes ... ok
+test mcp::protocol::tests::image_route_never_accepts_host_paths_or_keys ... ok
+test toolkit::attachment_refs::tests::rec_images_are_flat_not_index_directories_and_not_decrypted ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::nonimage_and_missing_ambiguous_chats_have_no_side_effects ... ok
+test toolkit::sns::cache::cache_tests::image_headers_match_legacy ... ok
+test daemon::query::mcp_image::tests::host_wrapper_isolates_source_cache_and_explicit_key_file ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test attachment::native_image::tests::v1_and_v2_reuse_decoder_explicit_keys_no_provider ... ok
+test daemon::query::mcp_image::tests::exact_current_account_exports_and_reports_full_identity ... ok
+[cache] 复用 3 个已解密 DB
+test toolkit::attachment_refs::tests::record_image_variants_without_hash_are_ambiguous ... ok
+test attachment::native_image::tests::text_packed_oversized_packed_and_noninteger_identity_rejected ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test toolkit::tests::mirrors_images_and_reports_corrupt_input_without_overwrite ... ok
+test daemon::query::mcp_image::tests::full_type_flags_are_forwarded_without_masked_resource_fallback ... ok
+test attachment::native_image::tests::resource_sidecars_and_dat_directory_rejected ... ok
+[cache] 复用 4 个已解密 DB
+test daemon::query::mcp_image::tests::preserves_raw_uppercase_backslash_resource_key ... ok
+test daemon::query::mcp_image::tests::native_root_policy_and_resource_corruption_remain_fail_closed ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::filters_full_key_inventory_without_selecting_similar_names ... ok
+test attachment::native_image::tests::selection_full_then_hd_then_thumb_and_uppercase ... ok
+test daemon::query::mcp_image::tests::uniqueness_precedes_type_filter_and_zero_time_uses_actual_time ... ok
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::host_wrapper_key_file_limits_and_errors_are_redacted ... ok
+test daemon::query::mcp_image::tests::explicit_v2_key_is_required_and_forwarded ... ok
+[cache] 复用 3 个已解密 DB
+test toolkit::sns::cache::cache_tests::image_matching_matches_legacy_window_size_and_uniqueness ... ok
+test daemon::query::mcp_image::tests::resource_directory_and_unavailable_message_shard_fail ... ok
+test toolkit::sns::cache::cache_tests::recovered_images_are_attached_without_changing_remote_fields ... ok
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::mismatched_resource_time_and_duplicate_resource_records_fail ... ok
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::host_wrapper_exports_legacy_and_v1_with_default_key_material ... ok
+test attachment::native_image::tests::exact_tuple_never_falls_back_or_masks_type_flags ... ok
+test daemon::query::mcp_image::tests::missing_key_duplicate_aliases_and_missing_source_fail_before_output ... ok
+[cache] 复用 3 个已解密 DB
+[cache] 复用 3 个已解密 DB
+test daemon::query::mcp_image::tests::unknown_resource_or_message_shards_refuse_publication ... ok
+test daemon::query::mcp_image::tests::inventory_changes_are_detected_before_export_call ... ok
+test attachment::native_image::tests::candidate_limit_rejects_instead_of_truncating ... ok
+test attachment::native_image::tests::schemas_views_without_rowid_and_shadow_aliases_rejected ... ok
+
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 514 filtered out; finished in 0.88s
+
+执行退出码: 0

@@ -1,0 +1,2 @@
+# build.rs 从真实合成 fixture 准备，不提交重复二进制与假后端源码。
+/tests/

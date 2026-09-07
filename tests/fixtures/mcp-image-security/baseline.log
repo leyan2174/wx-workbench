@@ -1,0 +1,125 @@
+     Locking 96 packages to latest compatible versions
+      Adding serde_json v1.0.140 (available: v1.0.151)
+   Compiling cfg-if v1.0.4
+   Compiling getrandom v0.3.4
+   Compiling version_check v0.9.5
+   Compiling find-msvc-tools v0.1.12
+   Compiling shlex v2.0.1
+   Compiling proc-macro2 v1.0.107
+   Compiling pkg-config v0.3.34
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling zerocopy v0.8.56
+   Compiling windows-link v0.2.1
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling autocfg v1.5.1
+   Compiling vcpkg v0.2.15
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling typenum v1.20.1
+   Compiling getrandom v0.4.3
+   Compiling zstd-safe v7.2.4
+   Compiling anyhow v1.0.104
+   Compiling serde_json v1.0.140
+   Compiling ryu v1.0.23
+   Compiling smallvec v1.16.0
+   Compiling windows-sys v0.61.2
+   Compiling bitflags v2.13.1
+   Compiling fastrand v2.5.0
+   Compiling itoa v1.0.18
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling fallible-iterator v0.3.0
+   Compiling regex-syntax v0.8.11
+   Compiling generic-array v0.14.7
+   Compiling ahash v0.8.12
+   Compiling base64 v0.22.1
+   Compiling cpufeatures v0.2.17
+   Compiling md5 v0.7.0
+   Compiling pin-project-lite v0.2.17
+   Compiling num-traits v0.2.19
+   Compiling aho-corasick v1.1.5
+   Compiling roxmltree v0.20.0
+   Compiling zeroize v1.9.0
+   Compiling winapi-util v0.1.11
+   Compiling tempfile v3.27.0
+   Compiling jobserver v0.1.34
+   Compiling same-file v1.0.6
+   Compiling cc v1.4.5
+   Compiling syn v3.0.5
+   Compiling regex-automata v0.4.18
+   Compiling inout v0.1.4
+   Compiling crypto-common v0.1.7
+   Compiling cipher v0.4.4
+   Compiling aes v0.8.4
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling libsqlite3-sys v0.28.0
+   Compiling regex v1.13.1
+   Compiling serde_derive v1.0.229
+   Compiling tokio-macros v2.7.2
+   Compiling hashbrown v0.14.5
+   Compiling tokio v1.53.1
+   Compiling hashlink v0.9.1
+   Compiling zstd v0.13.3
+   Compiling rusqlite v0.31.0
+   Compiling chrono v0.4.45
+   Compiling native-image-fixture v0.1.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\native-image)
+   Compiling mcp-readonly-security-harness v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-readonly-security)
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+warning: fields `compression` and `content` are never read
+  --> ..\..\..\src\daemon\query\strict_message.rs:23:5
+   |
+17 | pub(super) struct StrictMessage {
+   |                   ------------- fields in this struct
+...
+23 |     compression: Option<i64>,
+   |     ^^^^^^^^^^^
+24 |     content: Option<(bool, Vec<u8>)>,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `bounded_decode` is never used
+  --> ..\..\..\src\daemon\query\strict_message.rs:30:19
+   |
+27 | impl StrictMessage {
+   | ------------------ method in this implementation
+...
+30 |     pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
+   |                   ^^^^^^^^^^^^^^
+
+warning: `mcp-image-security` (lib) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.83s
+     Running audit.rs (C:/CodexLocal/build/mcp-image-security\debug\deps\audit-1cf4b12998308585.exe)
+
+running 7 tests
+
+thread 'output_symlink_directory_is_rejected' (35180) panicked at audit.rs:188:10:
+real symlink setup required; permission failure is not a pass: Os { code: 1314, kind: Uncategorized, message: "客户端没有所需的特权。" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'source_dat_symlink_is_rejected' (22368) panicked at audit.rs:200:10:
+real symlink setup required; permission failure is not a pass: Os { code: 1314, kind: Uncategorized, message: "客户端没有所需的特权。" }
+test output_symlink_directory_is_rejected ... FAILED
+test source_dat_symlink_is_rejected ... FAILED
+test exact_duplicate_messages_fail_before_export ... ok
+test repeated_publication_fails_without_overwrite_or_temp_leftover ... ok
+test invalid_output_paths_do_not_publish_or_mutate_sources ... ok
+
+thread 'query_same_ids_different_accounts_stay_separate' (31316) panicked at audit.rs:116:9:
+assertion `left == right` failed
+  left: String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpdxP79K\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")
+ right: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpdxP79K\\account\\msg/attach/196715fa074d653dd1205885a3518499/2026-09/Img/0123456789abcdef0123456789abcdef.dat"
+test query_same_ids_different_accounts_stay_separate ... FAILED
+test existing_output_hardlinks_to_all_protected_sources_are_never_overwritten ... ok
+
+failures:
+
+failures:
+    output_symlink_directory_is_rejected
+    query_same_ids_different_accounts_stay_separate
+    source_dat_symlink_is_rejected
+
+test result: FAILED. 4 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `--test audit`

@@ -1,0 +1,33 @@
+{
+  "first_tids": [1, 2],
+  "second_summary": {
+    "user_name": "db_author",
+    "display_name": "Synthetic Author",
+    "export_time": "2023-11-15 06:30:00",
+    "total_posts": 1,
+    "posts": [{
+      "id": "synthetic-1",
+      "username": "xml_other",
+      "create_time": 1700000000,
+      "create_time_str": "2023-11-15 06:13:20",
+      "content_desc": "CURRENT AFTER",
+      "content_type": 1,
+      "content_type_name": "\u56fe\u6587",
+      "nickname": "Synthetic XML Nick",
+      "is_private": false,
+      "location": null,
+      "media": [{"type": "2", "sub_type": "", "video_duration": "0", "url": "https://example.invalid/synthetic.png", "url_md5": "", "url_key": "", "url_token": ""}],
+      "tid": 1,
+      "db_user_name": "db_author",
+      "comments": []
+    }]
+  },
+  "second_files": ["20231115061140000.json", "20231115061140000_0.png", "20231115061320000.json", "20231115061320000_0.png", "notes/keep.txt", "timeline.html", "timeline.json", "unrelated.bin"],
+  "second_html_text": ["CURRENT AFTER"],
+  "second_html_images": [],
+  "collision_first": {"00000000000000000.json": 10, "00000000000000001.json": 11},
+  "collision_second": {"00000000000000000.json": 11, "00000000000000001.json": 11},
+  "null_author_summary": "unknown",
+  "null_author_post_db_names": ["", ""],
+  "null_author_post_xml_names": ["xml_a", "xml_b"]
+}

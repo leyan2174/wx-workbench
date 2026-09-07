@@ -1,0 +1,41 @@
+[package]
+name = "wx-mcp-cli-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+build = "../asr-cache-security/build.rs"
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "mcp-cli-harness"
+path = "main.rs"
+
+[[test]]
+name = "cli-process"
+path = "cli_process.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+sha2 = "0.10"
+base64 = "0.22"
+tempfile = "3"
+same-file = "1"
+zeroize = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+md5 = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "json", "rustls-tls"] }
+silk-codec = { version = "=0.3.1", default-features = false }
+tokio = { version = "1", features = ["full"] }
+interprocess = { version = "2", features = ["tokio"] }
+windows = { version = "0.58", features = [
+    "Win32_Foundation", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_Shell", "Win32_Storage_FileSystem",
+] }

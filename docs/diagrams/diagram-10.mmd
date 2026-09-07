@@ -1,0 +1,16 @@
+flowchart TB
+    NATIVE[toolkit：原生批处理]
+    VIDEO[cli/sns_video：前 128 KiB 解码、尾部流式复制及不覆盖发布]
+    WASMI[sns/video_runtime：内嵌已审计 WASM、燃料与内存限额]
+    ENTERPRISE[enterprise：离线 wxSQLite3 AES128 主库]
+    CLI[cli：参数解析和命令分发]
+    WORKBATCH[enterprise_batch：发现、授权扫描、逐库密钥与批量解密导出]
+    WORKQUERY[enterprise/queries：联系人、会话、三表去重及消息筛选]
+    WORKOUT[JSON / CSV / HTML：原子不覆盖发布]
+    NATIVE --> VIDEO
+    VIDEO --> WASMI
+    NATIVE --> ENTERPRISE
+    CLI --> WORKBATCH
+    WORKBATCH --> ENTERPRISE
+    ENTERPRISE --> WORKQUERY
+    WORKQUERY --> WORKOUT

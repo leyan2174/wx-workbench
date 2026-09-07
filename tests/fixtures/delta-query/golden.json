@@ -1,0 +1,1013 @@
+{
+  "window": {
+    "start": 100,
+    "end": 200,
+    "run_id": "query-oracle",
+    "utc_offset_seconds": 28800,
+    "generated_at": "2026-09-07 12:00:00"
+  },
+  "names": {
+    "wxid_self": "合成自己",
+    "wxid_peer": "合成联系人",
+    "wxid_member": "合成群成员",
+    "synthetic@chatroom": "合成群",
+    "wxid_empty": "合成空会话",
+    "wxid_missing": "合成缺表"
+  },
+  "contacts": [
+    {
+      "username": "wxid_peer",
+      "remark": "合成联系人",
+      "nick_name": "合成昵称",
+      "description": "合成备注"
+    },
+    {
+      "username": "wxid_empty",
+      "remark": "合成空会话",
+      "nick_name": "合成昵称",
+      "description": "合成备注"
+    },
+    {
+      "username": "wxid_missing",
+      "remark": "合成缺表",
+      "nick_name": "合成昵称",
+      "description": "合成备注"
+    }
+  ],
+  "shards": [
+    {
+      "source": "message/message_0.db",
+      "ids": {
+        "1": "wxid_self",
+        "2": "wxid_peer",
+        "3": "synthetic@chatroom",
+        "4": "wxid_member"
+      },
+      "tables": {
+        "wxid_peer": [
+          {
+            "local_id": 99,
+            "local_type": 1,
+            "timestamp": 99,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "窗口前"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 9,
+            "local_type": 1,
+            "timestamp": 100,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "首端点"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 2,
+            "local_type": 1,
+            "timestamp": 100,
+            "sender_id": 1,
+            "raw": {
+              "kind": "text",
+              "value": "同时间保留插入顺序"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 3,
+            "local_type": 3,
+            "timestamp": 120,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "<msg><img/></msg>"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 4,
+            "local_type": 34,
+            "timestamp": 130,
+            "sender_id": 1,
+            "raw": {
+              "kind": "null"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 5,
+            "local_type": 1,
+            "timestamp": 140,
+            "sender_id": 2,
+            "raw": {
+              "kind": "bytes",
+              "value": [
+                98,
+                105,
+                110,
+                97,
+                114,
+                121,
+                255,
+                10
+              ]
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 6,
+            "local_type": 1,
+            "timestamp": 150,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "TEXT 标记压缩也不解压"
+            },
+            "compression": 4
+          },
+          {
+            "local_id": 7,
+            "local_type": 1,
+            "timestamp": 160,
+            "sender_id": 2,
+            "raw": {
+              "kind": "bytes",
+              "value": [
+                98,
+                114,
+                111,
+                107,
+                101,
+                110,
+                32,
+                122,
+                115,
+                116,
+                100
+              ]
+            },
+            "compression": 4
+          },
+          {
+            "local_id": 8,
+            "local_type": 43,
+            "timestamp": 180,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "<msg><videomsg playlength=\"5\"/></msg>"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 10,
+            "local_type": 1,
+            "timestamp": 200,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "末端点"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 11,
+            "local_type": 1,
+            "timestamp": 201,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "窗口后"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 12,
+            "local_type": 1,
+            "timestamp": null,
+            "sender_id": 2,
+            "raw": {
+              "kind": "text",
+              "value": "NULL 时间不进入闭区间"
+            },
+            "compression": 0
+          }
+        ],
+        "synthetic@chatroom": [
+          {
+            "local_id": 1,
+            "local_type": 1,
+            "timestamp": 100,
+            "sender_id": 3,
+            "raw": {
+              "kind": "bytes",
+              "value": [
+                40,
+                181,
+                47,
+                253,
+                32,
+                37,
+                41,
+                1,
+                0,
+                119,
+                120,
+                105,
+                100,
+                95,
+                109,
+                101,
+                109,
+                98,
+                101,
+                114,
+                58,
+                10,
+                229,
+                142,
+                139,
+                231,
+                188,
+                169,
+                230,
+                173,
+                163,
+                230,
+                150,
+                135,
+                228,
+                184,
+                141,
+                230,
+                152,
+                175,
+                230,
+                145,
+                152,
+                232,
+                166,
+                129
+              ]
+            },
+            "compression": 4
+          },
+          {
+            "local_id": 2,
+            "local_type": 49,
+            "timestamp": 150,
+            "sender_id": 1,
+            "raw": {
+              "kind": "text",
+              "value": "wxid_member:<msg><appmsg><type>5</type><title>合成链接</title></appmsg></msg>"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 3,
+            "local_type": 244813135921,
+            "timestamp": 160,
+            "sender_id": 4,
+            "raw": {
+              "kind": "text",
+              "value": "wxid_member:\n<msg><appmsg><type>57</type><title>回复原文</title><refermsg><type>1</type><fromusr>wxid_self</fromusr><displayname>合成自己</displayname><content>被引用原文</content></refermsg></appmsg></msg>"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 4,
+            "local_type": 99,
+            "timestamp": 170,
+            "sender_id": null,
+            "raw": {
+              "kind": "bytes",
+              "value": [
+                119,
+                120,
+                105,
+                100,
+                95,
+                109,
+                101,
+                109,
+                98,
+                101,
+                114,
+                58,
+                10,
+                117,
+                110,
+                107,
+                110,
+                111,
+                119,
+                110
+              ]
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 6,
+            "local_type": 49,
+            "timestamp": 190,
+            "sender_id": 1,
+            "raw": {
+              "kind": "text",
+              "value": "wxid_self:\n<msg><appmsg><type>2000</type><title>合成转账</title><wcpayinfo><paysubtype>1</paysubtype><feedesc>¥0.01</feedesc><pay_memo>合成测试</pay_memo></wcpayinfo></appmsg></msg>"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 5,
+            "local_type": 1,
+            "timestamp": 200,
+            "sender_id": 4,
+            "raw": {
+              "kind": "text",
+              "value": "wxid_member:\n末端点"
+            },
+            "compression": 0
+          }
+        ],
+        "wxid_empty": []
+      }
+    },
+    {
+      "source": "message/message_1.db",
+      "ids": {
+        "1": "wxid_peer",
+        "2": "wxid_self"
+      },
+      "tables": {
+        "wxid_peer": [
+          {
+            "local_id": 9,
+            "local_type": 1,
+            "timestamp": 100,
+            "sender_id": 1,
+            "raw": {
+              "kind": "text",
+              "value": "不同库相同 local_id"
+            },
+            "compression": 0
+          },
+          {
+            "local_id": 13,
+            "local_type": 1,
+            "timestamp": 190,
+            "sender_id": 2,
+            "raw": {
+              "kind": "bytes",
+              "value": []
+            },
+            "compression": 0
+          }
+        ]
+      }
+    },
+    {
+      "source": "message/message_2.db",
+      "ids": {},
+      "tables": {}
+    }
+  ],
+  "cases": [
+    {
+      "username": "wxid_peer",
+      "model": {
+        "username": "wxid_peer",
+        "display_name": "合成联系人",
+        "is_group": false,
+        "contact": {
+          "contact_remark": "合成联系人",
+          "contact_nick_name": "合成昵称",
+          "contact_tags": [],
+          "contact_memo": "合成备注"
+        },
+        "messages": [
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 9,
+            "timestamp": 100,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "首端点"
+            },
+            "rendered": "首端点",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 2,
+            "timestamp": 100,
+            "sender": "me",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "同时间保留插入顺序"
+            },
+            "rendered": "同时间保留插入顺序",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_1.db",
+            "local_id": 9,
+            "timestamp": 100,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "不同库相同 local_id"
+            },
+            "rendered": "不同库相同 local_id",
+            "extras": {
+              "source": "message/message_1.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 3,
+            "timestamp": 120,
+            "sender": "合成联系人",
+            "msg_type": "image",
+            "raw_content": {
+              "kind": "text",
+              "value": "<msg><img/></msg>"
+            },
+            "rendered": null,
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 4,
+            "timestamp": 130,
+            "sender": "me",
+            "msg_type": "voice",
+            "raw_content": {
+              "kind": "null"
+            },
+            "rendered": null,
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 5,
+            "timestamp": 140,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "bytes",
+              "value": [
+                98,
+                105,
+                110,
+                97,
+                114,
+                121,
+                255,
+                10
+              ]
+            },
+            "rendered": "binary�\n",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 6,
+            "timestamp": 150,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "TEXT 标记压缩也不解压"
+            },
+            "rendered": "TEXT 标记压缩也不解压",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 7,
+            "timestamp": 160,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "bytes",
+              "value": [
+                98,
+                114,
+                111,
+                107,
+                101,
+                110,
+                32,
+                122,
+                115,
+                116,
+                100
+              ]
+            },
+            "rendered": null,
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 8,
+            "timestamp": 180,
+            "sender": "合成联系人",
+            "msg_type": "video",
+            "raw_content": {
+              "kind": "text",
+              "value": "<msg><videomsg playlength=\"5\"/></msg>"
+            },
+            "rendered": "[视频] 5秒",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_1.db",
+            "local_id": 13,
+            "timestamp": 190,
+            "sender": "me",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "bytes",
+              "value": []
+            },
+            "rendered": "",
+            "extras": {
+              "source": "message/message_1.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 10,
+            "timestamp": 200,
+            "sender": "合成联系人",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "末端点"
+            },
+            "rendered": "末端点",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          }
+        ],
+        "source_error": null
+      },
+      "result": {
+        "success": true,
+        "username": "wxid_peer",
+        "chat": "合成联系人",
+        "path": "chats/single_合成联系人__wxid_peer.delta.json",
+        "message_count": 11
+      },
+      "document": {
+        "schema_version": 1,
+        "export_kind": "wechat_delta",
+        "chat": "合成联系人",
+        "username": "wxid_peer",
+        "exported_at": "2026-09-07 12:00:00",
+        "range": {
+          "start": "1970-01-01 08:01:40",
+          "end": "1970-01-01 08:03:20"
+        },
+        "date_first_msg": "1970-01-01 08:01:40",
+        "date_last_msg": "1970-01-01 08:03:20",
+        "contact_remark": "合成联系人",
+        "contact_nick_name": "合成昵称",
+        "contact_tags": [],
+        "contact_memo": "合成备注",
+        "message_count": 11,
+        "messages": [
+          {
+            "msg_uid": "dffb05e7aa6b5cace6c688698788b551663eb7e794db7ac3f5f4a6be2078ae32",
+            "local_id": 9,
+            "timestamp": 100,
+            "sender": "合成联系人",
+            "content": "首端点"
+          },
+          {
+            "msg_uid": "c9d816b5d728ae6275d56c61b458ccc3f9b042507dd4480930cabfcfa54b77c4",
+            "local_id": 2,
+            "timestamp": 100,
+            "sender": "me",
+            "content": "同时间保留插入顺序"
+          },
+          {
+            "msg_uid": "98a27a1f7dad14e974484579416e5ad4f855dfb30fe718062e46ed1196587363",
+            "local_id": 9,
+            "timestamp": 100,
+            "sender": "合成联系人",
+            "content": "不同库相同 local_id"
+          },
+          {
+            "msg_uid": "271dbe62110c19979a6c370d22066125f6b89b2ea03794cb1500383f8e1d0d73",
+            "local_id": 3,
+            "timestamp": 120,
+            "sender": "合成联系人",
+            "type": "image"
+          },
+          {
+            "msg_uid": "4e5915e9dda00401915e835e898c76fac94ee7a9675e877f8898b4f1e36a95a9",
+            "local_id": 4,
+            "timestamp": 130,
+            "sender": "me",
+            "type": "voice"
+          },
+          {
+            "msg_uid": "764b9557d70a8dd0864b7cd0bdc0293efcd3f98e54fe874ff0ecfcc07dcdd857",
+            "local_id": 5,
+            "timestamp": 140,
+            "sender": "合成联系人",
+            "content": "binary�\n"
+          },
+          {
+            "msg_uid": "fb61641d2986936101342e19fadc654432434a4025daa3a7dbcfdc171961d98b",
+            "local_id": 6,
+            "timestamp": 150,
+            "sender": "合成联系人",
+            "content": "TEXT 标记压缩也不解压"
+          },
+          {
+            "msg_uid": "62e26cffef4c42142ec9f1b0f013c577e5695585c89c47b06e713740cb373609",
+            "local_id": 7,
+            "timestamp": 160,
+            "sender": "合成联系人"
+          },
+          {
+            "msg_uid": "d474e24b0c36c4a02201555ec4a016d87750d98c90fd6ecb4788e3bbc3013c98",
+            "local_id": 8,
+            "timestamp": 180,
+            "sender": "合成联系人",
+            "type": "video",
+            "content": "[视频] 5秒"
+          },
+          {
+            "msg_uid": "742f8e477ce28de60dada7e4ec10dd039bece7714335184f53202530fecb7773",
+            "local_id": 13,
+            "timestamp": 190,
+            "sender": "me",
+            "content": ""
+          },
+          {
+            "msg_uid": "9527675a766249845ad140967b68ad25f0ae5991fcc1f0fb56e1d54cc4ff2c4e",
+            "local_id": 10,
+            "timestamp": 200,
+            "sender": "合成联系人",
+            "content": "末端点"
+          }
+        ]
+      }
+    },
+    {
+      "username": "synthetic@chatroom",
+      "model": {
+        "username": "synthetic@chatroom",
+        "display_name": "合成群",
+        "is_group": true,
+        "contact": {
+          "contact_remark": "",
+          "contact_nick_name": "",
+          "contact_tags": [],
+          "contact_memo": ""
+        },
+        "messages": [
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 1,
+            "timestamp": 100,
+            "sender": "合成群成员",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "bytes",
+              "value": [
+                40,
+                181,
+                47,
+                253,
+                32,
+                37,
+                41,
+                1,
+                0,
+                119,
+                120,
+                105,
+                100,
+                95,
+                109,
+                101,
+                109,
+                98,
+                101,
+                114,
+                58,
+                10,
+                229,
+                142,
+                139,
+                231,
+                188,
+                169,
+                230,
+                173,
+                163,
+                230,
+                150,
+                135,
+                228,
+                184,
+                141,
+                230,
+                152,
+                175,
+                230,
+                145,
+                152,
+                232,
+                166,
+                129
+              ]
+            },
+            "rendered": "压缩正文不是摘要",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 2,
+            "timestamp": 150,
+            "sender": "me",
+            "msg_type": "link_or_file",
+            "raw_content": {
+              "kind": "text",
+              "value": "wxid_member:<msg><appmsg><type>5</type><title>合成链接</title></appmsg></msg>"
+            },
+            "rendered": "[链接] 合成链接",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 3,
+            "timestamp": 160,
+            "sender": "合成群成员",
+            "msg_type": "link_or_file",
+            "raw_content": {
+              "kind": "text",
+              "value": "wxid_member:\n<msg><appmsg><type>57</type><title>回复原文</title><refermsg><type>1</type><fromusr>wxid_self</fromusr><displayname>合成自己</displayname><content>被引用原文</content></refermsg></appmsg></msg>"
+            },
+            "rendered": "回复原文\n  ↳ 回复 me: 被引用原文",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 4,
+            "timestamp": 170,
+            "sender": "合成群成员",
+            "msg_type": "type_99",
+            "raw_content": {
+              "kind": "bytes",
+              "value": [
+                119,
+                120,
+                105,
+                100,
+                95,
+                109,
+                101,
+                109,
+                98,
+                101,
+                114,
+                58,
+                10,
+                117,
+                110,
+                107,
+                110,
+                111,
+                119,
+                110
+              ]
+            },
+            "rendered": null,
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 6,
+            "timestamp": 190,
+            "sender": "me",
+            "msg_type": "link_or_file",
+            "raw_content": {
+              "kind": "text",
+              "value": "wxid_self:\n<msg><appmsg><type>2000</type><title>合成转账</title><wcpayinfo><paysubtype>1</paysubtype><feedesc>¥0.01</feedesc><pay_memo>合成测试</pay_memo></wcpayinfo></appmsg></msg>"
+            },
+            "rendered": "[转账·发起转账] ¥0.01 备注: 合成测试",
+            "extras": {
+              "type": "transfer",
+              "transfer": {
+                "direction": "发起转账",
+                "paysubtype": "1",
+                "fee_desc": "¥0.01",
+                "pay_memo": "合成测试"
+              },
+              "source": "message/message_0.db"
+            }
+          },
+          {
+            "db_path": "message/message_0.db",
+            "local_id": 5,
+            "timestamp": 200,
+            "sender": "合成群成员",
+            "msg_type": "text",
+            "raw_content": {
+              "kind": "text",
+              "value": "wxid_member:\n末端点"
+            },
+            "rendered": "末端点",
+            "extras": {
+              "source": "message/message_0.db"
+            }
+          }
+        ],
+        "source_error": null
+      },
+      "result": {
+        "success": true,
+        "username": "synthetic@chatroom",
+        "chat": "合成群",
+        "path": "chats/group_合成群__synthetic@chatroom.delta.json",
+        "message_count": 6
+      },
+      "document": {
+        "schema_version": 1,
+        "export_kind": "wechat_delta",
+        "chat": "合成群",
+        "username": "synthetic@chatroom",
+        "exported_at": "2026-09-07 12:00:00",
+        "range": {
+          "start": "1970-01-01 08:01:40",
+          "end": "1970-01-01 08:03:20"
+        },
+        "date_first_msg": "1970-01-01 08:01:40",
+        "date_last_msg": "1970-01-01 08:03:20",
+        "is_group": true,
+        "message_count": 6,
+        "messages": [
+          {
+            "msg_uid": "b36112efeff43350e2419d9272228967aba7c2528979b34af7f2a37d1b97e355",
+            "local_id": 1,
+            "timestamp": 100,
+            "sender": "合成群成员",
+            "content": "压缩正文不是摘要"
+          },
+          {
+            "msg_uid": "7e5f492f4423652fec42ea7322c4c3e723636a2450a4110fd8207bf0776c1c16",
+            "local_id": 2,
+            "timestamp": 150,
+            "sender": "me",
+            "type": "link_or_file",
+            "content": "[链接] 合成链接"
+          },
+          {
+            "msg_uid": "3492a768287861d7ee8d206f711a2abca1440e86396039b9129f3fac32dc99a5",
+            "local_id": 3,
+            "timestamp": 160,
+            "sender": "合成群成员",
+            "type": "link_or_file",
+            "content": "回复原文\n  ↳ 回复 me: 被引用原文"
+          },
+          {
+            "msg_uid": "11da5b3daaa9374072efca12c1e3773a10be12044a7d13fc7a83af4806032be0",
+            "local_id": 4,
+            "timestamp": 170,
+            "sender": "合成群成员",
+            "type": "type_99"
+          },
+          {
+            "msg_uid": "e68c49b5352cfce4b2436e1acc0e259b0ea3c666fcfabd910d5c310c827dd5b6",
+            "local_id": 6,
+            "timestamp": 190,
+            "sender": "me",
+            "type": "transfer",
+            "content": "[转账·发起转账] ¥0.01 备注: 合成测试",
+            "transfer": {
+              "direction": "发起转账",
+              "paysubtype": "1",
+              "fee_desc": "¥0.01",
+              "pay_memo": "合成测试"
+            }
+          },
+          {
+            "msg_uid": "794dace9a752966a78ab719800a6ffb59bf5ea5b2b4b7843627d2ac3a1e80132",
+            "local_id": 5,
+            "timestamp": 200,
+            "sender": "合成群成员",
+            "content": "末端点"
+          }
+        ]
+      }
+    },
+    {
+      "username": "wxid_empty",
+      "model": {
+        "username": "wxid_empty",
+        "display_name": "合成空会话",
+        "is_group": false,
+        "contact": {
+          "contact_remark": "合成空会话",
+          "contact_nick_name": "合成昵称",
+          "contact_tags": [],
+          "contact_memo": "合成备注"
+        },
+        "messages": [],
+        "source_error": null
+      },
+      "result": {
+        "success": true,
+        "skipped": true,
+        "username": "wxid_empty",
+        "chat": "合成空会话",
+        "message_count": 0,
+        "reason": "no messages in delta window"
+      },
+      "document": null
+    },
+    {
+      "username": "wxid_missing",
+      "model": null,
+      "result": {
+        "success": false,
+        "username": "wxid_missing",
+        "message_count": 0,
+        "reason": "no tables"
+      },
+      "document": null
+    }
+  ],
+  "manifest": {
+    "schema_version": 1,
+    "export_kind": "wechat_delta_run",
+    "run_id": "query-oracle",
+    "generated_at": "2026-09-07 12:00:00",
+    "range": {
+      "start": "1970-01-01 08:01:40",
+      "end": "1970-01-01 08:03:20"
+    },
+    "chats_checked": 4,
+    "chats_with_messages": 2,
+    "messages_exported": 17,
+    "files": [
+      {
+        "username": "wxid_peer",
+        "chat": "合成联系人",
+        "path": "chats/single_合成联系人__wxid_peer.delta.json",
+        "message_count": 11
+      },
+      {
+        "username": "synthetic@chatroom",
+        "chat": "合成群",
+        "path": "chats/group_合成群__synthetic@chatroom.delta.json",
+        "message_count": 6
+      }
+    ],
+    "errors": [
+      {
+        "username": "wxid_missing",
+        "reason": "no tables"
+      }
+    ]
+  }
+}

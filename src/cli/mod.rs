@@ -1,30 +1,128 @@
+pub(crate) mod asr;
+mod asr_batch;
+mod asr_database;
 pub mod attachments;
 pub mod biz_articles;
+mod chat_plan;
 pub mod contacts;
 pub mod daemon_cmd;
+mod database_keys;
+mod decode;
+mod enterprise;
+mod enterprise_batch;
 pub mod export;
+mod export_all;
+mod export_chat;
+mod export_chats;
+mod export_delta;
+mod export_emoticons;
+mod export_messages;
+mod export_sns;
 pub mod extract;
 pub mod favorites;
 pub mod history;
+mod image_key_sample;
+mod image_keys;
 mod init;
+mod launcher;
+mod mcp;
+mod mcp_voice;
 pub mod members;
+mod monitor_native;
 pub mod new_messages;
 pub mod output;
 pub mod search;
 pub mod sessions;
+mod setup_native;
+mod cleanup_native;
 pub mod sns_album;
+mod sns_archive;
 pub mod sns_feed;
 pub mod sns_notifications;
 pub mod sns_search;
+mod sns_timeline;
+mod sns_video;
 pub mod stats;
 pub mod toolkit;
+mod toolkit_run_prepare;
+pub(crate) mod task_worker;
+mod tasks;
 pub mod transport;
 pub mod unread;
 pub mod voices;
+pub(crate) mod web_native;
 
 use self::output::OutputOpts;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn command_tree_and_passthrough_contracts_are_valid() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                Cli::command().debug_assert();
+                for subcommand in ["run", "export-chats"] {
+                    let cli = Cli::try_parse_from([
+                        "wx",
+                        "toolkit",
+                        subcommand,
+                        "--",
+                        "--legacy-option",
+                        "value",
+                    ])
+                    .unwrap();
+                    let Commands::Toolkit { cmd } = cli.command else {
+                        panic!("wrong command")
+                    };
+                    let args = match cmd {
+                        toolkit::ToolkitCommands::Run { args, .. }
+                        | toolkit::ToolkitCommands::ExportChats { args, .. } => args,
+                        _ => panic!("wrong toolkit command"),
+                    };
+                    assert_eq!(args, ["--legacy-option", "value"]);
+                }
+                let cli = Cli::try_parse_from([
+                    "wx",
+                    "history",
+                    "peer",
+                    "--types",
+                    "image,text",
+                    "--types",
+                    "voice",
+                    "--oldest-first",
+                ])
+                .unwrap();
+                let Commands::History {
+                    msg_type,
+                    msg_types,
+                    oldest_first,
+                    ..
+                } = cli.command
+                else {
+                    panic!("wrong history command")
+                };
+                assert_eq!(msg_type, None);
+                assert_eq!(msg_types, ["image", "text", "voice"]);
+                assert!(oldest_first);
+                assert!(Cli::try_parse_from([
+                    "wx", "history", "peer", "--type", "text", "--types", "image"
+                ])
+                .is_err());
+                assert!(
+                    Cli::try_parse_from(["wx", "history", "peer", "--types", "invalid"]).is_err()
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
 
 /// wx — 微信本地数据 CLI（leyan 本地增强版）
 #[derive(Parser)]
@@ -46,6 +144,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// 原生 MCP stdio 入口：只读查询及受控图片导出，调用需显式 WX_CLI_CONFIG
+    Mcp(mcp::McpArgs),
     /// 初始化：检测数据目录并扫描加密密钥
     Init {
         /// 强制重新扫描（覆盖已有配置）
@@ -96,6 +196,13 @@ enum Commands {
         #[arg(long = "type", value_name = "TYPE",
               value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
         msg_type: Option<String>,
+        /// 多类型筛选，支持逗号分隔或重复指定
+        #[arg(long = "types", value_delimiter = ',', conflicts_with = "msg_type",
+              value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
+        msg_types: Vec<String>,
+        /// 从全部分片中的最早消息开始分页
+        #[arg(long)]
+        oldest_first: bool,
         /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
@@ -254,26 +361,8 @@ enum Commands {
     },
     /// 导出指定联系人的朋友圈文字、图片、视频和相册 HTML
     SnsAlbum {
-        /// 作者昵称、备注名或微信 ID
-        user: String,
-        /// 输出根目录；命令会在其下创建带时间戳的相册目录
-        #[arg(short = 'o', long, default_value = ".")]
-        output: String,
-        /// 最多读取的朋友圈条数
-        #[arg(short = 'n', long, default_value = "50000")]
-        limit: usize,
-        /// 起始时间 YYYY-MM-DD
-        #[arg(long)]
-        since: Option<String>,
-        /// 结束时间 YYYY-MM-DD
-        #[arg(long)]
-        until: Option<String>,
-        /// 只恢复本地缓存媒体，不进行图片或视频网络下载
-        #[arg(long)]
-        no_remote: bool,
-        /// 不导出视频
-        #[arg(long)]
-        no_videos: bool,
+        #[command(flatten)]
+        args: sns_album::Args,
     },
     /// 查询公众号文章推送（本地缓存）
     BizArticles {
@@ -385,6 +474,34 @@ enum Commands {
         #[command(subcommand)]
         cmd: toolkit::ToolkitCommands,
     },
+    /// Manage persistent account-bound daemon tasks
+    Tasks {
+        #[command(subcommand)]
+        cmd: tasks::Command,
+    },
+    /// 原生单聊导出（迁移预览，尚未替换旧批量导出）
+    ExportChat {
+        chat: String,
+        output: std::path::PathBuf,
+    },
+    /// 解码位置消息；跨分片 ID 冲突时需提供时间戳
+    DecodeLocation {
+        chat: String,
+        local_id: i64,
+        #[arg(default_value_t = 0)]
+        create_time: i64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 解码转账消息；跨分片 ID 冲突时需提供时间戳
+    DecodeTransfer {
+        chat: String,
+        local_id: i64,
+        #[arg(default_value_t = 0)]
+        create_time: i64,
+        #[arg(long)]
+        json: bool,
+    },
     /// 管理 wx-daemon
     Daemon {
         #[command(subcommand)]
@@ -413,6 +530,26 @@ pub enum DaemonCommands {
 
 pub fn run() {
     let cli = Cli::parse();
+    finish_dispatch(cli);
+}
+
+pub fn run_toolbox() {
+    let raw: Vec<_> = std::env::args_os().collect();
+    if raw.len() == 1 {
+        match launcher::prepare_first_run() {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                eprintln!("错误: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    let args = launcher::arguments(raw);
+    finish_dispatch(Cli::parse_from(args));
+}
+
+fn finish_dispatch(cli: Cli) {
     if let Err(e) = dispatch(cli) {
         eprintln!("错误: {}", e);
         std::process::exit(1);
@@ -423,8 +560,22 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_with_meta = cli.with_meta;
     let base_debug_source = cli.debug_source;
     match cli.command {
-        Commands::Init { force, db_dir, key_provider, restart_wechat, wechat_exe, capture_timeout } =>
-            init::cmd_init(force, db_dir, key_provider, restart_wechat, wechat_exe, capture_timeout),
+        Commands::Mcp(args) => mcp::cmd(args),
+        Commands::Init {
+            force,
+            db_dir,
+            key_provider,
+            restart_wechat,
+            wechat_exe,
+            capture_timeout,
+        } => init::cmd_init(
+            force,
+            db_dir,
+            key_provider,
+            restart_wechat,
+            wechat_exe,
+            capture_timeout,
+        ),
         Commands::Sessions { limit, json } => sessions::cmd_sessions(
             limit,
             OutputOpts {
@@ -440,6 +591,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             since,
             until,
             msg_type,
+            msg_types,
+            oldest_first,
             json,
         } => history::cmd_history(
             chat,
@@ -448,6 +601,8 @@ fn dispatch(cli: Cli) -> Result<()> {
             since,
             until,
             msg_type,
+            msg_types,
+            oldest_first,
             OutputOpts {
                 json,
                 with_meta: base_with_meta,
@@ -556,17 +711,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             user,
             json,
         } => sns_feed::cmd_sns_feed(limit, since, until, user, json),
-        Commands::SnsAlbum {
-            user,
-            output,
-            limit,
-            since,
-            until,
-            no_remote,
-            no_videos,
-        } => sns_album::cmd_sns_album(
-            user, output, limit, since, until, no_remote, no_videos,
-        ),
+        Commands::SnsAlbum { args } => sns_album::cmd_sns_album(args),
         Commands::SnsSearch {
             keyword,
             limit,
@@ -621,6 +766,34 @@ fn dispatch(cli: Cli) -> Result<()> {
             json,
         } => voices::cmd_voices(chat, output, limit, offset, since, until, overwrite, json),
         Commands::Toolkit { cmd } => toolkit::cmd_toolkit(cmd),
+        Commands::Tasks { cmd } => tasks::cmd(cmd),
+        Commands::ExportChat { chat, output } => export_chat::cmd_export(chat, output),
+        Commands::DecodeTransfer {
+            chat,
+            local_id,
+            create_time,
+            json,
+        } => decode::cmd_decode(
+            crate::ipc::Request::DecodeTransfer {
+                chat,
+                local_id,
+                create_time,
+            },
+            json,
+        ),
+        Commands::DecodeLocation {
+            chat,
+            local_id,
+            create_time,
+            json,
+        } => decode::cmd_decode(
+            crate::ipc::Request::DecodeLocation {
+                chat,
+                local_id,
+                create_time,
+            },
+            json,
+        ),
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
 }

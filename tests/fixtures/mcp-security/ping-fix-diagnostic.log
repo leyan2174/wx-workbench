@@ -1,0 +1,27 @@
+   Compiling wx-cli v0.3.0-leyan.7 (C:\CodexLocal\src\wx-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.79s
+     Running tests\mcp_security.rs (target\debug\deps\mcp_security-49ac1ff1cedd171a.exe)
+
+running 1 test
+COMMAND: "C:\\CodexLocal\\src\\wx-cli\\target\\debug\\wx.exe" "mcp" "--max-frame-bytes" "1024"
+STDOUT: {"id":0,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"contacts\":[]}","type":"text"}],"isError":false}}
+
+STDERR: 
+IPC REQUEST SEQUENCE: [Object {"cmd": String("ping")}, Object {"cmd": String("ping")}, Object {"cmd": String("contacts"), "limit": Number(50)}]
+STARTUP LOCK CREATED: true
+
+thread 'mcp_startup_ping_must_obey_response_byte_limit' (15112) panicked at tests\mcp_security.rs:398:5:
+--max-frame-bytes=1024 仍完整接收了 8 MiB 启动 ping；MCP reply={"id":1,"jsonrpc":"2.0","result":{"content":[{"text":"{\"contacts\":[]}","type":"text"}],"isError":false}}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test mcp_startup_ping_must_obey_response_byte_limit ... FAILED
+
+failures:
+
+failures:
+    mcp_startup_ping_must_obey_response_byte_limit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.48s
+
+error: test failed, to rerun pass `--test mcp_security`

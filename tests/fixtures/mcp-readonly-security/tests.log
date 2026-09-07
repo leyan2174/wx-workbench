@@ -1,0 +1,47 @@
+   Compiling cfg-if v1.0.4
+   Compiling once_cell v1.21.4
+   Compiling memchr v2.8.3
+   Compiling windows-link v0.2.1
+   Compiling regex-syntax v0.8.11
+   Compiling pin-project-lite v0.2.17
+   Compiling ryu v1.0.23
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling smallvec v1.16.0
+   Compiling itoa v1.0.18
+   Compiling fastrand v2.5.0
+   Compiling fallible-iterator v0.3.0
+   Compiling bitflags v2.13.1
+   Compiling zerocopy v0.8.56
+   Compiling serde_core v1.0.229
+   Compiling anyhow v1.0.104
+   Compiling md5 v0.7.0
+   Compiling base64 v0.22.1
+   Compiling roxmltree v0.20.0
+   Compiling num-traits v0.2.19
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling libsqlite3-sys v0.28.0
+   Compiling getrandom v0.4.3
+   Compiling windows-sys v0.61.2
+   Compiling tokio v1.53.1
+   Compiling zstd-safe v7.2.4
+   Compiling zstd v0.13.3
+   Compiling aho-corasick v1.1.5
+   Compiling tempfile v3.27.0
+   Compiling regex-automata v0.4.18
+   Compiling serde v1.0.229
+   Compiling chrono v0.4.45
+   Compiling serde_json v1.0.140
+   Compiling ahash v0.8.12
+   Compiling hashbrown v0.14.5
+   Compiling regex v1.13.1
+   Compiling hashlink v0.9.1
+   Compiling rusqlite v0.31.0
+   Compiling mcp-readonly-security-harness v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-readonly-security)
+error[E0433]: cannot find `toolkit` in `crate`
+ --> ..\..\..\src\daemon\query\mcp_contacts.rs:3:12
+  |
+3 | use crate::toolkit::contact_metadata::{
+  |            ^^^^^^^ could not find `toolkit` in the crate root
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `mcp-readonly-security-harness` (lib) due to 1 previous error

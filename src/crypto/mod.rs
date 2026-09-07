@@ -16,6 +16,26 @@ pub const RESERVE_SZ: usize = 80; // IV(16) + HMAC(64)
 /// SQLite 文件头魔数（16字节）
 pub const SQLITE_HDR: &[u8] = b"SQLite format 3\x00";
 
+pub fn verify_page1(enc_key: &[u8; 32], page: &[u8]) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+    if page.len() < PAGE_SZ {
+        return false;
+    }
+    let mut salt = [0; 16];
+    for (dst, src) in salt.iter_mut().zip(&page[..16]) {
+        *dst = src ^ 0x3a;
+    }
+    let mut mac_key = zeroize::Zeroizing::new([0u8; 32]);
+    pbkdf2::pbkdf2_hmac::<Sha512>(enc_key, &salt, 2, &mut *mac_key);
+    let Ok(mut mac) = Hmac::<Sha512>::new_from_slice(&*mac_key) else {
+        return false;
+    };
+    mac.update(&page[16..4032]);
+    mac.update(&1u32.to_le_bytes());
+    mac.verify_slice(&page[4032..PAGE_SZ]).is_ok()
+}
+
 type Aes256CbcDec = Decryptor<Aes256>;
 
 /// 解密单个 SQLCipher 4 页

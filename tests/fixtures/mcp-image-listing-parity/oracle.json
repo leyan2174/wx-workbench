@@ -1,0 +1,1042 @@
+{
+  "source_sha256": {
+    "decode_image.py": "05ff955666273296616a4988b0d765e3788e710816d4d16c395825f161b12dc9",
+    "mcp_server.py": "cb1fec139d911c6b8f78c85805e88c77c5be4d215c33ef007536410c2424c180"
+  },
+  "source_lines": {
+    "extract_md5_from_packed_info": 426,
+    "ImageResolver.__init__": 468,
+    "ImageResolver.get_image_md5": 484,
+    "ImageResolver.find_dat_files": 525,
+    "ImageResolver.list_chat_images": 599,
+    "_validate_pagination": 1449,
+    "_parse_time_value": 1458,
+    "_parse_time_range": 1482,
+    "_pagination_hint": 1490,
+    "get_chat_images": 3440
+  },
+  "timezone": "UTC+08:00",
+  "note": "Synthetic resource MD5 is stored metadata, not a claim about DAT plaintext; size is encrypted DAT bytes selected by legacy lexical glob.",
+  "cases": [
+    {
+      "name": "unique_resource_one_dat",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  2KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "missing_resource_row",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": null
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  (无资源信息)",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "missing_resource_database",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "resource_available": false,
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": null
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  (无资源信息)",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "resource_without_md5",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "6e6f742070726f746f627566204d4435"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": null
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  (无资源信息)",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "md5_but_not_downloaded",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b"
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "zero_byte_dat",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 0
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 0
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "half_kib_rounds_to_even",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 512
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 512
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  0KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "reused_local_id_legacy_chooses_newest",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        },
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067260,
+          "local_type": 3,
+          "packed_hex": "12220a203133653936643134666230343035343938393932326133383364313163363837"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "13e96d14fb04054989922a383d11c687",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=13e96d14fb04054989922a383d11c687  8KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "missing_exact_time_both_fallback",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067260,
+          "local_type": 3,
+          "packed_hex": "12220a203133653936643134666230343035343938393932326133383364313163363837"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "13e96d14fb04054989922a383d11c687",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=13e96d14fb04054989922a383d11c687  8KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "other_chat_same_id",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_other",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203133653936643134666230343035343938393932326133383364313163363837"
+        },
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "username": "wxid_other",
+          "relative": "2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  2KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "high_flag_resource",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 4294967299,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  2KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "high_flag_message_legacy_excluded",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 4294967299,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 4294967299,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [],
+      "legacy_text": "Demo 无图片消息",
+      "resource_cache_reads": 0,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "ambiguous_exact_resource_legacy_first_row",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        },
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203133653936643134666230343035343938393932326133383364313163363837"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  2KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "legacy_cross_month_lexical_thumbnail",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1707955200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1707955200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b_t.dat",
+          "size": 3072
+        },
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-02/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1707955200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b_t.dat",
+          "size": 3072
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-02-15 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  3KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "legacy_prefix_glob_accepts_noncanonical_name",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55bUNRELATED.dat",
+          "size": 777
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55bUNRELATED.dat",
+          "size": 777
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53fd943b058cad9eb3838c2ebbbdc55b  1KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "uppercase_marker_preserved",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533464439343342303538434144394542333833384332454242424443353542"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53FD943B058CAD9EB3838C2EBBBDC55B.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53FD943B058CAD9EB3838C2EBBBDC55B",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53FD943B058CAD9EB3838C2EBBBDC55B.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=0, limit=20, id=wxid_fixture）:\n\n[2024-01-01 08:00] local_id=1  MD5=53FD943B058CAD9EB3838C2EBBBDC55B  2KB",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "global_shard_page",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        },
+        {
+          "local_id": 2,
+          "create_time": 1704067320,
+          "local_type": 3,
+          "shard": 1
+        },
+        {
+          "local_id": 3,
+          "create_time": 1704067260,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        },
+        {
+          "username": "wxid_fixture",
+          "local_id": 2,
+          "create_time": 1704067320,
+          "local_type": 3,
+          "packed_hex": "12220a203133653936643134666230343035343938393932326133383364313163363837"
+        },
+        {
+          "username": "wxid_fixture",
+          "local_id": 3,
+          "create_time": 1704067260,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "kwargs": {
+        "limit": 1,
+        "offset": 1
+      },
+      "legacy_rows": [
+        {
+          "local_id": 3,
+          "create_time": 1704067260,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        },
+        {
+          "local_id": 2,
+          "create_time": 1704067320,
+          "md5": "13e96d14fb04054989922a383d11c687",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/13e96d14fb04054989922a383d11c687.dat",
+          "size": 8192
+        }
+      ],
+      "legacy_text": "Demo 的 1 张图片（offset=1, limit=1, id=wxid_fixture）:\n\n[2024-01-01 08:01] local_id=3  MD5=53fd943b058cad9eb3838c2ebbbdc55b  2KB\n\n（可能还有更多结果，可设 offset=2 继续查询）",
+      "resource_cache_reads": 6,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "time_bounds_inclusive",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067199,
+          "local_type": 3,
+          "shard": 0
+        },
+        {
+          "local_id": 2,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        },
+        {
+          "local_id": 3,
+          "create_time": 1704067260,
+          "local_type": 3,
+          "shard": 0
+        },
+        {
+          "local_id": 4,
+          "create_time": 1704067261,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [],
+      "files": [],
+      "kwargs": {
+        "start_time": "2024-01-01 08:00:00",
+        "end_time": "2024-01-01 08:01:00"
+      },
+      "legacy_rows": [
+        {
+          "local_id": 4,
+          "create_time": 1704067261,
+          "md5": null
+        },
+        {
+          "local_id": 3,
+          "create_time": 1704067260,
+          "md5": null
+        },
+        {
+          "local_id": 2,
+          "create_time": 1704067200,
+          "md5": null
+        },
+        {
+          "local_id": 1,
+          "create_time": 1704067199,
+          "md5": null
+        }
+      ],
+      "legacy_text": "Demo 的 2 张图片（offset=0, limit=20, id=wxid_fixture）\n时间范围: 2024-01-01 08:00:00 ~ 2024-01-01 08:01:00:\n\n[2024-01-01 08:01] local_id=3  (无资源信息)\n[2024-01-01 08:00] local_id=2  (无资源信息)",
+      "resource_cache_reads": 6,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "offset_exhausted",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "kwargs": {
+        "offset": 10
+      },
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "Demo 的 0 张图片（offset=10, limit=20, id=wxid_fixture）:\n\n",
+      "resource_cache_reads": 2,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "invalid_pagination",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "kwargs": {
+        "limit": 0
+      },
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "错误: limit 必须大于 0",
+      "resource_cache_reads": 1,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "invalid_time",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "kwargs": {
+        "start_time": "not-a-time"
+      },
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "错误: start_time 格式无效: not-a-time。支持 YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS",
+      "resource_cache_reads": 1,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "no_shards",
+      "messages": [],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_rows": [],
+      "legacy_text": "找不到 Demo 的消息记录",
+      "resource_cache_reads": 0,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    },
+    {
+      "name": "unknown_chat",
+      "messages": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "shard": 0
+        }
+      ],
+      "resources": [
+        {
+          "username": "wxid_fixture",
+          "local_id": 1,
+          "create_time": 1704067200,
+          "local_type": 3,
+          "packed_hex": "12220a203533666439343362303538636164396562333833386332656262626463353562"
+        }
+      ],
+      "files": [
+        {
+          "username": "wxid_fixture",
+          "relative": "2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "chat_name": "unknown",
+      "legacy_rows": [
+        {
+          "local_id": 1,
+          "create_time": 1704067200,
+          "md5": "53fd943b058cad9eb3838c2ebbbdc55b",
+          "dat_file": "msg/attach/177ef1bdd5fa0dbd8c9f5ec8577703b1/2024-01/Img/53fd943b058cad9eb3838c2ebbbdc55b.dat",
+          "size": 1536
+        }
+      ],
+      "legacy_text": "找不到聊天对象: unknown",
+      "resource_cache_reads": 1,
+      "source_unchanged": true,
+      "dat_content_reads": 0,
+      "output_created": false
+    }
+  ]
+}

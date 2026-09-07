@@ -1,0 +1,868 @@
+{
+  "provenance": {
+    "synthetic_only": true,
+    "source_sha256": {
+      "decode_image.py": "05ff955666273296616a4988b0d765e3788e710816d4d16c395825f161b12dc9",
+      "export_sns.py": "95539b459f4c38d6e106f8a601b9fdb21edf0f1ef916c3d15c662a1f19b44df3",
+      "export_sns_album.py": "fa0833d15e8ce044c8469811b231901984c7741affd16ad4e8836d7326900cee"
+    }
+  },
+  "key_hex": "30313233343536373839414243444546",
+  "decrypt_cases": [
+    {
+      "name": "v1_aes_0",
+      "input_hex": "070856310807000000000700000000a4bd516ab4a5f4dae57b06e5e2ab770089504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_1",
+      "input_hex": "070856310807010000000700000000bbb14279e5e0c30c45b99d49e2434dab504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_15",
+      "input_hex": "0708563108070f000000070000000080cb2adb92ccb05de708b8361d31d7d45200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_16",
+      "input_hex": "070856310807100000000700000000f51edd24ea7b44a1935e2a2b16cebbf8a4bd516ab4a5f4dae57b06e5e2ab770000000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_17",
+      "input_hex": "070856310807110000000700000000f51edd24ea7b44a1935e2a2b16cebbf8fc93fe52882cc1067c39624f8eca0840000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_32",
+      "input_hex": "070856310807200000000700000000f51edd24ea7b44a1935e2a2b16cebbf825e245ded2cbd80938a654e4a831ab7ea4bd516ab4a5f4dae57b06e5e2ab7700ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v1_aes_96",
+      "input_hex": "070856310807600000000000000000f51edd24ea7b44a1935e2a2b16cebbf825e245ded2cbd80938a654e4a831ab7eac74847fd7743260f528c4277b059af7af014cdbb1c8cd43e665699d664750c6c1d7375f486d58e966ee656f7cecd1d9c0b96af8b7d172be1051d32005000999a4bd516ab4a5f4dae57b06e5e2ab7700",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_0",
+      "input_hex": "07085632080700000000070000000034af336c9f031b3556738c63e61ea2f689504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_1",
+      "input_hex": "0708563208070100000007000000006df4944c4acc58cd4c80190b819bc687504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_15",
+      "input_hex": "0708563208070f00000007000000000eb197f317f2a2a0167639070683e2bb5200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_16",
+      "input_hex": "0708563208071000000007000000000ee98bc1b1703acc45583d9ba9e47c6234af336c9f031b3556738c63e61ea2f600000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_17",
+      "input_hex": "0708563208071100000007000000000ee98bc1b1703acc45583d9ba9e47c62ae59d2492ac8456592d3638729fb1920000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_32",
+      "input_hex": "0708563208072000000007000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_aes_96",
+      "input_hex": "0708563208076000000000000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db5836c3f8e3f108cda56b79caa0cc1c647d3a76ae723a26bc71f4b46eda28e51855e059709a08239f1f65f3904eb99ca56b52f35c32a01d4c55cd491d819e3ea534af336c9f031b3556738c63e61ea2f6",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_custom_xor",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e000000377e727973997557b5",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 55,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "v2_missing_key",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": null,
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    },
+    {
+      "name": "v2_wrong_key",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": "66656463626139383736353433323130",
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    },
+    {
+      "name": "v1_ignores_v2_key",
+      "input_hex": "070856310807200000000900000000f51edd24ea7b44a1935e2a2b16cebbf825e245ded2cbd80938a654e4a831ab7ea4bd516ab4a5f4dae57b06e5e2ab7700ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": "66656463626139383736353433323130",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "bad_padding",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2e7ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    },
+    {
+      "name": "truncated_aes",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    },
+    {
+      "name": "strict_overlap",
+      "input_hex": "070856320807200000006f000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d494844520000000800000006080200000071674861034939f8b244cdd0b513216cf4ea06e925e35a35d414df253d3ca5d0df53bc27bbe4178b93bddefb04eb6e962a7e2488888882fccdd0fcfbf1e6fce0edfce1eb88ba18658488888899c1ccc9dcf014eb98dcba4e02908eda8a881c699ba945fa63b68888880049454e44ae426082",
+      "strict_reject": true
+    },
+    {
+      "name": "strict_plaintext_length",
+      "input_hex": "0708563208072100000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": true
+    },
+    {
+      "name": "xor_png",
+      "input_hex": "d30a141d575040505a5a5a5713121e085a5a5a525a5a5a5c52585a5a5a2b3d12f65a5a5a502e1f022e2923342e323f2e33395a68cab7565a5a5a4b131e1b0e22c6394a0e689cd0425c08585acebb497b9728b1645a5a5a5a131f141ef4183ad8",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "plain_png",
+      "input_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "strict_reject": false
+    },
+    {
+      "name": "xor_jpg",
+      "input_hex": "a582a59a5a4b525a5c5a525a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "ffd8ffc000110800060008000000000000000000000000000000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "plain_jpg",
+      "input_hex": "ffd8ffc000110800060008000000000000000000000000000000000000000000000000",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "ffd8ffc000110800060008000000000000000000000000000000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "xor_gif",
+      "input_hex": "1d131c62633b525a5c5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "47494638396108000600000000000000000000000000000000000000000000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "plain_gif",
+      "input_hex": "47494638396108000600000000000000000000000000000000000000000000000000000000000000",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "47494638396108000600000000000000000000000000000000000000000000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "xor_webp",
+      "input_hex": "08131c1c7a5a5a5a0d1f180a0c0a627a5a5a5a5a5a5a5a5a5a5a525a5c5a5a5a5a5a5a5a5a5a5a5a",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "52494646200000005745425056503820000000000000000000000800060000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "plain_webp",
+      "input_hex": "52494646200000005745425056503820000000000000000000000800060000000000000000000000",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": "52494646200000005745425056503820000000000000000000000800060000000000000000000000",
+      "strict_reject": false
+    },
+    {
+      "name": "too_short",
+      "input_hex": "ffd8ff",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    },
+    {
+      "name": "unknown",
+      "input_hex": "756e6b6e6f776e2d73796e7468657469632d64617461",
+      "key_hex": "30313233343536373839414243444546",
+      "xor_key": 136,
+      "expected_hex": null,
+      "strict_reject": false
+    }
+  ],
+  "files": [
+    {
+      "path": "xwechat/2023-11/Sns/Img/aa/v1",
+      "input_hex": "070856310807300000000700000000f51edd24ea7b44a1935e2a2b16cebbf825e245ded2cbd80938a654e4a831ab7eac74847fd7743260f528c4277b059af7a4bd516ab4a5f4dae57b06e5e2ab77006963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049cdc6cc26cae80a",
+      "mtime": 1700000060
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ab/v2",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000001e7445587473796e7468657469630078787878787878787878787878787878787878785f2b2c260000001149444154789c63105432c68a180652020094e11321cd72eb3e00000088c1cdc6cc26cae80a",
+      "mtime": 1700000001
+    },
+    {
+      "path": "storage/2023-11/xor",
+      "input_hex": "d30a141d575040505a5a5a5713121e085a5a5a525a5a5a5c52585a5a5a2b3d12f65a5a5a682e1f022e2923342e323f2e33395a222222222222222222222222222222222222222222222222222222222222222222222222222222220961b7b25a5a5a4b131e1b0e22c6394a0e689cd0425c08585acebb497b9728b1645a5a5a5a131f141ef4183ad8",
+      "mtime": 1700000003
+    },
+    {
+      "path": "storage/2023-11/xor_t",
+      "input_hex": "d30a141d575040505a5a5a5713121e085a5a5a525a5a5a5c52585a5a5a2b3d12f65a5a5a502e1f022e2923342e323f2e33395a68cab7565a5a5a4b131e1b0e22c6394a0e689cd0425c08585acebb497b9728b1645a5a5a5a131f141ef4183ad8",
+      "mtime": 1700000000
+    },
+    {
+      "path": "storage/2023-12/plain",
+      "input_hex": "89504e470d0a1a0a0000000d4948445200000003000000040802000000c44f12500000000a7445587473796e746865746963003290ed0c0000001049444154789c63105432862006bc2c005e3004c953c76f480000000049454e44ae426082",
+      "mtime": 1700864000
+    },
+    {
+      "path": "xwechat/2023-11/Other/Img/aa/not-scanned",
+      "input_hex": "0708563208072000000000000000000ee98bc1b1703acc45583d9ba9e47c628e61ad6bd2bd5c9c57adb5b42d5857db34af336c9f031b3556738c63e61ea2f6ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ac/invalid",
+      "input_hex": "6e6f742d616e2d696d6167656e6f742d616e2d696d6167656e6f742d616e2d696d616765",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ad/bad-padding",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c627ae387bf9eadad2ced96f4c5a7470d4d34af336c9f031b3556738c63e61ea2e7e60000000a7445587473796e746865746963003290ed0c0000003049444154789cedcd410900000804b0ab60052bd8bf9b297c0883fd97eab91687c3e170381c0e87c3e170381c8e47c702346c42a71c893bb500000088c1cdc6cc26cae80a",
+      "mtime": 1700000005
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ae/tie-first",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c62164c8bc41d3da7f966a325fce0ab426134af336c9f031b3556738c63e61ea2f6c90000000a7445587473796e746865746963003290ed0c0000001349444154789c63105432c68f1846550c800a00db973499ba2b1fb900000088c1cdc6cc26cae80a",
+      "mtime": 1700000002
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/af/tie-second",
+      "input_hex": "0708563208072000000009000000000ee98bc1b1703acc45583d9ba9e47c62164c8bc41d3da7f966a325fce0ab426134af336c9f031b3556738c63e61ea2f6c90000000a7445587473796e746865746963003290ed0c0000001349444154789c63105432c68f1846550c800a00db973499ba2b1fb900000088c1cdc6cc26cae80a",
+      "mtime": 1700000002
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/43/bfa8350ed876dc512561019629acc0.tmp",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/e7/2acf7727d578feca15102ef5b92c2a.mp4",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/8b/3918d2285013a8cc8b8299481e29da.mp4",
+      "input_hex": "6e6f742d6d70346e6f742d6d70346e6f742d6d70346e6f742d6d70346e6f742d6d70346e6f742d6d70346e6f742d6d70346e6f742d6d7034",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.mp4",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.tmp",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-12/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.tmp",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2024-01/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.MP4",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Video/xx/not-a-hash.mp4",
+      "input_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f",
+      "mtime": 1700000000
+    }
+  ],
+  "expected_images": [
+    {
+      "path": "xwechat/2023-11/Sns/Img/ab/v2",
+      "mtime": 1700000001.0,
+      "estimated_size": 116,
+      "format": "png",
+      "width": 8,
+      "height": 6,
+      "decoded_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000001e7445587473796e7468657469630078787878787878787878787878787878787878785f2b2c260000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082"
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ae/tie-first",
+      "mtime": 1700000002.0,
+      "estimated_size": 98,
+      "format": "png",
+      "width": 11,
+      "height": 12,
+      "decoded_hex": "89504e470d0a1a0a0000000d494844520000000b0000000c08020000003bcbd0c90000000a7445587473796e746865746963003290ed0c0000001349444154789c63105432c68f1846550c800a00db973499ba2b1fb90000000049454e44ae426082"
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/af/tie-second",
+      "mtime": 1700000002.0,
+      "estimated_size": 98,
+      "format": "png",
+      "width": 11,
+      "height": 12,
+      "decoded_hex": "89504e470d0a1a0a0000000d494844520000000b0000000c08020000003bcbd0c90000000a7445587473796e746865746963003290ed0c0000001349444154789c63105432c68f1846550c800a00db973499ba2b1fb90000000049454e44ae426082"
+    },
+    {
+      "path": "storage/2023-11/xor",
+      "mtime": 1700000003.0,
+      "estimated_size": 136,
+      "format": "png",
+      "width": 8,
+      "height": 6,
+      "decoded_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac000000327445587473796e7468657469630078787878787878787878787878787878787878787878787878787878787878787878787878787878533bede80000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082"
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/ad/bad-padding",
+      "mtime": 1700000005.0,
+      "estimated_size": 127,
+      "format": "png",
+      "width": 33,
+      "height": 44,
+      "decoded_hex": null
+    },
+    {
+      "path": "xwechat/2023-11/Sns/Img/aa/v1",
+      "mtime": 1700000060.0,
+      "estimated_size": 96,
+      "format": "png",
+      "width": 8,
+      "height": 6,
+      "decoded_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082"
+    },
+    {
+      "path": "storage/2023-12/plain",
+      "mtime": 1700864000.0,
+      "estimated_size": 95,
+      "format": "png",
+      "width": 3,
+      "height": 4,
+      "decoded_hex": "89504e470d0a1a0a0000000d4948445200000003000000040802000000c44f12500000000a7445587473796e746865746963003290ed0c0000001049444154789c63105432862006bc2c005e3004c953c76f480000000049454e44ae426082"
+    }
+  ],
+  "expected_videos": {
+    "43bfa8350ed876dc512561019629acc0": "xwechat/2023-11/Sns/Video/43/bfa8350ed876dc512561019629acc0.tmp",
+    "7a7dc7a7da9948fe67d6e1cd172f96d2": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4",
+    "8b3918d2285013a8cc8b8299481e29da": "xwechat/2023-11/Sns/Video/8b/3918d2285013a8cc8b8299481e29da.mp4",
+    "a05c2acfa1563e87ce87c40235b6f5fd": "xwechat/2024-01/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.MP4",
+    "e72acf7727d578feca15102ef5b92c2a": "xwechat/2023-11/Sns/Video/e7/2acf7727d578feca15102ef5b92c2a.mp4",
+    "fa8775f3d681506e1a2b27ae0d0f1b9b": "xwechat/2023-12/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.tmp"
+  },
+  "matches": [
+    {
+      "name": "dimensions_and_size",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6",
+          "total_size": "96"
+        }
+      ],
+      "expected_paths": [
+        "xwechat/2023-11/Sns/Img/aa/v1"
+      ]
+    },
+    {
+      "name": "unique_per_post",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        },
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        },
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        },
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        }
+      ],
+      "expected_paths": [
+        "xwechat/2023-11/Sns/Img/ab/v2",
+        "storage/2023-11/xor",
+        "xwechat/2023-11/Sns/Img/aa/v1",
+        null
+      ]
+    },
+    {
+      "name": "fallback_empty_window",
+      "create_time": 1697408000,
+      "media": [
+        {
+          "type": "2",
+          "width": "3",
+          "height": "4"
+        }
+      ],
+      "expected_paths": [
+        "storage/2023-12/plain"
+      ]
+    },
+    {
+      "name": "no_fallback_for_dimension_miss",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "2",
+          "width": "3",
+          "height": "4"
+        }
+      ],
+      "expected_paths": [
+        null
+      ]
+    },
+    {
+      "name": "size_ratio_reject",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "2",
+          "total_size": "9999999"
+        }
+      ],
+      "expected_paths": [
+        null
+      ]
+    },
+    {
+      "name": "non_image_and_missing_type",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "6"
+        },
+        {
+          "type": "15"
+        },
+        {
+          "type": "28"
+        },
+        {}
+      ],
+      "expected_paths": [
+        null,
+        null,
+        null,
+        "xwechat/2023-11/Sns/Img/ab/v2"
+      ]
+    },
+    {
+      "name": "lower_window_boundary",
+      "create_time": 1700259260,
+      "media": [
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        }
+      ],
+      "expected_paths": [
+        "xwechat/2023-11/Sns/Img/aa/v1"
+      ]
+    },
+    {
+      "name": "upper_window_boundary",
+      "create_time": 1699740801,
+      "media": [
+        {
+          "type": "2",
+          "width": "8",
+          "height": "6"
+        }
+      ],
+      "expected_paths": [
+        "xwechat/2023-11/Sns/Img/ab/v2"
+      ]
+    },
+    {
+      "name": "stable_tie_order",
+      "create_time": 1700000000,
+      "media": [
+        {
+          "type": "2",
+          "width": "11",
+          "height": "12"
+        },
+        {
+          "type": "2",
+          "width": "11",
+          "height": "12"
+        }
+      ],
+      "expected_paths": [
+        "xwechat/2023-11/Sns/Img/ae/tie-first",
+        "xwechat/2023-11/Sns/Img/af/tie-second"
+      ]
+    }
+  ],
+  "video_lookups": [
+    {
+      "post": {
+        "post_id": "18446744073709551610",
+        "tid": -6
+      },
+      "media": {
+        "id": "12345678901234567890"
+      },
+      "expected_path": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4"
+    },
+    {
+      "post": {
+        "tid": -6
+      },
+      "media": {
+        "id": "12345678901234567890"
+      },
+      "expected_path": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4"
+    },
+    {
+      "post": {
+        "tid": -7
+      },
+      "media": {
+        "id": "partial-media"
+      },
+      "expected_path": "xwechat/2023-11/Sns/Video/43/bfa8350ed876dc512561019629acc0.tmp"
+    },
+    {
+      "post": {
+        "tid": 0
+      },
+      "media": {
+        "id": "zero-media"
+      },
+      "expected_path": "xwechat/2023-11/Sns/Video/e7/2acf7727d578feca15102ef5b92c2a.mp4"
+    },
+    {
+      "post": {
+        "tid": -6
+      },
+      "media": {},
+      "expected_path": null
+    },
+    {
+      "post": {
+        "tid": -6
+      },
+      "media": {
+        "id": "unavailable"
+      },
+      "expected_path": null
+    },
+    {
+      "post": {
+        "post_id": "duplicate-post"
+      },
+      "media": {
+        "id": "larger-partial"
+      },
+      "expected_path": "xwechat/2023-12/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.tmp"
+    },
+    {
+      "post": {
+        "post_id": "duplicate-post"
+      },
+      "media": {
+        "id": "later-complete"
+      },
+      "expected_path": "xwechat/2024-01/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.MP4"
+    }
+  ],
+  "video_copies": [
+    {
+      "source": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4",
+      "post_id": "18446744073709551610",
+      "media_id": "12345678901234567890",
+      "allow_partial": false,
+      "stem": "copy_0_0",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_0_0.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/7a/7dc7a7da9948fe67d6e1cd172f96d2.mp4",
+      "post_id": "18446744073709551610",
+      "media_id": "12345678901234567890",
+      "allow_partial": true,
+      "stem": "copy_0_1",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_0_1.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/43/bfa8350ed876dc512561019629acc0.tmp",
+      "post_id": "-7",
+      "media_id": "partial-media",
+      "allow_partial": false,
+      "stem": "copy_1_0",
+      "legacy_status": null,
+      "expected_reference": {},
+      "expected_hex": null
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/43/bfa8350ed876dc512561019629acc0.tmp",
+      "post_id": "-7",
+      "media_id": "partial-media",
+      "allow_partial": true,
+      "stem": "copy_1_1",
+      "legacy_status": "partial",
+      "expected_reference": {
+        "local_file": "videos/copy_1_1.mp4",
+        "video_source": "cache",
+        "video_complete": false
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/e7/2acf7727d578feca15102ef5b92c2a.mp4",
+      "post_id": "0",
+      "media_id": "zero-media",
+      "allow_partial": false,
+      "stem": "copy_2_0",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_2_0.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/e7/2acf7727d578feca15102ef5b92c2a.mp4",
+      "post_id": "0",
+      "media_id": "zero-media",
+      "allow_partial": true,
+      "stem": "copy_2_1",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_2_1.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/8b/3918d2285013a8cc8b8299481e29da.mp4",
+      "post_id": "18446744073709551610",
+      "media_id": "bad-header",
+      "allow_partial": false,
+      "stem": "copy_3_0",
+      "legacy_status": null,
+      "expected_reference": {},
+      "expected_hex": null
+    },
+    {
+      "source": "xwechat/2023-11/Sns/Video/8b/3918d2285013a8cc8b8299481e29da.mp4",
+      "post_id": "18446744073709551610",
+      "media_id": "bad-header",
+      "allow_partial": true,
+      "stem": "copy_3_1",
+      "legacy_status": null,
+      "expected_reference": {},
+      "expected_hex": null
+    },
+    {
+      "source": "xwechat/2023-12/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.tmp",
+      "post_id": "duplicate-post",
+      "media_id": "larger-partial",
+      "allow_partial": false,
+      "stem": "copy_4_0",
+      "legacy_status": null,
+      "expected_reference": {},
+      "expected_hex": null
+    },
+    {
+      "source": "xwechat/2023-12/Sns/Video/fa/8775f3d681506e1a2b27ae0d0f1b9b.tmp",
+      "post_id": "duplicate-post",
+      "media_id": "larger-partial",
+      "allow_partial": true,
+      "stem": "copy_4_1",
+      "legacy_status": "partial",
+      "expected_reference": {
+        "local_file": "videos/copy_4_1.mp4",
+        "video_source": "cache",
+        "video_complete": false
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2024-01/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.MP4",
+      "post_id": "duplicate-post",
+      "media_id": "later-complete",
+      "allow_partial": false,
+      "stem": "copy_5_0",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_5_0.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    },
+    {
+      "source": "xwechat/2024-01/Sns/Video/a0/5c2acfa1563e87ce87c40235b6f5fd.MP4",
+      "post_id": "duplicate-post",
+      "media_id": "later-complete",
+      "allow_partial": true,
+      "stem": "copy_5_1",
+      "legacy_status": "complete",
+      "expected_reference": {
+        "local_file": "videos/copy_5_1.mp4",
+        "video_source": "cache",
+        "video_complete": true
+      },
+      "expected_hex": "000000186674797069736f6d73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f73796e7468657469632d766964656f"
+    }
+  ],
+  "dimensions": [
+    {
+      "input_hex": "89504e470d0a1a0a0000000d4948445200000008000000060802000000716748ac0000000a7445587473796e746865746963003290ed0c0000001149444154789c63105432c68a180652020094e11321cd72eb3e0000000049454e44ae426082",
+      "format": "png",
+      "dimensions": [
+        8,
+        6
+      ]
+    },
+    {
+      "input_hex": "ffd8ffc000110800060008000000000000000000000000000000000000000000000000",
+      "format": "jpg",
+      "dimensions": [
+        8,
+        6
+      ]
+    },
+    {
+      "input_hex": "47494638396108000600000000000000000000000000000000000000000000000000000000000000",
+      "format": "gif",
+      "dimensions": [
+        0,
+        0
+      ]
+    },
+    {
+      "input_hex": "52494646200000005745425056503820000000000000000000000800060000000000000000000000",
+      "format": "webp",
+      "dimensions": [
+        8,
+        6
+      ]
+    },
+    {
+      "input_hex": "73686f7274",
+      "format": "bin",
+      "dimensions": [
+        0,
+        0
+      ]
+    }
+  ]
+}

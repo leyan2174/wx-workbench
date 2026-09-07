@@ -1,0 +1,24 @@
+[package]
+name = "wx-mcp-protocol-harness"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "synthetic-mcp"
+path = "main.rs"
+
+[[test]]
+name = "stdio-process"
+path = "stdio_process.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }

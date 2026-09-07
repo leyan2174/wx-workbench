@@ -1,0 +1,34 @@
+[package]
+name = "mcp-voice-host-security"
+version = "0.0.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+[workspace]
+[lib]
+path = "lib.rs"
+[[bin]]
+name = "host-security-probe"
+path = "host.rs"
+[[bin]]
+name = "synthetic-asr"
+path = "fake.rs"
+[[test]]
+name = "audit"
+path = "audit.rs"
+[dependencies]
+mcp-voice-host = { path = "../mcp-voice-host" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
+chrono = "0.4"
+tempfile = "3"
+zeroize = "1"
+md5 = "0.7"
+sha2 = "0.10"
+same-file = "1"
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+[build-dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+prettyplease = "0.2"

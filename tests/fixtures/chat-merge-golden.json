@@ -1,0 +1,579 @@
+{
+  "schema": 1,
+  "synthetic_only": true,
+  "cases": [
+    {
+      "name": "boundary-null-transcription-and-shards",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a",
+            "transcription": "old synthetic voice",
+            "custom": {
+              "keep": true
+            }
+          },
+          {
+            "local_id": 2,
+            "timestamp": null,
+            "source": "a"
+          },
+          {
+            "local_id": 3,
+            "timestamp": 10,
+            "source": "a"
+          }
+        ],
+        "custom_root": {
+          "old": 1
+        }
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a",
+            "transcription": "replacement"
+          },
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "b"
+          },
+          {
+            "local_id": 4,
+            "timestamp": 10,
+            "source": "a"
+          },
+          {
+            "local_id": 4,
+            "timestamp": 10,
+            "source": "a"
+          },
+          {
+            "local_id": 5,
+            "timestamp": -1,
+            "source": "b"
+          },
+          {
+            "local_id": 6,
+            "source": "a"
+          }
+        ],
+        "custom_root": {
+          "new": 2
+        },
+        "fresh": true
+      },
+      "expected": {
+        "ok": {
+          "document": {
+            "username": "synthetic-user",
+            "messages": [
+              {
+                "local_id": 5,
+                "timestamp": -1,
+                "source": "b"
+              },
+              {
+                "local_id": 2,
+                "timestamp": null,
+                "source": "a"
+              },
+              {
+                "local_id": 6,
+                "source": "a"
+              },
+              {
+                "local_id": 1,
+                "timestamp": 10,
+                "source": "a",
+                "transcription": "old synthetic voice",
+                "custom": {
+                  "keep": true
+                }
+              },
+              {
+                "local_id": 3,
+                "timestamp": 10,
+                "source": "a"
+              },
+              {
+                "local_id": 1,
+                "timestamp": 10,
+                "source": "b"
+              },
+              {
+                "local_id": 4,
+                "timestamp": 10,
+                "source": "a"
+              }
+            ],
+            "custom_root": {
+              "old": 1
+            },
+            "fresh": true
+          },
+          "report": {
+            "added": 4,
+            "retained": 3,
+            "duplicates": 2,
+            "ambiguous": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy-nonoverlap",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 2,
+            "timestamp": 10,
+            "source": "a"
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "document": {
+            "username": "synthetic-user",
+            "messages": [
+              {
+                "local_id": 1,
+                "timestamp": 10
+              },
+              {
+                "local_id": 2,
+                "timestamp": 10,
+                "source": "a"
+              }
+            ]
+          },
+          "report": {
+            "added": 1,
+            "retained": 1,
+            "duplicates": 0,
+            "ambiguous": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy-cross-shard-ambiguity",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "transcription": "keep"
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a"
+          },
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "b"
+          }
+        ]
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 1,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "existing",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 1
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "null-source-collision",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": null
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a"
+          }
+        ]
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 1,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "existing",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "incoming-missing-source",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a"
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 1,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "existing",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "legacy-both-missing",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 1,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "existing",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 0
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "incoming-unknown-collision",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": []
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          },
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 0,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "incoming",
+                    "index": 0
+                  },
+                  {
+                    "input": "incoming",
+                    "index": 1
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "existing-unknown-collision",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10
+          },
+          {
+            "local_id": 1,
+            "timestamp": 10
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": []
+      },
+      "expected": {
+        "error": {
+          "Ambiguous": {
+            "report": {
+              "added": 0,
+              "retained": 2,
+              "duplicates": 0,
+              "ambiguous": 1
+            },
+            "conflicts": [
+              {
+                "local_id": 1,
+                "locations": [
+                  {
+                    "input": "existing",
+                    "index": 0
+                  },
+                  {
+                    "input": "existing",
+                    "index": 1
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "preserve-existing-known-duplicates",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a",
+            "custom": 1
+          },
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a",
+            "transcription": "retained"
+          }
+        ]
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": [
+          {
+            "local_id": 1,
+            "timestamp": 10,
+            "source": "a"
+          }
+        ]
+      },
+      "expected": {
+        "ok": {
+          "document": {
+            "username": "synthetic-user",
+            "messages": [
+              {
+                "local_id": 1,
+                "timestamp": 10,
+                "source": "a",
+                "custom": 1
+              },
+              {
+                "local_id": 1,
+                "timestamp": 10,
+                "source": "a",
+                "transcription": "retained"
+              }
+            ]
+          },
+          "report": {
+            "added": 0,
+            "retained": 2,
+            "duplicates": 1,
+            "ambiguous": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "empty",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": []
+      },
+      "incoming": {
+        "username": "synthetic-user",
+        "messages": []
+      },
+      "expected": {
+        "ok": {
+          "document": {
+            "username": "synthetic-user",
+            "messages": []
+          },
+          "report": {
+            "added": 0,
+            "retained": 0,
+            "duplicates": 0,
+            "ambiguous": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "username-mismatch",
+      "existing": {
+        "username": "synthetic-user",
+        "messages": []
+      },
+      "incoming": {
+        "username": "other-synthetic",
+        "messages": []
+      },
+      "expected": {
+        "error": {
+          "UsernameMismatch": {
+            "existing": "synthetic-user",
+            "incoming": "other-synthetic"
+          }
+        }
+      }
+    }
+  ]
+}

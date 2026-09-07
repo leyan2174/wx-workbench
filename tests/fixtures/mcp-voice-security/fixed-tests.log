@@ -1,0 +1,63 @@
+   Compiling mcp-voice-security-harness v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-voice-security)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running unittests lib.rs (tests\fixtures\mcp-voice-security\target\x86_64-pc-windows-msvc\debug\deps\mcp_voice_security_harness-1538e73fb185c781.exe)
+
+running 45 tests
+test database_media::tests::complete_column_check_rejects_stored_aliases_but_allows_ordinary_rowid_tables ... ok
+test database_media::tests::quoted_username_is_bound_not_interpolated ... ok
+test database_media::tests::source_path_injection_traversal_bare_name_and_relative_root_rejected ... ok
+test mcp_voice::tests::exact_chat_and_invalid_pagination ... ok
+test database_media::tests::uppercase_media_preserves_disk_name_and_canonical_evidence ... ok
+test database_media::tests::malformed_uppercase_media_candidate_is_not_silently_skipped ... ok
+test mcp_voice::tests::media_key_classification_is_strict_and_canonical ... ok
+test database_media::tests::duplicate_message_is_rejected_before_type_filter ... ok
+test database_media::tests::immutable_uri_handles_unicode_spaces_percent_and_hash ... ok
+test database_media::tests::duplicate_username_mapping_is_rejected ... ok
+test database_media::tests::exact_bytes_evidence_and_read_only ... ok
+test database_media::tests::shadowed_rowid_is_not_an_identity_proof ... ok
+test database_media::tests::missing_message_media_and_source_do_not_fallback ... ok
+test database_media::tests::corrupt_database_is_reported_and_missing_media_is_not_created ... ok
+test database_media::tests::missing_server_evidence_is_unsupported_even_with_matching_local_id ... ok
+test database_media::tests::uppercase_media_does_not_hide_cross_shard_ambiguity ... ok
+test mcp_voice::tests::generated_rowid_column_is_also_rejected ... ok
+test mcp_voice::tests::absent_username_is_empty_not_another_chat_and_empty_blob_is_zero ... ok
+test database_media::tests::non_voice_and_high_type_flags ... ok
+test database_media::tests::timestamp_conflict_and_zero_server_id_reject_local_id_guessing ... ok
+test database_media::tests::same_ids_across_contacts_and_nocase_collation_do_not_leak ... ok
+test mcp_voice::tests::schema_failure_is_not_hidden_by_missing_contact ... ok
+test mcp_voice::tests::missing_corrupt_or_ambiguous_shards_fail_whole_query ... ok
+test security_tests::security_adapter_preserves_raw_keys_and_rejects_canonical_duplicates ... ok
+test database_media::tests::roots_are_separate_accounts_even_for_identical_identity ... ok
+test database_media::tests::media_hard_link_aliases_are_rejected_even_without_matching_contact ... ok
+test database_media::tests::same_local_id_across_message_shards_uses_selected_server_id ... ok
+test mcp_voice::tests::ordinary_tables_and_nonreserved_integer_primary_keys_stay_supported ... ok
+test mcp_voice::tests::missing_name_table_bad_blob_and_aliases_fail_with_source ... ok
+test mcp_voice::tests::global_desc_pagination_and_exact_lengths ... ok
+test security_tests::security_old_listing_schema_without_server_id_remains_listable_only ... ok
+test security_tests::security_null_length_empty_blob_and_inclusive_zero_time_are_distinct ... ok
+test database_media::tests::duplicate_media_rows_or_shards_are_never_first_match_wins ... ok
+test security_tests::security_adapter_rejects_missing_unknown_undecrypted_and_corrupt_shards ... ok
+BOUNDARY: offline caller must supply complete snapshot; account inventory adapter detects absent known shard
+test database_media::tests::sidecars_cannot_be_silently_ignored_by_immutable_mode ... ok
+test security_tests::security_documented_incomplete_offline_inventory_cannot_prove_uniqueness ... ok
+REGRESSION F1: shadowed Name2Id rowid is rejected by both MCP and ASR
+test security_tests::security_shadowed_name_rowid_is_rejected_before_cross_contact_attribution ... ok
+REGRESSION F2: uppercase and lowercase duplicate shards both produce AmbiguousMedia
+test security_tests::security_uppercase_media_shard_cannot_hide_asr_ambiguity_on_windows ... ok
+test security_tests::security_library_local_name_ids_and_binary_names_do_not_cross_contacts ... ok
+test mcp_voice::tests::views_and_without_rowid_tables_are_not_identity_evidence ... ok
+test database_media::tests::empty_non_silk_non_blob_and_oversized_data_fail_without_outputs ... ok
+test database_media::tests::views_and_without_rowid_are_rejected_in_every_evidence_table ... ok
+test database_media::tests::generated_rowid_aliases_are_rejected_in_every_evidence_table ... ok
+test mcp_voice::tests::shadowed_rowid_aliases_are_rejected_before_attribution ... ok
+ORACLE: 720 pagination/range/permutation cases passed
+test security_tests::security_pagination_matches_independent_oracle_for_ties_ranges_and_permutations ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+   Doc-tests mcp_voice_security_harness
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

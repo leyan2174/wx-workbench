@@ -1,0 +1,12 @@
+{
+  "contacts": [["db_author", "Synthetic Author", ""], ["filtered_author", "Filtered Author", ""]],
+  "first": [
+    {"tid": 1, "db_author": "db_author", "xml_author": "xml_other", "time": 1700000000, "text": "CURRENT BEFORE", "media": true},
+    {"tid": 2, "db_author": "db_author", "xml_author": "xml_other", "time": 1699999900, "text": "OLD EXTRA POST", "media": true},
+    {"tid": 3, "db_author": "filtered_author", "xml_author": "xml_other", "time": 1700000000, "text": "FILTERED BEFORE"}
+  ],
+  "second": [
+    {"tid": 1, "db_author": "db_author", "xml_author": "xml_other", "time": 1700000000, "text": "CURRENT AFTER", "media": true},
+    {"tid": 3, "db_author": "filtered_author", "xml_author": "db_author", "time": 1700000000, "text": "FILTERED AFTER"}
+  ]
+}

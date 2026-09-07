@@ -1,0 +1,6 @@
+[
+  {"index": 9007199254740993, "username": "alpha", "display_name": "同名, \"联系人\"\r\n第二行", "kind": "single"},
+  {"index": 8, "username": "beta", "chat_name": "同名, \"联系人\"\r\n第二行", "chat_type": "single"},
+  {"index": 9, "username": "absent", "chat_name": "无消息表", "chat_type": "single"},
+  {"index": 10, "username": "room@chatroom"}
+]

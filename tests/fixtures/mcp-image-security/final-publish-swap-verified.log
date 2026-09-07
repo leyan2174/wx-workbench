@@ -1,0 +1,162 @@
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+   Compiling native-image-fixture v0.1.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\native-image)
+warning: field `output_root` is never read
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:15:5
+   |
+13 | pub(crate) struct HostOutputGuard {
+   |                   --------------- field in this struct
+14 |     output: Scan,
+15 |     output_root: PathBuf,
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: multiple associated items are never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:23:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- associated items in this implementation
+ 22 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+ 23 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+    |                   ^^^
+...
+ 35 |     pub(crate) fn output_root(&self) -> &Path {
+    |                   ^^^^^^^^^^^
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+164 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+    |                   ^^^^^^^
+...
+199 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    |                   ^^^^^^^^^^^^^
+
+warning: function `export_image_with_guard` is never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:151:15
+    |
+151 | pub(crate) fn export_image_with_guard(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `native-image-fixture` (lib) generated 3 warnings
+warning: methods `pin_input`, `protect_future`, and `verify_replaceable_file` are never used
+   --> ..\..\..\src\attachment\local_files.rs:40:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- methods in this implementation
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `media_db_keys` is never used
+   --> ..\..\..\src\daemon\cache.rs:142:19
+    |
+ 73 | impl DbCache {
+    | ------------ method in this implementation
+...
+142 |     pub(crate) fn media_db_keys(&self) -> Vec<String> {
+    |                   ^^^^^^^^^^^^^
+
+warning: fields `compression` and `content` are never read
+  --> ..\..\..\src\daemon\query\strict_message.rs:23:5
+   |
+17 | pub(super) struct StrictMessage {
+   |                   ------------- fields in this struct
+...
+23 |     compression: Option<i64>,
+   |     ^^^^^^^^^^^
+24 |     content: Option<(bool, Vec<u8>)>,
+   |     ^^^^^^^
+
+warning: method `bounded_decode` is never used
+  --> ..\..\..\src\daemon\query\strict_message.rs:30:19
+   |
+27 | impl StrictMessage {
+   | ------------------ method in this implementation
+...
+30 |     pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
+   |                   ^^^^^^^^^^^^^^
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:23:13
+   |
+23 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 保留可注入查询器的内部错误类别，当前 CLI 统一映射为不可用
+   = note: `#[warn(unfulfilled_lint_expectations)]` on by default
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:44:13
+   |
+44 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 供并发宿主发起取消；当前同步 stdio 不读取在途取消通知
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:109:16
+    |
+109 |         expect(dead_code, reason = "供并发宿主持有取消令牌，当前由合成测试验证")
+    |                ^^^^^^^^^
+    |
+    = note: 供并发宿主持有取消令牌，当前由合成测试验证
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:537:16
+    |
+537 |         expect(dead_code, reason = "协议状态观察接口，目前由生命周期测试使用")
+    |                ^^^^^^^^^
+    |
+    = note: 协议状态观察接口，目前由生命周期测试使用
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:548:13
+    |
+548 |             dead_code,
+    |             ^^^^^^^^^
+    |
+    = note: 独立协议宿主使用默认上下文入口；CLI 显式绑定帧预算
+
+warning: `mcp-image-security` (lib) generated 11 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.73s
+     Running audit.rs (C:/CodexLocal/build/mcp-image-security\debug\deps\audit-310d4ad7e269fc97.exe)
+
+running 2 tests
+VOICE FINAL CALLBACK normal: Ok(PublishedWav { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmprB9Rgr\\voice-output\\eb2a1929367ffcb8ffc6fbd98f684a36928e46e1aa504cf10a45407d02ffe002.wav", size: 48, pcm_bytes: 4, sample_rate: 8000 })
+VOICE FINAL CALLBACK protected-swap: Err(path identity changed)
+
+thread 'publish_probe_audit::voice_final_callback_cannot_swap_original_protected_or_output_directory' (13628) panicked at publish_probe_audit.rs:109:45:
+called `Result::unwrap()` on an `Err` value: Os { code: 5, kind: PermissionDenied, message: "拒绝访问。" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test publish_probe_audit::voice_final_callback_cannot_swap_original_protected_or_output_directory ... FAILED
+IMAGE AFTER SYNC normal: Ok(ImageOutput { message: MessageIdentity { username: "synthetic_peer", source: "message/message_0.db", local_id: 42, create_time: 100, local_type: 3 }, path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmphaL4tB\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg", source_path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmphaL4tB\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", resource_rowid: 1, resource_md5: "0123456789abcdef0123456789abcdef", dat_md5: "053b8e475c2e282fe20b033548102d42", decoded_md5: "16f23ac8d6735ae7248a3a9578d78b5f", size: 7, format: "jpg", decoder: "legacy_xor", candidates: [Candidate { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmphaL4tB\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", rank: 0 }], binding: "resource_scan_filename_heuristic" })
+IMAGE AFTER SYNC protected-swap: Err(path identity changed)
+
+thread 'publish_probe_audit::image_original_guard_is_rechecked_after_staged_sync' (14132) panicked at publish_probe_audit.rs:63:54:
+called `Result::unwrap()` on an `Err` value: Os { code: 5, kind: PermissionDenied, message: "拒绝访问。" }
+test publish_probe_audit::image_original_guard_is_rechecked_after_staged_sync ... FAILED
+
+failures:
+
+failures:
+    publish_probe_audit::image_original_guard_is_rechecked_after_staged_sync
+    publish_probe_audit::voice_final_callback_cannot_swap_original_protected_or_output_directory
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.12s
+
+error: test failed, to rerun pass `--test audit`

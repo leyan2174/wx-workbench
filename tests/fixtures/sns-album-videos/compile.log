@@ -1,0 +1,35 @@
+error[E0433]: cannot find module or crate `serde_json` in this scope
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\sns-album-videos\..\..\..\src\toolkit\sns\video_runtime_tests.rs:15:38
+   |
+15 |     let vectors: serde_json::Value = serde_json::from_str(include_str!(
+   |                                      ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`
+   |
+   = help: you might be missing a crate named `serde_json`
+
+error[E0433]: cannot find module or crate `serde_json` in this scope
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\sns-album-videos\..\..\..\src\toolkit\sns\video_runtime_tests.rs:121:38
+    |
+121 |     let vectors: serde_json::Value = serde_json::from_str(include_str!(
+    |                                      ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`
+    |
+    = help: you might be missing a crate named `serde_json`
+
+error[E0433]: cannot find module or crate `serde_json` in this scope
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\sns-album-videos\..\..\..\src\toolkit\sns\video_runtime_tests.rs:15:18
+   |
+15 |     let vectors: serde_json::Value = serde_json::from_str(include_str!(
+   |                  ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`
+   |
+   = help: you might be missing a crate named `serde_json`
+
+error[E0433]: cannot find module or crate `serde_json` in this scope
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\sns-album-videos\..\..\..\src\toolkit\sns\video_runtime_tests.rs:121:18
+    |
+121 |     let vectors: serde_json::Value = serde_json::from_str(include_str!(
+    |                  ^^^^^^^^^^ use of unresolved module or unlinked crate `serde_json`
+    |
+    = help: you might be missing a crate named `serde_json`
+
+error: aborting due to 4 previous errors
+
+For more information about this error, try `rustc --explain E0433`.

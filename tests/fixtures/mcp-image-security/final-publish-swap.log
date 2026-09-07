@@ -1,0 +1,54 @@
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+warning: field `output_root` is never read
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:15:5
+   |
+13 | pub(crate) struct HostOutputGuard {
+   |                   --------------- field in this struct
+14 |     output: Scan,
+15 |     output_root: PathBuf,
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: multiple associated items are never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:23:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- associated items in this implementation
+ 22 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+ 23 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+    |                   ^^^
+...
+ 35 |     pub(crate) fn output_root(&self) -> &Path {
+    |                   ^^^^^^^^^^^
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+164 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+    |                   ^^^^^^^
+...
+199 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    |                   ^^^^^^^^^^^^^
+
+warning: function `export_image_with_guard` is never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:151:15
+    |
+151 | pub(crate) fn export_image_with_guard(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `native-image-fixture` (lib) generated 3 warnings
+error[E0432]: unresolved import `super::mcp_voice`
+  --> ..\..\..\src\cli\mcp.rs:10:13
+   |
+10 | use super::{mcp_voice, transport};
+   |             ^^^^^^^^^ no `mcp_voice` in the root
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `mcp-image-security` (lib) due to 1 previous error

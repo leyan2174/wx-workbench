@@ -1,0 +1,232 @@
+{
+  "canvas": {
+    "height": 650.0,
+    "width": 960.0
+  },
+  "composition": {
+    "limits": {
+      "max_bends_per_edge": 2,
+      "max_bridged_crossings": 0,
+      "max_route_stretch": 1.35,
+      "max_total_bends": 8,
+      "min_container_gutter": 20.0,
+      "min_label_clearance": 4.0,
+      "min_node_gap": 40.0,
+      "min_segment_length": 16.0,
+      "profile": "showcase"
+    },
+    "metrics": {
+      "bridged_crossings": 0,
+      "max_route_stretch": 1.0,
+      "minimum_container_gutter": null,
+      "minimum_node_gap": 40.0,
+      "shortest_segment": 80.0,
+      "total_bends": 0
+    },
+    "ok": true,
+    "profile": "showcase",
+    "score": 100,
+    "violations": []
+  },
+  "edges": [
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-000",
+      "length": 80.0,
+      "route": [
+        [
+          180.0,
+          220.0
+        ],
+        [
+          180.0,
+          300.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "query",
+      "source_port": [
+        180.0,
+        220.0
+      ],
+      "target": "daemon",
+      "target_port": [
+        180.0,
+        300.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-001",
+      "length": 80.0,
+      "route": [
+        [
+          180.0,
+          370.0
+        ],
+        [
+          180.0,
+          450.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "daemon",
+      "source_port": [
+        180.0,
+        370.0
+      ],
+      "target": "cache",
+      "target_port": [
+        180.0,
+        450.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-002",
+      "length": 80.0,
+      "route": [
+        [
+          480.0,
+          220.0
+        ],
+        [
+          480.0,
+          300.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "native",
+      "source_port": [
+        480.0,
+        220.0
+      ],
+      "target": "batch",
+      "target_port": [
+        480.0,
+        300.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-003",
+      "length": 80.0,
+      "route": [
+        [
+          480.0,
+          370.0
+        ],
+        [
+          480.0,
+          450.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "batch",
+      "source_port": [
+        480.0,
+        370.0
+      ],
+      "target": "outputs",
+      "target_port": [
+        480.0,
+        450.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-004",
+      "length": 80.0,
+      "route": [
+        [
+          780.0,
+          220.0
+        ],
+        [
+          780.0,
+          300.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "legacy",
+      "source_port": [
+        780.0,
+        220.0
+      ],
+      "target": "adapter",
+      "target_port": [
+        780.0,
+        300.0
+      ],
+      "waypoints": []
+    },
+    {
+      "bends": 0,
+      "bridges": [],
+      "crossings": [],
+      "id": "edge-005",
+      "length": 80.0,
+      "route": [
+        [
+          780.0,
+          370.0
+        ],
+        [
+          780.0,
+          450.0
+        ]
+      ],
+      "route_stretch": 1.0,
+      "source": "adapter",
+      "source_port": [
+        780.0,
+        370.0
+      ],
+      "target": "runtime",
+      "target_port": [
+        780.0,
+        450.0
+      ],
+      "waypoints": []
+    }
+  ],
+  "input_schema": "v1",
+  "issues": [],
+  "mode": "architecture",
+  "ok": true,
+  "placements": {
+    "legend": null
+  },
+  "schema_version": 1,
+  "semantics": {
+    "details": {},
+    "ok": true,
+    "profile": "generic",
+    "style": 1,
+    "visual_theme": "Flat Icon"
+  },
+  "style": {
+    "id": 1,
+    "name": "Flat Icon"
+  },
+  "summary": {
+    "bridged_crossings": 0,
+    "edges": 6,
+    "nodes": 9
+  },
+  "text_metrics": "heuristic-v1"
+}

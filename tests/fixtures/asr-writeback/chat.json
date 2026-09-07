@@ -1,0 +1,10 @@
+{
+  "username": "synthetic",
+  "unknown": {"n": null},
+  "messages": [
+    {"type": "voice", "source": "message_0.db", "local_id": 1, "content": "original"},
+    {"type": "voice", "source": "message_1.db", "local_id": 1, "extra": [1, null]},
+    {"type": "text", "local_id": 1},
+    null
+  ]
+}

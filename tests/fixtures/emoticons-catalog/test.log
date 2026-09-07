@@ -1,0 +1,114 @@
+    Updating crates.io index
+     Locking 132 packages to latest compatible versions
+      Adding aes v0.8.4 (available: v0.9.3)
+      Adding cbc v0.1.2 (available: v0.2.1)
+      Adding dirs v5.0.1 (available: v7.0.0)
+      Adding generic-array v0.14.7 (available: v0.14.9)
+      Adding hmac v0.12.1 (available: v0.13.0)
+      Adding md5 v0.7.0 (available: v0.8.1)
+      Adding pbkdf2 v0.12.2 (available: v0.13.0)
+      Adding rusqlite v0.31.0 (available: v0.40.2)
+      Adding serde_json v1.0.140 (available: v1.0.151)
+      Adding sha2 v0.10.9 (available: v0.11.0)
+      Adding windows v0.58.0 (available: v0.62.2)
+   Compiling version_check v0.9.5
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.4
+   Compiling windows-link v0.2.1
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling zerocopy v0.8.56
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling find-msvc-tools v0.1.12
+   Compiling once_cell v1.21.4
+   Compiling shlex v2.0.1
+   Compiling subtle v2.6.1
+   Compiling smallvec v1.16.0
+   Compiling autocfg v1.5.1
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling parking_lot_core v0.9.12
+   Compiling serde v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling scopeguard v1.2.0
+   Compiling windows-sys v0.61.2
+   Compiling anyhow v1.0.104
+   Compiling option-ext v0.2.0
+   Compiling lock_api v0.4.14
+   Compiling cpufeatures v0.2.17
+   Compiling regex-syntax v0.8.11
+   Compiling serde_json v1.0.140
+   Compiling bitflags v2.13.1
+   Compiling itoa v1.0.18
+   Compiling bytes v1.12.1
+   Compiling cc v1.4.5
+   Compiling generic-array v0.14.7
+   Compiling ahash v0.8.12
+   Compiling windows-targets v0.48.5
+   Compiling aho-corasick v1.1.5
+   Compiling num-traits v0.2.19
+   Compiling ryu v1.0.23
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling windows-targets v0.52.6
+   Compiling pin-project-lite v0.2.17
+   Compiling fastrand v2.5.0
+   Compiling windows-sys v0.48.0
+   Compiling fallible-iterator v0.3.0
+   Compiling md5 v0.7.0
+   Compiling zeroize v1.9.0
+   Compiling windows-result v0.2.0
+   Compiling parking_lot v0.12.5
+   Compiling windows-strings v0.1.0
+   Compiling regex-automata v0.4.18
+   Compiling syn v3.0.5
+   Compiling syn v2.0.119
+   Compiling libsqlite3-sys v0.28.0
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling tempfile v3.27.0
+   Compiling crypto-common v0.1.7
+   Compiling block-padding v0.3.3
+   Compiling block-buffer v0.10.4
+   Compiling inout v0.1.4
+   Compiling digest v0.10.7
+   Compiling cipher v0.4.4
+   Compiling hmac v0.12.1
+   Compiling sha2 v0.10.9
+   Compiling chrono v0.4.45
+   Compiling aes v0.8.4
+   Compiling cbc v0.1.2
+   Compiling dirs-sys v0.4.1
+   Compiling dirs v5.0.1
+   Compiling pbkdf2 v0.12.2
+   Compiling regex v1.13.1
+   Compiling hashbrown v0.14.5
+   Compiling windows-interface v0.58.0
+   Compiling windows-implement v0.58.0
+   Compiling serde_derive v1.0.229
+   Compiling tokio-macros v2.7.2
+   Compiling hashlink v0.9.1
+   Compiling rusqlite v0.31.0
+   Compiling windows-core v0.58.0
+   Compiling tokio v1.53.1
+   Compiling windows v0.58.0
+   Compiling emoticons-catalog-fixture v0.1.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\emoticons-catalog)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.39s
+     Running unittests lib.rs (C:\CodexLocal\build\emoticons-catalog\x86_64-pc-windows-msvc\debug\deps\emoticons_catalog_fixture-b6d2a417d75e1ccd.exe)
+
+running 5 tests
+test catalog::tests::exact_key_missing_source_and_canonical_collisions ... ok
+[cache] 全量解密 EMOTICON\EMOTICON.DB (4ms)
+[cache] WAL 增量 EMOTICON\EMOTICON.DB (4ms)
+[cache] 复用 1 个已解密 DB
+[cache] 全量解密 EMOTICON\EMOTICON.DB (1ms)
+test catalog::tests::real_cache_cold_wal_incremental_restart_and_account_isolation ... ok
+test catalog::tests::schema_row_and_caption_faults_are_not_partial_success ... ok
+test catalog::tests::legacy_ast_golden_all_mapping_boundaries ... ok
+test catalog::tests::locked_database_is_an_error ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 7.36s
+

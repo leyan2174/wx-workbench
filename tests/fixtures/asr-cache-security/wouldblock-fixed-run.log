@@ -1,0 +1,116 @@
+
+Algorithm : SHA256
+Hash      : 4A3BAB9859C8D0EDD5E47C1E55F3A6DFE69823D69EF1C339E2509A82A7463315
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cache.rs
+
+Algorithm : SHA256
+Hash      : 1B944C7ED3F08F98E0B56D1F258EF8FA039FD6C959E21F2CE4FA70EC692824A5
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cache_tests.rs
+
+Algorithm : SHA256
+Hash      : 86DA0EAD995C892D718B1484AA25DDAF1067FF61754EA09B76982F7A7750F752
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cached.rs
+
+Algorithm : SHA256
+Hash      : 19FC04771707A12316B126C6E622198DDD2C41C954B7634DC7FC8405084B8FA0
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cached_tests.rs
+
+Algorithm : SHA256
+Hash      : E2EBA69FB407A98F9DCE31317FCFA22BF29B4DC9665461A01169505DCD605D5A
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\mod.rs
+
+Algorithm : SHA256
+Hash      : AD9D5300C8919EEC513A81E0383AE0BB367552E5501EDE0164791195FFD981B5
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\local.rs
+
+Algorithm : SHA256
+Hash      : 612FDF1DA9C8CAC10BAA126BA21F1979119A473179F4C6D8DE0CC4F360A28EA9
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\openai.rs
+
+Algorithm : SHA256
+Hash      : 5E8859AEB48925D2B887F642C03571C7307191ADF7EF9B28E62271CE595AF3CF
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\audio\mod.rs
+
+Algorithm : SHA256
+Hash      : 723F5DC18355641D35F7A203EA15D60206BF55E5C5BB226BEF02197F8C7CA3DF
+Path      : C:\CodexLocal\src\wx-cli\src\cli\asr.rs
+
+Algorithm : SHA256
+Hash      : 9757F0DB45B8032E0333DD64CCE575C7319473A6C7A4EAB788EC57981D9F4A76
+Path      : C:\CodexLocal\src\wx-cli\src\cli\asr_database.rs
+
+Algorithm : SHA256
+Hash      : 37B977CC20D6AD1DBBF0493D119C00DD4613D929FE5BF1C40B5F3259722B9684
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\files.rs
+
+
+cargo test --offline --manifest-path C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security\Cargo.toml --target-dir C:\CodexLocal\build\asr-cache-security cache::tests -- --nocapture
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.68s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 8 tests
+test asr::cache::tests::verified_digest_recovers_key_without_original_audio ... ok
+test asr::cache::tests::legacy_and_corrupt_files_are_not_claimed_or_destroyed ... ok
+test asr::cache::tests::persists_empty_success_and_reopens ... ok
+test asr::cache::tests::isolates_accounts_audio_source_and_configuration ... ok
+test asr::cache::tests::stale_publication_and_cooperative_lock_preserve_data ... ok
+test asr::cache::tests::failure_never_creates_or_changes_cache ... ok
+test asr::cache::tests::two_instances_merge_and_malformed_same_key_is_preserved ... ok
+test asr::cache::tests::protects_existing_records_and_unknown_fields ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 128 filtered out; finished in 0.01s
+
+cargo test --offline --manifest-path C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security\Cargo.toml --target-dir C:\CodexLocal\build\asr-cache-security security_tests -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 9 tests
+test security_tests::final_symlink_is_rejected_without_touching_target ... ignored, 当前宿主创建文件符号链接返回 Windows 1314；需显式权限环境重跑
+COMMAND: "cmd.exe" "/d" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpVBCLdv\\cache.json" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpVBCLdv\\target"
+test security_tests::stale_cooperative_lock_is_preserved_and_never_stolen ... ok
+test security_tests::malformed_or_wrong_account_replacement_after_open_is_never_overwritten ... ok
+test security_tests::failure_credentials_and_identity_plaintext_are_not_persisted ... ok
+test security_tests::hardlink_publication_replaces_cache_name_not_alias_contents ... ok
+test security_tests::unknown_large_numbers_and_nested_fields_survive_new_entry ... ok
+test security_tests::envelope_versions_and_entries_are_validated_without_claiming_file ... ok
+STDOUT: Junction created for C:\Users\leyan\AppData\Local\Temp\.tmpVBCLdv\cache.json <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpVBCLdv\target
+
+STDERR: 
+test security_tests::final_directory_junction_is_rejected_without_touching_target ... ok
+test security_tests::oversize_file_is_rejected_by_read_limit_before_json_parse ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 127 filtered out; finished in 0.12s
+
+cargo test --offline --manifest-path C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security\Cargo.toml --target-dir C:\CodexLocal\build\asr-cache-security cached::tests -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 7 tests
+test asr::cached::tests::oversized_input_is_rejected_before_container_or_model_access ... ok
+test asr::cached::tests::cloud_upload_hit_identity_isolation_and_authorization ... ok
+test asr::cached::tests::invalid_local_configuration_cannot_use_old_hit ... ok
+test asr::cached::tests::backend_failure_is_not_cached_and_cache_failure_keeps_success ... ok
+test asr::cached::tests::hit_including_empty_success_calls_backend_once ... ok
+test asr::cached::tests::program_content_change_invalidates_cache ... ok
+test asr::cached::tests::account_audio_and_same_basename_model_changes_do_not_hit ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 0.42s
+
+cargo test --offline --manifest-path C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security\Cargo.toml --target-dir C:\CodexLocal\build\asr-cache-security adapter_tests -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 5 tests
+COMMAND: "rustc" "--edition=2021" "--crate-name" "cache_security_probe" "C:\\CodexLocal\\src\\wx-cli\\tests\\fixtures\\asr-cache-security\\probe.rs" "-o" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpaG8Ze0\\probe.exe"
+test adapter_tests::denied_cloud_checks_authorization_before_invalid_audio_account_or_cache ... ok
+STDOUT: 
+STDERR: 
+test adapter_tests::existing_cache_never_bypasses_audio_validation_or_input_limit ... ok
+test adapter_tests::backend_failure_and_corrupt_cache_keep_separate_error_models ... ok
+test adapter_tests::backend_cannot_modify_pinned_model_and_wrong_model_never_hits ... ok
+test adapter_tests::malformed_hit_or_wrong_timestamp_preserves_record_and_returns_fresh_success ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 131 filtered out; finished in 0.31s
+
+Reviewed source hashes unchanged across all four test groups.

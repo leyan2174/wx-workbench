@@ -33,7 +33,9 @@ pub fn scan_with_provider(
                     eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
                     return Ok(entries);
                 }
-                Err(_) => eprintln!("保存的账号密钥未通过完整验证，转为只读内存扫描；旧账号密钥保留"),
+                Err(_) => {
+                    eprintln!("保存的账号密钥未通过完整验证，转为只读内存扫描；旧账号密钥保留")
+                }
             }
         }
     }
@@ -59,7 +61,20 @@ pub fn scan_keys(db_dir: &Path) -> Result<Vec<KeyEntry>> {
 
 /// 从进程内存中扫描所有 SQLCipher 密钥，并允许 Windows 端指定进程名。
 pub fn scan_keys_with_options(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
-    windows::scan_keys(db_dir, process_name)
+    scan_keys_checked(db_dir, process_name)
+}
+
+/// 仅扫描显式本机账号目录的受校验库存；路径或读取错误不会被当作空结果。
+pub fn scan_keys_checked(db_dir: &Path, process_name: &str) -> Result<Vec<KeyEntry>> {
+    #[cfg(target_os = "windows")]
+    {
+        windows::scan_keys(db_dir, process_name)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (db_dir, process_name);
+        anyhow::bail!("受校验的数据库密钥扫描仅支持 Windows")
+    }
 }
 
 /// 读取 DB 文件前 16 字节作为 salt（hex），如果是明文 SQLite 则返回 None
@@ -129,7 +144,11 @@ mod tests {
     fn make_temp_dir(label: &str) -> std::path::PathBuf {
         let mut p = std::env::temp_dir();
         // 用 label + thread id 保证同进程内并发测试不冲突
-        p.push(format!("wx-cli-test-{}-{:?}", label, std::thread::current().id()));
+        p.push(format!(
+            "wx-cli-test-{}-{:?}",
+            label,
+            std::thread::current().id()
+        ));
         fs::create_dir_all(&p).unwrap();
         p
     }
@@ -155,8 +174,8 @@ mod tests {
         let path = dir.join("enc.db");
         // 非 SQLite 头 → 视为加密数据库，取前 16 字节作为 salt
         let header: [u8; 16] = [
-            0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04,
-            0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+            0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
+            0x0b, 0x0c,
         ];
         fs::write(&path, &header).unwrap();
 
@@ -269,7 +288,7 @@ mod tests {
     fn test_collect_db_salts_ignores_non_db_extensions() {
         let dir = make_temp_dir("collect-ext");
         let header = [0xbbu8; 16];
-        fs::write(dir.join("data.txt"),  &header).unwrap();
+        fs::write(dir.join("data.txt"), &header).unwrap();
         fs::write(dir.join("data.json"), &header).unwrap();
         fs::write(dir.join("data.sqlite"), &header).unwrap();
 

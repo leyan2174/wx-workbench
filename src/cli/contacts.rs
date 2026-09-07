@@ -4,7 +4,11 @@ use super::transport;
 use super::output::{resolve, print_value};
 
 pub fn cmd_contacts(query: Option<String>, limit: usize, json: bool) -> Result<()> {
-    let resp = transport::send(Request::Contacts { query, limit })?;
+    let resp = transport::send(Request::Contacts {
+        query,
+        limit,
+        legacy_view: false,
+    })?;
     let contacts = resp.data.get("contacts")
         .cloned()
         .unwrap_or(serde_json::Value::Array(vec![]));

@@ -1,0 +1,135 @@
+     Locking 15 packages to latest compatible versions
+      Adding anstream v1.0.0
+      Adding anstyle v1.0.14
+      Adding anstyle-parse v1.0.0
+      Adding anstyle-query v1.1.5
+      Adding anstyle-wincon v3.0.11
+      Adding clap v4.6.1
+      Adding clap_builder v4.6.0
+      Adding clap_derive v4.6.1
+      Adding clap_lex v1.1.0
+      Adding colorchoice v1.0.5
+      Adding heck v0.5.0
+      Adding is_terminal_polyfill v1.70.2
+      Adding once_cell_polyfill v1.70.2
+      Adding strsim v0.11.1
+      Adding utf8parse v0.2.2
+   Compiling utf8parse v0.2.2
+   Compiling once_cell_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling colorchoice v1.0.5
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling strsim v0.11.1
+   Compiling syn v2.0.119
+   Compiling native-image-fixture v0.1.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\native-image)
+   Compiling anstyle-parse v1.0.0
+   Compiling anstyle-wincon v3.0.11
+   Compiling anstream v1.0.0
+warning: struct `HostOutputGuard` is never constructed
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:22:19
+   |
+22 | pub(crate) struct HostOutputGuard {
+   |                   ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated items `new`, `protect`, and `read_key_file` are never used
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:30:19
+   |
+28 | impl HostOutputGuard {
+   | -------------------- associated items in this implementation
+29 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+30 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+   |                   ^^^
+...
+37 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+   |                   ^^^^^^^
+...
+57 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+   |                   ^^^^^^^^^^^^^
+
+   Compiling clap_builder v4.6.0
+warning: `native-image-fixture` (lib) generated 2 warnings
+   Compiling clap_derive v4.6.1
+   Compiling clap v4.6.1
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+error[E0433]: cannot find `toolkit` in `crate`
+  --> ..\..\..\src\daemon\query\mcp_image.rs:95:56
+   |
+95 |     let aes = parsed.aes_key.as_ref().map(|key| crate::toolkit::parse_image_aes(&key.0))
+   |                                                        ^^^^^^^ could not find `toolkit` in the crate root
+
+error[E0433]: cannot find `toolkit` in `crate`
+   --> ..\..\..\src\daemon\query\mcp_image.rs:100:46
+    |
+100 |         Some(JsonXor::Text(value)) => crate::toolkit::parse_image_xor(&value.0)
+    |                                              ^^^^^^^ could not find `toolkit` in the crate root
+
+error[E0603]: struct `HostOutputGuard` is private
+  --> ..\..\..\src\daemon\query\mcp_image.rs:29:35
+   |
+29 |     let mut guard = native_image::HostOutputGuard::new(output_root)
+   |                                   ^^^^^^^^^^^^^^^ private struct
+   |
+note: the struct `HostOutputGuard` is defined here
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:22:1
+   |
+22 | pub(crate) struct HostOutputGuard {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0624]: associated function `new` is private
+  --> ..\..\..\src\daemon\query\mcp_image.rs:29:52
+   |
+29 |     let mut guard = native_image::HostOutputGuard::new(output_root)
+   |                                                    ^^^ private associated function
+   |
+  ::: C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:30:5
+   |
+30 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+   |     ----------------------------------------------------- private associated function defined here
+
+error[E0599]: no method named `output_protection_paths` found for reference `&DbCache` in the current scope
+  --> ..\..\..\src\daemon\query\mcp_image.rs:32:24
+   |
+32 |     let protected = db.output_protection_paths()
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^ method not found in `&DbCache`
+
+error[E0624]: method `protect` is private
+  --> ..\..\..\src\daemon\query\mcp_image.rs:35:11
+   |
+35 |     guard.protect(db.db_dir())
+   |           ^^^^^^^ private method
+   |
+  ::: C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:37:5
+   |
+37 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+   |     ------------------------------------------------------------ private method defined here
+
+error[E0624]: method `protect` is private
+  --> ..\..\..\src\daemon\query\mcp_image.rs:38:15
+   |
+38 |         guard.protect(&path)
+   |               ^^^^^^^ private method
+   |
+  ::: C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:37:5
+   |
+37 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+   |     ------------------------------------------------------------ private method defined here
+
+error[E0624]: method `read_key_file` is private
+  --> ..\..\..\src\daemon\query\mcp_image.rs:43:31
+   |
+43 |             let bytes = guard.read_key_file(path)
+   |                               ^^^^^^^^^^^^^ private method
+   |
+  ::: C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:57:5
+   |
+57 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+   |     ------------------------------------------------------------------------------------------ private method defined here
+
+Some errors have detailed explanations: E0433, E0599, E0603, E0624.
+For more information about an error, try `rustc --explain E0433`.
+error: could not compile `mcp-image-security` (lib) due to 8 previous errors

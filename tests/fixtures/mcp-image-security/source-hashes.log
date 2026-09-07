@@ -1,0 +1,34 @@
+
+Algorithm : SHA256
+Hash      : F3DFC4283BA61BD5A837005C11EF062E10652F2ECECAFC00E1950B83F3E6D800
+Path      : C:\CodexLocal\src\wx-cli\src\attachment\native_image.rs
+
+Algorithm : SHA256
+Hash      : 639952E24217C8A07CB2C713CE5C78522485AA4B853DFE22569EC3D3517ED554
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\query\mcp_image.rs
+
+Algorithm : SHA256
+Hash      : 3BD57C0DA207F64E4561845FD1CB357696512F828200679B3A353AA4DE557631
+Path      : C:\CodexLocal\src\wx-cli\src\cli\mcp.rs
+
+Algorithm : SHA256
+Hash      : 74978E7CFCC7EF26D5BBF420A7B4880214D56910E7E036101CF7ADF17607C583
+Path      : C:\CodexLocal\src\wx-cli\src\mcp\protocol.rs
+
+Algorithm : SHA256
+Hash      : E6D84FC970587D3B4E1157D11DCAE96E924D963178AA64941028142D58A6A664
+Path      : C:\CodexLocal\src\wx-cli\src\ipc.rs
+
+Algorithm : SHA256
+Hash      : 039EE9504F4BC81A9A74401CB110BBCBFACD28DC873740DB542FE81DD97867BE
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\cache.rs
+
+Algorithm : SHA256
+Hash      : B1E21AAE896934BB7B4C3769A560E92DABEBC681D6D2FCA49114CA4358070F14
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\server.rs
+
+Algorithm : SHA256
+Hash      : 813246B517417F34017A9DBB310E927CEB4F4924BAA3554846B6F24638C88736
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\mod.rs
+
+

@@ -1,0 +1,22 @@
+flowchart TB
+    CLI[cli：参数解析和命令分发]
+    ASRBATCH[cli/asr_batch：固定账号配置到 Backend]
+    BATCHCORE[asr/batch：消息和媒体库唯一关联、成功缓存及 JSON 回写]
+    ASRCACHED[asr/cached：显式启用、授权先检与后端身份]
+    ASR[asr：显式音频或媒体清单、WAV 校验及转录回写]
+    PYLOCAL[local_python：Whisper / PyTorch 推理兼容子进程]
+    PYBOUND[仍需 Python；命名模型可按需下载权重，不上传音频]
+    DBASR[cli/asr_database：显式静态快照与完整消息身份]
+    VOICEJOIN[asr/database_media：username、服务端 ID 与时间唯一关联]
+    ASRCACHE[asr/cache：账号命名隔离、成功缓存与原子发布]
+    CLI --> ASRBATCH
+    ASRBATCH --> BATCHCORE
+    BATCHCORE --> ASRCACHED
+    ASR --> PYLOCAL
+    PYLOCAL --> PYBOUND
+    CLI --> DBASR
+    DBASR --> VOICEJOIN
+    VOICEJOIN --> ASR
+    DBASR --> ASRCACHED
+    ASRCACHED --> ASR
+    ASRCACHED --> ASRCACHE

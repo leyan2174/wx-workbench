@@ -18,6 +18,8 @@ run_hook.bat
 
 # Rust
 target/
+/tests/fixtures/sns-album-videos/album-videos-tests.exe
+/tests/fixtures/sns-album-videos/album-videos-tests.pdb
 
 # Python
 __pycache__/

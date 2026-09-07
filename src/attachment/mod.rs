@@ -11,18 +11,17 @@
 //! - `decoder`：根据文件 magic 分发到具体解码器（V1 / V2 等）
 //! - `image_key`：Windows V2 image AES key 提取
 //!
-//! V2 / image_key 模块由 codex 落地，先放空 stub 以便 V1 / resolver / CLI 不被 block。
+//! `native_image` 提供显式密钥、严格消息资源关联和无覆盖输出，不自动取钥。
 
-// 此模块由分多个 PR/commit 增量启用：
-// 1) 先落 attachment_id / decoder / resolver / image_key 骨架（本 commit）
-// 2) IPC + CLI + daemon route 把它们串起来（后续 commit）
-// 3) image_key 平台实现（codex 后续 commit）
-// 在 step 1 完成、step 2 未到时，大量公开 API 仍未被引用，#[allow(dead_code)] 抑制噪音
+// 兼容提取 API 尚未全部收口；最终精简时逐项审查未调用接口。
 #![allow(dead_code)]
 
 pub mod attachment_id;
 pub mod decoder;
-pub mod resolver;
 pub mod image_key;
+pub mod image_metadata;
+pub(crate) mod local_files;
+pub mod native_image;
+pub mod resolver;
 
 pub use attachment_id::{AttachmentId, AttachmentKind};

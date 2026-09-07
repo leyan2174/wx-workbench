@@ -27,11 +27,12 @@ jobs:
       - name: Test
         run: cargo test --locked --target x86_64-pc-windows-msvc
       - name: Build release
-        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+        run: cargo build --release --locked --bin wx --bin wx-toolbox --target x86_64-pc-windows-msvc
       - name: Package
         shell: pwsh
         run: |
           Copy-Item target/x86_64-pc-windows-msvc/release/wx.exe wx-windows-x86_64.exe
+          Copy-Item target/x86_64-pc-windows-msvc/release/wx-toolbox.exe wx-toolbox-windows-x86_64.exe
           New-Item -ItemType Directory -Force npm/platforms/win32-x64/bin | Out-Null
           Copy-Item wx-windows-x86_64.exe npm/platforms/win32-x64/bin/wx.exe
       - uses: actions/upload-artifact@v4
@@ -39,6 +40,7 @@ jobs:
           name: wx-windows-x86_64
           path: |
             wx-windows-x86_64.exe
+            wx-toolbox-windows-x86_64.exe
             THIRD_PARTY_NOTICES.md
       - uses: actions/upload-artifact@v4
         with:
@@ -49,6 +51,7 @@ jobs:
         with:
           files: |
             wx-windows-x86_64.exe
+            wx-toolbox-windows-x86_64.exe
             THIRD_PARTY_NOTICES.md
 
   publish-npm:

@@ -1,0 +1,34 @@
+   Compiling wx-mcp-cli-harness v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.13s
+     Running unittests lib.rs (tests/fixtures/mcp-cli/target\x86_64-pc-windows-msvc\debug\deps\wx_mcp_cli_harness-8b38eea1c119d926.exe)
+
+running 26 tests
+test mcp::protocol::tests::notifications_never_reply_or_dispatch ... ok
+test mcp::protocol::tests::lifecycle_negotiates_and_gates_queries ... ok
+test mcp::protocol::tests::framed_output_is_only_json_rpc_with_no_notification_lines ... ok
+test mcp::protocol::tests::writer_failure_is_propagated ... ok
+test mcp::protocol::tests::invalid_initialize_does_not_change_phase ... ok
+test mcp::protocol::tests::request_ids_are_preserved_and_invalid_envelopes_rejected ... ok
+test mcp::protocol::tests::cancelled_or_expired_context_never_starts_callback ... ok
+test mcp::tests::framing_errors_are_safe_and_eof_is_preserved ... ok
+test mcp::protocol::tests::frame_limits_and_truncation_are_bounded ... ok
+test mcp::protocol::tests::image_listing_admits_missing_metadata_and_never_decodes ... ok
+test mcp::protocol::tests::external_thread_can_cancel_cooperative_dispatcher ... ok
+test mcp::protocol::tests::dispatch_errors_are_mapped_without_transport_error_details ... ok
+test mcp::tests::cancelled_callback_boundary_is_not_bypassed ... ok
+test mcp::protocol::tests::method_and_argument_errors ... ok
+test mcp::protocol::tests::failed_output_does_not_commit_poll_cursor ... ok
+test mcp::tests::args_accept_default_and_reject_unbounded_limits ... ok
+test mcp::protocol::tests::lists_only_registered_tools_and_returns_text_content ... ok
+test mcp::protocol::tests::errors_never_echo_backend_message_keys_or_decode_failure_text ... ok
+test mcp::protocol::tests::polling_preserves_legacy_first_unread_and_changed_summary_semantics ... ok
+test mcp::protocol::tests::snapshots_are_isolated_and_invalid_or_failed_results_do_not_advance ... ok
+test mcp::tests::handshake_list_and_notifications_do_not_call_ipc ... ok
+test mcp::protocol::tests::legacy_search_names_and_offset_are_applied_globally ... ok
+test mcp::protocol::tests::legacy_time_and_type_arguments_map_without_ambiguity ... ok
+test mcp::protocol::tests::schemas_match_real_ipc_and_reject_unimplemented_arguments ... ok
+test mcp::protocol::tests::cooperative_cancellation_is_injectable_and_late_success_is_discarded ... ok
+test mcp::protocol::tests::polling_rejects_truncated_snapshot_instead_of_losing_cursor_entries ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.05s
+

@@ -1,0 +1,14 @@
+
+Algorithm : SHA256
+Hash      : C448935A71B3924825A3C36A665FD8207CC7BDE4106692CD31A8F12A918B5F4C
+Path      : C:\CodexLocal\src\wx-cli\src\cli\asr_database.rs
+
+Algorithm : SHA256
+Hash      : 1AA35FCA5C6FD8FC6E0336ED483B5C84EEEBBC3BAB1C7C60AD9F341987D85B36
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\database_media.rs
+
+Algorithm : SHA256
+Hash      : 9597B7D7038102070CC309CD5AF97C6A1968A0AB8C1E1C20784ECC84110DCF40
+Path      : C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security\cli_path_tests.rs
+
+

@@ -1,0 +1,13 @@
+flowchart TB
+    ENTRY[CLI / 本地界面 / 自动化调用] --> APP[应用服务：用例编排和任务状态]
+    APP --> ACCOUNT[账号上下文：配置、密钥引用、运行目录、IPC 标识]
+    APP --> CHAT[聊天服务：查询、分页、导出及证据]
+    APP --> SNS[朋友圈服务：文本、图片、视频和相册]
+    APP --> VOICE[语音服务：SILK、转换、识别及校对]
+    CHAT --> DOMAIN[共享领域类型：账号、联系人、消息、媒体、任务结果]
+    SNS --> DOMAIN
+    VOICE --> DOMAIN
+    DOMAIN --> INFRA[基础设施：SQLite、文件、密码学、HTTP、受控子进程]
+    INFRA --> WIN[Windows 适配：内存、DPAPI、进程、命名管道]
+    VOICE -. 过渡阶段 .-> BACKENDS[ASR 模型 / 外部编解码器]
+    SNS -. 过渡阶段 .-> WASM[视频 WASM 运行时]

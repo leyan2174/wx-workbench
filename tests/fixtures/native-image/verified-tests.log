@@ -1,0 +1,51 @@
+   Compiling native-image-fixture v0.1.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\native-image)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.89s
+     Running unittests lib.rs (C:/CodexLocal/build/native-image\x86_64-pc-windows-msvc\debug\deps\native_image_fixture-b1fe736b384da272.exe)
+
+running 43 tests
+test attachment_id::tests::local_type_mask_high_bits ... ok
+test decoder::v1_xor::tests::detect_bmp_with_valid_header ... ok
+test decoder::v1_xor::tests::detect_webp_riff_key ... ok
+test attachment_id::tests::round_trip_minimal ... ok
+test attachment_id::tests::round_trip_with_db_hint ... ok
+test attachment_id::tests::rejects_unknown_version ... ok
+test decoder::v1_xor::tests::decode_round_trip_jpg ... ok
+test decoder::tests::v1_default_xor_and_explicit_account_values_decode_exact_bytes ... ok
+test decoder::v1_xor::tests::detect_gif_key ... ok
+test decoder::v1_xor::tests::detect_png_key ... ok
+test decoder::v1_xor::tests::detect_tif_key ... ok
+test decoder::v2::tests::rejects_v2_without_key ... ok
+test decoder::tests::detect_basic_formats ... ok
+test decoder::v1_xor::tests::reject_random_bytes ... ok
+test decoder::v2::tests::rejects_short_file ... ok
+test decoder::v1_xor::tests::detect_jpg_key ... ok
+test resolver::tests::extract_md5_fallback_no_marker ... ok
+test resolver::tests::extract_md5_main_path ... ok
+test resolver::tests::extract_md5_uppercase_normalized_to_lower ... ok
+test resolver::tests::extract_md5_returns_none_on_garbage ... ok
+test resolver::tests::three_month_candidates_includes_prev_curr_next ... ok
+test resolver::tests::pick_best_prefers_full_then_h_then_t ... ok
+test native_image::tests::bounded_enumeration_and_unsafe_roots ... ok
+test native_image::tests::invalid_identity_is_rejected_before_path_access ... ok
+test native_image::tests::directory_junction_rejected_without_following_target ... ok
+test resolver::tests::lookup_md5_prefers_exact_create_time_over_latest_reuse ... ok
+test native_image::tests::pinned_file_blocks_writers_and_detects_changed_directory ... ok
+test native_image::tests::same_rank_duplicates_reject_even_identical_content ... ok
+test native_image::tests::resource_hardlink_output_never_overwritten ... ok
+test native_image::tests::output_inside_source_or_existing_hardlink_rejected ... ok
+test native_image::tests::broad_prefix_and_other_chat_never_match ... ok
+test native_image::tests::legacy_exact_identity_source_unchanged_and_no_overwrite ... ok
+test native_image::tests::dat_and_resource_size_limits_are_enforced ... ok
+test native_image::tests::duplicate_chat_and_duplicate_exact_row_rejected ... ok
+test native_image::tests::malformed_dat_and_wrong_v2_key_leave_no_output ... ok
+test native_image::tests::virtual_resource_tables_rejected_before_queries ... ok
+test native_image::tests::v1_and_v2_reuse_decoder_explicit_keys_no_provider ... ok
+test native_image::tests::text_packed_oversized_packed_and_noninteger_identity_rejected ... ok
+test native_image::tests::resource_sidecars_and_dat_directory_rejected ... ok
+test native_image::tests::selection_full_then_hd_then_thumb_and_uppercase ... ok
+test native_image::tests::exact_tuple_never_falls_back_or_masks_type_flags ... ok
+test native_image::tests::candidate_limit_rejects_instead_of_truncating ... ok
+test native_image::tests::schemas_views_without_rowid_and_shadow_aliases_rejected ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+

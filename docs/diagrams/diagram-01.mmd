@@ -1,0 +1,6 @@
+flowchart LR
+    AUTO[web/automatic_image：自动图片私有密钥文件] --> ACL[toolkit/private_file::restrict]
+    KEYS[保留 enterprise_batch/keys：必要回归维护] --> ACL
+    ACL --> HANDLE[已打开文件句柄：首次敏感写入前调用]
+    HANDLE --> DACL[Windows 当前用户专用 DACL + SE_DACL_PROTECTED]
+    DACL --> VERIFY[测试读取实际 ACL：禁止继承，仅当前用户访问项]

@@ -1,0 +1,23 @@
+flowchart TD
+    OLD[export-chats / run export-all / export / all] --> EXPORT[export_all → export_chats / 增量分支]
+    EXPORT --> NEED{显式 with-transcriptions 且非 dry-run}
+    NEED -->|否| OUT[原生导出及计划结果]
+    NEED -->|是| PREP[asr_batch::prepare：复用固定 RuntimeContext]
+    CHAT[transcribe-chat：输入 JSON 与可选输出] --> PREP
+    PREP --> CHOOSE{显式 BackendArgs 或固定账号配置}
+    CHOOSE -->|local| PY[LegacyPythonLocal：Whisper / PyTorch]
+    CHOOSE -->|whisper_cpp| CPP[Local：whisper.cpp 程序与本地模型]
+    CHOOSE -->|openai 且 allow-upload| CLOUD[显式 OpenAI HTTP 后端]
+    PY --> BATCH[BatchTranscriber：账号快照与消息身份]
+    CPP --> BATCH
+    CLOUD --> BATCH
+    BATCH --> JOIN[database_media：完整来源与唯一 VoiceInfo 关联]
+    JOIN --> CACHE[成功缓存与 receipt：账号、音频和后端身份复核]
+    CACHE --> HIT{可用成功记录}
+    HIT -->|命中| TEXT[非空转录文本]
+    HIT -->|未命中| AUDIO[原生 SILK 解码及 WAV 规范化]
+    AUDIO --> ENGINE[已选后端执行；失败不切换引擎]
+    ENGINE --> CHECK[非空结果检查、成功缓存提交]
+    CHECK --> TEXT
+    TEXT --> WRITE[JSON 回写；原消息顺序与已有 transcription 保留]
+    WRITE --> REPORT[成功和逐条失败、缓存及持久化警告报告]

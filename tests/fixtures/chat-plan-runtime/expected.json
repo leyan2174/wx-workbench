@@ -1,0 +1,9 @@
+{
+  "header": ["export", "index", "username", "chat_name", "chat_type", "message_count", "first_time", "last_time", "attachment_estimated_bytes", "attachment_scanned_bytes", "total_estimated_bytes", "size_status"],
+  "rows": [
+    ["", "9007199254740993", "alpha", "同名, \"联系人\"\r\n第二行", "single", "4", "$START", "$END", "47", "", "58", "ok"],
+    ["", "8", "beta", "同名, \"联系人\"\r\n第二行", "single", "0", "", "", "0", "", "0", "ok"],
+    ["", "9", "absent", "无消息表", "single", "0", "", "", "0", "", "0", "partial:no_message_table"],
+    ["", "10", "room@chatroom", "room@chatroom", "group", "0", "", "", "0", "", "0", "partial:no_message_table"]
+  ]
+}

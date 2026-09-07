@@ -1,0 +1,46 @@
+
+Algorithm : SHA256
+Hash      : 4A3BAB9859C8D0EDD5E47C1E55F3A6DFE69823D69EF1C339E2509A82A7463315
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cache.rs
+
+Algorithm : SHA256
+Hash      : 1B944C7ED3F08F98E0B56D1F258EF8FA039FD6C959E21F2CE4FA70EC692824A5
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cache_tests.rs
+
+Algorithm : SHA256
+Hash      : 86DA0EAD995C892D718B1484AA25DDAF1067FF61754EA09B76982F7A7750F752
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cached.rs
+
+Algorithm : SHA256
+Hash      : 19FC04771707A12316B126C6E622198DDD2C41C954B7634DC7FC8405084B8FA0
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\cached_tests.rs
+
+Algorithm : SHA256
+Hash      : E2EBA69FB407A98F9DCE31317FCFA22BF29B4DC9665461A01169505DCD605D5A
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\mod.rs
+
+Algorithm : SHA256
+Hash      : AD9D5300C8919EEC513A81E0383AE0BB367552E5501EDE0164791195FFD981B5
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\local.rs
+
+Algorithm : SHA256
+Hash      : 612FDF1DA9C8CAC10BAA126BA21F1979119A473179F4C6D8DE0CC4F360A28EA9
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\asr\openai.rs
+
+Algorithm : SHA256
+Hash      : 5E8859AEB48925D2B887F642C03571C7307191ADF7EF9B28E62271CE595AF3CF
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\audio\mod.rs
+
+Algorithm : SHA256
+Hash      : 723F5DC18355641D35F7A203EA15D60206BF55E5C5BB226BEF02197F8C7CA3DF
+Path      : C:\CodexLocal\src\wx-cli\src\cli\asr.rs
+
+Algorithm : SHA256
+Hash      : 9757F0DB45B8032E0333DD64CCE575C7319473A6C7A4EAB788EC57981D9F4A76
+Path      : C:\CodexLocal\src\wx-cli\src\cli\asr_database.rs
+
+Algorithm : SHA256
+Hash      : 37B977CC20D6AD1DBBF0493D119C00DD4613D929FE5BF1C40B5F3259722B9684
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\files.rs
+
+

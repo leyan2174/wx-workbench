@@ -1,0 +1,12 @@
+flowchart TD
+    CLI[cleanup_native：配置与 runtime 根只选择一次] --> FIX[cleanup::selected_runtime]
+    FIX --> MODE{是否 execute}
+    MODE -->|否，默认只读| INPUT[原生产物清单或显式旧产物接管清单]
+    INPUT --> PLAN[plan_with_key_removal_for：身份、保护路径、逐文件计划与空间统计]
+    PLAN --> JSON[JSON：候选、排除原因、错误与 partial]
+    PLAN -->|显式 write-plan 且计划无错误| SAVE[绝对新文件，不覆盖或创建父目录]
+    MODE -->|是| READ[read_plan_for：读取此前审阅的计划]
+    READ --> SELECT[精确文件 ID + 完整 confirm-account；拒绝 all 与通配符]
+    SELECT --> VERIFY[重新核验来源、目录、文件与授权，持有 Windows 句柄]
+    VERIFY --> DELETE[仅删除核验通过且明确选择的文件]
+    DELETE --> REPORT[逐文件结果；不完整执行非零退出]

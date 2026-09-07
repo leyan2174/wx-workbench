@@ -1,0 +1,26 @@
+
+Algorithm : SHA256
+Hash      : 17EFCD35A0B42EE551504863056CF3837E006FF3BDA0EAA286711D0F6FF943E4
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\query\mcp_contacts.rs
+
+Algorithm : SHA256
+Hash      : 0254A6BD2367CC3FB6EDF1B76B5D304F91F17A9F7463CC1B7BF9F815242B1CB7
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\query\mcp_refer.rs
+
+Algorithm : SHA256
+Hash      : 5BA0CDB0EDF6BBFDB5BDAA3EE883042746F2F0C6C1FC9D7456003CF9AB76A318
+Path      : C:\CodexLocal\src\wx-cli\src\daemon\meta.rs
+
+Algorithm : SHA256
+Hash      : F6994F0D26B253B7A5C8726638D0BEBD0B639DB181C903549C51A03A5BA42BBB
+Path      : C:\CodexLocal\src\wx-cli\src\toolkit\contact_metadata.rs
+
+Algorithm : SHA256
+Hash      : 9FEBA478F766D739F93328D2377A13BD87588F9F7DE0D2727DC028358EE381BA
+Path      : C:\CodexLocal\src\wx-cli\src\message\xml.rs
+
+Algorithm : SHA256
+Hash      : 51B21AEEC9F6B9E037F93F63CDAC9E24F7404B399A698C31EF3482A7830D4EB4
+Path      : C:\CodexLocal\src\wx-cli\src\message\export_content.rs
+
+

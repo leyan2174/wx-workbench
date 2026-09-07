@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-64784275777a5c0e.exe)
+
+running 5 tests
+COMMAND: "rustc" "--edition=2021" "--crate-name" "cache_security_probe" "C:\\CodexLocal\\src\\wx-cli\\tests\\fixtures\\asr-cache-security\\probe.rs" "-o" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp37fc9c\\probe.exe"
+test adapter_tests::denied_cloud_checks_authorization_before_invalid_audio_account_or_cache ... ok
+STDOUT: 
+STDERR: 
+test adapter_tests::existing_cache_never_bypasses_audio_validation_or_input_limit ... ok
+test adapter_tests::backend_failure_and_corrupt_cache_keep_separate_error_models ... ok
+test adapter_tests::backend_cannot_modify_pinned_model_and_wrong_model_never_hits ... ok
+test adapter_tests::malformed_hit_or_wrong_timestamp_preserves_record_and_returns_fresh_success ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 121 filtered out; finished in 0.33s
+

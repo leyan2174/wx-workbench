@@ -1,0 +1,24 @@
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.80s
+     Running unittests lib.rs (C:\CodexLocal\build\asr-cache-security\debug\deps\asr_cache_security-4193fa22521bd73d.exe)
+
+running 2 tests
+PROTECTED ALIAS program.json: cache aliases a protected input
+PROTECTED ALIAS model.json: cache aliases a protected input
+DATABASE HARDLINK ERROR: MissingDatabase: no media shards
+
+thread 'cli_path_tests::cli_external_database_hardlink_must_be_rejected_at_path_preflight' (6520) panicked at cli_path_tests.rs:105:5:
+未在路径预检拒绝数据库硬链接，进入后续数据库解析: MissingDatabase: no media shards
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test cli_path_tests::cli_external_database_hardlink_must_be_rejected_at_path_preflight ... FAILED
+PROTECTED ALIAS key.json: cache aliases a protected input
+test cli_path_tests::cli_rejects_source_directory_and_protected_file_aliases_before_database_access ... ok
+
+failures:
+
+failures:
+    cli_path_tests::cli_external_database_hardlink_must_be_rejected_at_path_preflight
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`

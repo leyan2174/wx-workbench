@@ -1,0 +1,30 @@
+[package]
+name = "mcp-voice-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[workspace]
+[lib]
+path = "lib.rs"
+[[bin]]
+name = "voice-probe"
+path = "probe.rs"
+[dependencies]
+anyhow = "1"
+regex = "1"
+windows = { version = "0.58", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+same-file = "1"
+tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "json", "rustls-tls"] }
+wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
+zeroize = "1"
+chrono = "0.4"
+rusqlite = { version = "0.31", features = ["bundled"] }
+md5 = "0.7"
+silk-codec = { version = "=0.3.1", default-features = false }
+base64 = "0.22"
+dirs = "5"

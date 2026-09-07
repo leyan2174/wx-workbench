@@ -1,0 +1,282 @@
+[
+  {
+    "mapped": "",
+    "prefix": "",
+    "group": false,
+    "chat": "peer",
+    "expected": ""
+  },
+  {
+    "mapped": "",
+    "prefix": "self",
+    "group": false,
+    "chat": "peer",
+    "expected": ""
+  },
+  {
+    "mapped": "",
+    "prefix": "peer",
+    "group": false,
+    "chat": "peer",
+    "expected": ""
+  },
+  {
+    "mapped": "",
+    "prefix": "unknown",
+    "group": false,
+    "chat": "peer",
+    "expected": ""
+  },
+  {
+    "mapped": "self",
+    "prefix": "",
+    "group": false,
+    "chat": "peer",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "self",
+    "group": false,
+    "chat": "peer",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "peer",
+    "group": false,
+    "chat": "peer",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "unknown",
+    "group": false,
+    "chat": "peer",
+    "expected": "me"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "self",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "peer",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "unknown",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "",
+    "group": false,
+    "chat": "peer",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "self",
+    "group": false,
+    "chat": "peer",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "peer",
+    "group": false,
+    "chat": "peer",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "unknown",
+    "group": false,
+    "chat": "peer",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "self",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "peer",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "unknown",
+    "group": false,
+    "chat": "peer",
+    "expected": "聊天备注"
+  },
+  {
+    "mapped": "",
+    "prefix": "",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": ""
+  },
+  {
+    "mapped": "",
+    "prefix": "self",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "",
+    "prefix": "peer",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "",
+    "prefix": "unknown",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "self",
+    "prefix": "",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "self",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "peer",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "self",
+    "prefix": "unknown",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "self",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "peer",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "peer",
+    "prefix": "unknown",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "self",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "peer",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "unknown",
+    "prefix": "unknown",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  },
+  {
+    "mapped": "room@chatroom",
+    "prefix": "",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": ""
+  },
+  {
+    "mapped": "room@chatroom",
+    "prefix": "self",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "me"
+  },
+  {
+    "mapped": "room@chatroom",
+    "prefix": "peer",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "联系人"
+  },
+  {
+    "mapped": "room@chatroom",
+    "prefix": "unknown",
+    "group": true,
+    "chat": "room@chatroom",
+    "expected": "unknown"
+  }
+]

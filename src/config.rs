@@ -14,18 +14,26 @@ pub struct Config {
 /// 从当前工作目录 / <exe_dir> / $HOME/.wx-cli 加载配置
 pub fn load_config() -> Result<Config> {
     let config_path = find_config_file()?;
+    load_config_at(&config_path)
+}
+
+/// 从指定文件加载一次配置，避免后台启动过程中重复发现配置而切换账号。
+pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
     let content = std::fs::read_to_string(&config_path)
         .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
     let raw: serde_json::Value =
         serde_json::from_str(&content).with_context(|| "config.json 格式错误")?;
 
-    let db_dir = raw
+    let mut db_dir = raw
         .get("db_dir")
         .and_then(|v| v.as_str())
         .map(PathBuf::from)
         .unwrap_or_else(default_db_dir);
 
     let base_dir = config_path.parent().unwrap_or(Path::new("."));
+    if db_dir.is_relative() {
+        db_dir = base_dir.join(db_dir);
+    }
 
     let keys_file = raw
         .get("keys_file")
@@ -67,11 +75,23 @@ pub fn load_config() -> Result<Config> {
     })
 }
 
-fn find_config_file() -> Result<PathBuf> {
+pub(crate) fn find_config_file() -> Result<PathBuf> {
+    if let Some(path) = std::env::var_os("WX_CLI_CONFIG") {
+        anyhow::ensure!(!path.is_empty(), "WX_CLI_CONFIG 不能为空");
+        return Ok(std::path::absolute(PathBuf::from(path))?);
+    }
     let cwd_dir = std::env::current_dir().ok();
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from));
+    // 自定义运行根目录必须与 init 的写入位置一致，不能悄悄回退到默认账号。
+    if std::env::var("WX_CLI_HOME").is_ok_and(|value| !value.trim().is_empty()) {
+        if let Some(path) = find_existing_config_path(cwd_dir.as_deref(), exe_dir.as_deref(), None)
+        {
+            return Ok(path);
+        }
+        return Ok(cli_dir().join("config.json"));
+    }
     let cli_home = cli_home_dir();
     let home_dir = Some(cli_home.as_path());
 
@@ -132,22 +152,6 @@ pub fn cli_dir() -> PathBuf {
 
 fn cli_home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(std::env::temp_dir)
-}
-
-pub fn pid_path() -> PathBuf {
-    cli_dir().join("daemon.pid")
-}
-
-pub fn log_path() -> PathBuf {
-    cli_dir().join("daemon.log")
-}
-
-pub fn cache_dir() -> PathBuf {
-    cli_dir().join("cache")
-}
-
-pub fn mtime_file() -> PathBuf {
-    cache_dir().join("_mtimes.json")
 }
 
 fn default_db_dir() -> PathBuf {
@@ -239,9 +243,7 @@ fn detect_db_dir_impl() -> Option<PathBuf> {
 fn resolve_windows_data_root(content: &str) -> Option<PathBuf> {
     let trimmed = content.trim();
     // Strip an optional trailing slash so `MyDocument:\` and `MyDocument:/` also match.
-    let stripped = trimmed
-        .strip_suffix(['\\', '/'])
-        .unwrap_or(trimmed);
+    let stripped = trimmed.strip_suffix(['\\', '/']).unwrap_or(trimmed);
     if stripped.eq_ignore_ascii_case("MyDocument:") {
         return known_documents_dir();
     }
@@ -254,9 +256,7 @@ fn known_documents_dir() -> Option<PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{
-        FOLDERID_Documents, SHGetKnownFolderPath, KF_FLAG_DEFAULT,
-    };
+    use windows::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
 
     // SAFETY: standard Win32 known-folder API. SHGetKnownFolderPath either returns
     // a heap-allocated PWSTR that the caller must free with CoTaskMemFree, or an
@@ -353,7 +353,12 @@ mod tests {
         // Should match the keyword exactly (case-insensitive, with or without trailing slash)
         // and resolve to a non-empty Documents path via SHGetKnownFolderPath.
         let docs = known_documents_dir().expect("Documents known folder must resolve");
-        for keyword in ["MyDocument:", "mydocument:", "MyDocument:\\", "MyDocument:/"] {
+        for keyword in [
+            "MyDocument:",
+            "mydocument:",
+            "MyDocument:\\",
+            "MyDocument:/",
+        ] {
             let resolved = resolve_windows_data_root(keyword)
                 .unwrap_or_else(|| panic!("keyword {keyword:?} should resolve"));
             assert_eq!(resolved, docs, "keyword {keyword:?}");

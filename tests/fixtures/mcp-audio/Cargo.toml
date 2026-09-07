@@ -1,0 +1,35 @@
+[package]
+name = "mcp-audio-bridge-fixture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../../mcp_audio_adapter.rs"
+doctest = false
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+zstd = "0.13"
+zeroize = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+md5 = "0.7"
+base64 = "0.22"
+regex = "1"
+tempfile = "3"
+same-file = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }

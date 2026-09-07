@@ -1,0 +1,18 @@
+[package]
+name = "sns-video-native-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
+sha2 = "0.10"
+zeroize = "1"
+
+[dev-dependencies]
+serde_json = "=1.0.140"

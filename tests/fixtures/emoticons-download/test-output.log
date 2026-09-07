@@ -1,0 +1,354 @@
+     Locking 156 packages to latest compatible versions
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling stable_deref_trait v1.2.1
+   Compiling windows-link v0.2.1
+   Compiling bytes v1.12.1
+   Compiling pin-project-lite v0.2.17
+   Compiling cfg-if v1.0.4
+   Compiling find-msvc-tools v0.1.12
+   Compiling shlex v2.0.1
+   Compiling futures-core v0.3.34
+   Compiling itoa v1.0.18
+   Compiling version_check v0.9.5
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling smallvec v1.16.0
+   Compiling once_cell v1.21.4
+   Compiling icu_properties_data v2.3.0
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling futures-sink v0.3.34
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling typenum v1.20.1
+   Compiling zeroize v1.9.0
+   Compiling windows-sys v0.61.2
+   Compiling percent-encoding v2.3.2
+   Compiling getrandom v0.2.17
+   Compiling httparse v1.10.1
+   Compiling futures-task v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling slab v0.4.12
+   Compiling rustls-pki-types v1.15.1
+   Compiling memchr v2.8.3
+   Compiling untrusted v0.9.0
+   Compiling try-lock v0.2.5
+   Compiling rustls v0.23.43
+   Compiling tower-service v0.3.3
+   Compiling serde_core v1.0.229
+   Compiling libc v0.2.189
+   Compiling want v0.3.1
+   Compiling form_urlencoded v1.2.2
+   Compiling tracing-core v0.1.36
+   Compiling futures-channel v0.3.34
+   Compiling subtle v2.6.1
+   Compiling serde v1.0.229
+   Compiling atomic-waker v1.1.2
+   Compiling sync_wrapper v1.0.2
+   Compiling generic-array v0.14.7
+   Compiling cc v1.4.5
+   Compiling http v1.5.0
+   Compiling futures-util v0.3.34
+   Compiling base64 v0.22.1
+   Compiling tower-layer v0.3.3
+   Compiling getrandom v0.4.3
+   Compiling ipnet v2.12.2
+   Compiling webpki-roots v1.0.9
+   Compiling windows-targets v0.52.6
+   Compiling tracing v0.1.44
+   Compiling bitflags v2.13.1
+   Compiling ryu v1.0.23
+   Compiling anyhow v1.0.104
+   Compiling cpufeatures v0.2.17
+   Compiling fastrand v2.5.0
+   Compiling log v0.4.34
+   Compiling windows-result v0.2.0
+   Compiling http-body v1.1.0
+   Compiling http-body-util v0.1.5
+   Compiling windows-strings v0.1.0
+   Compiling syn v2.0.119
+   Compiling syn v3.0.5
+   Compiling ring v0.17.14
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling winapi-util v0.1.11
+   Compiling tempfile v3.27.0
+   Compiling block-padding v0.3.3
+   Compiling crypto-common v0.1.7
+   Compiling same-file v1.0.6
+   Compiling inout v0.1.4
+   Compiling cipher v0.4.4
+   Compiling tokio v1.53.1
+   Compiling aes v0.8.4
+   Compiling cbc v0.1.2
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_urlencoded v0.7.1
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling windows-interface v0.58.0
+   Compiling windows-implement v0.58.0
+   Compiling hyper v1.11.1
+   Compiling tower v0.5.3
+   Compiling rustls-webpki v0.103.15
+   Compiling windows-core v0.58.0
+   Compiling zerofrom v0.1.8
+   Compiling hyper-util v0.1.20
+   Compiling yoke v0.8.3
+   Compiling windows v0.58.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling tokio-rustls v0.26.5
+   Compiling idna_adapter v1.2.2
+   Compiling hyper-rustls v0.27.9
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling tower-http v0.6.11
+   Compiling reqwest v0.12.28
+   Compiling emoticons-download-tests v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\emoticons-download)
+warning: constant `MAX_ENTRIES` is never used
+ --> ..\..\..\src\attachment\local_files.rs:9:7
+  |
+9 | const MAX_ENTRIES: usize = 20_000;
+  |       ^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `MAX_DIRECTORIES` is never used
+  --> ..\..\..\src\attachment\local_files.rs:10:7
+   |
+10 | const MAX_DIRECTORIES: usize = 1024;
+   |       ^^^^^^^^^^^^^^^
+
+warning: struct `HostOutputGuard` is never constructed
+  --> ..\..\..\src\attachment\local_files.rs:13:19
+   |
+13 | pub(crate) struct HostOutputGuard {
+   |                   ^^^^^^^^^^^^^^^
+
+warning: multiple associated items are never used
+   --> ..\..\..\src\attachment\local_files.rs:23:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- associated items in this implementation
+ 22 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+ 23 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+    |                   ^^^
+...
+ 35 |     pub(crate) fn output_root(&self) -> &Path {
+    |                   ^^^^^^^^^^^
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 47 |     pub(crate) fn verify(&self) -> Result<()> {
+    |                   ^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+ 71 |     fn future_scan(&self, path: &Path) -> Result<Scan> {
+    |        ^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+164 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+    |                   ^^^^^^^
+...
+199 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    |                   ^^^^^^^^^^^^^
+
+warning: struct `Stamp` is never constructed
+   --> ..\..\..\src\attachment\local_files.rs:217:19
+    |
+217 | pub(super) struct Stamp(pub(super) bool, pub(super) u64, SystemTime);
+    |                   ^^^^^
+
+warning: function `stamp` is never used
+   --> ..\..\..\src\attachment\local_files.rs:219:4
+    |
+219 | fn stamp(meta: &Metadata) -> Result<Stamp> {
+    |    ^^^^^
+
+warning: struct `Pin` is never constructed
+   --> ..\..\..\src\attachment\local_files.rs:233:19
+    |
+233 | pub(super) struct Pin {
+    |                   ^^^
+
+warning: associated items `open` and `verify` are never used
+   --> ..\..\..\src\attachment\local_files.rs:241:19
+    |
+240 | impl Pin {
+    | -------- associated items in this implementation
+241 |     pub(super) fn open(path: &Path, directory: bool) -> Result<Self> {
+    |                   ^^^^
+...
+272 |     pub(super) fn verify(&self) -> Result<()> {
+    |                   ^^^^^^
+
+warning: function `safe_name` is never used
+   --> ..\..\..\src\attachment\local_files.rs:286:15
+    |
+286 | pub(super) fn safe_name(name: &str) -> Result<()> {
+    |               ^^^^^^^^^
+
+warning: struct `Scan` is never constructed
+   --> ..\..\..\src\attachment\local_files.rs:318:19
+    |
+318 | pub(super) struct Scan {
+    |                   ^^^^
+
+warning: associated items `new`, `root`, `directory`, `optional_directory`, `entries`, and `verify` are never used
+   --> ..\..\..\src\attachment\local_files.rs:326:19
+    |
+325 | impl Scan {
+    | --------- associated items in this implementation
+326 |     pub(super) fn new() -> Self {
+    |                   ^^^
+...
+335 |     pub(super) fn root(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^
+...
+372 |     pub(super) fn directory(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+381 |     pub(super) fn optional_directory(&mut self, path: &Path) -> Result<bool> {
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+399 |     pub(super) fn entries(&mut self, path: &Path) -> Result<Vec<(String, Stamp)>> {
+    |                   ^^^^^^^
+...
+405 |     pub(super) fn verify(&mut self) -> Result<()> {
+    |                   ^^^^^^
+
+warning: function `read_entries` is never used
+   --> ..\..\..\src\attachment\local_files.rs:425:15
+    |
+425 | pub(super) fn read_entries(path: &Path, left: &mut usize) -> Result<Vec<(String, Stamp)>> {
+    |               ^^^^^^^^^^^^
+
+warning: function `download` is never used
+  --> ..\..\..\src\toolkit\emoticons\download.rs:32:15
+   |
+32 | pub(crate) fn download(md5: &str, info: &EmojiInfo, guard: &HostOutputGuard, opts: &DownloadOptions) -> Result<Downloaded> {
+   |               ^^^^^^^^
+
+warning: function `fetch` is never used
+  --> ..\..\..\src\toolkit\emoticons\download.rs:99:4
+   |
+99 | fn fetch(client: &reqwest::blocking::Client, url: &str, opts: &DownloadOptions) -> Result<Vec<u8>> {
+   |    ^^^^^
+
+warning: function `decrypt` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:111:4
+    |
+111 | fn decrypt(data: &[u8], key: &str) -> Result<Vec<u8>> {
+    |    ^^^^^^^
+
+warning: constant `VPS` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:132:7
+    |
+132 | const VPS: &[u8] = b"\x00\x00\x00\x01\x40\x01";
+    |       ^^^
+
+warning: constant `SPS` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:133:7
+    |
+133 | const SPS: &[u8] = b"\x00\x00\x00\x01\x42\x01";
+    |       ^^^
+
+warning: function `find` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:134:4
+    |
+134 | fn find(data: &[u8], signature: &[u8]) -> Option<usize> { data.windows(signature.len()).position(|w| w == signature) }
+    |    ^^^^
+
+warning: function `detect` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:135:4
+    |
+135 | fn detect(data: &[u8]) -> &'static str {
+    |    ^^^^^^
+
+warning: function `convert_hevc_to_jpeg` is never used
+   --> ..\..\..\src\toolkit\emoticons\download.rs:144:4
+    |
+144 | fn convert_hevc_to_jpeg(data: &[u8], guard: &HostOutputGuard, opts: &DownloadOptions) -> Result<Vec<u8>> {
+    |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: `emoticons-download-tests` (lib) generated 20 warnings
+warning: fields `snapshots`, `missing`, and `left` are never read
+   --> ..\..\..\src\attachment\local_files.rs:320:5
+    |
+318 | pub(super) struct Scan {
+    |                   ---- fields in this struct
+319 |     pub(super) pins: Vec<Pin>,
+320 |     snapshots: Vec<(PathBuf, Vec<(String, Stamp)>)>,
+    |     ^^^^^^^^^
+321 |     missing: Vec<PathBuf>,
+    |     ^^^^^^^
+322 |     left: usize,
+    |     ^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `optional_directory`, `entries`, and `verify` are never used
+   --> ..\..\..\src\attachment\local_files.rs:381:19
+    |
+325 | impl Scan {
+    | --------- methods in this implementation
+...
+381 |     pub(super) fn optional_directory(&mut self, path: &Path) -> Result<bool> {
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+399 |     pub(super) fn entries(&mut self, path: &Path) -> Result<Vec<(String, Stamp)>> {
+    |                   ^^^^^^^
+...
+405 |     pub(super) fn verify(&mut self) -> Result<()> {
+    |                   ^^^^^^
+
+warning: `emoticons-download-tests` (lib test) generated 3 warnings (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.62s
+     Running unittests harness.rs (target/emoticons-download\debug\deps\emoticons_download_tests-dbdde6bc772793ab.exe)
+
+running 14 tests
+test download::tests::signatures_and_annex_order ... ok
+test download::tests::aes_padding_and_errors ... ok
+test local_files::tests::host_guard_verify_checks_directory_identity ... ok
+test local_files::tests::host_guard_protect_allows_future_file_and_atomic_replacement ... ok
+test local_files::tests::host_guard_verify_checks_input_and_key_snapshots ... ok
+test local_files::tests::host_guard_pins_files_until_drop ... ok
+test local_files::tests::host_guard_rejects_overlap_and_missing_parent ... ok
+test local_files::tests::future_directories_are_rechecked_without_creation ... ok
+test download::tests::network_limits_redirects_protocol_and_sanitization ... ok
+test local_files::tests::replaceable_target_rejects_aliases_but_remains_unlocked ... ok
+test local_files::tests::future_directory_rejects_new_junction ... ok
+test download::tests::redirect_download_and_rejection ... ok
+test download::tests::cache_order_aliases_and_no_clobber ... ok
+
+thread '<unnamed>' (12476) panicked at ..\..\..\src\toolkit\emoticons\download_tests.rs:24:39:
+called `Result::unwrap()` on an `Err` value: Os { code: 10035, kind: WouldBlock, message: "无法立即完成一个非阻止性套接字操作。" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'download::tests::direct_encrypted_unknown_and_fallback_publish' (24244) panicked at ..\..\..\src\toolkit\emoticons\download_tests.rs:84:55:
+called `Result::unwrap()` on an `Err` value: emoji HTTP request failed
+test download::tests::direct_encrypted_unknown_and_fallback_publish ... FAILED
+
+failures:
+
+failures:
+    download::tests::direct_encrypted_unknown_and_fallback_publish
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+
+error: test failed, to rerun pass `--lib`

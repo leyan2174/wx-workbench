@@ -1,0 +1,380 @@
+use anyhow::{ensure, Result};
+use std::sync::Arc;
+use tokio::sync::{OnceCell, RwLock, RwLockReadGuard};
+
+use super::{cache::DbCache, query, query::Names};
+use crate::runtime::RuntimeContext;
+
+struct QuerySnapshot {
+    db: DbCache,
+    names: RwLock<Arc<Names>>,
+}
+
+/// Holds the generation read lock for the entire query, including all cache writes.
+pub struct QueryLease<'a> {
+    snapshot: RwLockReadGuard<'a, QuerySnapshot>,
+}
+
+impl QueryLease<'_> {
+    pub fn db(&self) -> &DbCache {
+        &self.snapshot.db
+    }
+
+    pub fn names(&self) -> &RwLock<Arc<Names>> {
+        &self.snapshot.names
+    }
+}
+
+pub struct QueryState {
+    runtime: RuntimeContext,
+    snapshot: RwLock<OnceCell<QuerySnapshot>>,
+}
+
+impl QueryState {
+    pub fn new(runtime: RuntimeContext) -> Self {
+        Self {
+            runtime,
+            snapshot: RwLock::new(OnceCell::new()),
+        }
+    }
+
+    pub async fn snapshot(&self) -> Result<QueryLease<'_>> {
+        let cell = self.snapshot.read().await;
+        cell.get_or_try_init(|| self.initialize()).await?;
+        Ok(QueryLease {
+            snapshot: RwLockReadGuard::map(cell, |cell| {
+                cell.get()
+                    .expect("query generation initialized under read lock")
+            }),
+        })
+    }
+
+    /// Drain active query leases and discard the old cache before admitting new queries.
+    /// Call after a successful key refresh; do not hold a query lease while awaiting this.
+    pub async fn invalidate(&self) {
+        let mut cell = self.snapshot.write().await;
+        let previous = cell.take();
+        drop(previous);
+    }
+
+    async fn initialize(&self) -> Result<QuerySnapshot> {
+        let expected = self.runtime.clone();
+        let (runtime, all_keys) = tokio::task::spawn_blocking(move || {
+            let runtime = validated_runtime(&expected)?;
+            let content = std::fs::read_to_string(&runtime.config.keys_file)?;
+            let raw = serde_json::from_str(&content)?;
+            let keys = super::extract_keys(&raw);
+            ensure!(!keys.is_empty(), "Query keys are unavailable");
+            Ok::<_, anyhow::Error>((runtime, keys))
+        })
+        .await??;
+
+        let msg_db_keys = super::collect_db_keys(&all_keys, super::is_msg_db_key);
+        let biz_msg_db_keys = super::collect_db_keys(&all_keys, super::is_biz_msg_db_key);
+        let db = DbCache::with_dirs(
+            runtime.config.db_dir.clone(),
+            runtime.cache_dir(),
+            runtime.mtime_file(),
+            all_keys,
+        )
+        .await?;
+        let mut names =
+            query::load_names_with_retry(&db, 5, std::time::Duration::from_millis(300)).await?;
+        names.msg_db_keys = msg_db_keys;
+        names.biz_msg_db_keys = biz_msg_db_keys;
+        let _ = db.get("session/session.db").await;
+        let _ = db.get("sns/sns.db").await;
+        Ok(QuerySnapshot {
+            db,
+            names: RwLock::new(Arc::new(names)),
+        })
+    }
+}
+
+fn validated_runtime(expected: &RuntimeContext) -> Result<RuntimeContext> {
+    let config = crate::config::load_config_at(&expected.config_path)?;
+    let current =
+        RuntimeContext::from_config(expected.config_path.clone(), config, expected.root.clone())?;
+    ensure!(
+        current.id == expected.id && current.directory == expected.directory,
+        "Account configuration changed; restart the daemon"
+    );
+    Ok(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::daemon::server::{
+        dispatch_state, read_initial_request_frame, read_request_frame, MAX_REQUEST_FRAME_BYTES,
+    };
+    use crate::ipc::Request;
+    use serde_json::json;
+    use std::{fs, future::Future, path::Path, task::Poll, time::UNIX_EPOCH};
+    use tokio::io::{AsyncWriteExt, BufReader};
+
+    fn runtime(root: &Path) -> RuntimeContext {
+        let path = root.join("config.json");
+        fs::write(
+            &path,
+            json!({"db_dir":"db_storage", "keys_file":"keys.json"}).to_string(),
+        )
+        .unwrap();
+        RuntimeContext::from_config(
+            path.clone(),
+            crate::config::load_config_at(&path).unwrap(),
+            root.join("home"),
+        )
+        .unwrap()
+    }
+
+    fn seed(runtime: &RuntimeContext) {
+        let source = runtime.config.db_dir.join("contact/contact.db");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::write(&source, b"synthetic source").unwrap();
+        fs::create_dir_all(runtime.cache_dir()).unwrap();
+        let cached = runtime.cache_dir().join("contact.db");
+        let connection = rusqlite::Connection::open(&cached).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE contact(username TEXT,nick_name TEXT,remark TEXT,verify_flag INTEGER);
+             INSERT INTO contact VALUES('wxid_test','Test','',0);",
+        ).unwrap();
+        drop(connection);
+        let mt = fs::metadata(source)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+        fs::write(
+            runtime.mtime_file(),
+            json!({"contact/contact.db":{"db_mt":mt,"wal_mt":0,"path":cached}}).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            &runtime.config.keys_file,
+            json!({"contact/contact.db":"11".repeat(32),
+                "message/message_0.db":"22".repeat(32),
+                "message/biz_message_0.db":"33".repeat(32)})
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn ping_is_lazy_and_failures_are_safe_and_retryable() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        let state = QueryState::new(runtime.clone());
+        let ping = dispatch_state(Request::Ping, &state).await;
+        assert!(ping.ok);
+        assert_eq!(ping.data["pong"], true);
+        assert!(state.snapshot.read().await.get().is_none());
+        assert!(!runtime.cache_dir().exists());
+
+        for content in [None, Some("secret-invalid-json"), Some("{}")] {
+            if let Some(content) = content {
+                fs::write(&runtime.config.keys_file, content).unwrap();
+            }
+            let response = dispatch_state(Request::ContactTags, &state).await;
+            assert!(!response.ok);
+            assert_eq!(
+                response.error.as_deref(),
+                Some(
+                    "Query initialization failed; check account configuration and keys, then retry"
+                )
+            );
+            assert!(state.snapshot.read().await.get().is_none());
+        }
+
+        seed(&runtime);
+        let (first, second) = tokio::join!(state.snapshot(), state.snapshot());
+        let first = first.unwrap();
+        let second = second.unwrap();
+        assert!(std::ptr::eq(first.db(), second.db()));
+        let names = first.names().read().await;
+        assert_eq!(names.map["wxid_test"], "Test");
+        assert_eq!(names.msg_db_keys, ["message/message_0.db"]);
+        assert_eq!(names.biz_msg_db_keys, ["message/biz_message_0.db"]);
+        drop(names);
+        drop(first);
+        drop(second);
+        state.invalidate().await;
+        assert!(state.snapshot.read().await.get().is_none());
+        let fresh = state.snapshot().await.unwrap();
+        assert_eq!(fresh.names().read().await.map["wxid_test"], "Test");
+    }
+
+    #[tokio::test]
+    async fn invalidation_drains_active_leases_and_queues_new_queries_but_not_ping() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        seed(&runtime);
+        let state = QueryState::new(runtime.clone());
+        let active = state.snapshot().await.unwrap();
+        fs::write(
+            &runtime.config.keys_file,
+            json!({
+                "contact/contact.db":"11".repeat(32),
+                "message/message_1.db":"22".repeat(32)
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut invalidate = Box::pin(state.invalidate());
+        std::future::poll_fn(|cx| {
+            assert!(invalidate.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        let mut next = Box::pin(state.snapshot());
+        std::future::poll_fn(|cx| {
+            assert!(next.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert!(dispatch_state(Request::Ping, &state).await.ok);
+        assert_eq!(
+            active.names().read().await.msg_db_keys,
+            ["message/message_0.db"]
+        );
+
+        drop(active);
+        invalidate.await;
+        let fresh = next.await.unwrap();
+        assert_eq!(
+            fresh.names().read().await.msg_db_keys,
+            ["message/message_1.db"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_retains_its_generation_lease_until_query_returns() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        seed(&runtime);
+        let state = QueryState::new(runtime);
+        let active = state.snapshot().await.unwrap();
+        let names_writer = active.names().write().await;
+        let mut request = Box::pin(dispatch_state(
+            Request::ResolveChat {
+                chat: "wxid_test".into(),
+            },
+            &state,
+        ));
+        std::future::poll_fn(|cx| {
+            assert!(request.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        drop(names_writer);
+        drop(active);
+        let mut invalidate = Box::pin(state.invalidate());
+        std::future::poll_fn(|cx| {
+            assert!(invalidate.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        assert!(request.await.ok);
+        invalidate.await;
+        assert!(state.snapshot.read().await.get().is_none());
+    }
+
+    #[tokio::test]
+    async fn initial_frame_timeout_does_not_wait_for_peer_to_close() {
+        let (_writer, reader) = tokio::io::duplex(64);
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(7),
+            read_initial_request_frame(&mut BufReader::new(reader)),
+        )
+        .await
+        .expect("initial frame deadline was not enforced")
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn changed_account_paths_are_rejected_before_cache_initialization() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        let state = QueryState::new(runtime.clone());
+        for config in [
+            json!({"db_dir":"other-account", "keys_file":"keys.json"}),
+            json!({"db_dir":"db_storage", "keys_file":"other-keys.json"}),
+        ] {
+            fs::write(&runtime.config_path, config.to_string()).unwrap();
+            assert!(validated_runtime(&runtime).is_err());
+            assert!(state.snapshot().await.is_err());
+            assert!(!runtime.cache_dir().exists());
+        }
+        fs::write(
+            &runtime.config_path,
+            json!({"db_dir":"db_storage", "keys_file":"keys.json"}).to_string(),
+        )
+        .unwrap();
+        assert!(validated_runtime(&runtime).is_ok());
+        seed(&runtime);
+        assert!(state.snapshot().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn frame_reader_preserves_lines_eof_utf8_and_boundaries() {
+        for bytes in [b"hello\n".as_slice(), b"hello\r\n", b"hello"] {
+            assert_eq!(
+                read_request_frame(&mut BufReader::new(bytes))
+                    .await
+                    .unwrap(),
+                Some("hello".to_owned())
+            );
+        }
+        assert!(read_request_frame(&mut BufReader::new(b"".as_slice()))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(
+            read_request_frame(&mut BufReader::new(b"\xff\n".as_slice()))
+                .await
+                .is_err()
+        );
+        let mut two_lines = BufReader::new(b"first\nsecond\n".as_slice());
+        assert_eq!(
+            read_request_frame(&mut two_lines).await.unwrap().as_deref(),
+            Some("first")
+        );
+        assert_eq!(
+            read_request_frame(&mut two_lines).await.unwrap().as_deref(),
+            Some("second")
+        );
+        let mut boundary = vec![b'x'; MAX_REQUEST_FRAME_BYTES];
+        assert!(read_request_frame(&mut BufReader::new(boundary.as_slice()))
+            .await
+            .is_ok());
+        boundary[MAX_REQUEST_FRAME_BYTES - 1] = b'\n';
+        assert!(read_request_frame(&mut BufReader::new(boundary.as_slice()))
+            .await
+            .is_ok());
+        boundary.insert(0, b'x');
+        assert!(read_request_frame(&mut BufReader::new(boundary.as_slice()))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn oversized_unterminated_frame_is_rejected_without_waiting_for_eof() {
+        let (mut writer, reader) = tokio::io::duplex(MAX_REQUEST_FRAME_BYTES + 1);
+        writer
+            .write_all(&vec![b'x'; MAX_REQUEST_FRAME_BYTES + 1])
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            read_request_frame(&mut BufReader::new(reader)),
+        )
+        .await
+        .expect("oversized frame waited for EOF");
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        drop(writer);
+    }
+}

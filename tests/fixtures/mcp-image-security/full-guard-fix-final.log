@@ -1,0 +1,242 @@
+warning: field `output_root` is never read
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:15:5
+   |
+13 | pub(crate) struct HostOutputGuard {
+   |                   --------------- field in this struct
+14 |     output: Scan,
+15 |     output_root: PathBuf,
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: multiple associated items are never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\local_files.rs:23:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- associated items in this implementation
+ 22 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+ 23 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+    |                   ^^^
+...
+ 35 |     pub(crate) fn output_root(&self) -> &Path {
+    |                   ^^^^^^^^^^^
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+164 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+    |                   ^^^^^^^
+...
+199 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    |                   ^^^^^^^^^^^^^
+
+warning: function `export_image_with_guard` is never used
+   --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:151:15
+    |
+151 | pub(crate) fn export_image_with_guard(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `native-image-fixture` (lib) generated 3 warnings
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+warning: methods `pin_input`, `protect_future`, and `verify_replaceable_file` are never used
+   --> ..\..\..\src\attachment\local_files.rs:40:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- methods in this implementation
+...
+ 40 |     pub(crate) fn pin_input(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^
+...
+ 63 |     pub(crate) fn protect_future(&mut self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^
+...
+122 |     pub(crate) fn verify_replaceable_file(&self, path: &Path) -> Result<()> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `media_db_keys` is never used
+   --> ..\..\..\src\daemon\cache.rs:142:19
+    |
+ 73 | impl DbCache {
+    | ------------ method in this implementation
+...
+142 |     pub(crate) fn media_db_keys(&self) -> Vec<String> {
+    |                   ^^^^^^^^^^^^^
+
+warning: fields `compression` and `content` are never read
+  --> ..\..\..\src\daemon\query\strict_message.rs:23:5
+   |
+17 | pub(super) struct StrictMessage {
+   |                   ------------- fields in this struct
+...
+23 |     compression: Option<i64>,
+   |     ^^^^^^^^^^^
+24 |     content: Option<(bool, Vec<u8>)>,
+   |     ^^^^^^^
+
+warning: method `bounded_decode` is never used
+  --> ..\..\..\src\daemon\query\strict_message.rs:30:19
+   |
+27 | impl StrictMessage {
+   | ------------------ method in this implementation
+...
+30 |     pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
+   |                   ^^^^^^^^^^^^^^
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:23:13
+   |
+23 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 保留可注入查询器的内部错误类别，当前 CLI 统一映射为不可用
+   = note: `#[warn(unfulfilled_lint_expectations)]` on by default
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:44:13
+   |
+44 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 供并发宿主发起取消；当前同步 stdio 不读取在途取消通知
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:109:16
+    |
+109 |         expect(dead_code, reason = "供并发宿主持有取消令牌，当前由合成测试验证")
+    |                ^^^^^^^^^
+    |
+    = note: 供并发宿主持有取消令牌，当前由合成测试验证
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:537:16
+    |
+537 |         expect(dead_code, reason = "协议状态观察接口，目前由生命周期测试使用")
+    |                ^^^^^^^^^
+    |
+    = note: 协议状态观察接口，目前由生命周期测试使用
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:548:13
+    |
+548 |             dead_code,
+    |             ^^^^^^^^^
+    |
+    = note: 独立协议宿主使用默认上下文入口；CLI 显式绑定帧预算
+
+warning: `mcp-image-security` (lib) generated 11 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.75s
+     Running audit.rs (C:/CodexLocal/build/mcp-image-security\debug\deps\audit-310d4ad7e269fc97.exe)
+
+running 22 tests
+test output_symlink_directory_is_rejected ... ignored, Windows symlink creation denied with OS error 1314; see baseline.log
+test source_dat_symlink_is_rejected ... ignored, Windows symlink creation denied with OS error 1314; see baseline.log
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe"
+VOICE FINAL CALLBACK normal: Ok(PublishedWav { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp4JCGaA\\voice-output\\eb2a1929367ffcb8ffc6fbd98f684a36928e46e1aa504cf10a45407d02ffe002.wav", size: 48, pcm_bytes: 4, sample_rate: 8000 })
+VOICE FINAL CALLBACK protected-swap: Err(path identity changed)
+VOICE OUTPUT RENAME BLOCKED IN FINAL CALLBACK: 拒绝访问。 (os error 5)
+VOICE FINAL CALLBACK output-swap: Ok(PublishedWav { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpg0KzOP\\voice-output\\eb2a1929367ffcb8ffc6fbd98f684a36928e46e1aa504cf10a45407d02ffe002.wav", size: 48, pcm_bytes: 4, sample_rate: 8000 })
+test publish_probe_audit::voice_final_callback_cannot_swap_original_protected_or_output_directory ... ok
+COMMAND: "cmd.exe" "/d" "/u" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpQvLmTP\\output-junction" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpQvLmTP\\output"
+test key_file_unconfigured_output_does_not_read_cache_or_secret ... ok
+IMAGE AFTER SYNC normal: Ok(ImageOutput { message: MessageIdentity { username: "synthetic_peer", source: "message/message_0.db", local_id: 42, create_time: 100, local_type: 3 }, path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpkPR3xI\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg", source_path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpkPR3xI\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", resource_rowid: 1, resource_md5: "0123456789abcdef0123456789abcdef", dat_md5: "053b8e475c2e282fe20b033548102d42", decoded_md5: "16f23ac8d6735ae7248a3a9578d78b5f", size: 7, format: "jpg", decoder: "legacy_xor", candidates: [Candidate { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpkPR3xI\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", rank: 0 }], binding: "resource_scan_filename_heuristic" })
+test exact_duplicate_messages_fail_before_export ... ok
+KEY MODE relative: cannot read bounded isolated image key file
+GUARD SWAP result=Err(image decoding failed; V2 requires an explicit valid image key) published=false protected_identity_preserved=true
+GUARD success: hardlink alias unlink=Ok(()); original remains pinned=true
+test guard_directory_swap_must_not_publish_into_previously_protected_root ... ok
+GUARD success: output rename while held=Ok(())
+LIMIT RESULT: Err(Custom { kind: Other, error: Error("MCP response exceeds limit", line: 0, column: 0) })
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+
+PUBLISHED: true
+[cache] 全量解密 message/message_0.db (2ms)
+test invalid_output_paths_do_not_publish_or_mutate_sources ... ok
+[cache] 全量解密 message/message_resource.db (5ms)
+test host_output_cannot_overlap_source_or_decrypted_directories ... ok
+ACTUAL IPC serialized size: 1264
+ACTUAL IPC READER bytes=1264 result=Err(后台响应超过大小限制) published=true
+test repeated_publication_fails_without_overwrite_or_temp_leftover ... ok
+RETRY AFTER LOST RESPONSE: Err(output already exists or publication failed
+
+Caused by:
+    当文件已存在时，无法创建该文件。 (os error 183))
+REAL CACHE cold: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpulNwPp\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpulNwPp\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpulNwPp\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test response_limit_records_real_publication_before_delivery_failure ... ok
+GUARD lifecycle success: key/hardlink/ancestor locked while awaiting, released on exit
+IMAGE AFTER SYNC protected-swap: Err(path identity changed)
+KEY MODE inside-output: cannot read bounded isolated image key file
+test query_same_ids_different_accounts_stay_separate ... ok
+test actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback ... ok
+MODE unconfigured
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"Query backend unavailable","type":"text"}],"isError":true}}
+
+STDERR: 
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpzuRYtp" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpzuRYtp\\explicit-key.json"
+MODE configured
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"{\"exit_code\":0,\"image\":{\"path\":\"synthetic.jpg\"},\"status\":\"published\"}","type":"text"}],"isError":false}}
+
+STDERR: AUDIT_RUNTIME_REACHED
+AUDIT_RUNTIME_REACHED
+AUDIT_IPC_REACHED
+AUDIT_RUNTIME_REACHED
+
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpUTgQz0" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpUTgQz0\\explicit-key.json"
+GUARD decode-error: hardlink alias unlink=Ok(()); original remains pinned=true
+GUARD decode-error: output rename while held=Ok(())
+MODE client-path
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"error":{"code":-32602,"message":"Invalid or unknown argument"},"id":2,"jsonrpc":"2.0"}
+
+STDERR: 
+STDOUT: 为 C:\Users\leyan\AppData\Local\Temp\.tmpQvLmTP\output-junction <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpQvLmTP\output 创建的联接
+
+STDERR: 
+test explicit_key_file_works_and_hardlink_destination_never_overwrites_key ... ok
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmplSjI1T" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmplSjI1T\\explicit-key.json"
+[cache] 复用 2 个已解密 DB
+test output_junction_is_rejected_without_external_publication ... ok
+IMAGE OUTPUT RENAME BLOCKED AFTER SYNC: 拒绝访问。 (os error 5)
+MODE secret-error
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"Query backend unavailable","type":"text"}],"isError":true}}
+
+STDERR: AUDIT_RUNTIME_REACHED
+AUDIT_RUNTIME_REACHED
+AUDIT_IPC_REACHED
+AUDIT_RUNTIME_REACHED
+
+KEY MODE malformed: invalid image key JSON
+IMAGE AFTER SYNC output-swap: Ok(ImageOutput { message: MessageIdentity { username: "synthetic_peer", source: "message/message_0.db", local_id: 42, create_time: 100, local_type: 3 }, path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp5yKoef\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg", source_path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp5yKoef\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", resource_rowid: 1, resource_md5: "0123456789abcdef0123456789abcdef", dat_md5: "053b8e475c2e282fe20b033548102d42", decoded_md5: "16f23ac8d6735ae7248a3a9578d78b5f", size: 7, format: "jpg", decoder: "legacy_xor", candidates: [Candidate { path: "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp5yKoef\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat", rank: 0 }], binding: "resource_scan_filename_heuristic" })
+GUARD lifecycle decode-error: key/hardlink/ancestor locked while awaiting, released on exit
+test host_policy_schema_injection_and_secret_error_boundary ... ok
+test publish_probe_audit::image_original_guard_is_rechecked_after_staged_sync ... ok
+test existing_output_hardlinks_to_all_protected_sources_are_never_overwritten ... ok
+REAL CACHE warm: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp3rI3Kr\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp3rI3Kr\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp3rI3Kr\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test v2_explicit_correct_key_only_and_wrong_or_missing_key_never_publishes ... ok
+KEY MODE invalid-aes: invalid image AES key
+GUARD cancel: hardlink alias unlink=Ok(()); original remains pinned=true
+GUARD cancel: output rename while held=Ok(())
+GUARD lifecycle cancel: key/hardlink/ancestor locked while awaiting, released on exit
+test guard_locks_survive_query_await_and_release_on_all_exit_paths ... ok
+KEY MODE invalid-xor: invalid image XOR key
+[cache] 复用 2 个已解密 DB
+[cache] 全量解密 message/message_0.db (0ms)
+[cache] 全量解密 message/message_resource.db (1ms)
+REAL CACHE redecrypt: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpRR1SdB\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpRR1SdB\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpRR1SdB\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test real_cache_audit::real_cache_cold_warm_and_redecrypt_first_exports_remain_usable ... ok
+KEY MODE oversized: cannot read bounded isolated image key file
+test key_file_errors_are_bounded_redacted_and_precede_database_access ... ok
+test key_json_type_duplicate_null_and_exact_size_contract ... ok
+
+test result: ok. 20 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.28s
+

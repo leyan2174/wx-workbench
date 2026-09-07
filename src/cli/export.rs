@@ -24,6 +24,8 @@ pub fn cmd_export(
         since: since_ts,
         until: until_ts,
         msg_type: None,
+        msg_types: None,
+        oldest_first: false,
         with_meta,
         debug_source,
     };

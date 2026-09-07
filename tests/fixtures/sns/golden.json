@@ -1,0 +1,1418 @@
+{
+  "provenance": {
+    "source": "vendor/wechat-decrypt/export_sns.py",
+    "sha256": "95539b459f4c38d6e106f8a601b9fdb21edf0f1ef916c3d15c662a1f19b44df3",
+    "synthetic_only": true,
+    "timezone": "UTC+08:00"
+  },
+  "cases": [
+    {
+      "name": "rich",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>1</type></ContentObject><private>1</private><contentDesc>合成 &amp; &lt;3 &#x1f642; &copy; &notin;</contentDesc><location latitude=\"31.2\" longitude=\"121.4\" poiName=\"合成地点\"/><mediaList><media><type>2</type><sub_type>7</sub_type><videoDuration>1.5</videoDuration><url md5=\"synthetic-md5\" key=\"synthetic-key\" token=\"synthetic-token\">https://example.invalid/photo?a=1&amp;b=2</url><thumb key=\"t\" token=\"tt\"/><size width=\"800\" height=\"600\" totalSize=\"12345\"/></media><media><type>6</type><url>https://example.invalid/video</url></media><media/></mediaList></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw_utf8",
+      "encoding": "blob_base64",
+      "input": "PFRpbWVsaW5lT2JqZWN0cz48VGltZWxpbmVPYmplY3Q+PGlkPjE4NDQ2NzQ0MDczNzA5NTUxNjEwPC9pZD48dXNlcm5hbWU+d3hpZF9zeW50aGV0aWM8L3VzZXJuYW1lPjxjcmVhdGVUaW1lPjE3MDAwMDAwMDA8L2NyZWF0ZVRpbWU+PENvbnRlbnRPYmplY3Q+PHR5cGU+MTwvdHlwZT48L0NvbnRlbnRPYmplY3Q+PHByaXZhdGU+MTwvcHJpdmF0ZT48Y29udGVudERlc2M+5ZCI5oiQICZhbXA7ICZsdDszICYjeDFmNjQyOyAmY29weTsgJm5vdGluOzwvY29udGVudERlc2M+PGxvY2F0aW9uIGxhdGl0dWRlPSIzMS4yIiBsb25naXR1ZGU9IjEyMS40IiBwb2lOYW1lPSLlkIjmiJDlnLDngrkiLz48bWVkaWFMaXN0PjxtZWRpYT48dHlwZT4yPC90eXBlPjxzdWJfdHlwZT43PC9zdWJfdHlwZT48dmlkZW9EdXJhdGlvbj4xLjU8L3ZpZGVvRHVyYXRpb24+PHVybCBtZDU9InN5bnRoZXRpYy1tZDUiIGtleT0ic3ludGhldGljLWtleSIgdG9rZW49InN5bnRoZXRpYy10b2tlbiI+aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvcGhvdG8/YT0xJmFtcDtiPTI8L3VybD48dGh1bWIga2V5PSJ0IiB0b2tlbj0idHQiLz48c2l6ZSB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgdG90YWxTaXplPSIxMjM0NSIvPjwvbWVkaWE+PG1lZGlhPjx0eXBlPjY8L3R5cGU+PHVybD5odHRwczovL2V4YW1wbGUuaW52YWxpZC92aWRlbzwvdXJsPjwvbWVkaWE+PG1lZGlhLz48L21lZGlhTGlzdD48L1RpbWVsaW5lT2JqZWN0PjxMb2NhbEV4dHJhSW5mbz48bmlja25hbWU+5ZCI5oiQ5pi156ewPC9uaWNrbmFtZT48L0xvY2FsRXh0cmFJbmZvPjwvVGltZWxpbmVPYmplY3RzPg==",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zstd",
+      "encoding": "blob_base64",
+      "input": "KLUv/WAuAoUOALYZVjRgadoGAwAAWMmFhNdYIRrMfbJoKeloZa+dJIQpxRpjKvEvxSUjKdT4bkJGS5agh4wKglsBRABIAEgA/GBP1zN8228vAXasPA/2x6YkO5b+Lb29qobpEQjYNVqqK4vhdMfKc17TBFCexqMwzOMwjMKD0xnC6mUvcCBo67SrK+DxgN+JNYbxlvdgL2VtYbxGi3pa7x8ps9c/ykvZMWT9r00YdE1XJgxaGMfhRRIS1oCeJgyaakzYhISFxEQFlFUvSP4IcWpy7ALS5KbTCLHOaDrVGGnnBFTTvwSb7cd91q5+XP1grZkVQIuaWRmlLHbcMB6krIXb0yHs+GlwWNXylTNEn10ZuhaBwQWFg4oWdQ2wcuyY4sEFhAYWD+mW4XWwBiL1kQI0ysvgHNcwjeW1qCM8AY1/32nRSw/eEmuKotAi6adDsI7w6v8d1ZKeIaUsx0vkeFEccP8GLyAgAoIosvLWOlBBWFf4lkzwKl3MK+jkGIG5AIQHKklgaAuhAMhnAe9lmIdE86rZEmZDLdsyFqF86m48olubcujk5+wC2WQRqDivRoVLIBdFDs0cxAwgKcvCwzfB0WayRFcJ0HhtyADmagzmSbKtQV7A1OEl",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hex",
+      "encoding": "text",
+      "input": "3c54696d656c696e654f626a656374733e3c54696d656c696e654f626a6563743e3c69643e31383434363734343037333730393535313631303c2f69643e3c757365726e616d653e777869645f73796e7468657469633c2f757365726e616d653e3c63726561746554696d653e313730303030303030303c2f63726561746554696d653e3c436f6e74656e744f626a6563743e3c747970653e313c2f747970653e3c2f436f6e74656e744f626a6563743e3c707269766174653e313c2f707269766174653e3c636f6e74656e74446573633ee59088e688902026616d703b20266c743b332026237831663634323b2026636f70793b20266e6f74696e3b3c2f636f6e74656e74446573633e3c6c6f636174696f6e206c617469747564653d2233312e3222206c6f6e6769747564653d223132312e342220706f694e616d653d22e59088e68890e59cb0e782b9222f3e3c6d656469614c6973743e3c6d656469613e3c747970653e323c2f747970653e3c7375625f747970653e373c2f7375625f747970653e3c766964656f4475726174696f6e3e312e353c2f766964656f4475726174696f6e3e3c75726c206d64353d2273796e7468657469632d6d643522206b65793d2273796e7468657469632d6b65792220746f6b656e3d2273796e7468657469632d746f6b656e223e68747470733a2f2f6578616d706c652e696e76616c69642f70686f746f3f613d3126616d703b623d323c2f75726c3e3c7468756d62206b65793d22742220746f6b656e3d227474222f3e3c73697a652077696474683d2238303022206865696768743d223630302220746f74616c53697a653d223132333435222f3e3c2f6d656469613e3c6d656469613e3c747970653e363c2f747970653e3c75726c3e68747470733a2f2f6578616d706c652e696e76616c69642f766964656f3c2f75726c3e3c2f6d656469613e3c6d656469612f3e3c2f6d656469614c6973743e3c2f54696d656c696e654f626a6563743e3c4c6f63616c4578747261496e666f3e3c6e69636b6e616d653ee59088e68890e698b5e7a7b03c2f6e69636b6e616d653e3c2f4c6f63616c4578747261496e666f3e3c2f54696d656c696e654f626a656374733e",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "base64",
+      "encoding": "text",
+      "input": "PFRpbWVsaW5lT2JqZWN0cz48VGltZWxpbmVPYmplY3Q+PGlkPjE4NDQ2NzQ0MDczNzA5NTUxNjEwPC9pZD48dXNlcm5hbWU+d3hpZF9zeW50aGV0aWM8L3VzZXJuYW1lPjxjcmVhdGVUaW1lPjE3MDAwMDAwMDA8L2NyZWF0ZVRpbWU+PENvbnRlbnRPYmplY3Q+PHR5cGU+MTwvdHlwZT48L0NvbnRlbnRPYmplY3Q+PHByaXZhdGU+MTwvcHJpdmF0ZT48Y29udGVudERlc2M+5ZCI5oiQICZhbXA7ICZsdDszICYjeDFmNjQyOyAmY29weTsgJm5vdGluOzwvY29udGVudERlc2M+PGxvY2F0aW9uIGxhdGl0dWRlPSIzMS4yIiBsb25naXR1ZGU9IjEyMS40IiBwb2lOYW1lPSLlkIjmiJDlnLDngrkiLz48bWVkaWFMaXN0PjxtZWRpYT48dHlwZT4yPC90eXBlPjxzdWJfdHlwZT43PC9zdWJfdHlwZT48dmlkZW9EdXJhdGlvbj4xLjU8L3ZpZGVvRHVyYXRpb24+PHVybCBtZDU9InN5bnRoZXRpYy1tZDUiIGtleT0ic3ludGhldGljLWtleSIgdG9rZW49InN5bnRoZXRpYy10b2tlbiI+aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvcGhvdG8/YT0xJmFtcDtiPTI8L3VybD48dGh1bWIga2V5PSJ0IiB0b2tlbj0idHQiLz48c2l6ZSB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCIgdG90YWxTaXplPSIxMjM0NSIvPjwvbWVkaWE+PG1lZGlhPjx0eXBlPjY8L3R5cGU+PHVybD5odHRwczovL2V4YW1wbGUuaW52YWxpZC92aWRlbzwvdXJsPjwvbWVkaWE+PG1lZGlhLz48L21lZGlhTGlzdD48L1RpbWVsaW5lT2JqZWN0PjxMb2NhbEV4dHJhSW5mbz48bmlja25hbWU+5ZCI5oiQ5pi156ewPC9uaWNrbmFtZT48L0xvY2FsRXh0cmFJbmZvPjwvVGltZWxpbmVPYmplY3RzPg==",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hex_zstd",
+      "encoding": "text",
+      "input": "28b52ffd602e02850e00b61956346069da0603000058c98584d758211acc7db26829e96865af9d248429c51a632af12fc5252329d4f86e42464b96a0878c0a825b01440048004800fc604fd7337cdb6f2f0176ac3c0ff6c7a6243b96fe2dbdbdaa86e91108d8355aaa2b8be174c7ca735ed304509ec6a330cce3308cc283d319c2ea652f702068ebb4ab2be0f180df893586f196f7602f656d61bc468b7a5aef1f29b3d73fca4bd93164fdaf4d18744d57260c5a18c7e1451212d6809e260c9a6a4cd8848485c4440594552f48fe08716a72ec02d2e4a6d308b1ce683ad51869e70454d3bf049bedc77dd6ae7e5cfd60ad9915408b9a5919a52c76dc301ea4ac85dbd321ecf8697058d5f29533449f5d19ba1681c10585838a16750db072ec98e2c1058406160fe996e175b00622f5910234cacbe01cd7308de5b5a8233c018d7fdf69d14b0fde126b8aa2d022e9a743b08ef0eaff1dd5929e21a52cc74be478511c70ff062f2020028228b2f2d63a50415857f8964cf02a5dcc2be8e41881b90084072a4960680ba100c86701ef65988744f3aad91266432ddb3216a17cea6e3ca25b9b72e8e4e7ec02d96411a838af46854b2017450ecd1cc40c2029cbc2c337c1d166b2445709d0786dc800e66a0ce649b2ad415ec0d4e125",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "base64_zstd",
+      "encoding": "text",
+      "input": "KLUv/WAuAoUOALYZVjRgadoGAwAAWMmFhNdYIRrMfbJoKeloZa+dJIQpxRpjKvEvxSUjKdT4bkJGS5agh4wKglsBRABIAEgA/GBP1zN8228vAXasPA/2x6YkO5b+Lb29qobpEQjYNVqqK4vhdMfKc17TBFCexqMwzOMwjMKD0xnC6mUvcCBo67SrK+DxgN+JNYbxlvdgL2VtYbxGi3pa7x8ps9c/ykvZMWT9r00YdE1XJgxaGMfhRRIS1oCeJgyaakzYhISFxEQFlFUvSP4IcWpy7ALS5KbTCLHOaDrVGGnnBFTTvwSb7cd91q5+XP1grZkVQIuaWRmlLHbcMB6krIXb0yHs+GlwWNXylTNEn10ZuhaBwQWFg4oWdQ2wcuyY4sEFhAYWD+mW4XWwBiL1kQI0ysvgHNcwjeW1qCM8AY1/32nRSw/eEmuKotAi6adDsI7w6v8d1ZKeIaUsx0vkeFEccP8GLyAgAoIosvLWOlBBWFf4lkzwKl3MK+jkGIG5AIQHKklgaAuhAMhnAe9lmIdE86rZEmZDLdsyFqF86m48olubcujk5+wC2WQRqDivRoVLIBdFDs0cxAwgKcvCwzfB0WayRFcJ0HhtyADmagzmSbKtQV7A1OEl",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "whitespace_hex",
+      "encoding": "text",
+      "input": "3c54696d656c696e654f626a656374733e3c54696d656c696e654f626a65 \n63743e3c69643e31383434363734343037333730393535313631303c2f69 \n643e3c757365726e616d653e777869645f73796e7468657469633c2f7573 \n65726e616d653e3c63726561746554696d653e313730303030303030303c \n2f63726561746554696d653e3c436f6e74656e744f626a6563743e3c7479 \n70653e313c2f747970653e3c2f436f6e74656e744f626a6563743e3c7072 \n69766174653e313c2f707269766174653e3c636f6e74656e74446573633e \ne59088e688902026616d703b20266c743b332026237831663634323b2026 \n636f70793b20266e6f74696e3b3c2f636f6e74656e74446573633e3c6c6f \n636174696f6e206c617469747564653d2233312e3222206c6f6e67697475 \n64653d223132312e342220706f694e616d653d22e59088e68890e59cb0e7 \n82b9222f3e3c6d656469614c6973743e3c6d656469613e3c747970653e32 \n3c2f747970653e3c7375625f747970653e373c2f7375625f747970653e3c \n766964656f4475726174696f6e3e312e353c2f766964656f447572617469 \n6f6e3e3c75726c206d64353d2273796e7468657469632d6d643522206b65 \n793d2273796e7468657469632d6b65792220746f6b656e3d2273796e7468 \n657469632d746f6b656e223e68747470733a2f2f6578616d706c652e696e \n76616c69642f70686f746f3f613d3126616d703b623d323c2f75726c3e3c \n7468756d62206b65793d22742220746f6b656e3d227474222f3e3c73697a \n652077696474683d2238303022206865696768743d223630302220746f74 \n616c53697a653d223132333435222f3e3c2f6d656469613e3c6d65646961 \n3e3c747970653e363c2f747970653e3c75726c3e68747470733a2f2f6578 \n616d706c652e696e76616c69642f766964656f3c2f75726c3e3c2f6d6564 \n69613e3c6d656469612f3e3c2f6d656469614c6973743e3c2f54696d656c \n696e654f626a6563743e3c4c6f63616c4578747261496e666f3e3c6e6963 \n6b6e616d653ee59088e68890e698b5e7a7b03c2f6e69636b6e616d653e3c \n2f4c6f63616c4578747261496e666f3e3c2f54696d656c696e654f626a65 \n6374733e",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid_utf8",
+      "encoding": "blob_base64",
+      "input": "PFRpbWVsaW5lT2JqZWN0cz48VGltZWxpbmVPYmplY3Q+PGlkPjE4NDQ2NzQ0MDczNzA5NTUxNjEwPC9pZD48dXNlcm5hbWU+d3hpZF9zeW50aGV0aWM8L3VzZXJuYW1lPjxjcmVhdGVUaW1lPjE3MDAwMDAwMDA8L2NyZWF0ZVRpbWU+PENvbnRlbnRPYmplY3Q+PHR5cGU+MTwvdHlwZT48L0NvbnRlbnRPYmplY3Q+/zxwcml2YXRlPjE8L3ByaXZhdGU+PGNvbnRlbnREZXNjPuWQiOaIkCAmYW1wOyAmbHQ7MyAmI3gxZjY0MjsgJmNvcHk7ICZub3Rpbjs8L2NvbnRlbnREZXNjPjxsb2NhdGlvbiBsYXRpdHVkZT0iMzEuMiIgbG9uZ2l0dWRlPSIxMjEuNCIgcG9pTmFtZT0i5ZCI5oiQ5Zyw54K5Ii8+PG1lZGlhTGlzdD48bWVkaWE+PHR5cGU+MjwvdHlwZT48c3ViX3R5cGU+Nzwvc3ViX3R5cGU+PHZpZGVvRHVyYXRpb24+MS41PC92aWRlb0R1cmF0aW9uPjx1cmwgbWQ1PSJzeW50aGV0aWMtbWQ1IiBrZXk9InN5bnRoZXRpYy1rZXkiIHRva2VuPSJzeW50aGV0aWMtdG9rZW4iPmh0dHBzOi8vZXhhbXBsZS5pbnZhbGlkL3Bob3RvP2E9MSZhbXA7Yj0yPC91cmw+PHRodW1iIGtleT0idCIgdG9rZW49InR0Ii8+PHNpemUgd2lkdGg9IjgwMCIgaGVpZ2h0PSI2MDAiIHRvdGFsU2l6ZT0iMTIzNDUiLz48L21lZGlhPjxtZWRpYT48dHlwZT42PC90eXBlPjx1cmw+aHR0cHM6Ly9leGFtcGxlLmludmFsaWQvdmlkZW88L3VybD48L21lZGlhPjxtZWRpYS8+PC9tZWRpYUxpc3Q+PC9UaW1lbGluZU9iamVjdD48TG9jYWxFeHRyYUluZm8+PG5pY2tuYW1lPuWQiOaIkOaYteensDwvbmlja25hbWU+PC9Mb2NhbEV4dHJhSW5mbz48L1RpbWVsaW5lT2JqZWN0cz4=",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pseudo_xml",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><contentDesc>hello\u0001 <3 > 2 & bare</contentDesc></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "hello <3 > 2 & bare",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "cdata_extra",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><extraInfo><![CDATA[a&b<c]]></extraInfo></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "cdata_text_legacy",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><contentDesc><![CDATA[plain]]></contentDesc></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "<![CDATA[plain]]>",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "entities",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><contentDesc>&notit; &euro; &#128; &#0; &#13; &#xFDD0;</contentDesc></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "¬it; € € � \n ",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "default",
+      "encoding": "text",
+      "input": "<x><TimelineObject/></x>",
+      "expected": {
+        "id": "",
+        "username": "",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 0,
+        "content_type_name": "未知(0)",
+        "nickname": "",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "empty_fields",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>bad</createTime><ContentObject><type></type></ContentObject><contentDesc/><private/></TimelineObject><LocalExtraInfo><nickname></nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 0,
+        "content_type_name": "未知(0)",
+        "nickname": "",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "negative_timestamp",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>-1</createTime><ContentObject><type>2</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": -1,
+        "create_time_str": "1970-01-01 07:59:59",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "unknown_type",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>999</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 999,
+        "content_type_name": "未知(999)",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_2",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_3",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>3</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 3,
+        "content_type_name": "链接",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_5",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>5</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 5,
+        "content_type_name": "视频链接",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_7",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>7</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 7,
+        "content_type_name": "位置",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_15",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>15</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 15,
+        "content_type_name": "视频",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_28",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>28</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 28,
+        "content_type_name": "短视频",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_30",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>30</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 30,
+        "content_type_name": "音乐",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_34",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>34</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 34,
+        "content_type_name": "笔记",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_42",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>42</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 42,
+        "content_type_name": "小程序",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "type_54",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>54</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 54,
+        "content_type_name": "直播",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "location_zero",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><location latitude=\"0\" longitude=\"0\"/></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "location_decimal_zero",
+      "encoding": "text",
+      "input": "<TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject><location latitude=\"0.0\"/></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": {
+          "latitude": "0.0",
+          "longitude": "0",
+          "poi_name": ""
+        },
+        "media": []
+      }
+    },
+    {
+      "name": "first_descendant",
+      "encoding": "text",
+      "input": "<x><TimelineObject><id>first</id></TimelineObject><TimelineObject><id>second</id></TimelineObject></x>",
+      "expected": {
+        "id": "first",
+        "username": "",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 0,
+        "content_type_name": "未知(0)",
+        "nickname": "",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "first_matching_child",
+      "encoding": "text",
+      "input": "<x><TimelineObject><ContentObject/><ContentObject><type>15</type></ContentObject></TimelineObject><LocalExtraInfo/><LocalExtraInfo><nickname>合成后备</nickname></LocalExtraInfo></x>",
+      "expected": {
+        "id": "",
+        "username": "",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 15,
+        "content_type_name": "视频",
+        "nickname": "合成后备",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "bare_root_legacy",
+      "encoding": "text",
+      "input": "<TimelineObject><id>not-selected</id></TimelineObject>",
+      "expected": null
+    },
+    {
+      "name": "html_escaped_xml",
+      "encoding": "text",
+      "input": "&lt;TimelineObjects&gt;&lt;TimelineObject&gt;&lt;id&gt;18446744073709551610&lt;/id&gt;&lt;username&gt;wxid_synthetic&lt;/username&gt;&lt;createTime&gt;1700000000&lt;/createTime&gt;&lt;ContentObject&gt;&lt;type&gt;2&lt;/type&gt;&lt;/ContentObject&gt;&lt;/TimelineObject&gt;&lt;LocalExtraInfo&gt;&lt;nickname&gt;合成昵称&lt;/nickname&gt;&lt;/LocalExtraInfo&gt;&lt;/TimelineObjects&gt;",
+      "expected": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": []
+      }
+    },
+    {
+      "name": "malformed",
+      "encoding": "text",
+      "input": "<x><TimelineObject></x>",
+      "expected": null
+    },
+    {
+      "name": "none",
+      "encoding": "text",
+      "input": null,
+      "expected": null
+    },
+    {
+      "name": "empty",
+      "encoding": "text",
+      "input": "",
+      "expected": null
+    },
+    {
+      "name": "doctype",
+      "encoding": "text",
+      "input": "<!DOCTYPE x [<!ENTITY test \"bad\">]><TimelineObjects><TimelineObject><id>18446744073709551610</id><username>wxid_synthetic</username><createTime>1700000000</createTime><ContentObject><type>2</type></ContentObject></TimelineObject><LocalExtraInfo><nickname>合成昵称</nickname></LocalExtraInfo></TimelineObjects>",
+      "expected": null
+    },
+    {
+      "name": "doctype_zstd",
+      "encoding": "blob_base64",
+      "input": "KLUv/WAiANUFAMLJJCqQtzne3fkx2vfe9Qn78CcKREKL3gdLKwlPATEA0/omvmayV6yVEhnslh5dl5cRDhYSDDLsyi5MQUBOyj1NaCNSXzVRlJNjl5cR7QPWcz/1pxPDyw269o9OSV6W8x3gqVUj0KwK2qVIKa8E3NBcbm5xirJoMAHbe3B5T+Eamtz1pQdIHKczcmk+3JWheUAexmEcOA0AVuhAVQjTKeXyF5MMcoNqvGrIYDDXaTCeJAvWIM8CQsh0Ag==",
+      "expected": null
+    }
+  ],
+  "database": {
+    "rows": [
+      {
+        "tid": -6,
+        "user_name": "wxid_synthetic",
+        "case": "rich"
+      },
+      {
+        "tid": 7,
+        "user_name": "wxid_synthetic",
+        "case": "empty_fields"
+      },
+      {
+        "tid": 8,
+        "user_name": "wxid_synthetic",
+        "case": "zstd"
+      },
+      {
+        "tid": 9,
+        "user_name": "wxid_fallback",
+        "case": "negative_timestamp"
+      },
+      {
+        "tid": 10,
+        "user_name": null,
+        "case": "default"
+      },
+      {
+        "tid": 11,
+        "user_name": "wxid_synthetic",
+        "case": "malformed"
+      }
+    ],
+    "contacts": [
+      [
+        "wxid_synthetic",
+        "合成:备注",
+        "不用昵称"
+      ],
+      [
+        "wxid_unused",
+        "",
+        "合成联系人"
+      ]
+    ],
+    "comments": [
+      [
+        -6,
+        1700000001,
+        1,
+        "wxid_like",
+        "合成点赞",
+        null,
+        null,
+        null,
+        0
+      ],
+      [
+        -6,
+        1700000003,
+        2,
+        "wxid_reply",
+        "合成回复",
+        "wxid_like",
+        "合成点赞",
+        "合成评论",
+        null
+      ],
+      [
+        -6,
+        1700000002,
+        2,
+        "wxid_deleted",
+        "撤回",
+        "",
+        "",
+        "不应出现",
+        1
+      ],
+      [
+        7,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0
+      ]
+    ],
+    "timelines": [
+      {
+        "user_name": "unknown",
+        "display_name": "unknown",
+        "export_time": "2023-11-15 06:30:00",
+        "total_posts": 1,
+        "posts": [
+          {
+            "id": "",
+            "username": "",
+            "create_time": 0,
+            "create_time_str": "",
+            "content_desc": "",
+            "content_type": 0,
+            "content_type_name": "未知(0)",
+            "nickname": "",
+            "is_private": false,
+            "location": null,
+            "media": [],
+            "tid": 10,
+            "db_user_name": "",
+            "comments": []
+          }
+        ]
+      },
+      {
+        "user_name": "wxid_fallback",
+        "display_name": "合成昵称",
+        "export_time": "2023-11-15 06:30:00",
+        "total_posts": 1,
+        "posts": [
+          {
+            "id": "18446744073709551610",
+            "username": "wxid_synthetic",
+            "create_time": -1,
+            "create_time_str": "1970-01-01 07:59:59",
+            "content_desc": "",
+            "content_type": 2,
+            "content_type_name": "纯文本",
+            "nickname": "合成昵称",
+            "is_private": false,
+            "location": null,
+            "media": [],
+            "tid": 9,
+            "db_user_name": "wxid_fallback",
+            "comments": []
+          }
+        ]
+      },
+      {
+        "user_name": "wxid_synthetic",
+        "display_name": "合成_备注",
+        "export_time": "2023-11-15 06:30:00",
+        "total_posts": 3,
+        "posts": [
+          {
+            "id": "18446744073709551610",
+            "username": "wxid_synthetic",
+            "create_time": 1700000000,
+            "create_time_str": "2023-11-15 06:13:20",
+            "content_desc": "合成 & <3 🙂 © ∉",
+            "content_type": 1,
+            "content_type_name": "图文",
+            "nickname": "合成昵称",
+            "is_private": true,
+            "location": {
+              "latitude": "31.2",
+              "longitude": "121.4",
+              "poi_name": "合成地点"
+            },
+            "media": [
+              {
+                "type": "2",
+                "sub_type": "7",
+                "video_duration": "1.5",
+                "thumb_url": "",
+                "thumb_key": "t",
+                "thumb_token": "tt",
+                "url": "https://example.invalid/photo?a=1&b=2",
+                "url_md5": "synthetic-md5",
+                "url_key": "synthetic-key",
+                "url_token": "synthetic-token",
+                "width": "800",
+                "height": "600",
+                "total_size": "12345"
+              },
+              {
+                "type": "6",
+                "sub_type": "",
+                "video_duration": "0",
+                "url": "https://example.invalid/video",
+                "url_md5": "",
+                "url_key": "",
+                "url_token": ""
+              },
+              {
+                "type": "",
+                "sub_type": "",
+                "video_duration": "0"
+              }
+            ],
+            "tid": -6,
+            "db_user_name": "wxid_synthetic",
+            "comments": [
+              {
+                "create_time": 1700000001,
+                "create_time_str": "2023-11-15 06:13:21",
+                "type": 1,
+                "type_name": "点赞",
+                "from_username": "wxid_like",
+                "from_nickname": "合成点赞",
+                "to_username": "",
+                "to_nickname": "",
+                "content": ""
+              },
+              {
+                "create_time": 1700000003,
+                "create_time_str": "2023-11-15 06:13:23",
+                "type": 2,
+                "type_name": "评论",
+                "from_username": "wxid_reply",
+                "from_nickname": "合成回复",
+                "to_username": "wxid_like",
+                "to_nickname": "合成点赞",
+                "content": "合成评论"
+              }
+            ]
+          },
+          {
+            "id": "18446744073709551610",
+            "username": "wxid_synthetic",
+            "create_time": 1700000000,
+            "create_time_str": "2023-11-15 06:13:20",
+            "content_desc": "合成 & <3 🙂 © ∉",
+            "content_type": 1,
+            "content_type_name": "图文",
+            "nickname": "合成昵称",
+            "is_private": true,
+            "location": {
+              "latitude": "31.2",
+              "longitude": "121.4",
+              "poi_name": "合成地点"
+            },
+            "media": [
+              {
+                "type": "2",
+                "sub_type": "7",
+                "video_duration": "1.5",
+                "thumb_url": "",
+                "thumb_key": "t",
+                "thumb_token": "tt",
+                "url": "https://example.invalid/photo?a=1&b=2",
+                "url_md5": "synthetic-md5",
+                "url_key": "synthetic-key",
+                "url_token": "synthetic-token",
+                "width": "800",
+                "height": "600",
+                "total_size": "12345"
+              },
+              {
+                "type": "6",
+                "sub_type": "",
+                "video_duration": "0",
+                "url": "https://example.invalid/video",
+                "url_md5": "",
+                "url_key": "",
+                "url_token": ""
+              },
+              {
+                "type": "",
+                "sub_type": "",
+                "video_duration": "0"
+              }
+            ],
+            "tid": 8,
+            "db_user_name": "wxid_synthetic",
+            "comments": []
+          },
+          {
+            "id": "18446744073709551610",
+            "username": "wxid_synthetic",
+            "create_time": 0,
+            "create_time_str": "",
+            "content_desc": "",
+            "content_type": 0,
+            "content_type_name": "未知(0)",
+            "nickname": "",
+            "is_private": false,
+            "location": null,
+            "media": [],
+            "tid": 7,
+            "db_user_name": "wxid_synthetic",
+            "comments": [
+              {
+                "create_time": null,
+                "create_time_str": "",
+                "type": null,
+                "type_name": "未知(None)",
+                "from_username": "",
+                "from_nickname": "",
+                "to_username": "",
+                "to_nickname": "",
+                "content": ""
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "files": {
+      "unknown/SNS/00000000000000000.json": {
+        "id": "",
+        "username": "",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 0,
+        "content_type_name": "未知(0)",
+        "nickname": "",
+        "is_private": false,
+        "location": null,
+        "media": [],
+        "tid": 10,
+        "db_user_name": "",
+        "comments": []
+      },
+      "合成_备注/SNS/00000000000000000.json": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 0,
+        "create_time_str": "",
+        "content_desc": "",
+        "content_type": 0,
+        "content_type_name": "未知(0)",
+        "nickname": "",
+        "is_private": false,
+        "location": null,
+        "media": [],
+        "tid": 7,
+        "db_user_name": "wxid_synthetic",
+        "comments": [
+          {
+            "create_time": null,
+            "create_time_str": "",
+            "type": null,
+            "type_name": "未知(None)",
+            "from_username": "",
+            "from_nickname": "",
+            "to_username": "",
+            "to_nickname": "",
+            "content": ""
+          }
+        ]
+      },
+      "合成_备注/SNS/20231115061320000.json": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ],
+        "tid": -6,
+        "db_user_name": "wxid_synthetic",
+        "comments": [
+          {
+            "create_time": 1700000001,
+            "create_time_str": "2023-11-15 06:13:21",
+            "type": 1,
+            "type_name": "点赞",
+            "from_username": "wxid_like",
+            "from_nickname": "合成点赞",
+            "to_username": "",
+            "to_nickname": "",
+            "content": ""
+          },
+          {
+            "create_time": 1700000003,
+            "create_time_str": "2023-11-15 06:13:23",
+            "type": 2,
+            "type_name": "评论",
+            "from_username": "wxid_reply",
+            "from_nickname": "合成回复",
+            "to_username": "wxid_like",
+            "to_nickname": "合成点赞",
+            "content": "合成评论"
+          }
+        ]
+      },
+      "合成_备注/SNS/20231115061320001.json": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": 1700000000,
+        "create_time_str": "2023-11-15 06:13:20",
+        "content_desc": "合成 & <3 🙂 © ∉",
+        "content_type": 1,
+        "content_type_name": "图文",
+        "nickname": "合成昵称",
+        "is_private": true,
+        "location": {
+          "latitude": "31.2",
+          "longitude": "121.4",
+          "poi_name": "合成地点"
+        },
+        "media": [
+          {
+            "type": "2",
+            "sub_type": "7",
+            "video_duration": "1.5",
+            "thumb_url": "",
+            "thumb_key": "t",
+            "thumb_token": "tt",
+            "url": "https://example.invalid/photo?a=1&b=2",
+            "url_md5": "synthetic-md5",
+            "url_key": "synthetic-key",
+            "url_token": "synthetic-token",
+            "width": "800",
+            "height": "600",
+            "total_size": "12345"
+          },
+          {
+            "type": "6",
+            "sub_type": "",
+            "video_duration": "0",
+            "url": "https://example.invalid/video",
+            "url_md5": "",
+            "url_key": "",
+            "url_token": ""
+          },
+          {
+            "type": "",
+            "sub_type": "",
+            "video_duration": "0"
+          }
+        ],
+        "tid": 8,
+        "db_user_name": "wxid_synthetic",
+        "comments": []
+      },
+      "合成昵称/SNS/19700101075959000.json": {
+        "id": "18446744073709551610",
+        "username": "wxid_synthetic",
+        "create_time": -1,
+        "create_time_str": "1970-01-01 07:59:59",
+        "content_desc": "",
+        "content_type": 2,
+        "content_type_name": "纯文本",
+        "nickname": "合成昵称",
+        "is_private": false,
+        "location": null,
+        "media": [],
+        "tid": 9,
+        "db_user_name": "wxid_fallback",
+        "comments": []
+      }
+    }
+  }
+}

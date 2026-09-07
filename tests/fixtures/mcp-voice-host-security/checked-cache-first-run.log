@@ -1,0 +1,307 @@
+   Compiling mcp-voice-host-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-voice-host-security)
+   Compiling mcp-voice-host v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-voice-host)
+warning: method `read_key_file` is never used
+   --> ..\..\..\src\attachment\local_files.rs:199:19
+    |
+ 21 | impl HostOutputGuard {
+    | -------------------- method in this implementation
+...
+199 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `snapshots`, `missing`, and `left` are never read
+   --> ..\..\..\src\attachment\local_files.rs:320:5
+    |
+318 | pub(super) struct Scan {
+    |                   ---- fields in this struct
+319 |     pub(super) pins: Vec<Pin>,
+320 |     snapshots: Vec<(PathBuf, Vec<(String, Stamp)>)>,
+    |     ^^^^^^^^^
+321 |     missing: Vec<PathBuf>,
+    |     ^^^^^^^
+322 |     left: usize,
+    |     ^^^^
+
+warning: methods `optional_directory`, `entries`, and `verify` are never used
+   --> ..\..\..\src\attachment\local_files.rs:381:19
+    |
+325 | impl Scan {
+    | --------- methods in this implementation
+...
+381 |     pub(super) fn optional_directory(&mut self, path: &Path) -> Result<bool> {
+    |                   ^^^^^^^^^^^^^^^^^^
+...
+399 |     pub(super) fn entries(&mut self, path: &Path) -> Result<Vec<(String, Stamp)>> {
+    |                   ^^^^^^^
+...
+405 |     pub(super) fn verify(&mut self) -> Result<()> {
+    |                   ^^^^^^
+
+warning: function `read_entries` is never used
+   --> ..\..\..\src\attachment\local_files.rs:425:15
+    |
+425 | pub(super) fn read_entries(path: &Path, left: &mut usize) -> Result<Vec<(String, Stamp)>> {
+    |               ^^^^^^^^^^^^
+
+warning: `mcp-voice-host-security` (lib) generated 4 warnings
+warning: unused import: `Path`
+  --> audit.rs:17:12
+   |
+17 |     path::{Path, PathBuf},
+   |            ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `mcp-voice-host-security` (test "audit") generated 1 warning (run `cargo fix --test "audit" -p mcp-voice-host-security` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.21s
+     Running audit.rs (C:/CodexLocal/build/mcp-voice-host-security\debug\deps\audit-aa7780d876bcf22c.exe)
+
+running 17 tests
+test symbolic_link_model_and_cache_are_rejected ... ignored, Windows symbolic-link creation requires privilege; junctions tested separately
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+test explicit_cloud_loopback_only_success_and_backend_error_are_distinguished ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test bound_runtime_identity_cannot_be_switched_before_finish ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test path_overlap_matrix_rejects_account_model_temp_and_cache_aliases ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test corrupted_prepared_audio_and_media_id_mismatch_never_reach_backend_or_wav ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test real_host_decode_budget_checks_full_id_before_wav_commit ... ok
+
+thread 'local_backend_uses_only_remaining_host_deadline_cached_and_uncached' (35448) panicked at audit.rs:671:9:
+assertion failed: f.model.with_extension("calls").exists()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test local_backend_uses_only_remaining_host_deadline_cached_and_uncached ... FAILED
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test junction_temp_output_and_cache_parent_are_rejected ... ok
+test malformed_exit_flags_with_valid_audio_reject_before_wav_and_backend ... ok
+CACHE AFTER FINAL COMMIT DENIAL exists=false
+AUDIT_EVENT:backend-build
+test final_commit_denial_must_precede_transcript_cache_commit ... ok
+CACHE AFTER RESPONSE REJECTION exists=false bytes=0
+test response_budget_rejection_must_precede_transcript_cache_commit ... ok
+AUDIT_EVENT:backend-build
+test unauthorized_cloud_never_enters_account_path_backend_or_ipc ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test real_host_protocol_checks_escaped_transcript_and_long_request_id ... ok
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:backend-build
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+AUDIT_EVENT:host-path
+test default_temporary_roots_are_unique_and_removed_for_success_and_failure ... ok
+AUDIT_EVENT:backend-build
+test cancelled_new_result_keeps_existing_cache_byte_identical ... ok
+test response_budget_rejection_keeps_existing_cache_byte_identical_on_hit_and_miss ... ok
+test backend_failure_malformed_result_and_timeout_do_not_report_success_or_leave_temps ... ok
+
+failures:
+
+failures:
+    local_backend_uses_only_remaining_host_deadline_cached_and_uncached
+
+test result: FAILED. 15 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.21s
+
+error: test failed, to rerun pass `--test audit`

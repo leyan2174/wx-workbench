@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="2220" viewBox="0 0 1640 2220">
+<style>text { font-family: "Microsoft YaHei", Arial, sans-serif; letter-spacing:0; }</style>
+<defs>
+<marker id="arrow-live" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#15803d"/></marker>
+<marker id="arrow-pending" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#c2410c"/></marker>
+<marker id="arrow-legacy" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#b91c1c"/></marker>
+<marker id="arrow-target" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#2563eb"/></marker>
+</defs>
+<rect data-graph-role="background" width="1640" height="2220" fill="#fff"/>
+<text x="60" y="54" font-size="32" fill="#111827" font-weight="600" data-owner="">ASR / WASM 与新增入口接线边界</text>
+<text x="60" y="89" font-size="18" fill="#4b5563" font-weight="400" data-owner="">文件与数据库 ASR、离线 WASM、MCP、Delta 追加已注册 | 绿色不等于旧功能全部迁移</text>
+<text x="60" y="119" font-size="16" fill="#4b5563" font-weight="400" data-owner="">源码核对快照：2026-09-07 / SNS album: 1121 executions passed, 0 failed, 11 ignored / MSVC 10 warnings | 证据：source-evidence.json；不代表已安装版本</text>
+<text x="60" y="193" font-size="20" fill="#111827" font-weight="600" data-owner="">01 旧 ASR 仍兼容；SNS 相册已原生（两条独立入口）</text>
+<text x="60" y="463" font-size="20" fill="#111827" font-weight="600" data-owner="">02 ASR 已注册：transcribe-audio-native / transcribe-chat-native</text>
+<text x="60" y="733" font-size="20" fill="#111827" font-weight="600" data-owner="">03 toolkit transcribe-database-native：严格消息 / VoiceInfo 映射 → 现有 ASR</text>
+<text x="60" y="1003" font-size="20" fill="#111827" font-weight="600" data-owner="">04 数据库 ASR 可选缓存：--cache-file 与 --cache-account 成对显式启用</text>
+<text x="60" y="1273" font-size="20" fill="#111827" font-weight="600" data-owner="">05 WASM 独立入口：decode-sns-video；相册另经 album_images / album_videos 懒加载</text>
+<text x="60" y="1543" font-size="20" fill="#111827" font-weight="600" data-owner="">06 新注册入口的现状边界（并列能力，不表示彼此调用）</text>
+<text x="60" y="1813" font-size="20" fill="#111827" font-weight="600" data-owner="">07 已接线与验收边界（源码可达不等于全部旧语义兼容）</text>
+<path data-graph-role="edge" data-source="oldcli" data-target="oldasr" d="M 380 303.0 L 460 303.0" fill="none" stroke="#b91c1c" stroke-width="2"  marker-end="url(#arrow-legacy)"/>
+<text x="386" y="291.0" font-size="16" fill="#b91c1c" font-weight="400" data-owner="">启动</text>
+<path data-graph-role="edge" data-source="oldalbum" data-target="oldwasm" d="M 1180 303.0 L 1260 303.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="291.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">解码调用</text>
+<path data-graph-role="edge" data-source="asrcli" data-target="prepare" d="M 380 573.0 L 460 573.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="561.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">输入</text>
+<path data-graph-role="edge" data-source="prepare" data-target="backend" d="M 780 573.0 L 860 573.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="561.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">识别</text>
+<path data-graph-role="edge" data-source="backend" data-target="writeback" d="M 1180 573.0 L 1260 573.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="561.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">结果</text>
+<path data-graph-role="edge" data-source="asrdb" data-target="dbjoin" d="M 380 843.0 L 460 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">身份</text>
+<path data-graph-role="edge" data-source="dbjoin" data-target="dbbytes" d="M 780 843.0 L 860 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">字节</text>
+<path data-graph-role="edge" data-source="dbbytes" data-target="dbevidence" d="M 1180 843.0 L 1260 843.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="831.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">结果</text>
+<path data-graph-role="edge" data-source="cachecli" data-target="cachekey" d="M 380 1113.0 L 460 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">显式启用</text>
+<path data-graph-role="edge" data-source="cachekey" data-target="cachelookup" d="M 780 1113.0 L 860 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">缓存键</text>
+<path data-graph-role="edge" data-source="cachelookup" data-target="cachestore" d="M 1180 1113.0 L 1260 1113.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="1101.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">未命中</text>
+<path data-graph-role="edge" data-source="videocli" data-target="runtime" d="M 380 1383.0 L 460 1383.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="386" y="1371.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">前缀</text>
+<path data-graph-role="edge" data-source="runtime" data-target="guest" d="M 780 1383.0 L 860 1383.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="786" y="1371.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">密钥流</text>
+<path data-graph-role="edge" data-source="guest" data-target="mp4" d="M 1180 1383.0 L 1260 1383.0" fill="none" stroke="#15803d" stroke-width="2"  marker-end="url(#arrow-live)"/>
+<text x="1186" y="1371.0" font-size="16" fill="#15803d" font-weight="400" data-owner="">流式发布</text>
+<rect id="oldcli" data-graph-role="node" x="60" y="220" width="320" height="166" rx="8" fill="#fef2f2" stroke="#b91c1c"/>
+<text x="76" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="oldcli">旧转录命令</text>
+<text x="76" y="274" font-size="14" fill="#b91c1c" font-weight="400" data-owner="oldcli">Python / Node</text>
+<text x="76" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="oldcli">wx toolkit transcribe-chat</text>
+<text x="76" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="oldcli">cli/toolkit · TranscribeChat</text>
+<text x="76" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="oldcli">仍进入 run_script</text>
+<rect id="oldasr" data-graph-role="node" x="460" y="220" width="320" height="166" rx="8" fill="#fef2f2" stroke="#b91c1c"/>
+<text x="476" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="oldasr">Python 语音流程</text>
+<text x="476" y="274" font-size="14" fill="#b91c1c" font-weight="400" data-owner="oldasr">Python / Node</text>
+<text x="476" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="oldasr">transcribe_chat.py</text>
+<text x="476" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="oldasr">ASR 配置 / 模型 / 回写</text>
+<text x="476" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="oldasr">未宣称已完整替代</text>
+<rect id="oldalbum" data-graph-role="node" x="860" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="oldalbum">原生 SNS 相册</text>
+<text x="876" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="oldalbum">已接入</text>
+<text x="876" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="oldalbum">cli/sns_album → sns/album</text>
+<text x="876" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="oldalbum">图片 / 视频 / render / publish</text>
+<text x="876" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="oldalbum">固定账号与来源绑定</text>
+<rect id="oldwasm" data-graph-role="node" x="1260" y="220" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="249" font-size="21" fill="#111827" font-weight="600" data-owner="oldwasm">按需 Rust WASM 宿主</text>
+<text x="1276" y="274" font-size="14" fill="#15803d" font-weight="400" data-owner="oldwasm">已接入</text>
+<text x="1276" y="305" font-size="17" fill="#111827" font-weight="400" data-owner="oldwasm">VideoRuntime::bundled</text>
+<text x="1276" y="334" font-size="17" fill="#111827" font-weight="400" data-owner="oldwasm">每线程 OnceLock；明文不加载</text>
+<text x="1276" y="363" font-size="17" fill="#111827" font-weight="400" data-owner="oldwasm">不启动 Node；本阶段回归通过</text>
+<rect id="asrcli" data-graph-role="node" x="60" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="asrcli">显式原生 CLI 参数</text>
+<text x="76" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="asrcli">已接入</text>
+<text x="76" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="asrcli">cli/asr · cmd_transcribe_*</text>
+<text x="76" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="asrcli">toolkit 与 CLI 均已注册</text>
+<text x="76" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="asrcli">不自动发现账号或下载模型</text>
+<rect id="prepare" data-graph-role="node" x="460" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="prepare">音频与媒体身份</text>
+<text x="476" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="prepare">已接入</text>
+<text x="476" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="prepare">asr · prepare_wav</text>
+<text x="476" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="prepare">transcribe_audio / transcribe_chat</text>
+<text x="476" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="prepare">OfflineMedia：分片 + local_id</text>
+<rect id="backend" data-graph-role="node" x="860" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="backend">显式 ASR 后端</text>
+<text x="876" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="backend">已接入</text>
+<text x="876" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="backend">local::transcribe：模型子进程</text>
+<text x="876" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="backend">openai::transcribe_wav：HTTP</text>
+<text x="876" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="backend">远程上传需明确授权</text>
+<rect id="writeback" data-graph-role="node" x="1260" y="490" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="519" font-size="21" fill="#111827" font-weight="600" data-owner="writeback">结构化结果与回写</text>
+<text x="1276" y="544" font-size="14" fill="#15803d" font-weight="400" data-owner="writeback">已接入</text>
+<text x="1276" y="575" font-size="17" fill="#111827" font-weight="400" data-owner="writeback">writeback::transcribe_file</text>
+<text x="1276" y="604" font-size="17" fill="#111827" font-weight="400" data-owner="writeback">批次结束后原子发布</text>
+<text x="1276" y="633" font-size="17" fill="#111827" font-weight="400" data-owner="writeback">当前 CLI 用显式媒体清单</text>
+<rect id="asrdb" data-graph-role="node" x="60" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="asrdb">显式静态快照入口</text>
+<text x="76" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="asrdb">已接入</text>
+<text x="76" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="asrdb">cli/asr_database → resolve_voice</text>
+<text x="76" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="asrdb">根 / username / source / local_id</text>
+<text x="76" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="asrdb">先检查后端与上传授权</text>
+<rect id="dbjoin" data-graph-role="node" x="460" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="dbjoin">严格语音身份与关联</text>
+<text x="476" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="dbjoin">已接入</text>
+<text x="476" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="dbjoin">完整消息分片 + 唯一语音行</text>
+<text x="476" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="dbjoin">Name2Id / svr_id / 时间一致</text>
+<text x="476" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="dbjoin">歧义拒绝；不按媒体 ID 猜分片</text>
+<rect id="dbbytes" data-graph-role="node" x="860" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="dbbytes">SILK 字节复用 ASR</text>
+<text x="876" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="dbbytes">已接入</text>
+<text x="876" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="dbbytes">transcribe_audio_bytes</text>
+<text x="876" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="dbbytes">内存解码；不写临时 SILK</text>
+<text x="876" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="dbbytes">本地仍用受控临时 WAV</text>
+<rect id="dbevidence" data-graph-role="node" x="1260" y="760" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="789" font-size="21" fill="#111827" font-weight="600" data-owner="dbevidence">转录 JSON 与来源证据</text>
+<text x="1276" y="814" font-size="14" fill="#15803d" font-weight="400" data-owner="dbevidence">已接入</text>
+<text x="1276" y="845" font-size="17" fill="#111827" font-weight="400" data-owner="dbevidence">account_authenticated=false</text>
+<text x="1276" y="874" font-size="17" fill="#111827" font-weight="400" data-owner="dbevidence">调用方提供快照；非账号认证</text>
+<text x="1276" y="903" font-size="17" fill="#111827" font-weight="400" data-owner="dbevidence">不回写数据库；不输出音频</text>
+<rect id="cachecli" data-graph-role="node" x="60" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="cachecli">CLI 缓存预检与分派</text>
+<text x="76" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="cachecli">已接入</text>
+<text x="76" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="cachecli">asr_database → cached</text>
+<text x="76" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="cachecli">缓存不别名覆盖库或受保护输入</text>
+<text x="76" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="cachecli">不传参数则沿用字节转录</text>
+<rect id="cachekey" data-graph-role="node" x="460" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="cachekey">授权先检与后端身份</text>
+<text x="476" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="cachekey">已接入</text>
+<text x="476" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="cachekey">消息来源 / 时间 / SILK 摘要</text>
+<text x="476" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="cachekey">模型与识别配置参与键</text>
+<text x="476" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="cachekey">执行 timeout 不参与 identity</text>
+<rect id="cachelookup" data-graph-role="node" x="860" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="cachelookup">账号隔离缓存读取</text>
+<text x="876" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="cachelookup">已接入</text>
+<text x="876" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="cachelookup">cache · lookup；成功空文本可命中</text>
+<text x="876" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="cachelookup">命中仍须上传授权检查</text>
+<text x="876" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="cachelookup">未命中 → transcribe_audio_bytes</text>
+<rect id="cachestore" data-graph-role="node" x="1260" y="1030" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="1059" font-size="21" fill="#111827" font-weight="600" data-owner="cachestore">成功缓存与独立状态</text>
+<text x="1276" y="1084" font-size="14" fill="#15803d" font-weight="400" data-owner="cachestore">已接入</text>
+<text x="1276" y="1115" font-size="17" fill="#111827" font-weight="400" data-owner="cachestore">store_success / 原子发布</text>
+<text x="1276" y="1144" font-size="17" fill="#111827" font-weight="400" data-owner="cachestore">读写失败不推翻成功识别</text>
+<text x="1276" y="1173" font-size="17" fill="#111827" font-weight="400" data-owner="cachestore">账号标签不是账号认证</text>
+<rect id="videocli" data-graph-role="node" x="60" y="1300" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="videocli">离线视频 CLI</text>
+<text x="76" y="1354" font-size="14" fill="#15803d" font-weight="400" data-owner="videocli">已接入</text>
+<text x="76" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="videocli">cli/sns_video · cmd_decode</text>
+<text x="76" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="videocli">显式 input / output / key-file</text>
+<text x="76" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="videocli">只读保持源句柄</text>
+<rect id="runtime" data-graph-role="node" x="460" y="1300" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="runtime">Rust 受限 WASM 宿主</text>
+<text x="476" y="1354" font-size="14" fill="#15803d" font-weight="400" data-owner="runtime">已接入</text>
+<text x="476" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="runtime">sns/video_runtime · VideoRuntime</text>
+<text x="476" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="runtime">bundled / new / decode</text>
+<text x="476" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="runtime">wasmi；不启动 Node 或 JS</text>
+<rect id="guest" data-graph-role="node" x="860" y="1300" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="guest">内置供应商 WASM</text>
+<text x="876" y="1354" font-size="14" fill="#15803d" font-weight="400" data-owner="guest">已接入</text>
+<text x="876" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="guest">WxIsaac64：仅生成密钥流</text>
+<text x="876" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="guest">SHA-256 / 燃料 / 内存上限</text>
+<text x="876" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="guest">CLI 解前 128 KiB 并复制尾部</text>
+<rect id="mp4" data-graph-role="node" x="1260" y="1300" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="1329" font-size="21" fill="#111827" font-weight="600" data-owner="mp4">验证后不覆盖发布</text>
+<text x="1276" y="1354" font-size="14" fill="#15803d" font-weight="400" data-owner="mp4">已接入</text>
+<text x="1276" y="1385" font-size="17" fill="#111827" font-weight="400" data-owner="mp4">ftyp 非完整校验；明文直通</text>
+<text x="1276" y="1414" font-size="17" fill="#111827" font-weight="400" data-owner="mp4">sync_all / persist_noclobber</text>
+<text x="1276" y="1443" font-size="17" fill="#111827" font-weight="400" data-owner="mp4">明文 MP4 无需 key 或 WASM</text>
+<rect id="mcp" data-graph-role="node" x="60" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="76" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="mcp">wx mcp：17 tools</text>
+<text x="76" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="mcp">已接入</text>
+<text x="76" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="mcp">daemon 仅 prepare 语音</text>
+<text x="76" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="mcp">host WAV / 显式 ASR + cache</text>
+<text x="76" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="mcp">旧语义未全覆；无在途取消</text>
+<rect id="delta" data-graph-role="node" x="460" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="476" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="delta">export-delta-native</text>
+<text x="476" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="delta">已接入</text>
+<text x="476" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="delta">CLI → ExportDelta → raw UID</text>
+<text x="476" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="delta">默认新 root / --append-run</text>
+<text x="476" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="delta">独占新 run；不改原完整输出</text>
+<rect id="plan" data-graph-role="node" x="860" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="876" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="plan">chat-plan-native</text>
+<text x="876" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="plan">已接入</text>
+<text x="876" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="plan">estimate / scan 完整 12 列 CSV</text>
+<text x="876" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="plan">只读显式目录与库清单</text>
+<text x="876" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="plan">已修复解密根祖先 junction</text>
+<rect id="historylive" data-graph-role="node" x="1260" y="1570" width="320" height="166" rx="8" fill="#f0fdf4" stroke="#15803d"/>
+<text x="1276" y="1599" font-size="21" fill="#111827" font-weight="600" data-owner="historylive">历史查询已接入</text>
+<text x="1276" y="1624" font-size="14" fill="#15803d" font-weight="400" data-owner="historylive">已接入</text>
+<text x="1276" y="1655" font-size="17" fill="#111827" font-weight="400" data-owner="historylive">CLI / MCP → History → q_history</text>
+<text x="1276" y="1684" font-size="17" fill="#111827" font-weight="400" data-owner="historylive">history_selection：多类型选页</text>
+<text x="1276" y="1713" font-size="17" fill="#111827" font-weight="400" data-owner="historylive">全分片分页；复用正文映射</text>
+<rect id="unwired" data-graph-role="node" x="60" y="1840" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="76" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="unwired">图片验证边界</text>
+<text x="76" y="1894" font-size="14" fill="#2563eb" font-weight="400" data-owner="unwired">能力边界 / 待验收</text>
+<text x="76" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="unwired">真实进程 / 合成加密账号通过</text>
+<text x="76" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="unwired">用户私有账号未访问、未验证</text>
+<text x="76" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="unwired">响应失败不回滚；后续待验</text>
+<rect id="mcpvoice" data-graph-role="node" x="460" y="1840" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="476" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="mcpvoice">MCP 语音新路径</text>
+<text x="476" y="1894" font-size="14" fill="#2563eb" font-weight="400" data-owner="mcpvoice">能力边界 / 待验收</text>
+<text x="476" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="mcpvoice">receipt精确username脱源命中</text>
+<text x="476" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="mcpvoice">显示名可能仍需ResolveChat</text>
+<text x="476" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="mcpvoice">真实模型与新全量待验</text>
+<rect id="append" data-graph-role="node" x="860" y="1840" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="876" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="append">Delta 追加语义上限</text>
+<text x="876" y="1894" font-size="14" fill="#2563eb" font-weight="400" data-owner="append">能力边界 / 待验收</text>
+<text x="876" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="append">仅 root / deltas 目录可复用</text>
+<text x="876" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="append">同名 run 即使空目录也拒绝</text>
+<text x="876" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="append">不是旧批次恢复或全量合并</text>
+<rect id="cleanup" data-graph-role="node" x="1260" y="1840" width="320" height="166" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+<text x="1276" y="1869" font-size="21" fill="#111827" font-weight="600" data-owner="cleanup">最终整体精简门槛</text>
+<text x="1276" y="1894" font-size="14" fill="#2563eb" font-weight="400" data-owner="cleanup">能力边界 / 待验收</text>
+<text x="1276" y="1925" font-size="17" fill="#111827" font-weight="400" data-owner="cleanup">先完成全部功能与兼容回归</text>
+<text x="1276" y="1954" font-size="17" fill="#111827" font-weight="400" data-owner="cleanup">再删除无调用与重复模块</text>
+<text x="1276" y="1983" font-size="17" fill="#111827" font-weight="400" data-owner="cleanup">不是当前已完成架构</text>
+<rect data-graph-role="legend" x="60" y="2101" width="14" height="14" fill="#15803d"/>
+<text x="84" y="2115" font-size="17" fill="#15803d" font-weight="400" data-owner="">已接入</text>
+<rect data-graph-role="legend" x="460" y="2101" width="14" height="14" fill="#c2410c"/>
+<text x="484" y="2115" font-size="17" fill="#c2410c" font-weight="400" data-owner="">开发中 / 待接线</text>
+<rect data-graph-role="legend" x="860" y="2101" width="14" height="14" fill="#b91c1c"/>
+<text x="884" y="2115" font-size="17" fill="#b91c1c" font-weight="400" data-owner="">Python / Node</text>
+<rect data-graph-role="legend" x="1260" y="2101" width="14" height="14" fill="#2563eb"/>
+<text x="1284" y="2115" font-size="17" fill="#2563eb" font-weight="400" data-owner="">能力边界 / 待验收</text>
+<text x="60" y="2156" font-size="17" fill="#4b5563" font-weight="400" data-owner="">相册已原生；旧 export-sns timeline upsert、transcribe、旧 MCP 与其他 run/GUI 仍保留兼容边界。</text>
+<text x="60" y="2183" font-size="17" fill="#4b5563" font-weight="400" data-owner="">快照以 source-evidence.json 为界；后续公共注册或工具变化须重新核对，不自动升级图中状态。</text>
+</svg>

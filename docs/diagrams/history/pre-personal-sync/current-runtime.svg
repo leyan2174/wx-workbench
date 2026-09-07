@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 650" width="960" height="650" data-generator="fireworks-tech-graph" data-schema-version="1" data-text-metrics="heuristic-v1" data-style-id="1" data-visual-theme="Flat Icon" data-diagram-type="architecture" data-motion-scene="" data-semantic-profile="generic" data-semantic-valid="true" data-quality-profile="showcase" data-max-bends-per-edge="2" data-max-total-bends="8" data-max-route-stretch="1.35" data-max-bridged-crossings="0" data-min-node-gap="40.0" data-min-container-gutter="20.0" data-min-label-clearance="4.0" data-min-segment-length="16.0">
+  <defs>
+    <marker id="arrowA" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowB" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/>
+    </marker>
+    <marker id="arrowC" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowE" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f97316"/>
+    </marker>
+    <marker id="arrowF" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#7c3aed"/>
+    </marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+    </marker>
+    <marker id="arrowH" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+    </marker>
+    <filter id="shadowSoft" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <filter id="shadowGlass" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#020617" flood-opacity="0.28"/>
+    </filter>
+    <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', 'Microsoft JhengHei', 'SimHei', sans-serif; }
+    .title { font-size: 30px; font-weight: 700; fill: #111827; }
+    .subtitle { font-size: 14px; font-weight: 500; fill: #6b7280; }
+    .section { font-size: 13px; font-weight: 700; fill: #2563eb; letter-spacing: 1.4px; }
+    .section-sub { font-size: 12px; font-weight: 500; fill: #94a3b8; }
+    .node-title { font-weight: 700; fill: #111827; }
+    .node-sub { font-size: 12px; font-weight: 500; fill: #6b7280; }
+    .node-type { font-size: 12px; font-weight: 700; fill: #9ca3af; letter-spacing: 0.08em; }
+    .arrow-label { font-size: 12px; font-weight: 600; fill: #6b7280; }
+    .legend { font-size: 12px; font-weight: 500; fill: #6b7280; }
+    .footnote { font-size: 12px; font-weight: 500; fill: #94a3b8; }
+    .metric-label { font-size: 8.5px; font-weight: 700; fill: #94a3b8; text-transform: uppercase; }
+    .metric-value { font-size: 9.5px; font-weight: 700; fill: #111827; }
+    </style>
+  </defs>
+  <rect data-graph-role="background" width="960.0" height="650.0" fill="#ffffff"/>
+  <text x="480.0" y="56" text-anchor="middle" class="title">wx-cli 当前功能路由</text>
+  <text x="480.0" y="82" text-anchor="middle" class="subtitle">实线为当前调用关系；右侧兼容功能尚未完成 Rust 迁移</text>
+  <path id="edge-000" data-graph-role="edge" data-edge-id="edge-000" data-source="query" data-target="daemon" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 180,220 L 180,300" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="edge-001" data-graph-role="edge" data-edge-id="edge-001" data-source="daemon" data-target="cache" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 180,370 L 180,450" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="edge-002" data-graph-role="edge" data-edge-id="edge-002" data-source="native" data-target="batch" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 480,220 L 480,300" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="edge-003" data-graph-role="edge" data-edge-id="edge-003" data-source="batch" data-target="outputs" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 480,370 L 480,450" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="edge-004" data-graph-role="edge" data-edge-id="edge-004" data-source="legacy" data-target="adapter" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 780,220 L 780,300" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <path id="edge-005" data-graph-role="edge" data-edge-id="edge-005" data-source="adapter" data-target="runtime" data-edge-kind="flow" data-topic-id="" data-flow="control" data-motion-role="" data-motion-stage="" data-motion-order="" data-protocol="" data-via="" data-critical-path-id="" data-critical-hop="" data-critical-hops="" data-critical="false" data-bends="0" data-route-stretch="1.0" data-bridges="" d="M 780,370 L 780,450" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowA)"/>
+  <g id="node-query" data-graph-role="node" data-node-id="query" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="50,150,310,220">
+  <rect x="50.0" y="150.0" width="260.0" height="70.0" rx="10.0" fill="#eff6ff" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="180.0" y="185.0" text-anchor="middle" class="node-title" font-size="18.0">查询与语音原始导出</text>
+  <text x="180.0" y="207.0" text-anchor="middle" class="node-sub">history / search / voices</text>
+  </g>
+  <g id="node-native" data-graph-role="node" data-node-id="native" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="350,150,610,220">
+  <rect x="350.0" y="150.0" width="260.0" height="70.0" rx="10.0" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="480.0" y="185.0" text-anchor="middle" class="node-title" font-size="18.0">原生批处理入口</text>
+  <text x="480.0" y="207.0" text-anchor="middle" class="node-sub">decrypt / decode-image(s) / batch</text>
+  </g>
+  <g id="node-legacy" data-graph-role="node" data-node-id="legacy" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="650,150,910,220">
+  <rect x="650.0" y="150.0" width="260.0" height="70.0" rx="10.0" fill="#fff1f2" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="780.0" y="185.0" text-anchor="middle" class="node-title" font-size="18.0">尚待迁移的功能入口</text>
+  <text x="780.0" y="207.0" text-anchor="middle" class="node-sub">相册、视频、ASR、Web / GUI</text>
+  </g>
+  <g id="node-daemon" data-graph-role="node" data-node-id="daemon" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="50,300,310,370">
+  <rect x="50.0" y="300.0" width="260.0" height="70.0" rx="10.0" fill="#eff6ff" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="180.0" y="335.0" text-anchor="middle" class="node-title" font-size="18.0">后台查询服务</text>
+  <text x="180.0" y="357.0" text-anchor="middle" class="node-sub">transport → server → query</text>
+  </g>
+  <g id="node-batch" data-graph-role="node" data-node-id="batch" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="350,300,610,370">
+  <rect x="350.0" y="300.0" width="260.0" height="70.0" rx="10.0" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="480.0" y="335.0" text-anchor="middle" class="node-title" font-size="18.0">Rust 批处理服务</text>
+  <text x="480.0" y="357.0" text-anchor="middle" class="node-sub">toolkit/databases · images · files</text>
+  </g>
+  <g id="node-adapter" data-graph-role="node" data-node-id="adapter" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="650,300,910,370">
+  <rect x="650.0" y="300.0" width="260.0" height="70.0" rx="10.0" fill="#fff1f2" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="780.0" y="335.0" text-anchor="middle" class="node-title" font-size="18.0">兼容运行层</text>
+  <text x="780.0" y="357.0" text-anchor="middle" class="node-sub">toolkit/legacy：脚本与依赖管理</text>
+  </g>
+  <g id="node-cache" data-graph-role="node" data-node-id="cache" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="50,450,310,520">
+  <rect x="50.0" y="450.0" width="260.0" height="70.0" rx="10.0" fill="#eff6ff" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="180.0" y="485.0" text-anchor="middle" class="node-title" font-size="18.0">缓存与附件模块</text>
+  <text x="180.0" y="507.0" text-anchor="middle" class="node-sub">crypto / WAL / attachment</text>
+  </g>
+  <g id="node-outputs" data-graph-role="node" data-node-id="outputs" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="350,450,610,520">
+  <rect x="350.0" y="450.0" width="260.0" height="70.0" rx="10.0" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="480.0" y="485.0" text-anchor="middle" class="node-title" font-size="18.0">经过校验的原子输出</text>
+  <text x="480.0" y="507.0" text-anchor="middle" class="node-sub">数据库快照、图片、JSON 统计</text>
+  </g>
+  <g id="node-runtime" data-graph-role="node" data-node-id="runtime" data-semantic-role="rect" data-motion-role="" data-motion-stage="" data-motion-order="" data-parent="" data-deployment-id="" data-topic-id="" data-span-id="" data-station-order="" data-status="" data-start-ms="" data-duration-ms="" data-parent-span="" data-graph-bounds="650,450,910,520">
+  <rect x="650.0" y="450.0" width="260.0" height="70.0" rx="10.0" fill="#fff1f2" stroke="#d1d5db" stroke-width="1.8"/>
+  <text x="780.0" y="485.0" text-anchor="middle" class="node-title" font-size="18.0">Python / Node / WASM</text>
+  <text x="780.0" y="507.0" text-anchor="middle" class="node-sub">保留旧功能，逐项完成替换</text>
+  </g>
+  <g id="edge-000-label" data-graph-role="label" data-owner="edge-000" data-graph-bounds="116.92,246,177,266">
+  <text x="146.96" y="260.0" text-anchor="middle" class="arrow-label">IPC 请求</text>
+  </g>
+  <g id="edge-001-label" data-graph-role="label" data-owner="edge-001" data-graph-bounds="103,396,177,416">
+  <text x="140.0" y="410.0" text-anchor="middle" class="arrow-label">读取与解密</text>
+  </g>
+  <g id="edge-002-label" data-graph-role="label" data-owner="edge-002" data-graph-bounds="415,246,477,266">
+  <text x="446.0" y="260.0" text-anchor="middle" class="arrow-label">原生命令</text>
+  </g>
+  <g id="edge-003-label" data-graph-role="label" data-owner="edge-003" data-graph-bounds="403,396,477,416">
+  <text x="440.0" y="410.0" text-anchor="middle" class="arrow-label">验证及发布</text>
+  </g>
+  <g id="edge-004-label" data-graph-role="label" data-owner="edge-004" data-graph-bounds="715,246,777,266">
+  <text x="746.0" y="260.0" text-anchor="middle" class="arrow-label">兼容命令</text>
+  </g>
+  <g id="edge-005-label" data-graph-role="label" data-owner="edge-005" data-graph-bounds="727,396,777,416">
+  <text x="752.0" y="410.0" text-anchor="middle" class="arrow-label">子进程</text>
+  </g>
+  <g id="footer" data-graph-role="reserved" data-graph-bounds="50,593,309,609">
+  <text x="50.0" y="605.0" class="footnote">详细模块依赖、快照时序与目标架构：docs/architecture.md</text>
+  </g>
+</svg>

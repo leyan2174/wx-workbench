@@ -1,0 +1,7 @@
+flowchart LR
+    Q[聊天查询：类型及群聊前缀处理] --> S[message::summary]
+    S --> L[message::location：结构化位置]
+    S --> X[message::xml：安全解析与空白规整]
+    L --> X
+    L --> F[17 个文本字段及坐标、主类别]
+    L --> R[阅读摘要]

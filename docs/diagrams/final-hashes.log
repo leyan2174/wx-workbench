@@ -1,0 +1,26 @@
+
+Algorithm : SHA256
+Hash      : B3A1CC2AEA81BDC4EC0B86D91B24C3403C916197B5A93226D09ED97582AB0275
+Path      : C:\CodexLocal\src\wx-cli\docs\diagrams\source-evidence.json
+
+Algorithm : SHA256
+Hash      : D4B4E46502098649566457AB456E1C8A809CA1EA0726FCBC86D9FB764A0D8B0B
+Path      : C:\CodexLocal\src\wx-cli\docs\diagrams\runtime-current.svg
+
+Algorithm : SHA256
+Hash      : CE2F83241D56313436CB80657F98167345DE54A6142B75165366F02C3F84884D
+Path      : C:\CodexLocal\src\wx-cli\docs\diagrams\runtime-current.png
+
+Algorithm : SHA256
+Hash      : 414995D8B18D9FF7EDF50B962A7C33ACBE02A78A84C065091950DBECA6782C9F
+Path      : C:\CodexLocal\src\wx-cli\docs\diagrams\asr-wasm-wiring.svg
+
+Algorithm : SHA256
+Hash      : 923AA888D614C663F94A3B332CB6C2F53F293D319C21B30EABC96E2A76C91150
+Path      : C:\CodexLocal\src\wx-cli\docs\diagrams\asr-wasm-wiring.png
+
+Algorithm : SHA256
+Hash      : C5CEC992394B9CDF5BA227BF2DFC67AC2B20F458CA29DC2DB1CD165ACBA317F3
+Path      : C:\CodexLocal\wx-cli-history-scalar-final-tests.log
+
+

@@ -1,0 +1,272 @@
+[
+  {
+    "kind": "video",
+    "xml": "",
+    "expected": "[视频]"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg/>",
+    "expected": "[视频]"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg>",
+    "expected": "[视频]"
+  },
+  {
+    "kind": "video",
+    "xml": "<videomsg playlength='5'/>",
+    "expected": "[视频]"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength='5'/></msg>",
+    "expected": "[视频] 5秒"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength='0'/></msg>",
+    "expected": "[视频] 0秒"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength=''/></msg>",
+    "expected": "[视频]"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength='1.5'/></msg>",
+    "expected": "[视频] 1.5秒"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength='unknown'/></msg>",
+    "expected": "[视频] unknown秒"
+  },
+  {
+    "kind": "video",
+    "xml": "<msg><videomsg playlength=' 10 '/></msg>",
+    "expected": "[视频]  10 秒"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Canceled</msg></voip>",
+    "expected": "[通话] 已取消"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Line busy</msg></voip>",
+    "expected": "[通话] 对方忙线"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Already answered elsewhere</msg></voip>",
+    "expected": "[通话] 已在其他设备接听"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Declined on other device</msg></voip>",
+    "expected": "[通话] 已在其他设备拒接"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Call canceled by caller</msg></voip>",
+    "expected": "[通话] 主叫已取消"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Call not answered</msg></voip>",
+    "expected": "[通话] 未接听"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Call wasn't answered</msg></voip>",
+    "expected": "[通话] 未接听"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Duration: 01:23</msg></voip>",
+    "expected": "[通话] 通话时长 01:23"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>Duration: </msg></voip>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>通话时长 00:42</msg></voip>",
+    "expected": "[通话] 通话时长 00:42"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg>未知状态</msg></voip>",
+    "expected": "[通话] 未知状态"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg></msg></voip>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip/>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voip",
+    "xml": "plain",
+    "expected": null
+  },
+  {
+    "kind": "voip",
+    "xml": "<!DOCTYPE voip><voip><msg>Canceled</msg></voip>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voip",
+    "xml": "<voip><msg><nested/>Canceled</msg></voip>",
+    "expected": "[通话]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='3300'/></msg>",
+    "expected": "[语音 3.3s]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='800'/></msg>",
+    "expected": "[语音 0.8s]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='62000'/></msg>",
+    "expected": "[语音 62.0s]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='0'/></msg>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='-1'/></msg>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='abc'/></msg>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength=' 1000 '/></msg>",
+    "expected": "[语音 1.0s]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength='1001'/></msg>",
+    "expected": "[语音 1.0s]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg><voicemsg voicelength=''/></msg>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "voice",
+    "xml": "<msg/>",
+    "expected": "[语音]"
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg nickname='示例' username='gh_demo' certinfo='简介&#10; 第二行'/>",
+    "expected": "[名片] 示例 (公众号 gh_demo): 简介 第二行"
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg username='wxid_demo'/>",
+    "expected": "[名片] wxid_demo"
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg nickname='示例' antispamticket='synthetic'/>",
+    "expected": "[名片] 示例"
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg/>",
+    "expected": null
+  },
+  {
+    "kind": "namecard",
+    "xml": "",
+    "expected": null
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg>",
+    "expected": null
+  },
+  {
+    "kind": "namecard",
+    "xml": "<msg/>",
+    "expected": null
+  },
+  {
+    "kind": "location",
+    "xml": "<msg><location/></msg>",
+    "expected": "[位置]"
+  },
+  {
+    "kind": "location",
+    "xml": "<msg><location poiname='[位置]' label='示例路'/></msg>",
+    "expected": "[位置] 示例路"
+  },
+  {
+    "kind": "location",
+    "xml": "<msg><location poiname='公园' label='示例路' poiCategoryTips='休闲:公园'/></msg>",
+    "expected": "[位置·休闲] 公园 @ 示例路"
+  },
+  {
+    "kind": "location",
+    "xml": "<msg><location poiname='公园' label='公园'/></msg>",
+    "expected": "[位置] 公园"
+  },
+  {
+    "kind": "location",
+    "xml": "<msg><location poiCategoryTips='休闲:公园'/></msg>",
+    "expected": "[位置·休闲]"
+  },
+  {
+    "kind": "location",
+    "xml": "",
+    "expected": null
+  },
+  {
+    "kind": "location",
+    "xml": "<msg>",
+    "expected": null
+  },
+  {
+    "kind": "location",
+    "xml": "<msg/>",
+    "expected": null
+  }
+]

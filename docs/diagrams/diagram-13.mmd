@@ -1,0 +1,13 @@
+flowchart TB
+    CLI[cli：参数解析和命令分发]
+    BATCH[cli/export_chats：批次、筛选、进度、失败统计]
+    EXPORTALL[cli/export_all：旧 export-chats 与 run export/all 原生编排]
+    ASRBATCH[cli/asr_batch：固定账号配置到 Backend]
+    INDEX[toolkit/chat_index：username 文件归属及批次锁]
+    QUERY[cli/transport：请求与进程管理]
+    CLI --> BATCH
+    CLI --> EXPORTALL
+    EXPORTALL --> BATCH
+    EXPORTALL --> ASRBATCH
+    BATCH --> INDEX
+    BATCH --> QUERY

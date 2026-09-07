@@ -1,0 +1,34 @@
+[
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\cli\\mcp.rs",
+    "Hash": "8E2D15B00A8FD0CF56AD81861137D3DC9809046AADE7A7D759A0DBF4CC59FB4E"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\cli\\mcp_voice.rs",
+    "Hash": "DA94D3409D73ED596DA3EF6D3FEC30619D1A3F37A419902C353BABD01C66FB4B"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\cli\\asr.rs",
+    "Hash": "7BC45DCC036DED4697492A3ED6F2526993ECC83A0DC6BDF43B1124FBAD7768CE"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\toolkit\\asr\\cache.rs",
+    "Hash": "667DA96DE6A571CAF53B2D861A867164E040CFF0893969605FD55FE2A5A81746"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\toolkit\\asr\\cached.rs",
+    "Hash": "2E647157914D1BA5EF9DECE8AB95ED1289F0FB2AE0BE49296993A94AA8652D4F"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\mcp\\protocol.rs",
+    "Hash": "F4DAEDE05DF6B26E19D234CAAC8AD052060C4CD05D63A3E3D4866C657809B56D"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\attachment\\local_files.rs",
+    "Hash": "7B3484A59674FABA2817A8F939C4C06412833F9EB0BD4E2996A3EE07DF03908E"
+  },
+  {
+    "Path": "C:\\CodexLocal\\src\\wx-cli\\src\\toolkit\\audio\\publish.rs",
+    "Hash": "515FEA0C25DA89B22DB137AD5027B99D45785935DCBBD480A892B4FDF5FE1F8D"
+  }
+]

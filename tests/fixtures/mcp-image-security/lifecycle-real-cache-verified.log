@@ -1,0 +1,190 @@
+warning: struct `HostOutputGuard` is never constructed
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:22:19
+   |
+22 | pub(crate) struct HostOutputGuard {
+   |                   ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated items `new`, `protect`, and `read_key_file` are never used
+  --> C:\CodexLocal\src\wx-cli\tests\fixtures\native-image\..\..\..\src\attachment\native_image.rs:30:19
+   |
+28 | impl HostOutputGuard {
+   | -------------------- associated items in this implementation
+29 |     /// 此检查先于账号与密钥访问；空路径和相对路径在任何文件访问前失败。
+30 |     pub(crate) fn new(output_root: &Path) -> Result<Self> {
+   |                   ^^^
+...
+41 |     pub(crate) fn protect(&mut self, input: &Path) -> Result<()> {
+   |                   ^^^^^^^
+...
+76 |     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+   |                   ^^^^^^^^^^^^^
+
+warning: `native-image-fixture` (lib) generated 2 warnings
+   Compiling mcp-image-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\mcp-image-security)
+warning: method `media_db_keys` is never used
+   --> ..\..\..\src\daemon\cache.rs:142:19
+    |
+ 73 | impl DbCache {
+    | ------------ method in this implementation
+...
+142 |     pub(crate) fn media_db_keys(&self) -> Vec<String> {
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `compression` and `content` are never read
+  --> ..\..\..\src\daemon\query\strict_message.rs:23:5
+   |
+17 | pub(super) struct StrictMessage {
+   |                   ------------- fields in this struct
+...
+23 |     compression: Option<i64>,
+   |     ^^^^^^^^^^^
+24 |     content: Option<(bool, Vec<u8>)>,
+   |     ^^^^^^^
+
+warning: method `bounded_decode` is never used
+  --> ..\..\..\src\daemon\query\strict_message.rs:30:19
+   |
+27 | impl StrictMessage {
+   | ------------------ method in this implementation
+...
+30 |     pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
+   |                   ^^^^^^^^^^^^^^
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:23:13
+   |
+23 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 保留可注入查询器的内部错误类别，当前 CLI 统一映射为不可用
+   = note: `#[warn(unfulfilled_lint_expectations)]` on by default
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:44:13
+   |
+44 |             dead_code,
+   |             ^^^^^^^^^
+   |
+   = note: 供并发宿主发起取消；当前同步 stdio 不读取在途取消通知
+
+warning: this lint expectation is unfulfilled
+  --> ..\..\..\src\mcp\protocol.rs:85:16
+   |
+85 |         expect(dead_code, reason = "供并发宿主持有取消令牌，当前由合成测试验证")
+   |                ^^^^^^^^^
+   |
+   = note: 供并发宿主持有取消令牌，当前由合成测试验证
+
+warning: this lint expectation is unfulfilled
+   --> ..\..\..\src\mcp\protocol.rs:490:16
+    |
+490 |         expect(dead_code, reason = "协议状态观察接口，目前由生命周期测试使用")
+    |                ^^^^^^^^^
+    |
+    = note: 协议状态观察接口，目前由生命周期测试使用
+
+warning: `mcp-image-security` (lib) generated 9 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.75s
+     Running audit.rs (C:/CodexLocal/build/mcp-image-security\debug\deps\audit-a58f048f1f88cd9c.exe)
+
+running 19 tests
+test output_symlink_directory_is_rejected ... ignored, Windows symlink creation denied with OS error 1314; see baseline.log
+test source_dat_symlink_is_rejected ... ignored, Windows symlink creation denied with OS error 1314; see baseline.log
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe"
+COMMAND: "cmd.exe" "/d" "/u" "/c" "mklink" "/J" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpWdpsE5\\output-junction" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpWdpsE5\\output"
+test key_file_unconfigured_output_does_not_read_cache_or_secret ... ok
+GUARD success: hardlink alias unlink=Ok(()); original remains pinned=true
+test exact_duplicate_messages_fail_before_export ... ok
+LIMIT RESULT: Err(Custom { kind: Other, error: Error("MCP response exceeds limit", line: 0, column: 0) })
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+
+PUBLISHED: true
+
+thread 'guard_locks_survive_query_await_and_release_on_all_exit_paths' (36320) panicked at audit.rs:132:9:
+assertion failed: fs::rename(&f.output, f.root.path().join("moved-output")).is_err()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test guard_locks_survive_query_await_and_release_on_all_exit_paths ... FAILED
+KEY MODE relative: cannot read bounded isolated image key file
+[cache] 全量解密 message/message_0.db (3ms)
+RETRY AFTER LOST RESPONSE: Err(output already exists or publication failed
+
+Caused by:
+    当文件已存在时，无法创建该文件。 (os error 183))
+
+thread 'actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback' (26036) panicked at audit.rs:165:5:
+use a genuine oversized image response
+[cache] 全量解密 message/message_resource.db (9ms)
+test host_output_cannot_overlap_source_or_decrypted_directories ... ok
+test response_limit_records_real_publication_before_delivery_failure ... ok
+test actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback ... FAILED
+test repeated_publication_fails_without_overwrite_or_temp_leftover ... ok
+REAL CACHE cold: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpYrFMIX\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpYrFMIX\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpYrFMIX\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test invalid_output_paths_do_not_publish_or_mutate_sources ... ok
+KEY MODE inside-output: cannot read bounded isolated image key file
+test query_same_ids_different_accounts_stay_separate ... ok
+test explicit_key_file_works_and_hardlink_destination_never_overwrites_key ... ok
+[cache] 复用 2 个已解密 DB
+MODE unconfigured
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"Query backend unavailable","type":"text"}],"isError":true}}
+
+STDERR: 
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpb8G8Kn" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpb8G8Kn\\explicit-key.json"
+KEY MODE malformed: invalid image key JSON
+MODE configured
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"{\"exit_code\":0,\"image\":{\"path\":\"synthetic.jpg\"},\"status\":\"published\"}","type":"text"}],"isError":false}}
+
+STDERR: AUDIT_RUNTIME_REACHED
+AUDIT_RUNTIME_REACHED
+AUDIT_IPC_REACHED
+AUDIT_RUNTIME_REACHED
+
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpFWmGh4" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpFWmGh4\\explicit-key.json"
+STDOUT: 为 C:\Users\leyan\AppData\Local\Temp\.tmpWdpsE5\output-junction <<===>> C:\Users\leyan\AppData\Local\Temp\.tmpWdpsE5\output 创建的联接
+
+STDERR: 
+test existing_output_hardlinks_to_all_protected_sources_are_never_overwritten ... ok
+REAL CACHE warm: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpb956c8\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpb956c8\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpb956c8\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test output_junction_is_rejected_without_external_publication ... ok
+MODE client-path
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"error":{"code":-32602,"message":"Invalid or unknown argument"},"id":2,"jsonrpc":"2.0"}
+
+STDERR: 
+COMMAND: "C:/CodexLocal/build/mcp-image-security\\debug\\host-probe.exe" "--media-output-root" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9XRDi1" "--image-key-file" "C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmp9XRDi1\\explicit-key.json"
+test v2_explicit_correct_key_only_and_wrong_or_missing_key_never_publishes ... ok
+MODE secret-error
+STDOUT: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}}
+{"id":2,"jsonrpc":"2.0","result":{"content":[{"text":"Query backend unavailable","type":"text"}],"isError":true}}
+
+STDERR: AUDIT_RUNTIME_REACHED
+AUDIT_RUNTIME_REACHED
+AUDIT_IPC_REACHED
+AUDIT_RUNTIME_REACHED
+
+test host_policy_schema_injection_and_secret_error_boundary ... ok
+KEY MODE invalid-aes: invalid image AES key
+[cache] 复用 2 个已解密 DB
+[cache] 全量解密 message/message_0.db (0ms)
+KEY MODE invalid-xor: invalid image XOR key
+[cache] 全量解密 message/message_resource.db (1ms)
+REAL CACHE redecrypt: Ok(Object {"exit_code": Number(0), "image": Object {"binding": String("resource_scan_filename_heuristic"), "candidates": Array [Object {"path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpAil89X\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat"), "rank": Number(0)}], "dat_md5": String("053b8e475c2e282fe20b033548102d42"), "decoded_md5": String("16f23ac8d6735ae7248a3a9578d78b5f"), "decoder": String("legacy_xor"), "format": String("jpg"), "message": Object {"create_time": Number(100), "local_id": Number(42), "local_type": Number(3), "source": String("message/message_0.db"), "username": String("synthetic_peer")}, "path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpAil89X\\output\\16f23ac8d6735ae7248a3a9578d78b5f.jpg"), "resource_md5": String("0123456789abcdef0123456789abcdef"), "resource_rowid": Number(1), "size": Number(7), "source_path": String("C:\\Users\\leyan\\AppData\\Local\\Temp\\.tmpAil89X\\account\\msg/attach\\196715fa074d653dd1205885a3518499\\2026-09\\Img\\0123456789abcdef0123456789abcdef.dat")}, "status": String("published")})
+test real_cache_audit::real_cache_cold_warm_and_redecrypt_first_exports_remain_usable ... ok
+KEY MODE oversized: cannot read bounded isolated image key file
+test key_file_errors_are_bounded_redacted_and_precede_database_access ... ok
+test key_json_type_duplicate_null_and_exact_size_contract ... ok
+
+failures:
+
+failures:
+    actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback
+    guard_locks_survive_query_await_and_release_on_all_exit_paths
+
+test result: FAILED. 15 passed; 2 failed; 2 ignored; 0 measured; 0 filtered out; finished in 1.46s
+
+error: test failed, to rerun pass `--test audit`

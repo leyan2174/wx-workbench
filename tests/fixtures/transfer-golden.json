@@ -1,0 +1,382 @@
+[
+  {
+    "name": "status-1",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>1</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "1",
+      "paysubtype_label": "发起转账",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "发起转账",
+      "paysubtype": "1",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·发起转账] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 发起转账 (paysubtype=1)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-3",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>3</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "3",
+      "paysubtype_label": "已收款",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "已收款",
+      "paysubtype": "3",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·已收款] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 已收款 (paysubtype=3)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-4",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>4</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "4",
+      "paysubtype_label": "已退还",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "已退还",
+      "paysubtype": "4",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·已退还] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 已退还 (paysubtype=4)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-5",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>5</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "5",
+      "paysubtype_label": "过期已退还",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "过期已退还",
+      "paysubtype": "5",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·过期已退还] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 过期已退还 (paysubtype=5)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-7",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>7</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "7",
+      "paysubtype_label": "待领取",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "待领取",
+      "paysubtype": "7",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·待领取] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 待领取 (paysubtype=7)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-8",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>8</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "8",
+      "paysubtype_label": "已领取",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "已领取",
+      "paysubtype": "8",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·已领取] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 已领取 (paysubtype=8)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-99",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>99</paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "99",
+      "paysubtype_label": "未知(paysubtype=99)",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "direction": "未知(paysubtype=99)",
+      "paysubtype": "99",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账·未知(paysubtype=99)] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: 未知(paysubtype=99) (paysubtype=99)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "status-empty",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype></paysubtype><feedesc>¥0.01</feedesc><pay_memo>  早饭\n 报销 </pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "fee_desc": "¥0.01",
+      "pay_memo": "早饭 报销"
+    },
+    "summary": "[转账] ¥0.01 备注: 早饭 报销",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)\n  金额: ¥0.01\n  备注: 早饭 报销"
+  },
+  {
+    "name": "aliases",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><des> 描述\n 内容 </des><wcpayinfo><feeDesc>USD 1,234.50</feeDesc><paymemo>test memo</paymemo><transcationId>fake-pay-id</transcationId><transferId>fake-transfer-id</transferId><payMsgId>fake-message-id</payMsgId><payerUsername>fake-payer</payerUsername><receiverUsername>fake-receiver</receiverUsername><beginTransferTime>0</beginTransferTime><invalidTime>0</invalidTime><effectiveDate>tomorrow</effectiveDate></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "USD 1,234.50",
+      "pay_memo": "test memo",
+      "transcation_id": "fake-pay-id",
+      "transfer_id": "fake-transfer-id",
+      "pay_msg_id": "fake-message-id",
+      "begin_transfer_time": "0",
+      "invalid_time": "0",
+      "effective_date": "tomorrow",
+      "payer_username": "fake-payer",
+      "receiver_username": "fake-receiver"
+    },
+    "extras": {
+      "fee_desc": "USD 1,234.50",
+      "pay_memo": "test memo",
+      "payer_username": "fake-payer",
+      "receiver_username": "fake-receiver",
+      "transfer_id": "fake-transfer-id",
+      "transcation_id": "fake-pay-id",
+      "pay_msg_id": "fake-message-id"
+    },
+    "summary": "[转账] USD 1,234.50 备注: test memo",
+    "render": "转账消息: 微信转账\n  描述: 描述 内容\n  方向: (未知) (paysubtype=?)\n  金额: USD 1,234.50\n  备注: test memo\n  付款方 wxid: fake-payer\n  收款方 wxid: fake-receiver\n  转账 ID: fake-transfer-id\n  支付交易号: fake-pay-id\n  paymsgid: fake-message-id"
+  },
+  {
+    "name": "alias-fallback",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><feedesc> </feedesc><feeDesc>¥2.00</feeDesc></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "¥2.00",
+      "pay_memo": "",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "fee_desc": "¥2.00"
+    },
+    "summary": "[转账] ¥2.00",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)\n  金额: ¥2.00"
+  },
+  {
+    "name": "empty-info",
+    "xml": "<msg><appmsg><type>2000</type><title></title><wcpayinfo/></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "",
+      "pay_memo": "",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": null,
+    "summary": "[转账]",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)"
+  },
+  {
+    "name": "missing-info",
+    "xml": "<msg><appmsg><type>2000</type><title>仍保留的标题</title></appmsg></msg>",
+    "info": null,
+    "extras": null,
+    "summary": "[转账] 仍保留的标题",
+    "render": null
+  },
+  {
+    "name": "xml-text",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><pay_memo><![CDATA[a < b & c]]></pay_memo></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "",
+      "pay_memo": "a < b & c",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "",
+      "invalid_time": "",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "pay_memo": "a < b & c"
+    },
+    "summary": "[转账] 备注: a < b & c",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)\n  备注: a < b & c"
+  },
+  {
+    "name": "huge-time",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><begintransfertime>999999999999999999999</begintransfertime><invalidtime>not-a-time</invalidtime></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "",
+      "pay_memo": "",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "999999999999999999999",
+      "invalid_time": "not-a-time",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "begin_transfer_time": 999999999999999999999
+    },
+    "summary": "[转账]",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)\n  发起时间: (无效 ts=999999999999999999999)"
+  },
+  {
+    "name": "out-of-datetime-range",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><begintransfertime>1000000000000</begintransfertime><invalidtime>+</invalidtime></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "",
+      "pay_memo": "",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "1000000000000",
+      "invalid_time": "+",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "begin_transfer_time": 1000000000000
+    },
+    "summary": "[转账]",
+    "render": "转账消息: 微信转账\n  方向: (未知) (paysubtype=?)\n  发起时间: (无效 ts=1000000000000)"
+  },
+  {
+    "name": "valid-time-fields",
+    "xml": "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><begintransfertime>1700000000</begintransfertime><invalidtime>1700086400</invalidtime></wcpayinfo></appmsg></msg>",
+    "info": {
+      "paysubtype": "",
+      "paysubtype_label": "",
+      "fee_desc": "",
+      "pay_memo": "",
+      "transcation_id": "",
+      "transfer_id": "",
+      "pay_msg_id": "",
+      "begin_transfer_time": "1700000000",
+      "invalid_time": "1700086400",
+      "effective_date": "",
+      "payer_username": "",
+      "receiver_username": ""
+    },
+    "extras": {
+      "begin_transfer_time": 1700000000,
+      "invalid_time": 1700086400
+    },
+    "summary": "[转账]",
+    "render": null
+  }
+]

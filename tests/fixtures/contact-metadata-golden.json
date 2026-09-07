@@ -1,0 +1,1466 @@
+[
+  {
+    "name": "full",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','Nick','Remark','Memo',0,X'F20105322C312C32'); INSERT INTO contact_label VALUES (1,'First',0),(2,'Second',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "Remark",
+      "contact_nick_name": "Nick",
+      "contact_tags": [
+        "First",
+        "Second",
+        "Second"
+      ],
+      "contact_memo": "Memo"
+    }
+  },
+  {
+    "name": "nulls",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u',NULL,NULL,NULL,0,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "empty",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u','','','',0,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "old_schema",
+    "sql": "CREATE TABLE contact(username,nick_name,remark); INSERT INTO contact VALUES ('u','Old','');",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "Old",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_required",
+    "sql": "CREATE TABLE contact(username,remark); INSERT INTO contact VALUES ('u','R');",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_table",
+    "sql": "CREATE TABLE unrelated(id);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_user",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);",
+    "username": "absent",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "group",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);",
+    "username": "u",
+    "is_group": true,
+    "expected": {}
+  },
+  {
+    "name": "excluded_group_member",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','N','R','M',3,X'F2010131'); INSERT INTO contact_label VALUES (1,'Tag',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "Tag"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "excluded_null_type",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u','N','R','M',NULL,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "duplicate_contact",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u','first',NULL,NULL,0,NULL),('u','second','R','M',0,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "first",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "duplicate_label",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','N','R','M',0,X'F20105312C312C32'); INSERT INTO contact_label VALUES (1,'Old',0),(2,'Other',1),(1,'New',2);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [
+        "New",
+        "New",
+        "Other"
+      ],
+      "contact_memo": "M"
+    }
+  },
+  {
+    "name": "empty_label",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F20105312C322C33'); INSERT INTO contact_label VALUES (1,NULL,0),(2,'',1),(3,' ',2);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        " "
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_extra_buffer",
+    "sql": "CREATE TABLE contact(username,nick_name,remark); INSERT INTO contact VALUES ('u','N','R');CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "text_label_id",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010131'); INSERT INTO contact_label VALUES ('1','Not integer',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "wrong_buffer_type",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,'bad'); INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "other_bad_buffer",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010131'),('other','','','',0,'bad'); INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "ignored_extra_fields",
+    "sql": "CREATE TABLE contact(username,nick_name,remark,alias,province,city,sex,signature); INSERT INTO contact VALUES ('u','N','R','Alias','P','C',1,'S');",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "numeric_metadata",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u',42,0,2.5,0,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": 42,
+      "contact_tags": [],
+      "contact_memo": 2.5
+    }
+  },
+  {
+    "name": "empty_username",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('','N','R','M',0,X'F2010131'); INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [],
+      "contact_memo": "M"
+    }
+  },
+  {
+    "name": "uppercase_required",
+    "sql": "CREATE TABLE contact(USERNAME,NICK_NAME,REMARK,DESCRIPTION,LOCAL_TYPE); INSERT INTO contact VALUES ('u','N','R','ignored',3);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "nocase_username",
+    "sql": "CREATE TABLE contact(username TEXT COLLATE NOCASE,nick_name,remark); INSERT INTO contact VALUES ('U','Wrong','');",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "quote_username",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('x'' OR 1=1--','N','R','M',0,NULL);",
+    "username": "x' OR 1=1--",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "R",
+      "contact_nick_name": "N",
+      "contact_tags": [],
+      "contact_memo": "M"
+    }
+  },
+  {
+    "name": "unicode_text",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);INSERT INTO contact VALUES ('u','\u6635\u79f0','\u5907\u6ce8','\u7b7e\u540d\n\u591a\u884c',0,NULL);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "\u5907\u6ce8",
+      "contact_nick_name": "\u6635\u79f0",
+      "contact_tags": [],
+      "contact_memo": "\u7b7e\u540d\n\u591a\u884c"
+    }
+  },
+  {
+    "name": "float_label_id",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010131'); INSERT INTO contact_label VALUES (1.0,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "T"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_label_sort",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_,label_name_); INSERT INTO contact_label VALUES (1,'T');",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "missing_required_with_tags",
+    "sql": "CREATE TABLE contact(username,extra_buffer); INSERT INTO contact VALUES ('u',X'F2010131');CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "T"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "underscore_label_id",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F20109305F312C312C5F315F'); INSERT INTO contact_label VALUES (1,'T',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "T",
+        "T"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_0",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010131'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010931'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_2",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F20101FF'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_3",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F201'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_4",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'08AC02F2010131'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_5",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'090000000000000000F2010131'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_6",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'0D00000000F2010131'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'03F2010131'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_8",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F2010131F2010132'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_9",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F20108202B312C782C3220'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One",
+        "Two"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_10",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'F20104312C2C31'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One",
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "protobuf_11",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'80'); INSERT INTO contact_label VALUES (1,'One',0),(2,'Two',1);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_31",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f2010131'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_661",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20102d9a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_6f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20102dbb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_7c1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20102df81'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_967",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0a5a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_9e7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0a7a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a67",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0a9a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_ae7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0aba7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_b67",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0ada7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_be7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0afa7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_c67",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0b1a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_ce7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0b3a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_d67",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0b5a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_de7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0b7a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_e51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0b991'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_ed1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0bb91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_f21",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e0bca1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1041",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e18181'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1091",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e18291'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_17e1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e19fa1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1811",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1a091'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1947",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1a587'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_19d1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1a791'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1a81",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1aa81'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1a91",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1aa91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1b51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1ad91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1bb1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1aeb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1c41",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1b181'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1c51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103e1b191'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a621",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103ea98a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a8d1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaa391'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a901",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaa481'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a9d1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaa791'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_a9f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaa7b1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_aa51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaa991'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_abf1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103eaafb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_ff11",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20103efbc91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_104a1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09092a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_10d31",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f090b4b1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11067",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09181a7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_110f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09183b1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11137",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09184b7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_111d1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0918791'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_112f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0918bb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11451",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0919191'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_114d1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0919391'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11651",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0919991'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_116c1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0919b81'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11731",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f0919cb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_118e1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091a3a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11951",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091a591'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11c51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091b191'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11d51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091b591'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11da1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091b6a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_11f51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f091bd91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_16a61",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f096a9a1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_16ac1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f096ab81'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_16b51",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f096ad91'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1d7cf",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09d9f8f'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1d7d9",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09d9f99'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1d7e3",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09d9fa3'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1d7ed",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09d9fad'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1d7f7",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09d9fb7'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1e141",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09e8581'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1e2f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09e8bb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1e4f1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09e93b1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1e951",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09ea591'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  },
+  {
+    "name": "unicode_digit_1fbf1",
+    "sql": "CREATE TABLE contact(username, nick_name, remark, description, local_type, extra_buffer);CREATE TABLE contact_label(label_id_, label_name_, sort_order_);INSERT INTO contact VALUES ('u','','','',0,X'f20104f09fafb1'); INSERT INTO contact_label VALUES (1,'One',0);",
+    "username": "u",
+    "is_group": false,
+    "expected": {
+      "contact_remark": "",
+      "contact_nick_name": "",
+      "contact_tags": [
+        "One"
+      ],
+      "contact_memo": ""
+    }
+  }
+]

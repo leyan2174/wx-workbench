@@ -1,0 +1,38 @@
+     Locking 6 packages to latest compatible versions
+      Adding windows v0.58.0
+      Adding windows-core v0.58.0
+      Adding windows-implement v0.58.0
+      Adding windows-interface v0.58.0
+      Adding windows-result v0.2.0
+      Adding windows-strings v0.1.0
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling windows-implement v0.58.0
+   Compiling windows-interface v0.58.0
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling windows-targets v0.52.6
+   Compiling windows-result v0.2.0
+   Compiling windows-strings v0.1.0
+   Compiling windows-core v0.58.0
+   Compiling windows v0.58.0
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling asr-cache-security v0.0.0 (C:\CodexLocal\src\wx-cli\tests\fixtures\asr-cache-security)
+error[E0425]: cannot find type `BackendArgs` in module `super::asr`
+  --> ..\..\..\src\cli\asr_database.rs:29:30
+   |
+29 |     pub backend: super::asr::BackendArgs,
+   |                              ^^^^^^^^^^^ not found in `super::asr`
+   |
+help: consider importing this struct
+   |
+ 2 + use crate::cli_asr::BackendArgs;
+   |
+help: if you import `BackendArgs`, refer to it directly
+   |
+29 -     pub backend: super::asr::BackendArgs,
+29 +     pub backend: BackendArgs,
+   |
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `asr-cache-security` (lib test) due to 1 previous error

@@ -1,13 +1,15 @@
 pub mod cache;
 pub mod meta;
 pub mod query;
+pub mod query_state;
 pub mod server;
+pub(crate) mod tasks;
 
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config;
+use crate::runtime::RuntimeContext;
 
 fn normalized_rel_key(rel_key: &str) -> String {
     rel_key.replace('\\', "/")
@@ -29,15 +31,8 @@ fn is_biz_msg_db_key(rel_key: &str) -> bool {
         && !rel_key.contains("_resource")
 }
 
-fn collect_db_keys(
-    all_keys: &HashMap<String, String>,
-    predicate: fn(&str) -> bool,
-) -> Vec<String> {
-    let mut keys: Vec<String> = all_keys
-        .keys()
-        .filter(|k| predicate(k))
-        .cloned()
-        .collect();
+fn collect_db_keys(all_keys: &HashMap<String, String>, predicate: fn(&str) -> bool) -> Vec<String> {
+    let mut keys: Vec<String> = all_keys.keys().filter(|k| predicate(k)).cloned().collect();
     keys.sort();
     keys
 }
@@ -54,61 +49,50 @@ pub fn run() {
 }
 
 async fn async_run() -> Result<()> {
-    // 确保工作目录存在
-    let cli_dir = config::cli_dir();
-    tokio::fs::create_dir_all(&cli_dir).await?;
-    tokio::fs::create_dir_all(config::cache_dir()).await?;
+    let runtime = RuntimeContext::load()?;
+    if let Ok(expected) = std::env::var("WX_CLI_EXPECTED_RUNTIME") {
+        anyhow::ensure!(
+            expected == runtime.id,
+            "后台启动期间账号配置发生变化，拒绝连接错误账号"
+        );
+    }
+    // 生命周期锁先于缓存初始化，防止同账号多个后台同时修改缓存。
+    let _lifetime = runtime.lock("daemon.lock")?;
+    tokio::fs::create_dir_all(runtime.cache_dir()).await?;
 
     let pid = std::process::id();
 
     eprintln!("[daemon] wx-daemon 启动 (PID {})", pid);
 
     // 加载配置
-    let cfg = config::load_config()?;
+    let cfg = &runtime.config;
     eprintln!("[daemon] DB_DIR: {}", cfg.db_dir.display());
 
-    // 加载密钥
-    let keys_content = tokio::fs::read_to_string(&cfg.keys_file)
-        .await
-        .map_err(|e| anyhow::anyhow!("读取密钥文件 {:?} 失败: {}", cfg.keys_file, e))?;
-    let keys_raw: serde_json::Value = serde_json::from_str(&keys_content)?;
-    let all_keys = extract_keys(&keys_raw);
-    eprintln!("[daemon] 密钥数量: {}", all_keys.len());
-
-    // 初始化 DbCache
-    let db = Arc::new(cache::DbCache::new(cfg.db_dir.clone(), all_keys.clone()).await?);
-
-    // 收集消息 DB 列表
-    let msg_db_keys = collect_db_keys(&all_keys, is_msg_db_key);
-    let biz_msg_db_keys = collect_db_keys(&all_keys, is_biz_msg_db_key);
-
-    // 预热：加载联系人 + 解密 session.db
-    eprintln!("[daemon] 预热...");
-    let names_raw = query::load_names_with_retry(
-        &db,
-        5,
-        std::time::Duration::from_millis(300),
-    )
-    .await?;
-    let mut names = names_raw;
-    names.msg_db_keys = msg_db_keys;
-    names.biz_msg_db_keys = biz_msg_db_keys;
-
-    let _ = db.get("session/session.db").await;
-    let _ = db.get("sns/sns.db").await;
-    eprintln!("[daemon] 预热完成，联系人 {} 个", names.map.len());
-
-    // 包一层内部 Arc：IPC 请求取 guard 后只做 Arc::clone（O(1)），
-    // 避免每次请求都全量 clone 几千个联系人的 HashMap。
-    // 用 tokio::sync::RwLock 允许 guard 跨 await（当前不跨，为未来 reload 留余地）。
-    let names_arc = Arc::new(tokio::sync::RwLock::new(Arc::new(names)));
-
-    // 启动 IPC server（阻塞）
-    let serve_result = server::serve(Arc::clone(&db), Arc::clone(&names_arc)).await;
-    cleanup_ipc_files();
-    serve_result?;
-
-    Ok(())
+    let query = Arc::new(query_state::QueryState::new(runtime.clone()));
+    let (tasks, receiver) = tasks::Service::new(runtime.clone(), query.clone())?;
+    let worker = tokio::spawn(tasks.clone().run_worker(receiver));
+    let handler_state = tasks.clone();
+    let handler = Arc::new(move |call| {
+        let state = handler_state.clone();
+        async move { state.dispatch(call).await }
+    });
+    let mut task_server = tokio::spawn(crate::service::transport::serve(
+        runtime.clone(), handler, tasks.subscribe_shutdown(),
+    ));
+    let mut query_server = tokio::spawn(async move { server::serve(query, &runtime.pipe_name()).await });
+    let mut stop = tasks.subscribe_shutdown();
+    let result = tokio::select! {
+        result = &mut task_server => result.map_err(anyhow::Error::from).and_then(|result| result),
+        result = &mut query_server => result.map_err(anyhow::Error::from).and_then(|result| result),
+        _ = stop.changed() => Ok(()),
+    };
+    tasks.request_shutdown();
+    // Workers first reap their process trees and persist terminal states.
+    let _ = worker.await;
+    query_server.abort();
+    if !query_server.is_finished() { let _ = query_server.await; }
+    if !task_server.is_finished() { let _ = task_server.await; }
+    result
 }
 
 /// 从 all_keys.json 提取 rel_key -> enc_key 映射
@@ -141,10 +125,6 @@ fn extract_keys(json: &serde_json::Value) -> HashMap<String, String> {
         }
     }
     result
-}
-
-fn cleanup_ipc_files() {
-    let _ = std::fs::remove_file(config::pid_path());
 }
 
 #[cfg(test)]

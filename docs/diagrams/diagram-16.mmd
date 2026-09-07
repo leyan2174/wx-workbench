@@ -1,0 +1,28 @@
+flowchart TB
+    DB[databases：数据库快照]
+    FILES[toolkit/files：路径边界及原子发布]
+    IMG[images：图片目录及命名规则]
+    CLI[cli：参数解析和命令分发]
+    WEB[web_native → toolkit/web：Axum 与内嵌 HTML/CSS/JS]
+    WEBQUERY[query：固定账号普通微信 IPC 或企业离线查询]
+    QUERY[cli/transport：请求与进程管理]
+    WEBTASK[service/client：类型化任务 IPC]
+    TASKSERVICE[daemon/tasks：队列、取消与历史]
+    WORKER[内部类型化工作进程：调用既有 Rust 领域能力]
+    CLEANUP[cleanup_native → cleanup：只读计划、精确文件 ID、显式执行]
+    MONITOR[monitor_native → monitor：已有 daemon 轮询与分阶段延迟]
+    PIPE[Windows 账号命名管道]
+    PYLOCAL[local_python：Whisper / PyTorch 推理兼容子进程]
+    LEGACY[toolkit/legacy：Python 路径兼容发现；不是 CLI 脚本回退路由]
+    DB --> FILES
+    IMG --> FILES
+    CLI --> WEB
+    WEB --> WEBQUERY
+    WEBQUERY --> QUERY
+    WEB --> WEBTASK
+    WEBTASK --> TASKSERVICE
+    TASKSERVICE --> WORKER
+    CLI --> CLEANUP
+    CLI --> MONITOR
+    MONITOR --> PIPE
+    PYLOCAL --> LEGACY

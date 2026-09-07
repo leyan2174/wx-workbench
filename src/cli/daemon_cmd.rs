@@ -1,7 +1,7 @@
 use crate::cli::transport;
 use crate::cli::DaemonCommands;
-use crate::config;
 use crate::ipc::Request;
+use crate::runtime::RuntimeContext;
 use anyhow::Result;
 
 pub fn cmd_daemon(cmd: DaemonCommands) -> Result<()> {
@@ -26,7 +26,7 @@ fn cmd_reload() -> Result<()> {
 
 fn cmd_status() -> Result<()> {
     if transport::is_alive() {
-        let pid_path = config::pid_path();
+        let pid_path = RuntimeContext::load()?.pid_path();
         let pid = std::fs::read_to_string(&pid_path)
             .map(|s| {
                 serde_json::from_str::<serde_json::Value>(&s)
@@ -44,18 +44,14 @@ fn cmd_status() -> Result<()> {
 }
 
 fn cmd_stop() -> Result<()> {
-    if !transport::is_alive() {
-        println!("daemon 未运行");
-        return Ok(());
-    }
-
+    // 不以 Ping 失败跳过停止：身份记录仍可安全识别未响应的后台。
     transport::stop_daemon()?;
-    println!("已停止 wx-daemon");
+    println!("当前账号 wx-daemon 已停止或未运行");
     Ok(())
 }
 
 fn cmd_logs(follow: bool, lines: usize) -> Result<()> {
-    let log_path = config::log_path();
+    let log_path = RuntimeContext::load()?.log_path();
     if !log_path.exists() {
         println!("暂无日志");
         return Ok(());

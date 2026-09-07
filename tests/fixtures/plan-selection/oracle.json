@@ -1,0 +1,587 @@
+{
+  "source_sha256": "0bb85332c8f8e0b25692aec4fc0f832a62add8ba7d46ae679d47261fc195fc86",
+  "fields": [
+    "export",
+    "index",
+    "username",
+    "chat_name",
+    "chat_type",
+    "message_count",
+    "first_time",
+    "last_time",
+    "attachment_estimated_bytes",
+    "attachment_scanned_bytes",
+    "total_estimated_bytes",
+    "size_status"
+  ],
+  "cases": [
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n,,peer,not peer,,,,,,,,\r\n0,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n,,peer,not peer,,,,,,,,\r\n0,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n,,peer,not peer,,,,,,,,\r\n0,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n,,peer,not peer,,,,,,,,\r\n0,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,other,same,,,,,,,,\r\n1,,peer,same,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "other",
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,other,same,,,,,,,,\r\n1,,peer,same,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,other,same,,,,,,,,\r\n1,,peer,same,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "other",
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,other,same,,,,,,,,\r\n1,,peer,same,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\nyes,,peer,,,,,,,,,\r\n 1 ,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer",
+        "other"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\nyes,,peer,,,,,,,,,\r\n 1 ,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\nyes,,peer,,,,,,,,,\r\n 1 ,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "other"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\nyes,,peer,,,,,,,,,\r\n 1 ,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n 0 ,, peer ,,,,,,,,,\r\n,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "other"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n 0 ,, peer ,,,,,,,,,\r\n,,other,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n 0 ,, peer ,,,,,,,,,\r\n,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n 0 ,, peer ,,,,,,,,,\r\n,,other,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,missing,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,missing,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,missing,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,missing,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,missing,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,missing,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,missing,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,missing,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,peer,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,peer,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,peer,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,peer,,,,,,,,,\r\n1,,peer,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,,,,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n0,,,,,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,peer,\"带逗号,及\"\"引号\"\"\n换行\",,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,peer,\"带逗号,及\"\"引号\"\"\n换行\",,,,,,,,\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,peer,\"带逗号,及\"\"引号\"\"\n换行\",,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n1,,peer,\"带逗号,及\"\"引号\"\"\n换行\",,,,,,,,\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [
+        "peer"
+      ],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "﻿export,index,username,chat_name,chat_type,message_count,first_time,last_time,attachment_estimated_bytes,attachment_scanned_bytes,total_estimated_bytes,size_status\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "username\r\npeer\r\nother\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [
+        "peer",
+        "other"
+      ],
+      "error": false
+    },
+    {
+      "csv": "username\r\npeer\r\nother\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "username\r\npeer\r\nother\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "username\r\npeer\r\nother\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "export,chat_name\r\n1,peer\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "export,chat_name\r\n1,peer\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "export,chat_name\r\n1,peer\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "export,chat_name\r\n1,peer\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": "username,export\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "username,export\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "username,export\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": "username,export\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": false
+    },
+    {
+      "csv": " username,export\r\npeer,1\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": " username,export\r\npeer,1\r\n",
+      "mode": "blacklist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": " username,export\r\npeer,1\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer",
+        "other"
+      ],
+      "expected": [],
+      "error": true
+    },
+    {
+      "csv": " username,export\r\npeer,1\r\n",
+      "mode": "whitelist",
+      "valid": [
+        "peer"
+      ],
+      "expected": [],
+      "error": true
+    }
+  ]
+}

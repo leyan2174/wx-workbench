@@ -27,6 +27,7 @@ pub fn cmd_attachments(
 
     let req = Request::Attachments {
         chat,
+        image_metadata: false,
         kinds: kinds_param,
         limit,
         offset,

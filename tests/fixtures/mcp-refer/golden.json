@@ -1,0 +1,581 @@
+{
+  "vendor_sha256": "26284c3e83b171fdcea29b1ea9cc09096b7bf63faa50569b4d13fb37ebd85d5d",
+  "names": {
+    "wxid_peer": "合成联系人",
+    "wxid_self": "合成自己",
+    "wxid_member": "合成成员",
+    "room@chatroom": "合成群"
+  },
+  "cases": [
+    {
+      "name": "text",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr>wxid_peer</fromusr><chatusr>wxid_member</chatusr><displayname>原显示名</displayname><content> 原文\n  多行 </content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_peer",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "原显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "原文 多行",
+        "refer_sender": "合成联系人"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成联系人\n  被引用消息显示名: 原显示名\n  被引用消息 from: wxid_peer\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: 原文 多行\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-3",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>3</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "3",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "图片",
+        "refer_summary": "[图片]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 图片 (refer_type=3)\n  被引用消息摘要: [图片]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-34",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>34</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "34",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "语音",
+        "refer_summary": "[语音]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 语音 (refer_type=34)\n  被引用消息摘要: [语音]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-42",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>42</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "42",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "名片",
+        "refer_summary": "[名片]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 名片 (refer_type=42)\n  被引用消息摘要: [名片]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-43",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>43</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "43",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "视频",
+        "refer_summary": "[视频]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 视频 (refer_type=43)\n  被引用消息摘要: [视频]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-47",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>47</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "47",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "动画表情",
+        "refer_summary": "[动画表情]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 动画表情 (refer_type=47)\n  被引用消息摘要: [动画表情]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-48",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>48</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "48",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "位置",
+        "refer_summary": "[位置]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 位置 (refer_type=48)\n  被引用消息摘要: [位置]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-50",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>50</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "50",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "通话",
+        "refer_summary": "[通话]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 通话 (refer_type=50)\n  被引用消息摘要: [通话]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-999",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>999</type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "999",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "",
+        "refer_summary": "[type=999]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: refer_type=999\n  被引用消息摘要: [type=999]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "media-",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type></type><fromusr>wxid_member</fromusr><chatusr>wxid_member</chatusr><displayname>显示名</displayname><content>&lt;img aeskey=\"SECRET\" cdn=\"SECRET\"/&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_member",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "",
+        "refer_summary": "[type=]",
+        "refer_sender": "合成成员"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 合成成员\n  被引用消息显示名: 显示名\n  被引用消息 from: wxid_member\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: refer_type=?\n  被引用消息摘要: [type=]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-5",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;5&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[链接] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [链接] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-6",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;6&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[文件] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [文件] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-8",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;8&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[动画表情卡] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [动画表情卡] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-19",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;19&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[聊天记录] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [聊天记录] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-33",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;33&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[小程序] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [小程序] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-36",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;36&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[小程序] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [小程序] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-51",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;51&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[视频号] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [视频号] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-57",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;57&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[引用消息] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [引用消息] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-2000",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;2000&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[转账] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [转账] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-2001",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;2001&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[红包] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [红包] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-99",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;99&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[卡片 type=99] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [卡片 type=99] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "card-",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>&lt;msg&gt;&lt;appmsg&gt;&lt;type&gt;&lt;/type&gt;&lt;title&gt; 内层\n标题 &lt;/title&gt;&lt;url&gt;SECRET&lt;/url&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[卡片] 内层 标题",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [卡片] 内层 标题\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "empty",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr></fromusr><chatusr>wxid_member</chatusr><displayname></displayname><content></content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "[文本]",
+        "refer_sender": ""
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: [文本]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "unicode-limit",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr></fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测…",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: 测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测测…\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "group-fallback",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>3</type><fromusr>unknown-user</fromusr><chatusr>wxid_member</chatusr><displayname>ignored-display</displayname><content>x</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "3",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "unknown-user",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "ignored-display",
+        "refer_createtime": "0",
+        "refer_type_label": "图片",
+        "refer_summary": "[图片]",
+        "refer_sender": "unknown-user"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: unknown-user\n  被引用消息显示名: ignored-display\n  被引用消息 from: unknown-user\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 图片 (refer_type=3)\n  被引用消息摘要: [图片]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "group-self",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr>wxid_self</fromusr><chatusr>wxid_member</chatusr><displayname>合成自己</displayname><content>自己的消息</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "wxid_self",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "合成自己",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "自己的消息",
+        "refer_sender": "me"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: me\n  被引用消息显示名: 合成自己\n  被引用消息 from: wxid_self\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: 自己的消息\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "group-display",
+      "username": "room@chatroom",
+      "chat": "合成群",
+      "xml": "wxid_member:<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr></fromusr><chatusr>wxid_member</chatusr><displayname>群显示名</displayname><content>没有账号</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "群显示名",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "没有账号",
+        "refer_sender": "群显示名"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: 群显示名\n  被引用消息显示名: 群显示名\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: 没有账号\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "display-fallback",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>1</type><fromusr>unknown-user</fromusr><chatusr>wxid_member</chatusr><displayname>fallback-display</displayname><content>ok</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "1",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "unknown-user",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "fallback-display",
+        "refer_createtime": "0",
+        "refer_type_label": "文本",
+        "refer_summary": "ok",
+        "refer_sender": "fallback-display"
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息发送者: fallback-display\n  被引用消息显示名: fallback-display\n  被引用消息 from: unknown-user\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 文本 (refer_type=1)\n  被引用消息摘要: ok\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "broken-inner",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr></fromusr><chatusr>wxid_member</chatusr><displayname></displayname><content>&lt;broken</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[卡片]",
+        "refer_sender": ""
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [卡片]\n  被引用消息 server_id: 18446744073709551615"
+    },
+    {
+      "name": "unsafe-inner",
+      "username": "wxid_peer",
+      "chat": "合成联系人",
+      "xml": "<msg><appmsg><title> 回复\n正文 </title><type>57</type><refermsg><type>49</type><fromusr></fromusr><chatusr>wxid_member</chatusr><displayname></displayname><content>&lt;!DOCTYPE msg [&lt;!ENTITY x \"SECRET\"&gt;]&gt;&lt;msg&gt;&lt;appmsg&gt;&lt;title&gt;&amp;x;&lt;/title&gt;&lt;/appmsg&gt;&lt;/msg&gt;</content><svrid>18446744073709551615</svrid><createtime>0</createtime></refermsg></appmsg></msg>",
+      "expected": {
+        "reply_text": "回复 正文",
+        "refer_type": "49",
+        "refer_svrid": "18446744073709551615",
+        "refer_fromusr": "",
+        "refer_chatusr": "wxid_member",
+        "refer_displayname": "",
+        "refer_createtime": "0",
+        "refer_type_label": "链接/卡片",
+        "refer_summary": "[卡片]",
+        "refer_sender": ""
+      },
+      "text": "引用回复消息: 回复 正文\n  被引用消息 chatusr (群内发送者 wxid): wxid_member\n  被引用消息类型: 链接/卡片 (refer_type=49)\n  被引用消息摘要: [卡片]\n  被引用消息 server_id: 18446744073709551615"
+    }
+  ]
+}

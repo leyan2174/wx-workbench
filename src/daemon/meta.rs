@@ -110,17 +110,25 @@ pub fn derive_status(
 /// - 结果按字典序排序，方便测试和 CLI 稳定显示
 /// - 排除 `_fts*` / `_resource*`，因为它们是索引/附件库，不属于消息分片真相
 pub fn discover_unknown_shards(db_dir: &Path, known: &[String]) -> Vec<String> {
-    let known_set: std::collections::HashSet<String> =
-        known.iter().map(|k| k.replace('\\', "/")).collect();
+    // 保留旧提示接口；需要证明完整性的查询必须使用 checked 版本传播读取错误。
+    discover_unknown_shards_checked(db_dir, known).unwrap_or_default()
+}
+
+pub fn discover_unknown_shards_checked(
+    db_dir: &Path,
+    known: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let known_set: std::collections::HashSet<String> = known
+        .iter()
+        .map(|k| k.replace('\\', "/").to_ascii_lowercase())
+        .collect();
 
     let msg_dir = db_dir.join("message");
-    let entries = match std::fs::read_dir(&msg_dir) {
-        Ok(it) => it,
-        Err(_) => return Vec::new(),
-    };
+    let entries = std::fs::read_dir(&msg_dir)?;
 
     let mut unknown: Vec<String> = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry?;
         let name = entry.file_name();
         let Some(name_str) = name.to_str() else {
             continue;
@@ -128,16 +136,21 @@ pub fn discover_unknown_shards(db_dir: &Path, known: &[String]) -> Vec<String> {
         if !is_message_shard(name_str) {
             continue;
         }
-        let rel = format!("message/{}", name_str);
+        anyhow::ensure!(
+            entry.file_type()?.is_file(),
+            "message shard is not a regular file"
+        );
+        let rel = format!("message/{}", name_str.to_ascii_lowercase());
         if !known_set.contains(&rel) {
             unknown.push(rel);
         }
     }
     unknown.sort();
-    unknown
+    Ok(unknown)
 }
 
 fn is_message_shard(file_name: &str) -> bool {
+    let file_name = file_name.to_ascii_lowercase();
     if !file_name.starts_with("message_") || !file_name.ends_with(".db") {
         return false;
     }
@@ -156,6 +169,27 @@ mod tests {
     fn is_message_shard_accepts_normal_shards() {
         assert!(is_message_shard("message_0.db"));
         assert!(is_message_shard("message_12.db"));
+        assert!(is_message_shard("MESSAGE_12.DB"));
+    }
+
+    #[test]
+    fn checked_discovery_handles_case_and_rejects_incomplete_inventory() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(discover_unknown_shards_checked(root.path(), &[]).is_err());
+        let messages = root.path().join("message");
+        std::fs::create_dir(&messages).unwrap();
+        std::fs::write(messages.join("MESSAGE_1.DB"), b"").unwrap();
+        assert_eq!(
+            discover_unknown_shards_checked(root.path(), &[]).unwrap(),
+            vec!["message/message_1.db"]
+        );
+        assert!(
+            discover_unknown_shards_checked(root.path(), &["MESSAGE\\MESSAGE_1.DB".into()])
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::create_dir(messages.join("message_2.db")).unwrap();
+        assert!(discover_unknown_shards_checked(root.path(), &[]).is_err());
     }
 
     #[test]
