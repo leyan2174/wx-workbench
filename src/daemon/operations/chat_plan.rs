@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::{
     collections::BTreeSet,
     fs,
-    io::{Read, Write},
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -220,34 +220,6 @@ fn outside_sources(output: &Path, args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn publish(
-    path: &Path,
-    bytes: &[u8],
-    replacement: Option<&crate::attachment::local_files::HostOutputGuard>,
-) -> Result<()> {
-    let parent = path.parent().context("输出路径缺少父目录")?;
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".wx-chat-plan-")
-        .suffix(".tmp")
-        .tempfile_in(parent)?;
-    temporary.write_all(bytes)?;
-    temporary.as_file().sync_all()?;
-    if let Some(guard) = replacement {
-        guard.verify_replaceable_file(path)?;
-        temporary
-            .persist(path)
-            .map_err(|e| e.error)
-            .context("计划 CSV 更新失败，文件可能正在被其他程序使用")?;
-    } else {
-        // 独立离线入口仍为新建模式；目标竞争出现时失败，不覆盖旧文件。
-        temporary
-            .persist_noclobber(path)
-            .map_err(|e| e.error)
-            .context("计划 CSV 发布失败，目标可能已存在")?;
-    }
-    Ok(())
-}
-
 pub fn cmd(args: Args) -> Result<()> {
     let count = execute(&args)?;
     println!(
@@ -326,6 +298,22 @@ pub(super) fn execute_for(
             "输出已存在或不可访问，禁止覆盖"
         );
     }
+    let mut protected = vec![args.decrypted_dir.clone()];
+    protected.extend(args.source_dir.iter().cloned());
+    protected.extend(args.media_dir.iter().cloned());
+    protected.extend(args.chats_json.iter().cloned());
+    protected.extend(
+        args.message_dbs
+            .iter()
+            .chain(args.resource_db.iter())
+            .chain(args.media_dbs.iter())
+            .map(|path| args.decrypted_dir.join(path)),
+    );
+    let target = if replace_existing {
+        crate::toolkit::ExportTarget::capture_paths(&output, &protected)?
+    } else {
+        crate::toolkit::ExportTarget::new_file(&output, &protected)?
+    };
     let databases = plan::PlanDatabases {
         message: args.message_dbs.clone(),
         resource: args.resource_db.clone(),
@@ -356,11 +344,19 @@ pub(super) fn execute_for(
             row.export = flag.to_owned();
         }
     }
-    publish(
-        &output,
-        &plan::render_plan_csv(&rows)?,
-        replacement.as_ref(),
-    )?;
+    target
+        .write_bytes_checked(&plan::render_plan_csv(&rows)?, || {
+            outside_sources(&output, args)?;
+            if let Some(guard) = &replacement {
+                guard.verify_replaceable_file(&output)?;
+            }
+            Ok(())
+        })
+        .context(if replace_existing {
+            "计划 CSV 更新失败，文件可能正在被其他程序使用"
+        } else {
+            "计划 CSV 发布失败，目标可能已存在"
+        })?;
     Ok(rows.len())
 }
 
@@ -503,8 +499,12 @@ mod tests {
     fn publication_never_overwrites_and_cleans_temporary() {
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("plan.csv");
-        publish(&output, b"original", None).unwrap();
-        assert!(publish(&output, b"replacement", None).is_err());
+        crate::toolkit::ExportTarget::new_file(&output, &[])
+            .and_then(|target| target.write_bytes(b"original"))
+            .unwrap();
+        assert!(crate::toolkit::ExportTarget::new_file(&output, &[])
+            .and_then(|target| target.write_bytes(b"replacement"))
+            .is_err());
         assert_eq!(fs::read(&output).unwrap(), b"original");
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
     }
@@ -517,11 +517,15 @@ mod tests {
         let successes = std::thread::scope(|scope| {
             let a = scope.spawn(|| {
                 barrier.wait();
-                publish(&output, b"first", None).is_ok()
+                crate::toolkit::ExportTarget::new_file(&output, &[])
+                    .and_then(|target| target.write_bytes(b"first"))
+                    .is_ok()
             });
             let b = scope.spawn(|| {
                 barrier.wait();
-                publish(&output, b"second", None).is_ok()
+                crate::toolkit::ExportTarget::new_file(&output, &[])
+                    .and_then(|target| target.write_bytes(b"second"))
+                    .is_ok()
             });
             usize::from(a.join().unwrap()) + usize::from(b.join().unwrap())
         });

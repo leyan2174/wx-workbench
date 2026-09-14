@@ -102,14 +102,7 @@ pub async fn decode_with_material(
 }
 
 pub mod toolkit;
-pub mod config {
-    pub struct Config {
-        pub db_dir: std::path::PathBuf,
-    }
-    pub fn load_config() -> anyhow::Result<Config> {
-        panic!("forbidden automatic config lookup")
-    }
-}
+pub use native_image_fixture::{config, runtime};
 
 #[path = "../../../src/service/transport/framing.rs"]
 mod ipc_framing;
@@ -130,45 +123,6 @@ pub mod mcp {
 }
 pub use wx_mcp_cli_harness::cli_mcp as host;
 
-// Explicit test doubles: no real account discovery, provider or pipe process.
-pub mod runtime {
-    use std::path::PathBuf;
-    pub struct Config {
-        pub db_dir: PathBuf,
-        pub keys_file: PathBuf,
-        pub decrypted_dir: PathBuf,
-        pub wechat_process: String,
-    }
-    pub struct RuntimeContext {
-        pub id: String,
-        pub config_path: PathBuf,
-        pub root: PathBuf,
-        pub config: Config,
-    }
-    impl RuntimeContext {
-        pub fn cache_dir(&self) -> PathBuf {
-            self.root.join("cache")
-        }
-        pub fn mtime_file(&self) -> PathBuf {
-            self.root.join("cache/_mtimes.json")
-        }
-        pub fn load() -> anyhow::Result<Self> {
-            eprintln!("AUDIT_RUNTIME_REACHED");
-            let path = PathBuf::from(std::env::var_os("WX_CLI_CONFIG").unwrap()).canonicalize()?;
-            Ok(Self {
-                id: "synthetic".into(),
-                config_path: path.clone(),
-                root: path.parent().unwrap().into(),
-                config: Config {
-                    db_dir: "synthetic".into(),
-                    keys_file: "synthetic".into(),
-                    decrypted_dir: "synthetic".into(),
-                    wechat_process: "synthetic".into(),
-                },
-            })
-        }
-    }
-}
 pub mod transport {
     pub fn send_with_limits(
         _: &crate::runtime::RuntimeContext,
@@ -194,3 +148,10 @@ mod strict_message;
 pub mod adapters;
 #[path = "../../support/media_business.rs"]
 pub mod business;
+
+#[path = "../../../src/toolkit/files.rs"]
+pub mod files;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
+#[path = "../../../src/toolkit/private_file.rs"]
+pub mod private_file;

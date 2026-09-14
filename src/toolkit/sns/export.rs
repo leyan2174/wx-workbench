@@ -1,8 +1,9 @@
 use super::cache::{self, CacheIndex, CacheKeys, MediaRecovery, RecoveryOptions};
+use super::download;
 pub(crate) use super::download::Options as DownloadOptions;
-use super::{download, publish};
 use super::{timestamp_filename, Comment, Post, TimeZone};
 use crate::attachment::local_files::HostOutputGuard;
+use crate::toolkit::directory_publish as publish;
 use anyhow::{bail, ensure, Context, Result};
 use chrono::Utc;
 use rusqlite::{Connection, OpenFlags};

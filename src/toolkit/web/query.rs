@@ -210,7 +210,7 @@ pub(super) async fn ensure_detached(runtime: crate::runtime::RuntimeContext) -> 
         Duration::from_secs(25),
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            crate::cli::transport::ensure_running(&runtime)
+            crate::service::query_client::ensure_running(&runtime)
         }),
     )
     .await??

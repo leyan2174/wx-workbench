@@ -1,13 +1,13 @@
 //! 原生批量导出编排；计划 CSV 只选择 username，不串联语音转录。
+use crate::business::archive as domain;
 use crate::runtime::RuntimeContext;
 #[cfg(test)]
 use crate::toolkit::chat_plan_selection::Mode;
 use crate::toolkit::chat_plan_selection::Plan;
 use crate::{ipc::Request, message::export::Target, toolkit::chat_index::ChatIndex};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use chrono::{Local, TimeZone};
 use serde::Serialize;
-use std::collections::HashSet;
 
 pub use crate::service::operation_requests::export_chats::Args;
 
@@ -64,6 +64,8 @@ impl TimeRange {
 struct Failure {
     username: String,
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artifact_published: Option<bool>,
 }
 
 pub fn cmd_export(args: Args) -> Result<()> {
@@ -103,10 +105,186 @@ pub fn export_for(
 }
 
 // 仅注入请求边界，测试仍执行真实选择、合并、回调与原子文件发布。
+struct BatchArchive<'a, 'p, 'd, F> {
+    runtime: &'a RuntimeContext,
+    targets: &'a [Target],
+    index: &'a mut ChatIndex,
+    range: &'a TimeRange,
+    incremental: bool,
+    processor: Option<&'p mut DocumentProcessor<'d>>,
+    send: F,
+    next: usize,
+    path: Option<std::path::PathBuf>,
+    destination: Option<crate::toolkit::ExportTarget>,
+}
+
+fn archive_failure(stage: domain::Stage, error: anyhow::Error) -> domain::Failure {
+    domain::Failure {
+        stage,
+        detail: error.to_string(),
+    }
+}
+
+pub(super) fn filter_targets(targets: &mut Vec<Target>, raw: &str) -> Result<()> {
+    if raw.trim().is_empty() {
+        return Ok(());
+    }
+    let requested: Vec<_> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .collect();
+    let selected = domain::select_usernames(
+        targets.iter().map(|target| target.username.as_str()),
+        &requested,
+    )
+    .context("指定 username 列表跟会话表没有交集")?;
+    targets.retain(|target| selected.contains(&target.username));
+    Ok(())
+}
+
+impl<F> domain::FullArchive for BatchArchive<'_, '_, '_, F>
+where
+    F: FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
+{
+    type Document = serde_json::Value;
+
+    fn prepare(&mut self, username: &str) -> Result<(), domain::Failure> {
+        (|| -> Result<()> {
+            self.path = None;
+            self.destination = None;
+            let target = self
+                .targets
+                .get(self.next)
+                .context("archive target unavailable")?;
+            self.next += 1;
+            ensure!(target.username == username, "archive target order changed");
+            eprintln!(
+                "[{}/{}] 导出 {}",
+                self.next,
+                self.targets.len(),
+                target.chat
+            );
+            let path = self.index.choose(username, &target.chat, target.is_group)?;
+            super::export_chat::validate_output_for(self.runtime, &path)?;
+            self.destination = Some(crate::toolkit::ExportTarget::capture(self.runtime, &path)?);
+            self.path = Some(path);
+            Ok(())
+        })()
+        .map_err(|error| archive_failure(domain::Stage::Prepare, error))
+    }
+
+    fn read(
+        &mut self,
+        username: &str,
+    ) -> Result<domain::RawArchive<Self::Document>, domain::Failure> {
+        let response = (self.send)(
+            self.runtime,
+            Request::ExportChatByUsername {
+                username: username.to_owned(),
+            },
+        )
+        .map_err(|error| archive_failure(domain::Stage::Read, error))?;
+        Ok(domain::RawArchive {
+            username: response.data["username"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            document: response.data,
+        })
+    }
+
+    fn transform(
+        &mut self,
+        username: &str,
+        mut document: Self::Document,
+    ) -> Result<domain::PreparedArchive<Self::Document>, domain::Failure> {
+        (|| -> Result<_> {
+            let target = self
+                .targets
+                .get(self.next - 1)
+                .context("archive target unavailable")?;
+            let path = self.path.as_ref().context("archive output not prepared")?;
+            let mut added = self.range.apply(&mut document)?;
+            if self.incremental {
+                let previous = self
+                    .index
+                    .current(username)?
+                    .or_else(|| path.exists().then(|| path.clone()));
+                if let Some(previous) = previous {
+                    let old = serde_json::from_reader(std::io::BufReader::new(
+                        std::fs::File::open(previous)?,
+                    ))?;
+                    let merged = crate::toolkit::chat_merge::merge_chat_json(&old, &document)?;
+                    added = merged.report.added;
+                    let mut merged_document = merged.document;
+                    for key in ["chat", "exported_at"] {
+                        merged_document[key] = document[key].clone();
+                    }
+                    for key in [
+                        "contact_remark",
+                        "contact_nick_name",
+                        "contact_memo",
+                        "contact_tags",
+                        "metadata_warnings",
+                    ] {
+                        if let Some(value) = document.get(key) {
+                            merged_document[key] = value.clone();
+                        } else {
+                            merged_document.as_object_mut().unwrap().remove(key);
+                        }
+                    }
+                    if target.is_group {
+                        merged_document["is_group"] = true.into();
+                    } else {
+                        merged_document.as_object_mut().unwrap().remove("is_group");
+                    }
+                    document = merged_document;
+                }
+            }
+            // The requested range constrains additions, not messages already archived.
+            let messages = TimeRange::default().apply(&mut document)?;
+            if let Some(processor) = self.processor.as_deref_mut() {
+                processor(target, &mut document)?;
+            }
+            Ok(domain::PreparedArchive {
+                archive: domain::RawArchive {
+                    username: document["username"].as_str().unwrap_or_default().to_owned(),
+                    document,
+                },
+                messages,
+                added_messages: added,
+            })
+        })()
+        .map_err(|error| archive_failure(domain::Stage::Transform, error))
+    }
+
+    fn publish(&mut self, document: &Self::Document) -> Result<(), domain::Failure> {
+        (|| -> Result<()> {
+            self.destination
+                .take()
+                .context("archive output not prepared")?
+                .write_json(document)
+        })()
+        .map_err(|error| archive_failure(domain::Stage::Publish, error))
+    }
+
+    fn record(&mut self, username: &str) -> Result<(), domain::Failure> {
+        (|| -> Result<()> {
+            self.index.record(
+                self.path.as_ref().context("archive output not prepared")?,
+                username,
+            )
+        })()
+        .map_err(|error| archive_failure(domain::Stage::Index, error))
+    }
+}
+
+// Test injection uses the real domain workflow, raw conversion and guarded publication.
 fn export_with(
     runtime: Option<&RuntimeContext>,
     args: Args,
-    mut processor: Option<&mut DocumentProcessor<'_>>,
+    processor: Option<&mut DocumentProcessor<'_>>,
     mut send: impl FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
 ) -> Result<serde_json::Value> {
     let Args {
@@ -148,15 +326,7 @@ fn export_with(
     let raw = users
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| std::env::var("WECHAT_EXPORT_USERS").unwrap_or_default());
-    if !raw.trim().is_empty() {
-        let wanted: HashSet<_> = raw
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        targets.retain(|t| wanted.contains(t.username.as_str()));
-        ensure!(!targets.is_empty(), "指定 username 列表跟会话表没有交集");
-    }
+    filter_targets(&mut targets, &raw)?;
     if let Some(plan) = &plan {
         let selected = plan.select(targets.iter().map(|target| target.username.as_str()))?;
         let mut by_username: std::collections::HashMap<_, _> = targets
@@ -182,91 +352,54 @@ fn export_with(
             serde_json::json!({"engine":"rust","total":0,"written":0,"messages":0,"added_messages":0,"incremental":incremental,"failures":[]}),
         );
     }
-    let mut index = ChatIndex::open(&output)?;
+    let mut index = ChatIndex::open_for(&output, &runtime.id)?;
+    let legacy_unverified = index.legacy_unverified();
+    let usernames: Vec<_> = targets
+        .iter()
+        .map(|target| target.username.clone())
+        .collect();
+    let results = domain::export_chats(
+        &usernames,
+        &mut BatchArchive {
+            runtime,
+            targets: &targets,
+            index: &mut index,
+            range: &range,
+            incremental,
+            processor,
+            send,
+            next: 0,
+            path: None,
+            destination: None,
+        },
+    );
     let mut written = 0;
     let mut messages = 0;
     let mut added_messages = 0;
     let mut failures = Vec::new();
-    for (position, target) in targets.iter().enumerate() {
-        eprintln!("[{}/{}] 导出 {}", position + 1, targets.len(), target.chat);
-        let result = (|| -> Result<(usize, usize)> {
-            let path = index.choose(&target.username, &target.chat, target.is_group)?;
-            super::export_chat::validate_output_for(runtime, &path)?;
-            let destination = crate::toolkit::ExportTarget::capture(runtime, &path)?;
-            let mut response = send(
-                runtime,
-                Request::ExportChatByUsername {
-                    username: target.username.clone(),
-                },
-            )?;
-            ensure!(
-                response.data["username"].as_str() == Some(&target.username),
-                "返回的聊天身份与请求不符"
-            );
-            let mut added = range.apply(&mut response.data)?;
-            if incremental {
-                let previous = index
-                    .current(&target.username)?
-                    .or_else(|| path.exists().then(|| path.clone()));
-                if let Some(previous) = previous {
-                    let old = serde_json::from_reader(std::io::BufReader::new(
-                        std::fs::File::open(previous)?,
-                    ))?;
-                    let merged = crate::toolkit::chat_merge::merge_chat_json(&old, &response.data)?;
-                    added = merged.report.added;
-                    let mut document = merged.document;
-                    for key in ["chat", "exported_at"] {
-                        document[key] = response.data[key].clone();
-                    }
-                    for key in [
-                        "contact_remark",
-                        "contact_nick_name",
-                        "contact_memo",
-                        "contact_tags",
-                        "metadata_warnings",
-                    ] {
-                        if let Some(value) = response.data.get(key) {
-                            document[key] = value.clone();
-                        } else {
-                            document.as_object_mut().unwrap().remove(key);
-                        }
-                    }
-                    if target.is_group {
-                        document["is_group"] = true.into();
-                    } else {
-                        document.as_object_mut().unwrap().remove("is_group");
-                    }
-                    response.data = document;
-                }
-            }
-            // 日期条件只约束本次追加，不删减原有消息；重算合并后的完整日期范围。
-            let count = TimeRange::default().apply(&mut response.data)?;
-            if let Some(processor) = processor.as_deref_mut() {
-                processor(target, &mut response.data)?;
-                ensure!(
-                    response.data["username"].as_str() == Some(&target.username),
-                    "处理后的聊天身份与请求不符"
-                );
-            }
-            destination.write_json(&response.data)?;
-            index.record(&path, &target.username)?;
-            Ok((count, added))
-        })();
-        match result {
+    for target in results {
+        match target.result {
             Ok((count, added)) => {
                 written += 1;
                 messages += count;
                 added_messages += added;
             }
             Err(error) => failures.push(Failure {
-                username: target.username.clone(),
-                error: error.to_string(),
+                username: target.username,
+                error: match error.stage {
+                    domain::Stage::SourceIdentity => "返回的聊天身份与请求不符".into(),
+                    domain::Stage::ProcessedIdentity => "处理后的聊天身份与请求不符".into(),
+                    _ => error.detail,
+                },
+                artifact_published: target.artifact_published.then_some(true),
             }),
         }
     }
-    Ok(
-        serde_json::json!({"engine":"rust","total":targets.len(),"written":written,"messages":messages,"added_messages":added_messages,"incremental":incremental,"failures":failures}),
-    )
+    let mut report = serde_json::json!({"engine":"rust","total":targets.len(),"written":written,"messages":messages,"added_messages":added_messages,"incremental":incremental,"failures":failures});
+    if legacy_unverified {
+        report["legacy_unverified"] = true.into();
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -333,6 +466,75 @@ mod tests {
 
     fn read(path: &std::path::Path) -> serde_json::Value {
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn index_failure_reports_published_artifact_without_complete_success() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime(temp.path());
+        let mut args = args(temp.path());
+        args.users = Some("alpha".into());
+        let output = args.output_dir.clone();
+        let mut previous_index = None;
+        let mut lock = None;
+        let summary = export_with(&runtime, args, None, |runtime, request| {
+            if matches!(&request, Request::ExportChatByUsername { .. }) {
+                let index = output.join("_export_index.json");
+                previous_index = Some(read(&index));
+                lock = Some(
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(1)
+                        .open(index)?,
+                );
+            }
+            dispatch(runtime, request)
+        })
+        .unwrap();
+        assert_eq!(summary["written"], 0);
+        assert_eq!(summary["failures"].as_array().unwrap().len(), 1);
+        assert_eq!(summary["failures"][0]["username"], "alpha");
+        assert_eq!(summary["failures"][0]["artifact_published"], true);
+        assert_eq!(read(&output.join("single_alpha.json"))["username"], "alpha");
+        assert_eq!(
+            read(&output.join("_export_index.json")),
+            previous_index.unwrap()
+        );
+        drop(lock);
+    }
+
+    #[test]
+    fn another_runtime_cannot_merge_same_username_into_bound_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime(temp.path());
+        let mut first = args(temp.path());
+        first.users = Some("alpha".into());
+        let output = first.output_dir.clone();
+        export_with(&runtime, first, None, dispatch).unwrap();
+        let artifact = std::fs::read(output.join("single_alpha.json")).unwrap();
+        let index = std::fs::read(output.join("_export_index.json")).unwrap();
+        let mut other = runtime.clone();
+        other.id = "different-account-context".into();
+        let mut second = args(temp.path());
+        second.users = Some("alpha".into());
+        second.incremental = true;
+        let error = export_with(&other, second, None, |_, request| match request {
+            Request::ExportChatList => Ok(crate::ipc::Response::ok(json!({"chats":[
+                {"username":"alpha","chat":"alpha","is_group":false}
+            ]}))),
+            _ => panic!("foreign context must be rejected before reading the chat document"),
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("运行上下文"));
+        assert_eq!(
+            std::fs::read(output.join("single_alpha.json")).unwrap(),
+            artifact
+        );
+        assert_eq!(
+            std::fs::read(output.join("_export_index.json")).unwrap(),
+            index
+        );
     }
 
     #[test]
@@ -459,7 +661,17 @@ mod tests {
             assert_eq!(summary["written"], 0);
             assert_eq!(summary["failures"].as_array().unwrap().len(), 1);
             assert!(!output.join("single_alpha.json").exists());
-            assert!(!output.join("_export_index.json").exists());
+            assert_eq!(
+                read(&output.join("_export_index.json")),
+                json!({
+                    "version": 1,
+                    "chats": {},
+                    "runtime_binding": {
+                        "runtime_id": runtime.id,
+                        "legacy_unverified": false
+                    }
+                })
+            );
         }
     }
 

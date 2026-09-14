@@ -2,6 +2,7 @@
 
 use anyhow::{bail, ensure, Context, Result};
 use std::fs::{self, File, Metadata, OpenOptions};
+#[cfg(test)]
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;

@@ -42,30 +42,29 @@ fn main() {
             _ => None,
         })
         .expect("production image implementation must exist");
-    let positions: Vec<_> = function
-        .block
-        .stmts
-        .iter()
-        .enumerate()
-        .filter_map(|(index, statement)| {
-            if let syn::Stmt::Expr(syn::Expr::Try(value), _) = statement {
-                if let syn::Expr::MethodCall(call) = value.expr.as_ref() {
-                    if call.method == "sync_all" {
-                        return Some(index);
-                    }
-                }
+    let mut points = 0;
+    for statement in &mut function.block.stmts {
+        let syn::Stmt::Expr(syn::Expr::Try(value), _) = statement else { continue };
+        let mut expression = value.expr.as_mut();
+        while let syn::Expr::MethodCall(call) = expression {
+            if call.method == "write_bytes_checked" {
+                let syn::Expr::Closure(callback) = call.args.iter_mut().nth(1).unwrap() else {
+                    panic!("publication callback must remain explicit");
+                };
+                let syn::Expr::Block(body) = callback.body.as_mut() else {
+                    panic!("publication callback must remain a block");
+                };
+                body.block.stmts.insert(0, syn::parse_quote!(crate::publish_probe::after_image_sync();));
+                points += 1;
+                break;
             }
-            None
-        })
-        .collect();
+            expression = call.receiver.as_mut();
+        }
+    }
     assert_eq!(
-        positions.len(),
+        points,
         1,
         "one precise after-sync instrumentation point required"
-    );
-    function.block.stmts.insert(
-        positions[0] + 1,
-        syn::parse_quote!(crate::publish_probe::after_image_sync();),
     );
     std::fs::write(
         output.join("instrumented_image.rs"),

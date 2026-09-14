@@ -14,6 +14,7 @@ fn empty() -> Catalog {
         items: Vec::new(),
         non_store_count: 0,
         store_added: 0,
+        source_available: false,
     }
 }
 
@@ -58,6 +59,7 @@ fn read_catalog(path: &Path) -> Result<Catalog> {
     // 三阶段共用读取快照；任何行失败都不能返回部分映射。
     let tx = conn.transaction().context("建立表情读取快照失败")?;
     let mut catalog = empty();
+    catalog.source_available = true;
     let mut positions: HashMap<String, usize> = HashMap::new();
     let mut templates = HashMap::new();
     {

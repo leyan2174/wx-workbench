@@ -418,7 +418,7 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
         }
         let mut mutation_sent = false;
         let result = (|| -> anyhow::Result<Value> {
-            super::transport::ensure_running_quiet(runtime)?;
+            crate::service::query_client::ensure_running_quiet(runtime)?;
             context
                 .check()
                 .map_err(|_| anyhow::anyhow!("任务调用已结束"))?;

@@ -1,10 +1,11 @@
 //! 固定账号的原生相册入口；仅以选定账号的 Feed 和缓存作为来源。
 use super::history::{parse_time, parse_time_end};
 use crate::service::query_client as transport;
+use crate::toolkit::directory_publish as publish;
 use crate::{
     ipc::Request,
     runtime::RuntimeContext,
-    toolkit::sns::{album, album_render, cache, publish},
+    toolkit::sns::{album, album_render, cache},
 };
 use anyhow::{ensure, Context, Result};
 use std::{fs, path::Path, time::Duration};

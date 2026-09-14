@@ -1,4 +1,34 @@
 //! SessionTable compatibility profile; no message inventory decisions are made here.
+pub fn usernames(path: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let conn =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut statement = conn.prepare("SELECT username FROM SessionTable LIMIT 100001")?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    anyhow::ensure!(
+        rows.len() <= 100_000,
+        crate::business::messages::Error::Limit
+    );
+    anyhow::ensure!(
+        rows.iter().all(|name| !name.is_empty()),
+        "会话表含空 username，不能静默跳过"
+    );
+    Ok(rows)
+}
+
+pub fn last_timestamp(path: &std::path::Path, username: &str) -> anyhow::Result<Option<i64>> {
+    use rusqlite::OptionalExtension;
+    let conn =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    Ok(conn
+        .query_row(
+            "SELECT last_timestamp FROM SessionTable WHERE username = ?",
+            [username],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
 use super::read::{decode_content, StoredContent, MAX_DECODED_BYTES, MAX_STORED_BYTES};
 use super::{legacy, semantic_kind};
 use crate::business::messages as domain;

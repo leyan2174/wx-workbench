@@ -1,9 +1,175 @@
 use super::*;
 use aes::cipher::{block_padding::Pkcs7, BlockEncryptMut};
-use std::net::TcpListener;
+use std::{io::Write, net::TcpListener};
 
 const MD5: &str = "0123456789abcdef0123456789abcdef";
 const KEY: &str = "000102030405060708090a0b0c0d0e0f";
+
+#[test]
+#[cfg(windows)]
+fn resource_failure_and_bad_material_have_distinct_stages() {
+    use crate::adapters::wechat::emoticons::CatalogSource;
+    use crate::business::emoticons::Source;
+    use crate::business::media::Stage;
+    let root = tempfile::tempdir().unwrap();
+    let database = root.path().join("catalog.db");
+    let conn = rusqlite::Connection::open(&database).unwrap();
+    conn.execute_batch(include_str!(
+        "../../../tests/fixtures/emoticons-catalog/schema.sql"
+    ))
+    .unwrap();
+    conn.execute(
+        "INSERT INTO kNonStoreEmoticonTable VALUES(?1,'','file:///synthetic-unavailable','','')",
+        [MD5],
+    )
+    .unwrap();
+    let output = tempfile::tempdir().unwrap();
+    let guard = HostOutputGuard::new(output.path()).unwrap();
+    let source = CatalogSource::from_path(&database).unwrap();
+    let reference = source.catalog().unwrap().items[0].reference.clone();
+    let error = export_from(&source, &reference, &guard, &Default::default(), &[]).unwrap_err();
+    assert_eq!(error.stage, Stage::Download);
+    let (url, server) = serve(vec![response(b"synthetic-ciphertext")]);
+    conn.execute(
+        "UPDATE kNonStoreEmoticonTable SET aes_key='not-hex',encrypt_url=?1",
+        [url],
+    )
+    .unwrap();
+    let source = CatalogSource::from_path(&database).unwrap();
+    let reference = source.catalog().unwrap().items[0].reference.clone();
+    let error = export_from(&source, &reference, &guard, &Default::default(), &[]).unwrap_err();
+    server.join().unwrap();
+    assert_eq!(error.stage, Stage::Decode);
+    assert_eq!(fs::read_dir(output.path()).unwrap().count(), 0);
+}
+
+#[test]
+#[cfg(windows)]
+fn catalog_reference_and_legacy_cache_results_are_not_hash_proofs() {
+    use crate::adapters::wechat::emoticons::CatalogSource;
+    use crate::business::emoticons::{Materialization, Source};
+    let root = tempfile::tempdir().unwrap();
+    let database = root.path().join("catalog.db");
+    let conn = rusqlite::Connection::open(&database).unwrap();
+    conn.execute_batch(include_str!(
+        "../../../tests/fixtures/emoticons-catalog/schema.sql"
+    ))
+    .unwrap();
+    conn.execute("INSERT INTO kNonStoreEmoticonTable VALUES(?1,'secret','file:///must-not-be-fetched','','')", [MD5]).unwrap();
+    let source = CatalogSource::from_path(&database).unwrap();
+    let reference = source.catalog().unwrap().items[0].reference.clone();
+    let output = tempfile::tempdir().unwrap();
+    let guard = HostOutputGuard::new(output.path()).unwrap();
+    fs::write(
+        output.path().join(format!("{MD5}.gif")),
+        b"legacy-cache-not-a-hash-proof",
+    )
+    .unwrap();
+    let (result, _) = export_from(&source, &reference, &guard, &Default::default(), &[]).unwrap();
+    assert_eq!(result.materialization, Materialization::LegacyCache);
+    drop(source);
+    let another = CatalogSource::from_path(&database).unwrap();
+    let error = export_from(&another, &reference, &guard, &Default::default(), &[]).unwrap_err();
+    assert_eq!(
+        error.failure,
+        crate::business::media::Failure::StaleEvidence
+    );
+    assert_eq!(fs::read_dir(output.path()).unwrap().count(), 1);
+}
+
+#[test]
+#[cfg(windows)]
+fn shared_publication_protects_existing_bin_and_cleans_temporary_files() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(format!("{MD5}.bin"));
+    fs::write(&path, b"protected-old").unwrap();
+    let guard = HostOutputGuard::new(root.path()).unwrap();
+    let (url, server) = serve(vec![response(b"new-unknown-format")]);
+    let error = download_with_protection(
+        MD5,
+        &EmojiInfo {
+            cdn_url: url,
+            ..Default::default()
+        },
+        &guard,
+        &Default::default(),
+        &[path.clone()],
+    )
+    .unwrap_err();
+    server.join().unwrap();
+    assert_eq!(
+        error
+            .downcast_ref::<crate::business::media::Error>()
+            .unwrap()
+            .stage,
+        crate::business::media::Stage::Publication
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"protected-old");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
+#[test]
+#[cfg(windows)]
+fn shared_publication_never_overwrites_an_image_arriving_during_fetch() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(format!("{MD5}.gif"));
+    let guard = HostOutputGuard::new(root.path()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/image", listener.local_addr().unwrap());
+    let destination = path.clone();
+    listener.set_nonblocking(true).unwrap();
+    let server = std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(value) => break value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "synthetic client did not connect"
+                    );
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(error) => panic!("synthetic listener failed: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = [0; 4096];
+        stream.read(&mut request).unwrap();
+        fs::write(destination, b"concurrent-image").unwrap();
+        stream.write_all(&response(b"GIF89anew")).unwrap();
+    });
+    assert!(download(
+        MD5,
+        &EmojiInfo {
+            cdn_url: url,
+            ..Default::default()
+        },
+        &guard,
+        &Default::default()
+    )
+    .is_err());
+    server.join().unwrap();
+    assert_eq!(fs::read(path).unwrap(), b"concurrent-image");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
+#[test]
+#[cfg(windows)]
+fn hevc_zero_deadline_uses_managed_runner_without_leaking_scratch() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = HostOutputGuard::new(root.path()).unwrap();
+    let options = DownloadOptions {
+        timeout: Duration::ZERO,
+        ffmpeg: Some(root.path().join("never-start.exe")),
+        ..Default::default()
+    };
+    let error = convert_hevc_to_jpeg(&[VPS, b"synthetic"].concat(), &guard, &options).unwrap_err();
+    assert!(format!("{error:#}").contains("deadline expired"));
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
 
 fn serve(responses: Vec<Vec<u8>>) -> (String, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -293,6 +459,7 @@ fn real_ffmpeg_first_frame_and_cleanup() {
     .unwrap();
     server.join().unwrap();
     assert_eq!(got.filename, format!("{MD5}.jpg"));
+    assert!(got.converted);
     assert!(!got.conversion_fallback);
     let jpeg = fs::read(temp.path().join(got.filename)).unwrap();
     assert!(jpeg.starts_with(b"\xff\xd8\xff") && jpeg.ends_with(b"\xff\xd9"));

@@ -200,7 +200,7 @@ pub fn cmd(mut command: Command) -> Result<()> {
 
 async fn ensure_service(runtime: &RuntimeContext) -> Result<Value> {
     let fixed = runtime.clone();
-    tokio::task::spawn_blocking(move || super::transport::ensure_running(&fixed))
+    tokio::task::spawn_blocking(move || crate::service::query_client::ensure_running(&fixed))
         .await
         .context("Daemon startup thread failed")??;
     crate::service::client::wait_ready(runtime).await

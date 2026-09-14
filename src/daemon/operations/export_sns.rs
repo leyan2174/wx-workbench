@@ -117,7 +117,8 @@ pub fn cmd_export(args: Args) -> Result<()> {
         .map(|index| crate::toolkit::sns::CacheRecovery { index, keys: &keys });
     let download = download_media.then(crate::toolkit::sns::DownloadOptions::default);
     let report = if update {
-        use crate::toolkit::sns::{publish::ExistingPolicy, TimelinePublication};
+        use crate::toolkit::directory_publish::ExistingPolicy;
+        use crate::toolkit::sns::TimelinePublication;
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
         digest.update(b"wx-sns-static-source-v1\0");

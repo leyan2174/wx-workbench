@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use super::history::{parse_time, parse_time_end};
 use super::output::{emit_warnings, print_response, OutputOpts};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 
 /// `wx attachments` — 列出指定会话的附件消息（默认 image，可多选）。
 ///

@@ -65,20 +65,36 @@ fn decode_file(
         };
         prefix = Zeroizing::new(runtime.decode(key_text, &prefix)?);
     }
-    let parent = output
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    fs::create_dir_all(parent).context("无法创建输出目录")?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(&prefix)?;
-    let tail_bytes = std::io::copy(&mut source, &mut temporary)?;
-    let total = prefix.len() as u64 + tail_bytes;
-    ensure!(total == metadata.len(), "输入视频在读取过程中发生变化");
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist_noclobber(output)
-        .map_err(|e| e.error)
+    let mut protected = vec![input.to_path_buf()];
+    if !plaintext {
+        protected.extend(key_file.map(Path::to_path_buf));
+        protected.extend(wasm.map(Path::to_path_buf));
+    }
+    let target = crate::toolkit::ExportTarget::new_file(output, &protected)?;
+    let source_identity = same_file::Handle::from_file(source.try_clone()?)?;
+    let source_guard = source.try_clone()?;
+    let mut total = 0;
+    target
+        .write_with_checked(
+            |temporary| {
+                let mut temporary = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(temporary)?;
+                temporary.write_all(&prefix)?;
+                total = prefix.len() as u64 + std::io::copy(&mut source, &mut temporary)?;
+                ensure!(total == metadata.len(), "输入视频在读取过程中发生变化");
+                Ok(())
+            },
+            || {
+                ensure!(
+                    source_guard.metadata()?.len() == metadata.len()
+                        && same_file::Handle::from_path(input)? == source_identity,
+                    "输入视频在发布前发生变化"
+                );
+                Ok(())
+            },
+        )
         .context("无法发布视频；已有输出不会被覆盖")?;
     Ok(total)
 }

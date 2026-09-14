@@ -1,7 +1,7 @@
 use super::history::{parse_time, parse_time_end};
 use super::output::{print_value, resolve};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub fn cmd_sns_search(

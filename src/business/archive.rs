@@ -3,9 +3,14 @@ use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
+    Prepare,
     Read,
     Identity,
+    SourceIdentity,
+    ProcessedIdentity,
+    Transform,
     Publish,
+    Index,
     Manifest,
 }
 
@@ -60,6 +65,87 @@ impl DeltaPlan {
 pub struct RawArchive<D> {
     pub username: String,
     pub document: D,
+}
+
+pub fn select_usernames<'a>(
+    available: impl IntoIterator<Item = &'a str>,
+    requested: &[&str],
+) -> Result<HashSet<String>, Failure> {
+    let requested: HashSet<_> = requested.iter().copied().collect();
+    let selected: HashSet<_> = available
+        .into_iter()
+        .filter(|name| requested.contains(name))
+        .map(str::to_owned)
+        .collect();
+    if selected.is_empty() {
+        return Err(Failure {
+            stage: Stage::Prepare,
+            detail: "requested usernames do not match any available target".into(),
+        });
+    }
+    Ok(selected)
+}
+
+pub struct PreparedArchive<D> {
+    pub archive: RawArchive<D>,
+    pub messages: usize,
+    pub added_messages: usize,
+}
+
+/// A single fixed-account batch. Implementations own raw-format conversion and
+/// guarded file access; the use case owns ordering and publication outcomes.
+pub trait FullArchive {
+    type Document;
+    fn prepare(&mut self, username: &str) -> Result<(), Failure>;
+    fn read(&mut self, username: &str) -> Result<RawArchive<Self::Document>, Failure>;
+    fn transform(
+        &mut self,
+        username: &str,
+        document: Self::Document,
+    ) -> Result<PreparedArchive<Self::Document>, Failure>;
+    fn publish(&mut self, document: &Self::Document) -> Result<(), Failure>;
+    fn record(&mut self, username: &str) -> Result<(), Failure>;
+}
+
+pub struct FullTargetResult {
+    pub username: String,
+    pub result: Result<(usize, usize), Failure>,
+    pub artifact_published: bool,
+}
+
+pub fn export_chats(usernames: &[String], archive: &mut impl FullArchive) -> Vec<FullTargetResult> {
+    usernames
+        .iter()
+        .map(|username| {
+            let mut artifact_published = false;
+            let result = (|| {
+                archive.prepare(username)?;
+                let read = archive.read(username)?;
+                if read.username != *username {
+                    return Err(Failure {
+                        stage: Stage::SourceIdentity,
+                        detail: "returned chat identity does not match request".into(),
+                    });
+                }
+                let prepared = archive.transform(username, read.document)?;
+                if prepared.archive.username != *username {
+                    return Err(Failure {
+                        stage: Stage::ProcessedIdentity,
+                        detail: "processed chat identity does not match request".into(),
+                    });
+                }
+                archive.publish(&prepared.archive.document)?;
+                artifact_published = true;
+                archive.record(username)?;
+                Ok((prepared.messages, prepared.added_messages))
+            })();
+            FullTargetResult {
+                username: username.clone(),
+                result,
+                artifact_published,
+            }
+        })
+        .collect()
 }
 
 pub trait DeltaSource {
@@ -274,5 +360,142 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[derive(Default)]
+    struct Full {
+        current: String,
+        events: Vec<(String, Stage)>,
+    }
+
+    #[test]
+    fn username_selection_preserves_partial_matches_without_display_name_lookup() {
+        assert_eq!(
+            select_usernames(["alpha", "beta"], &["alpha", "absent", "alpha"]).unwrap(),
+            HashSet::from(["alpha".to_owned()])
+        );
+        assert!(select_usernames(["alpha"], &["display name"]).is_err());
+        assert!(select_usernames(["alpha"], &[]).is_err());
+    }
+
+    impl Full {
+        fn step(&mut self, stage: Stage) -> Result<(), Failure> {
+            self.events.push((self.current.clone(), stage));
+            if matches!(
+                (self.current.as_str(), stage),
+                ("bad-prepare", Stage::Prepare)
+                    | ("bad-source", Stage::Read)
+                    | ("bad-publish", Stage::Publish)
+                    | ("bad-index", Stage::Index)
+            ) {
+                return Err(Failure {
+                    stage,
+                    detail: "synthetic failure".into(),
+                });
+            }
+            Ok(())
+        }
+    }
+
+    impl FullArchive for Full {
+        type Document = String;
+        fn prepare(&mut self, username: &str) -> Result<(), Failure> {
+            self.current = username.into();
+            self.step(Stage::Prepare)
+        }
+        fn read(&mut self, username: &str) -> Result<RawArchive<String>, Failure> {
+            self.step(Stage::Read)?;
+            Ok(RawArchive {
+                username: if username == "bad-read-identity" {
+                    "other"
+                } else {
+                    username
+                }
+                .into(),
+                document: username.into(),
+            })
+        }
+        fn transform(
+            &mut self,
+            username: &str,
+            document: String,
+        ) -> Result<PreparedArchive<String>, Failure> {
+            self.step(Stage::Transform)?;
+            Ok(PreparedArchive {
+                archive: RawArchive {
+                    username: if username == "bad-transformed-identity" {
+                        "other"
+                    } else {
+                        username
+                    }
+                    .into(),
+                    document,
+                },
+                messages: 4,
+                added_messages: 2,
+            })
+        }
+        fn publish(&mut self, document: &String) -> Result<(), Failure> {
+            assert_eq!(document, &self.current);
+            self.step(Stage::Publish)
+        }
+        fn record(&mut self, username: &str) -> Result<(), Failure> {
+            assert_eq!(username, self.current);
+            self.step(Stage::Index)
+        }
+    }
+
+    #[test]
+    fn full_archive_orders_stages_and_continues_without_indexing_failed_artifacts() {
+        let names: Vec<_> = [
+            "bad-prepare",
+            "bad-source",
+            "bad-read-identity",
+            "bad-transformed-identity",
+            "bad-publish",
+            "bad-index",
+            "after",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let mut archive = Full::default();
+        let results = export_chats(&names, &mut archive);
+        assert_eq!(results.len(), names.len());
+        for result in &results[..5] {
+            assert!(result.result.is_err());
+            assert!(!result.artifact_published);
+            assert!(!archive
+                .events
+                .contains(&(result.username.clone(), Stage::Index)));
+        }
+        assert_eq!(
+            results[2].result.as_ref().unwrap_err().stage,
+            Stage::SourceIdentity
+        );
+        assert_eq!(
+            results[3].result.as_ref().unwrap_err().stage,
+            Stage::ProcessedIdentity
+        );
+        assert!(results[5].artifact_published);
+        assert_eq!(results[5].result.as_ref().unwrap_err().stage, Stage::Index);
+        assert_eq!(results[6].result, Ok((4, 2)));
+        assert!(results[6].artifact_published);
+        let stages: Vec<_> = archive
+            .events
+            .iter()
+            .filter(|(name, _)| name == "after")
+            .map(|(_, stage)| *stage)
+            .collect();
+        assert_eq!(
+            stages,
+            [
+                Stage::Prepare,
+                Stage::Read,
+                Stage::Transform,
+                Stage::Publish,
+                Stage::Index
+            ]
+        );
     }
 }

@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) mod export_alias;
 mod labels;
 pub(crate) mod nicknames;
 pub(crate) use labels::read_tags;

@@ -44,6 +44,99 @@ pub(super) async fn find_shards(
     result
 }
 
+pub(super) async fn stats(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    since: Option<i64>,
+    until: Option<i64>,
+    options: MetaOptions,
+) -> Result<Value> {
+    let filter = domain::Filter {
+        since,
+        until,
+        kinds: Vec::new(),
+    };
+    filter.validate()?;
+    let username = strict_message::username(chat, names)?;
+    let prepared = prepare(db, names, domain::SourceKind::Ordinary).await?;
+    let display = names.display(&username);
+    let chat_type = chat_type_of(&username, names);
+    let is_group = chat_type == "group";
+    let nicknames = if is_group {
+        load_group_nicknames(db, &username).await?
+    } else {
+        HashMap::new()
+    };
+    let scanned = prepared.files.len();
+    let target = username.clone();
+    let identities = names
+        .map
+        .keys()
+        .cloned()
+        .chain(std::iter::once(target.clone()))
+        .collect::<Vec<_>>();
+    let result = tokio::task::spawn_blocking(move || -> Result<_> {
+        let snapshot = Snapshot::open(prepared.files, identities)?;
+        let mut shards = Vec::new();
+        for stream in snapshot.streams_for(&target, domain::SourceKind::Ordinary) {
+            let source = snapshot.source_name(stream)?.to_owned();
+            let (path, mode) = prepared
+                .origins
+                .get(&source)
+                .context("message origin unavailable")?;
+            shards.push(MessageShard {
+                rel_key: source,
+                path: path.clone(),
+                table: snapshot.streams()[stream].table_name().into(),
+                max_ts: snapshot.latest_timestamp(stream)?.unwrap_or(0),
+                cache_mode: *mode,
+            });
+        }
+        anyhow::ensure!(!shards.is_empty(), domain::Error::NotFound);
+        shards.sort_by(|a, b| b.max_ts.cmp(&a.max_ts).then(a.rel_key.cmp(&b.rel_key)));
+        let report =
+            crate::adapters::wechat::messages::statistics::read(&snapshot, &target, &filter)?;
+        Ok((report, shards))
+    })
+    .await?;
+    check_inventory(db, names, domain::SourceKind::Ordinary)?;
+    let (report, shards) = result?;
+    let sender_counts = report
+        .statistics
+        .by_sender
+        .iter()
+        .map(|(name, count)| Ok((name.clone(), i64::try_from(*count)?)))
+        .collect::<Result<HashMap<_, _>>>()?;
+    let mut types = report.legacy_types.into_iter().collect::<Vec<_>>();
+    types.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let by_type = types
+        .into_iter()
+        .map(|(kind, count)| json!({"type": kind, "count": count}))
+        .collect::<Vec<_>>();
+    let by_hour = report
+        .statistics
+        .by_hour
+        .iter()
+        .enumerate()
+        .map(|(hour, count)| json!({"hour": hour, "count": count}))
+        .collect::<Vec<_>>();
+    let meta = meta_for_shards(
+        scanned,
+        &shards,
+        report.hit_streams,
+        Vec::new(),
+        session_last_timestamp(db, &username).await,
+        since.is_some() || until.is_some(),
+        options,
+    );
+    Ok(
+        json!({"chat": display, "username": username, "is_group": is_group, "chat_type": chat_type,
+        "total": report.statistics.total, "by_type": by_type, "by_hour": by_hour,
+        "top_senders": group_top_senders(&sender_counts, &names.map, &nicknames, 10), "meta": meta}),
+    )
+}
+
 pub(super) async fn sessions(
     db: &DbCache,
     names: &Names,
@@ -51,7 +144,7 @@ pub(super) async fn sessions(
     with_details: bool,
 ) -> Result<Value> {
     let path = db
-        .get("session/session.db")
+        .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
         .await?
         .context("session database unavailable")?;
     let verified = names.verify_flags.clone();
@@ -96,7 +189,7 @@ pub(super) async fn new_messages(
     options: MetaOptions,
 ) -> Result<Value> {
     let session_path = db
-        .get("session/session.db")
+        .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
         .await?
         .context("session database unavailable")?;
     let current = tokio::task::spawn_blocking(move || {
@@ -231,26 +324,10 @@ pub(super) fn check_inventory(db: &DbCache, names: &Names, kind: domain::SourceK
     if kind == domain::SourceKind::Ordinary {
         return ensure_complete_message_inventory(db, names);
     }
-    let expected: HashSet<_> = names
-        .biz_msg_db_keys
-        .iter()
-        .map(|s| s.replace('\\', "/"))
-        .collect();
-    for entry in std::fs::read_dir(db.db_dir().join("message"))? {
-        let entry = entry?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| domain::Error::InvalidData)?;
-        let logical = format!("message/{name}");
-        if super::super::is_biz_msg_db_key(&logical) {
-            anyhow::ensure!(
-                expected.contains(&logical),
-                "unknown official message shards; complete inventory required"
-            );
-        }
-    }
-    Ok(())
+    crate::adapters::wechat::messages::sources::check_official_inventory(
+        db.db_dir(),
+        &names.biz_msg_db_keys,
+    )
 }
 
 pub(super) fn project(

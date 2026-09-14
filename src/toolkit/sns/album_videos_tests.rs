@@ -22,6 +22,60 @@ fn unused() -> Result<&'static VideoRuntime> {
     panic!("plain path initialized WASM")
 }
 
+#[test]
+fn remote_target_changed_during_request_is_not_replaced() {
+    let (_root, guard) = fixture();
+    let path = guard.output_root().join("video.mp4");
+    fs::write(&path, b"old").unwrap();
+    let changed = path.clone();
+    let (url, handle) = server(move |mut socket| {
+        fs::write(changed, b"concurrent").unwrap();
+        let bytes = plain(VIDEO_PREFIX_BYTES + 100);
+        write!(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len()
+        )
+        .unwrap();
+        let _ = socket.write_all(&bytes);
+    });
+    let result = download_video(&url, "", "video", &guard, unused);
+    handle.join().unwrap();
+    assert_eq!(result, Err(VideoError::Output));
+    clean(&guard, b"concurrent");
+}
+
+#[test]
+fn stream_copy_bounds_buffers_and_preserves_typed_errors() {
+    struct Input(usize);
+    impl Read for Input {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            assert!(buffer.len() <= 64 * 1024);
+            let n = self.0.min(buffer.len()).min(997);
+            buffer[..n].fill(7);
+            self.0 -= n;
+            Ok(n)
+        }
+    }
+    let size = 4 * 1024 * 1024;
+    assert_eq!(
+        copy_tail(&mut Input(size), &mut std::io::sink(), 0, size as u64),
+        Ok(size as u64)
+    );
+    assert_eq!(
+        copy_tail(&mut Input(101), &mut std::io::sink(), 0, 100),
+        Err(VideoError::Size)
+    );
+    assert_eq!(
+        publication_error(anyhow::Error::new(VideoError::BodyRead)),
+        VideoError::BodyRead
+    );
+    assert_eq!(
+        publication_error(anyhow::Error::new(VideoError::Size)),
+        VideoError::Size
+    );
+}
+
 // 监听及读写均有期限；Windows 接受套接字后显式恢复阻塞模式。
 fn server(action: impl FnOnce(TcpStream) + Send + 'static) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

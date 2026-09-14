@@ -14,3 +14,20 @@ pub mod image_metadata;
 pub mod resolver;
 #[path = "../../support/resource_media_adapters.rs"]
 pub mod adapters;
+#[path = "../../../src/config.rs"]
+pub mod config;
+#[path = "../../../src/runtime.rs"]
+pub mod runtime;
+#[path = "../../../src/toolkit/files.rs"]
+pub mod files;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
+#[path = "../../../src/toolkit/private_file.rs"]
+pub mod private_file;
+pub mod toolkit {
+    pub use super::{files, private_file, setup};
+    pub(crate) use super::files::ExportTarget;
+}
+pub mod attachment {
+    pub(crate) use super::local_files;
+}

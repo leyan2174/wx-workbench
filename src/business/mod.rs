@@ -2,9 +2,11 @@
 pub mod archive;
 pub mod articles;
 pub mod contacts;
+pub mod emoticons;
 pub mod favorites;
 pub mod media;
 pub mod messages;
 pub mod moments;
 pub mod sessions;
 pub mod structured_message;
+pub mod voice_export;

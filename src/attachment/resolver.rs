@@ -12,7 +12,7 @@
 //!   ⚠️  msg/attach/... 子树 layout 待我用真实账号验证；上游 docstring 只写了 Windows
 //! - Windows: `<root>\xwechat_files\<wxid>`（root 从 `%APPDATA%\Tencent\xwechat\config\*.ini` 读）
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::TimeZone;
 use std::path::{Path, PathBuf};
 
@@ -30,15 +30,17 @@ pub struct ResolvedAttachment {
     pub size: u64,
 }
 
-pub use crate::adapters::wechat::media::resource::{
-    legacy_lookup_md5 as lookup_md5_blocking, AttachmentMetadata,
-};
+pub use crate::adapters::wechat::media::resource::legacy_lookup_md5 as lookup_md5_blocking;
+#[cfg(test)]
+#[allow(unused_imports)] // The standalone listing fixture names this return type.
+pub use crate::adapters::wechat::media::resource::AttachmentMetadata;
 
 /// 从 `MessageResourceInfo.packed_info` (protobuf) 提取 32 字节 ASCII hex md5。
 ///
 /// 主路径：搜 4 字节 marker `12 22 0a 20`（field=2 LEN, length=34, sub field=1 LEN, length=32），
 /// 紧跟 32 字节 ASCII hex。
 /// Fallback：扫整个 blob 找连续 32 字节合法 hex 字符。
+#[cfg(test)]
 pub use crate::adapters::wechat::media::resource::extract_md5_from_packed_info;
 
 /// 在 `<attach_root>/<md5(chat)>/<YYYY-MM>/Img/<md5>[_t|_h].dat` 下找文件。

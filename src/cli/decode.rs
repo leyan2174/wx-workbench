@@ -1,7 +1,7 @@
 //! 详细消息解码的输出边界：一般错误 1、定位歧义 2。
 
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::{Context, Result};
 use std::io::Write;
 

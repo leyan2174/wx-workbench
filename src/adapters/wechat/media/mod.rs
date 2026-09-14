@@ -1,7 +1,10 @@
 //! Account-bound media evidence. Paths and resource coordinates stay in this adapter.
+pub(crate) mod local_emoticon;
+pub(crate) mod local_read;
 pub mod resource;
 pub mod voice;
 pub mod voice_catalog;
+pub mod voice_export;
 use self::resource::{MessageIdentity, ResourceLookup, ResourceReader};
 use super::messages::Snapshot;
 use crate::{
@@ -26,6 +29,101 @@ struct ImageProof {
     reference: Reference,
     rowid: i64,
     digest: String,
+}
+
+/// Legacy listing identity includes the complete raw type. This is not the
+/// selector used to authorize image decoding, which remains type-agnostic.
+pub(crate) fn image_listing_reference(
+    snapshot: &Snapshot,
+    selector: &MessageSelector<'_>,
+    raw_type: i64,
+) -> anyhow::Result<MessageRef> {
+    use crate::adapters::wechat::messages::{
+        read::attachments::AttachmentReadPolicy, LegacyReadPolicy,
+    };
+    use crate::business::messages::{Error as MessageError, Filter};
+    let timestamp = selector.timestamp.ok_or(MessageError::InvalidData)?;
+    anyhow::ensure!(
+        raw_type > 0 && raw_type & 0xffff_ffff == 3,
+        MessageError::InvalidData
+    );
+    let mut found = None;
+    for stream in snapshot.streams_for(selector.username, SourceKind::Ordinary) {
+        let page = snapshot.read_attachment_page(
+            stream,
+            &Filter {
+                since: Some(timestamp),
+                until: Some(timestamp),
+                kinds: Vec::new(),
+            },
+            &LegacyReadPolicy {
+                local_types: vec![3],
+            },
+            100_001,
+            AttachmentReadPolicy::StrictMetadata,
+        )?;
+        for row in page.rows {
+            if row.local_id == selector.local_id && row.local_type == raw_type {
+                anyhow::ensure!(found.is_none(), MessageError::Ambiguous);
+                found = Some(row.reference);
+            }
+        }
+    }
+    let reference = found.ok_or(MessageError::NotFound)?;
+    snapshot.revalidate(&reference)?;
+    Ok(reference)
+}
+
+/// Resolve against the complete caller inventory, never only an exported page.
+pub(crate) fn image_digest(
+    snapshot: &Snapshot,
+    selector: &MessageSelector<'_>,
+    expected_source: &str,
+    expected_type: i64,
+    resources: &[std::path::PathBuf],
+) -> Result<String, Error> {
+    if selector.timestamp.is_none() {
+        return Err(Error::new(Stage::Association, Failure::InvalidReference));
+    }
+    let reference = snapshot
+        .resolve(selector, SourceKind::Ordinary)
+        .map_err(|error| message_failure(error, Stage::Association))?;
+    let raw = snapshot
+        .read_metadata(reference.evidence())
+        .map_err(|error| message_failure(error, Stage::Revalidation))?;
+    if !raw
+        .logical_source
+        .replace('\\', "/")
+        .eq_ignore_ascii_case(&expected_source.replace('\\', "/"))
+        || raw.local_type != expected_type
+    {
+        return Err(Error::new(Stage::Revalidation, Failure::StaleEvidence));
+    }
+    let mut digest = None;
+    let mut proofs = Vec::new();
+    for path in resources {
+        let mut source = ImageSource::from_reference(snapshot, &reference, path)?;
+        match source.discover(&reference, Kind::Image) {
+            Ok(mut items) => {
+                if items.len() != 1 || digest.is_some() {
+                    return Err(Error::new(Stage::Association, Failure::Ambiguous));
+                }
+                let item = items.pop().expect("one image reference");
+                digest = Some(source.resource_evidence(&item.reference)?.1.to_owned());
+                proofs.push((source, item.reference));
+            }
+            Err(error)
+                if error.stage == Stage::Association && error.failure == Failure::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    for (source, reference) in &proofs {
+        source.revalidate(reference)?;
+    }
+    snapshot
+        .revalidate(&reference)
+        .map_err(|error| message_failure(error, Stage::Revalidation))?;
+    digest.ok_or(Error::new(Stage::Association, Failure::NotFound))
 }
 
 /// Borrows a live message snapshot; cannot extend its lifetime or rebind a reference.

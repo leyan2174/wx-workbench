@@ -1,105 +1,12 @@
 //! 个人聊天目录导出入口；账号只固定一次，GUI 可直接调用 export_for。
-use crate::toolkit::chat_directory::{self, Format, Options};
-use crate::{ipc::Request, message::export::Target, runtime::RuntimeContext};
-use anyhow::{ensure, Context, Result};
-use serde::Deserialize;
-use serde_json::{json, Value};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+use crate::adapters::wechat::messages::catalog::{
+    select_targets, RawDirectoryTarget as DirectoryTarget,
 };
-
-#[derive(Debug, Deserialize)]
-struct DirectoryTarget {
-    #[serde(flatten)]
-    target: Target,
-    table_name: String,
-    identity_status: String,
-}
-
-fn select_targets(
-    targets: Vec<DirectoryTarget>,
-    wanted: &BTreeSet<String>,
-) -> Result<Vec<DirectoryTarget>> {
-    let mut tables = BTreeSet::new();
-    let mut usernames = BTreeSet::new();
-    for entry in &targets {
-        let hash = entry
-            .table_name
-            .strip_prefix("Msg_")
-            .context("目录含非法消息表名")?;
-        ensure!(
-            hash.len() == 32
-                && hash
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "目录含非法消息表名"
-        );
-        ensure!(
-            tables.insert(entry.table_name.clone())
-                && usernames.insert(entry.target.username.clone()),
-            "消息表目录包含重复表或歧义 username"
-        );
-        match entry.identity_status.as_str() {
-            "mapped" => ensure!(
-                !entry.target.username.is_empty()
-                    && format!("{:x}", md5::compute(entry.target.username.as_bytes())) == hash,
-                "目录 username 与消息表不符"
-            ),
-            "unmapped" => ensure!(
-                entry.target.username == format!("unknown_{hash}") && !entry.target.is_group,
-                "未映射消息表身份无效"
-            ),
-            _ => anyhow::bail!("未知目录身份状态"),
-        }
-    }
-    let mut selected = BTreeMap::new();
-    let mut missing = Vec::new();
-    for username in wanted {
-        let table = format!("Msg_{:x}", md5::compute(username.as_bytes()));
-        let entry = targets
-            .iter()
-            .find(|entry| entry.target.username == *username)
-            .or_else(|| targets.iter().find(|entry| entry.table_name == table));
-        let Some(entry) = entry else {
-            missing.push(username.as_str());
-            continue;
-        };
-        ensure!(
-            entry.target.username == *username || entry.identity_status == "unmapped",
-            "指定 username 与消息表已有映射冲突"
-        );
-        ensure!(
-            selected
-                .insert(entry.table_name.clone(), username.clone())
-                .is_none(),
-            "同一消息表被多个名称选择，请只保留一个精确 username"
-        );
-    }
-    ensure!(
-        missing.is_empty(),
-        "以下 username 不在消息表目录中，未静默忽略：{}",
-        missing.join(", ")
-    );
-    let mut result = Vec::new();
-    for mut entry in targets {
-        if !wanted.is_empty() {
-            let Some(username) = selected.remove(&entry.table_name) else {
-                continue;
-            };
-            if username != entry.target.username {
-                // 用户给出的精确 username 的 MD5 已命中真实表；不按显示名猜测身份。
-                entry.target.is_group = username.ends_with("@chatroom");
-                entry.target.chat = username.clone();
-                entry.target.username = username;
-                entry.identity_status = "explicit_username".into();
-            }
-        }
-        result.push(entry);
-    }
-    result.sort_by(|a, b| a.target.username.cmp(&b.target.username));
-    Ok(result)
-}
+use crate::toolkit::chat_directory::{self, Format, Options};
+use crate::{ipc::Request, runtime::RuntimeContext};
+use anyhow::{ensure, Context, Result};
+use serde_json::{json, Value};
+use std::{collections::BTreeSet, path::PathBuf};
 
 pub use crate::service::operation_requests::export_messages::Args;
 
@@ -175,7 +82,7 @@ fn export_with_sources(
         "后台未返回完整消息表目录"
     );
     let targets = select_targets(
-        serde_json::from_value(response.data["chats"].clone())?,
+        serde_json::from_value::<Vec<DirectoryTarget>>(response.data["chats"].clone())?,
         &wanted,
     )?;
     let media_enabled = if args.no_media {

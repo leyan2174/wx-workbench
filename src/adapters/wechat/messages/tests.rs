@@ -72,6 +72,34 @@ fn empty_target_still_requires_requested_body_projection() {
 }
 
 #[test]
+fn metadata_statistics_do_not_require_body_and_bad_rows_are_not_zero() {
+    let root = tempfile::tempdir().unwrap();
+    let file = database(root.path(), 0, 2);
+    let conn = Connection::open(&file.path).unwrap();
+    let table = format!("Msg_{:x}", md5::compute("wxid_test"));
+    conn.execute_batch(&format!("ALTER TABLE [{table}] DROP COLUMN message_content; ALTER TABLE [{table}] DROP COLUMN WCDB_CT_message_content")).unwrap();
+    drop(conn);
+    let snapshot = Snapshot::open(vec![file.clone()], ["wxid_test".into()]).unwrap();
+    let report =
+        super::statistics::read(&snapshot, "wxid_test", &domain::Filter::default()).unwrap();
+    assert_eq!(report.statistics.total, 2);
+    assert_eq!(report.statistics.by_kind[&domain::Kind::Text], 2);
+    drop(snapshot);
+    let conn = Connection::open(&file.path).unwrap();
+    conn.execute_batch(&format!("UPDATE [{table}] SET create_time='not-a-time'"))
+        .unwrap();
+    drop(conn);
+    let snapshot = Snapshot::open(vec![file], ["wxid_test".into()]).unwrap();
+    let error = super::statistics::read(&snapshot, "wxid_test", &domain::Filter::default())
+        .err()
+        .expect("malformed timestamp must fail");
+    assert_eq!(
+        error.downcast_ref::<domain::Error>(),
+        Some(&domain::Error::InvalidData)
+    );
+}
+
+#[test]
 fn candidate_limit_preserves_same_second_order_in_both_directions() {
     let root = tempfile::tempdir().unwrap();
     let snapshot = Snapshot::open(vec![database(root.path(), 0, 3)], ["wxid_test".into()]).unwrap();

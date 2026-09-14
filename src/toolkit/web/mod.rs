@@ -1,15 +1,10 @@
 //! 使用 axum 提供 Web HTTP 接口，并内嵌 HTML、JavaScript 和 CSS 资源。
 //! 任务提交与取消通过服务客户端转交 daemon，Web 维护用于展示的任务状态。
-#[path = "automatic_image.rs"]
 mod automatic_image;
 #[cfg(test)]
-#[path = "automatic_image_runtime_tests.rs"]
 mod automatic_image_runtime_tests;
-#[path = "preview.rs"]
 mod preview;
-#[path = "query.rs"]
 mod query;
-#[path = "server_types.rs"]
 mod server_types;
 
 use crate::ipc;
@@ -677,7 +672,7 @@ fn router(state: Arc<Shared>) -> Router {
 
 pub async fn serve(
     runtime: crate::runtime::RuntimeContext,
-    args: crate::cli::web_native::Args,
+    args: crate::service::web::HostSettings,
 ) -> Result<()> {
     let _lock = runtime
         .lock("web.lock")

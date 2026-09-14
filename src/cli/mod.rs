@@ -44,7 +44,6 @@ mod sns_timeline;
 pub mod stats;
 mod tasks;
 pub mod toolkit;
-pub mod transport;
 pub mod unread;
 pub mod voices;
 pub(crate) mod web_native;

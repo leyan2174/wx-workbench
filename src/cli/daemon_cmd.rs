@@ -1,7 +1,7 @@
-use crate::cli::transport;
 use crate::cli::DaemonCommands;
 use crate::ipc::Request;
 use crate::runtime::RuntimeContext;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub fn cmd_daemon(cmd: DaemonCommands) -> Result<()> {

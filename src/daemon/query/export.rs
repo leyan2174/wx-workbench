@@ -10,20 +10,11 @@ pub async fn q_export_chat(db: &DbCache, names: &Names, chat: &str) -> Result<Va
 
 pub async fn q_export_chat_list(db: &DbCache, names: &Names) -> Result<Value> {
     let path = db
-        .get("session/session.db")
+        .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
         .await?
         .context("无法解密 session.db")?;
     let usernames = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let mut stmt = conn.prepare("SELECT username FROM SessionTable")?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        anyhow::ensure!(
-            rows.iter().all(|u| !u.is_empty()),
-            "会话表含空 username，不能静默跳过"
-        );
-        Ok(rows)
+        crate::adapters::wechat::messages::sessions::usernames(&path)
     })
     .await??;
     let mut seen = std::collections::HashSet::new();
@@ -70,8 +61,6 @@ pub(super) async fn q_export_username_with_shape(
             .with_context(|| format!("无法读取已知消息分片 {key}"))?;
         shards.push((key, path));
     }
-    let table = format!("Msg_{:x}", md5::compute(username.as_bytes()));
-    anyhow::ensure!(msg_table_re().is_match(&table), "消息表名不合法");
     let display = names.display(&username);
     let account_dir = db
         .db_dir()
@@ -84,13 +73,15 @@ pub(super) async fn q_export_username_with_shape(
         None
     } else {
         Some(
-            db.get("contact/contact.db")
+            db.get(crate::adapters::wechat::messages::sources::contacts().cache_key())
                 .await?
                 .context("无法读取联系人数据库")?,
         )
     };
+    let account_names = names;
+    ensure_complete_message_inventory(db, account_names)?;
     let names = names.map.clone();
-    tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || {
         let is_group = username.ends_with("@chatroom");
         let export_context = crate::message::export_content::ExportContext {
             is_group,
@@ -99,71 +90,93 @@ pub(super) async fn q_export_username_with_shape(
             self_username: &me,
             names: Some(&names),
         };
-        let mut document = Chat { chat: display.clone(), username: username.clone(), exported_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(), is_group, messages: Vec::new() };
-        let mut found_table = false;
+        let mut document = Chat {
+            chat: display.clone(),
+            username: username.clone(),
+            exported_at: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            is_group,
+            messages: Vec::new(),
+        };
+        use crate::adapters::wechat::messages::{
+            read::export::ExportProfile, Snapshot, SourceFile,
+        };
+        use crate::business::messages::{Filter, SourceKind};
+        let files = shards
+            .into_iter()
+            .map(|(logical_name, path)| SourceFile {
+                logical_name,
+                path,
+                kind: SourceKind::Ordinary,
+            })
+            .collect();
+        let snapshot = Snapshot::open(
+            files,
+            names
+                .keys()
+                .cloned()
+                .chain(std::iter::once(username.clone())),
+        )?;
+        let streams = snapshot.streams_for(&username, SourceKind::Ordinary);
+        anyhow::ensure!(!streams.is_empty(), "找不到聊天消息表");
         let mut sources = Vec::new();
-        for (source, path) in shards {
-            let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-            // Name2Id 和消息行必须来自同一分片读取快照，不能分开读到不同版本。
-            let conn = conn.unchecked_transaction()?;
-            let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", [&table], |row| row.get(0))?;
-            if !exists { continue; }
-            found_table = true;
+        for stream in streams {
+            let source = snapshot.source_name(stream)?.to_owned();
             let source = if shape == ExportShape::Directory {
                 source.replace('\\', "/")
-            } else { source };
+            } else {
+                source
+            };
             if shape == ExportShape::Directory {
                 sources.push(source.clone());
             }
-            let mut ids = HashMap::<i64, String>::new();
-            let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='Name2Id')", [], |row| row.get(0))?;
-            if exists {
-                let mut stmt = conn.prepare("SELECT rowid,user_name FROM Name2Id")?;
-                for row in stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)))? {
-                    let (id, name) = row?;
-                    if let Some(name) = name.filter(|name| !name.is_empty()) { ids.insert(id, name); }
-                }
-            }
-            let detail_columns = if shape == ExportShape::Directory {
-                export_directory::detail_projection(&conn, &table)?
-            } else { String::new() };
-            let mut statement = conn.prepare(&format!("SELECT local_id,local_type,create_time,real_sender_id,message_content,WCDB_CT_message_content{detail_columns} FROM [{table}] ORDER BY create_time ASC,local_id ASC"))?;
-            let mut rows = statement.query([])?;
-            while let Some(row) = rows.next()? {
-                let id: i64 = row.get(0)?;
-                let kind: i64 = row.get(1)?;
-                let timestamp: Option<i64> = row.get(2)?;
-                let sender_id: Option<i64> = row.get(3)?;
-                let raw = row.get_ref(4)?;
-                let was_null = matches!(raw, rusqlite::types::ValueRef::Null);
-                let bytes = match raw {
-                    rusqlite::types::ValueRef::Text(bytes) | rusqlite::types::ValueRef::Blob(bytes) => bytes,
-                    rusqlite::types::ValueRef::Null => &[],
-                    _ => anyhow::bail!("消息正文类型异常，local_id={id}"),
+            let profile = if shape == ExportShape::Directory {
+                ExportProfile::Directory
+            } else {
+                ExportProfile::Compact
+            };
+            snapshot.visit_export(stream, &Filter::default(), profile, |row| {
+                let id = row.local_id;
+                let kind = row.local_type;
+                let text = row.decoded.as_deref().unwrap_or("");
+                let prefix = if is_group {
+                    crate::message::split_group_content(text).0
+                } else {
+                    ""
                 };
-                let compression: Option<i64> = row.get(5)?;
-                let text = if shape == ExportShape::Directory && was_null { String::new() }
-                    else if compression == Some(4) { String::from_utf8(zstd::decode_all(bytes)?)? }
-                    else { String::from_utf8(bytes.to_vec())? };
-                let prefix = if is_group { crate::message::split_group_content(&text).0 } else { "" };
-                let mapped = sender_id.and_then(|id| ids.get(&id)).map(String::as_str).unwrap_or("");
-                let sender = crate::message::identity::export_sender(mapped, prefix, is_group, &username, &display, &me, &names);
-                let body = if is_group { crate::message::split_group_content(&text).1 } else { &text };
+                let mapped = row.mapped_sender.as_deref().unwrap_or("");
+                let sender = crate::message::identity::export_sender(
+                    mapped, prefix, is_group, &username, &display, &me, &names,
+                );
+                let body = if is_group {
+                    crate::message::split_group_content(text).1
+                } else {
+                    text
+                };
                 let extracted = crate::message::export_content::extract_with_context(
-                    kind, (!was_null).then_some(body), &export_context,
+                    kind,
+                    (!matches!(
+                        row.content,
+                        crate::adapters::wechat::messages::StoredContent::Null
+                    ))
+                    .then_some(body),
+                    &export_context,
                 )?;
                 let mut extras = extracted.extras;
                 extras.insert("source".into(), Value::String(source.clone()));
                 if shape == ExportShape::Directory {
-                    export_directory::append_details(
-                        &mut extras, row, kind, mapped, prefix, is_group, &username,
-                        (!was_null).then_some(text.as_str()),
-                    ).with_context(|| format!("目录导出消息字段无效: {source}, local_id={id}"))?;
+                    row.append_details(&mut extras, prefix, is_group, &username)?;
                 }
-                document.messages.push(Message::new(id, kind, timestamp, sender, extracted.content, extras)?);
-            }
+                document.messages.push(Message::new(
+                    id,
+                    kind,
+                    row.timestamp,
+                    sender,
+                    extracted.content,
+                    extras,
+                )?);
+                Ok(())
+            })?;
         }
-        anyhow::ensure!(found_table, "找不到聊天消息表");
         document.sort_chronologically();
         let mut value = serde_json::to_value(document)?;
         if shape == ExportShape::Directory {
@@ -173,7 +186,9 @@ pub(super) async fn q_export_username_with_shape(
             value["contact_alias"] = Value::Null;
         }
         if let Some(path) = contact_path {
-            let metadata = crate::toolkit::contact_metadata::contact_metadata_for_export(&path, &username, is_group);
+            let metadata = crate::toolkit::contact_metadata::contact_metadata_for_export(
+                &path, &username, is_group,
+            );
             value.as_object_mut().unwrap().extend(metadata.fields);
             if !metadata.diagnostics.is_empty() {
                 value["metadata_warnings"] = serde_json::to_value(metadata.diagnostics)?;
@@ -183,5 +198,8 @@ pub(super) async fn q_export_username_with_shape(
             }
         }
         Ok::<_, anyhow::Error>(value)
-    }).await?
+    })
+    .await?;
+    ensure_complete_message_inventory(db, account_names)?;
+    result
 }

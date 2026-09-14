@@ -1,6 +1,7 @@
 //! 相册视频媒体层：显式源文件、惰性前缀解密及有界流式发布；不负责扫描或渲染。
 use super::video_runtime::{VideoRuntime, VIDEO_PREFIX_BYTES};
 use crate::attachment::local_files::HostOutputGuard;
+use crate::toolkit::files::ExportTarget;
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -200,46 +201,59 @@ pub(crate) fn copy_cached_video(
     if !mp4(&header) {
         return Ok(None);
     }
-    let mut staged =
-        tempfile::NamedTempFile::new_in(guard.output_root()).map_err(|_| VideoError::Output)?;
-    staged.write_all(&header).map_err(|_| VideoError::Output)?;
-    let total = copy_tail(&mut file, &mut staged, 12, MAX_VIDEO_BYTES)?;
-    if total != bytes {
-        return Err(VideoError::Size);
-    }
-    let verify = || -> anyhow::Result<()> {
-        protection.verify()?;
-        anyhow::ensure!(
-            same_file::Handle::from_file(file.try_clone()?)?
-                == same_file::Handle::from_path(source)?,
-            "source changed"
-        );
-        let now = file.metadata()?;
-        anyhow::ensure!(
-            now.len() == bytes && now.modified()? == metadata.modified()?,
-            "source changed"
-        );
-        staged
-            .as_file()
-            .set_times(fs::FileTimes::new().set_modified(metadata.modified()?))?;
-        Ok(())
-    };
-    verify().map_err(|_| VideoError::Source)?;
-    publish(staged, &path, guard)?;
-    Ok(Some(outcome(&path, VideoSource::Cache, complete, total)))
+    let target = ExportTarget::capture_paths(&path, &[source.to_path_buf()])
+        .map_err(|_| VideoError::Output)?;
+    // Keep the pinned source available to both streaming and the commit check.
+    let mut input = &file;
+    target
+        .write_with_checked(
+            |temporary| {
+                let mut staged = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(temporary)?;
+                staged.write_all(&header)?;
+                let total = copy_tail(&mut input, &mut staged, 12, MAX_VIDEO_BYTES)?;
+                if total != bytes {
+                    return Err(VideoError::Size.into());
+                }
+                staged
+                    .set_times(
+                        fs::FileTimes::new()
+                            .set_modified(metadata.modified().map_err(|_| VideoError::Source)?),
+                    )
+                    .map_err(|_| VideoError::Source)?;
+                Ok(())
+            },
+            || {
+                let verify = || -> anyhow::Result<()> {
+                    protection.verify()?;
+                    anyhow::ensure!(
+                        same_file::Handle::from_file(file.try_clone()?)?
+                            == same_file::Handle::from_path(source)?,
+                        "source changed"
+                    );
+                    let now = file.metadata()?;
+                    anyhow::ensure!(
+                        now.len() == bytes && now.modified()? == metadata.modified()?,
+                        "source changed"
+                    );
+                    Ok(())
+                };
+                verify().map_err(|_| VideoError::Source)?;
+                guard.verify_replaceable_file(&path)?;
+                Ok(())
+            },
+        )
+        .map_err(publication_error)?;
+    Ok(Some(outcome(&path, VideoSource::Cache, complete, bytes)))
 }
 
-fn publish(staged: tempfile::NamedTempFile, path: &Path, guard: &HostOutputGuard) -> Result<()> {
-    staged
-        .as_file()
-        .sync_all()
-        .map_err(|_| VideoError::Output)?;
-    guard
-        .verify_replaceable_file(path)
-        .map_err(|_| VideoError::Output)?;
-    // 同卷原子替换；任何提交前失败由 NamedTempFile 仅清理自身，旧文件不动。
-    staged.persist(path).map_err(|_| VideoError::Output)?;
-    Ok(())
+fn publication_error(error: anyhow::Error) -> VideoError {
+    error
+        .downcast_ref::<VideoError>()
+        .copied()
+        .unwrap_or(VideoError::Output)
 }
 
 fn copy_tail(
@@ -319,6 +333,7 @@ fn download_with<'a>(
     timeout: Duration,
 ) -> Result<Outcome> {
     let path = destination(name, guard)?;
+    let target = ExportTarget::capture_paths(&path, &[]).map_err(|_| VideoError::Output)?;
     if url.len() > MAX_URL_BYTES || url.chars().any(char::is_control) {
         return Err(VideoError::InvalidUrl);
     }
@@ -369,14 +384,24 @@ fn download_with<'a>(
             return Err(VideoError::InvalidMp4);
         }
     }
-    let mut staged =
-        tempfile::NamedTempFile::new_in(guard.output_root()).map_err(|_| VideoError::Output)?;
-    staged.write_all(&prefix).map_err(|_| VideoError::Output)?;
-    let total = copy_tail(&mut response, &mut staged, prefix.len() as u64, limit)?;
-    if length.is_some_and(|n| n != total) {
-        return Err(VideoError::Size);
-    }
-    publish(staged, &path, guard)?;
+    let mut total = 0;
+    target
+        .write_with_checked(
+            |temporary| {
+                let mut staged = OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(temporary)?;
+                staged.write_all(&prefix)?;
+                total = copy_tail(&mut response, &mut staged, prefix.len() as u64, limit)?;
+                if length.is_some_and(|n| n != total) {
+                    return Err(VideoError::Size.into());
+                }
+                Ok(())
+            },
+            || guard.verify_replaceable_file(&path),
+        )
+        .map_err(publication_error)?;
     Ok(outcome(&path, VideoSource::Remote, true, total))
 }
 

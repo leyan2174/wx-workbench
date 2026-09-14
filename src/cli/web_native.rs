@@ -15,6 +15,16 @@ pub struct Args {
     pub image_cache_dir: Option<PathBuf>,
 }
 
+impl From<Args> for crate::service::web::HostSettings {
+    fn from(args: Args) -> Self {
+        Self {
+            port: args.port,
+            open: args.open,
+            image_cache_dir: args.image_cache_dir,
+        }
+    }
+}
+
 pub fn cmd_web(args: Args) -> Result<()> {
     let runtime = crate::runtime::RuntimeContext::load()
         .map_err(|_| anyhow::anyhow!("无法加载选中账号配置；首次使用请先查看 wx toolkit setup --help，或运行 wx init 完成账号初始化，然后重新启动 Web"))?;
@@ -22,7 +32,7 @@ pub fn cmd_web(args: Args) -> Result<()> {
         .enable_all()
         .build()
         .context("无法创建 Web 运行时")?
-        .block_on(crate::toolkit::web::serve(runtime, args))
+        .block_on(crate::toolkit::web::serve(runtime, args.into()))
 }
 
 pub fn cmd_gui(mut args: Args) -> Result<()> {
@@ -39,6 +49,33 @@ mod tests {
     struct Invocation {
         #[command(flatten)]
         args: Args,
+    }
+
+    #[test]
+    fn host_settings_preserve_defaults_and_explicit_values() {
+        let default = Invocation::try_parse_from(["web"]).unwrap().args;
+        assert_eq!(
+            crate::service::web::HostSettings::from(default),
+            Default::default()
+        );
+        let parsed = Invocation::try_parse_from([
+            "web",
+            "--port",
+            "12345",
+            "--open",
+            "--image-cache-dir",
+            "synthetic-images",
+        ])
+        .unwrap()
+        .args;
+        assert_eq!(
+            crate::service::web::HostSettings::from(parsed),
+            crate::service::web::HostSettings {
+                port: 12345,
+                open: true,
+                image_cache_dir: Some("synthetic-images".into()),
+            }
+        );
     }
 
     #[test]

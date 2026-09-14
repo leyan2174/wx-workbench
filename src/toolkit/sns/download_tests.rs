@@ -1,6 +1,78 @@
 use super::*;
 use std::{fs, net::TcpListener, thread, time::Instant};
 
+struct ShortStream {
+    remaining: usize,
+    reads: usize,
+    change: Option<std::path::PathBuf>,
+}
+
+impl Read for ShortStream {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        assert!(output.len() <= 16 * 1024, "unbounded stream buffer");
+        self.reads += 1;
+        // First twelve one-byte reads establish the signature, then target capture occurs.
+        if self.reads == 13 {
+            if let Some(path) = self.change.take() {
+                fs::write(path, b"concurrent")?;
+            }
+        }
+        let n = self
+            .remaining
+            .min(output.len())
+            .min(if self.reads <= 12 { 1 } else { 997 });
+        output[..n].fill(b'x');
+        self.remaining -= n;
+        Ok(n)
+    }
+}
+
+#[test]
+fn streamed_publication_short_reads_hidden_name_and_limit_cleanup() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = HostOutputGuard::new(root.path()).unwrap();
+    let destination = root.path().join(".hidden");
+    let actual = root.path().join(".hidden.bin");
+    for size in [100, 1024 * 1024] {
+        let mut input = ShortStream {
+            remaining: size,
+            reads: 0,
+            change: None,
+        };
+        let result = publish_response(&mut input, &destination, &guard, size as u64).unwrap();
+        assert_eq!(result.actual_filename, ".hidden.bin");
+        assert_eq!(result.bytes, size as u64);
+        assert_eq!(fs::metadata(&actual).unwrap().len(), size as u64);
+    }
+    fs::write(&actual, b"old").unwrap();
+    for size in [99, 101] {
+        let mut input = ShortStream {
+            remaining: size,
+            reads: 0,
+            change: None,
+        };
+        assert!(publish_response(&mut input, &destination, &guard, 100).is_err());
+        assert_eq!(fs::read(&actual).unwrap(), b"old");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn streamed_publication_refuses_target_changed_after_signature() {
+    let root = tempfile::tempdir().unwrap();
+    let guard = HostOutputGuard::new(root.path()).unwrap();
+    let actual = root.path().join("item.bin");
+    fs::write(&actual, b"old").unwrap();
+    let mut input = ShortStream {
+        remaining: 1024,
+        reads: 0,
+        change: Some(actual.clone()),
+    };
+    assert!(publish_response(&mut input, &root.path().join("item"), &guard, 2048).is_err());
+    assert_eq!(fs::read(&actual).unwrap(), b"concurrent");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
 // 完整读取请求头，服务端自身也设置期限，避免失败测试挂死。
 fn serve(replies: Vec<(Vec<u8>, Duration)>) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

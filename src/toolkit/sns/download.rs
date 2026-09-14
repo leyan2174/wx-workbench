@@ -1,5 +1,6 @@
 //! 仅供调用者明确授权后的联网下载；不发现账号、不读取环境或真实数据。
 use crate::attachment::local_files::HostOutputGuard;
+use crate::toolkit::files::ExportTarget;
 use anyhow::{ensure, Context, Result};
 use std::{
     io::{Read, Write},
@@ -128,28 +129,21 @@ pub(crate) fn download(
         "SNS download exceeds byte limit"
     );
     guard.verify()?;
-    let mut staged = tempfile::NamedTempFile::new_in(guard.output_root())?;
+    publish_response(&mut response, destination, guard, options.max_bytes)
+}
+
+fn publish_response(
+    response: &mut impl Read,
+    destination: &Path,
+    guard: &HostOutputGuard,
+    max_bytes: u64,
+) -> Result<Outcome> {
+    // Only the signature is buffered before capturing the actual output name.
     let mut prefix = Vec::with_capacity(12);
-    let mut bytes = 0u64;
-    let mut buffer = [0u8; 16 * 1024];
-    loop {
-        // 多读至多一个字节以区分恰好达到上限和超限，不按 Content-Length 分配内存。
-        let capacity = (options.max_bytes - bytes + 1).min(buffer.len() as u64) as usize;
-        let n = response
-            .read(&mut buffer[..capacity])
-            .map_err(|_| anyhow::anyhow!("SNS response body read failed"))?;
-        if n == 0 {
-            break;
-        }
-        bytes += n as u64;
-        ensure!(
-            bytes <= options.max_bytes,
-            "SNS download exceeds byte limit"
-        );
-        prefix.extend_from_slice(&buffer[..n.min(12 - prefix.len())]);
-        staged.write_all(&buffer[..n])?;
-    }
-    ensure!(bytes >= 100, "SNS payload must contain at least 100 bytes");
+    (&mut *response)
+        .take(12)
+        .read_to_end(&mut prefix)
+        .map_err(|_| anyhow::anyhow!("SNS response body read failed"))?;
     let format = detect(&prefix);
     let mut actual_filename = destination
         .file_name()
@@ -162,13 +156,44 @@ pub(crate) fn download(
         actual_filename.push_str(format.extension());
     }
     let actual = guard.output_root().join(&actual_filename);
-    staged.as_file().sync_all()?;
     guard.verify_replaceable_file(destination)?;
     guard.verify_replaceable_file(&actual)?;
-    // 复用同卷临时文件发布；失败不会先截断旧文件。提交后不再运行可能失败的检查。
-    staged
-        .persist(&actual)
-        .map_err(|e| e.error)
+    let target = ExportTarget::capture_paths(&actual, &[])?;
+    let mut bytes = prefix.len() as u64;
+    target
+        .write_with_checked(
+            |temporary| {
+                let mut staged = std::fs::OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(temporary)?;
+                staged.write_all(&prefix)?;
+                let mut buffer = [0u8; 16 * 1024];
+                loop {
+                    // Read one extra byte to distinguish an exact limit from overflow.
+                    let capacity =
+                        (max_bytes.saturating_sub(bytes) + 1).min(buffer.len() as u64) as usize;
+                    let n = match response.read(&mut buffer[..capacity]) {
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        result => {
+                            result.map_err(|_| anyhow::anyhow!("SNS response body read failed"))?
+                        }
+                    };
+                    if n == 0 {
+                        break;
+                    }
+                    bytes += n as u64;
+                    ensure!(bytes <= max_bytes, "SNS download exceeds byte limit");
+                    staged.write_all(&buffer[..n])?;
+                }
+                ensure!(bytes >= 100, "SNS payload must contain at least 100 bytes");
+                Ok(())
+            },
+            || {
+                guard.verify_replaceable_file(destination)?;
+                guard.verify_replaceable_file(&actual)
+            },
+        )
         .context("SNS output publication failed")?;
     Ok(Outcome {
         actual_filename,

@@ -4,8 +4,9 @@
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::decoder;
@@ -239,21 +240,27 @@ fn export_image_impl(
     if let Some(guard) = host_guard {
         guard.verify()?;
     }
-    let mut temp = tempfile::NamedTempFile::new_in(request.output_root)?;
-    temp.write_all(&decoded.data)?;
-    temp.as_file().sync_all()?;
-    source.verify()?;
-    db.verify()?;
-    no_sidecars(request.resource_db)?;
-    scan.verify()?;
-    output_guard.verify()?;
-    if let Some(guard) = host_guard {
-        guard.verify()?;
-    }
-    // 发布前全部核验；已存在的文件、硬链接、符号链接或目录都不能被覆盖。
-    before_publish()?;
-    temp.persist_noclobber(&path)
-        .map_err(|e| e.error)
+    let target = crate::toolkit::ExportTarget::new_file(
+        &path,
+        &[
+            request.attach_root.to_owned(),
+            request.resource_db.to_owned(),
+            source.path.clone(),
+        ],
+    )
+    .context("output already exists or publication failed")?;
+    target
+        .write_bytes_checked(&decoded.data, || {
+            source.verify()?;
+            db.verify()?;
+            no_sidecars(request.resource_db)?;
+            scan.verify()?;
+            output_guard.verify()?;
+            if let Some(guard) = host_guard {
+                guard.verify()?;
+            }
+            before_publish()
+        })
         .context("output already exists or publication failed")?;
     Ok(ImageOutput {
         message: identity.clone(),

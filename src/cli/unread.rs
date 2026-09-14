@@ -1,6 +1,6 @@
 use super::output::{emit_warnings, print_response, OutputOpts};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub fn cmd_unread(limit: usize, filter: Vec<String>, opts: OutputOpts) -> Result<()> {

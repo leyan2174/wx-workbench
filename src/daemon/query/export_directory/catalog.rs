@@ -1,14 +1,12 @@
 //! 目录专用消息表目录；Name2Id 和联系人仅补身份，SessionTable 不决定导出范围。
-use super::{append_details, detail_projection, ensure_complete_message_inventory, DbCache, Names};
+use super::{ensure_complete_message_inventory, DbCache, Names};
 use crate::message::export::{Chat, Message, Target};
 use anyhow::{ensure, Context, Result};
-use rusqlite::{types::ValueRef, Connection, OpenFlags};
+#[cfg(test)]
+use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, path::PathBuf};
 
 #[derive(Debug, Serialize)]
 pub(super) struct Entry {
@@ -46,101 +44,53 @@ pub(super) async fn load(db: &DbCache, names: &Names) -> Result<Catalog> {
     result
 }
 
-fn senders(conn: &Connection) -> Result<BTreeMap<i64, String>> {
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='Name2Id')",
-        [],
-        |row| row.get(0),
-    )?;
-    let mut result = BTreeMap::new();
-    if exists {
-        let mut statement = conn.prepare("SELECT rowid,user_name FROM Name2Id")?;
-        for row in statement.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-        })? {
-            let (id, username) = row?;
-            if let Some(username) = username.filter(|username| !username.is_empty()) {
-                result.insert(id, username);
-            }
-        }
-    }
-    Ok(result)
-}
-
-fn add_username(lookup: &mut BTreeMap<String, String>, username: &str) -> Result<()> {
-    if !username.is_empty() {
-        let hash = format!("{:x}", md5::compute(username.as_bytes()));
-        if let Some(previous) = lookup.insert(hash, username.into()) {
-            ensure!(
-                previous == username,
-                "消息表哈希对应多个 username，拒绝任取身份"
-            );
-        }
-    }
-    Ok(())
-}
-
 fn read(shards: &[(String, PathBuf)], names: &Names) -> Result<Vec<Entry>> {
-    let mut lookup = BTreeMap::new();
-    for username in names.map.keys() {
-        add_username(&mut lookup, username)?;
+    use crate::adapters::wechat::messages::{catalog, Snapshot, SourceFile};
+    use crate::business::messages::{Conversation, SourceKind};
+    if shards.is_empty() {
+        return Ok(Vec::new());
     }
-    let mut tables: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (source, path) in shards {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let snapshot = conn.unchecked_transaction()?;
-        for username in senders(&snapshot)?.values() {
-            add_username(&mut lookup, username)?;
-        }
-        let mut statement = snapshot.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name GLOB 'Msg_*' ORDER BY name",
-        )?;
-        for table in statement.query_map([], |row| row.get::<_, String>(0))? {
-            let table = table?;
-            ensure!(
-                super::super::msg_table_re().is_match(&table),
-                "消息分片含不支持的 Msg_ 表名：{source}"
-            );
-            tables
-                .entry(table)
-                .or_default()
-                .insert(source.replace('\\', "/"));
-        }
-    }
+    let files = shards
+        .iter()
+        .map(|(logical_name, path)| SourceFile {
+            logical_name: logical_name.clone(),
+            path: path.clone(),
+            kind: SourceKind::Ordinary,
+        })
+        .collect();
+    let snapshot = Snapshot::open(files, names.map.keys().cloned())?;
+    let rows = catalog::read(&snapshot, SourceKind::Ordinary)?;
     let mut seen = BTreeSet::new();
     let mut entries = Vec::new();
-    for (table_name, sources) in tables {
-        let hash = &table_name[4..];
-        let mapped = lookup.get(hash);
-        let username = mapped.cloned().unwrap_or_else(|| format!("unknown_{hash}"));
-        if mapped.is_none() {
-            ensure!(
-                !lookup.contains_key(&format!("{:x}", md5::compute(username.as_bytes()))),
-                "目录占位身份与已知 username 冲突，拒绝错误关联"
-            );
-        }
+    for row in rows {
+        let (username, mapped) = match row.conversation {
+            Conversation::Known(username) => (username, true),
+            Conversation::Unmapped(hash) => {
+                let username = format!("unknown_{hash}");
+                ensure!(
+                    !names.map.contains_key(&username) && !snapshot.has_sender_username(&username),
+                    "目录占位身份与已知 username 冲突，拒绝错误关联"
+                );
+                (username, false)
+            }
+        };
         ensure!(
             seen.insert(username.clone()),
             "目录占位身份与真实 username 冲突，拒绝合并不同消息表"
         );
-        let target = Target {
-            chat: if mapped.is_some() {
-                names.display(&username)
-            } else {
-                username.clone()
-            },
-            is_group: mapped.is_some() && username.ends_with("@chatroom"),
-            username,
-        };
         entries.push(Entry {
-            target,
-            table_name,
-            identity_status: if mapped.is_some() {
-                "mapped"
-            } else {
-                "unmapped"
+            target: Target {
+                chat: if mapped {
+                    names.display(&username)
+                } else {
+                    username.clone()
+                },
+                is_group: mapped && username.ends_with("@chatroom"),
+                username,
             },
-            sources: sources.into_iter().collect(),
+            table_name: row.table_name,
+            identity_status: if mapped { "mapped" } else { "unmapped" },
+            sources: row.sources,
         });
     }
     entries.sort_by(|a, b| a.target.username.cmp(&b.target.username));
@@ -203,91 +153,63 @@ fn read_unmapped(
         is_group: false,
         messages: Vec::new(),
     };
+    use crate::adapters::wechat::messages::{read::export::ExportProfile, Snapshot, SourceFile};
+    use crate::business::messages::{Conversation, Filter, SourceKind};
+    let files = shards
+        .iter()
+        .map(|(logical_name, path)| SourceFile {
+            logical_name: logical_name.clone(),
+            path: path.clone(),
+            kind: SourceKind::Ordinary,
+        })
+        .collect();
+    let snapshot = Snapshot::open(files, names.map.keys().cloned())?;
     let mut sources = BTreeSet::new();
-    for (source, path) in shards {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let snapshot = conn.unchecked_transaction()?;
-        let ids = senders(&snapshot)?;
-        ensure!(
-            !ids.values()
-                .any(|username| format!("Msg_{:x}", md5::compute(username.as_bytes())) == *table),
-            "读取期间未映射表获得了 username，请重新获取目录"
-        );
-        let exists: bool = snapshot.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-            [table],
-            |row| row.get(0),
-        )?;
-        if !exists {
+    for (stream, item) in snapshot.streams().iter().enumerate() {
+        if !item.table_name().eq_ignore_ascii_case(table) {
             continue;
         }
-        let source = source.replace('\\', "/");
+        ensure!(
+            matches!(&item.conversation, Conversation::Unmapped(_)),
+            "读取期间未映射表获得了 username，请重新获取目录"
+        );
+        let source = snapshot.source_name(stream)?.replace('\\', "/");
         sources.insert(source.clone());
-        let details = detail_projection(&snapshot, table)?;
-        let mut statement = snapshot.prepare(&format!(
-            "SELECT local_id,local_type,create_time,real_sender_id,message_content,WCDB_CT_message_content{details} FROM [{table}] ORDER BY create_time ASC,local_id ASC"))?;
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let kind: i64 = row.get(1)?;
-            let timestamp: Option<i64> = row.get(2)?;
-            let sender_id: Option<i64> = row.get(3)?;
-            let raw = row.get_ref(4)?;
-            let was_null = matches!(raw, ValueRef::Null);
-            let bytes = match raw {
-                ValueRef::Text(bytes) | ValueRef::Blob(bytes) => bytes,
-                ValueRef::Null => &[],
-                _ => anyhow::bail!("消息正文类型异常，local_id={id}"),
-            };
-            let compression: Option<i64> = row.get(5)?;
-            let text = if was_null {
-                String::new()
-            } else if compression == Some(4) {
-                String::from_utf8(zstd::decode_all(bytes)?)?
-            } else {
-                String::from_utf8(bytes.to_vec())?
-            };
-            let mapped = sender_id
-                .and_then(|id| ids.get(&id))
-                .map(String::as_str)
-                .unwrap_or("");
-            let sender = crate::message::identity::export_sender(
-                mapped,
-                "",
-                false,
-                &target.username,
-                &target.chat,
-                me,
-                &names.map,
-            );
-            let extracted = crate::message::export_content::extract_with_context(
-                kind,
-                (!was_null).then_some(text.as_str()),
-                &context,
-            )?;
-            let mut extras = extracted.extras;
-            extras.insert("source".into(), Value::String(source.clone()));
-            extras.insert("table_name".into(), Value::String(table.clone()));
-            append_details(
-                &mut extras,
-                row,
-                kind,
-                mapped,
-                "",
-                false,
-                &target.username,
-                (!was_null).then_some(text.as_str()),
-            )
-            .with_context(|| format!("目录导出消息字段无效: {source}, local_id={id}"))?;
-            document.messages.push(Message::new(
-                id,
-                kind,
-                timestamp,
-                sender,
-                extracted.content,
-                extras,
-            )?);
-        }
+        snapshot.visit_export(
+            stream,
+            &Filter::default(),
+            ExportProfile::Directory,
+            |row| {
+                let mapped = row.mapped_sender.as_deref().unwrap_or("");
+                let sender = crate::message::identity::export_sender(
+                    mapped,
+                    "",
+                    false,
+                    &target.username,
+                    &target.chat,
+                    me,
+                    &names.map,
+                );
+                let extracted = crate::message::export_content::extract_with_context(
+                    row.local_type,
+                    row.decoded.as_deref(),
+                    &context,
+                )?;
+                let mut extras = extracted.extras;
+                extras.insert("source".into(), Value::String(source.clone()));
+                extras.insert("table_name".into(), Value::String(table.clone()));
+                row.append_details(&mut extras, "", false, &target.username)?;
+                document.messages.push(Message::new(
+                    row.local_id,
+                    row.local_type,
+                    row.timestamp,
+                    sender,
+                    extracted.content,
+                    extras,
+                )?);
+                Ok(())
+            },
+        )?;
     }
     ensure!(!sources.is_empty(), "找不到目录中的未映射消息表");
     document.sort_chronologically();

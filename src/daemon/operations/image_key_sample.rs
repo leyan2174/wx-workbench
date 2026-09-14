@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 use tempfile::{NamedTempFile, TempPath};
@@ -152,7 +152,9 @@ impl PreparedSample {
             identity == same_file::Handle::from_file(staged_file.try_clone()?)?,
             "暂存样本在固定句柄时发生变化"
         );
+        require_single_link(&staged_file)?;
         self.guard.verify()?;
+        crate::toolkit::ExportTarget::new_file(&self.output, &[temporary.to_path_buf()])?;
         Ok(StagedSample {
             staged_file,
             temporary,
@@ -166,12 +168,26 @@ impl PreparedSample {
 }
 
 impl StagedSample {
-    /// 仅在调用方成功提交配置后调用。
-    pub(super) fn publish(mut self) -> Result<Value> {
+    /// Called only after the caller's key-save/validated-existing-key decision.
+    pub(super) fn publish(self) -> Result<Value> {
+        self.verify_source()?;
+        let target =
+            crate::toolkit::ExportTarget::new_file(&self.output, &[self.temporary.to_path_buf()])?;
+        target
+            .write_with_checked(
+                |temporary| self.copy_verified(temporary),
+                || self.verify_source(),
+            )
+            .context("无法发布样本；不会覆盖已有输出")?;
+        Ok(json!({ "path": self.output, "format": self.format, "bytes": self.bytes }))
+    }
+
+    fn verify_identity(&self) -> Result<()> {
         self.guard.verify()?;
         self.guard.verify_replaceable_file(&self.output)?;
         require_absent(&self.output)?;
         require_single_link(&self.staged_file)?;
+        self.guard.verify_replaceable_file(&self.temporary)?;
         ensure!(
             !fs::symlink_metadata(&self.temporary)?
                 .file_type()
@@ -180,37 +196,47 @@ impl StagedSample {
                     == same_file::Handle::from_path(&self.temporary)?,
             "暂存样本的路径身份发生变化"
         );
-        self.guard.verify_replaceable_file(&self.temporary)?;
         ensure!(
-            self.staged_file.metadata()?.len() == self.bytes,
-            "暂存样本发生变化"
+            self.bytes <= MAX_DAT_BYTES && self.staged_file.metadata()?.len() == self.bytes,
+            "暂存样本发生变化或超过 64 MiB 大小限制"
         );
+        Ok(())
+    }
+
+    fn stream_verified(&self, mut output: Option<&mut File>) -> Result<()> {
+        let mut source = &self.staged_file;
+        source.seek(SeekFrom::Start(0))?;
         let mut digest = Sha256::new();
         let mut buffer = Zeroizing::new([0u8; 64 * 1024]);
         let mut remaining = self.bytes;
         while remaining > 0 {
             let count = remaining.min(buffer.len() as u64) as usize;
-            self.staged_file.read_exact(&mut buffer[..count])?;
+            source.read_exact(&mut buffer[..count])?;
             digest.update(&buffer[..count]);
+            if let Some(file) = output.as_deref_mut() {
+                file.write_all(&buffer[..count])?;
+            }
             remaining -= count as u64;
         }
         ensure!(
             <[u8; 32]>::from(digest.finalize()) == self.digest,
             "暂存样本的内容发生变化"
         );
-        self.guard.verify()?;
-        self.guard.verify_replaceable_file(&self.temporary)?;
-        ensure!(
-            same_file::Handle::from_file(self.staged_file.try_clone()?)?
-                == same_file::Handle::from_path(&self.temporary)?,
-            "暂存样本的路径身份在发布前发生变化"
-        );
-        let report = json!({ "path": self.output, "format": self.format, "bytes": self.bytes });
-        self.temporary
-            .persist_noclobber(&self.output)
-            .map_err(|error| error.error)
-            .context("无法发布样本；不会覆盖已有输出")?;
-        Ok(report)
+        Ok(())
+    }
+
+    fn verify_source(&self) -> Result<()> {
+        self.verify_identity()?;
+        self.stream_verified(None)?;
+        self.verify_identity()
+    }
+
+    fn copy_verified(&self, path: &Path) -> Result<()> {
+        self.verify_identity()?;
+        let mut output = OpenOptions::new().write(true).truncate(true).open(path)?;
+        self.stream_verified(Some(&mut output))?;
+        output.flush()?;
+        self.verify_identity()
     }
 }
 
@@ -245,3 +271,7 @@ fn require_single_link(file: &File) -> Result<()> {
         bail!("样本导出需要 Windows 路径固定句柄支持")
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/fixtures/image-key-sample/tests.rs"]
+mod tests;

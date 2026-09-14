@@ -1,13 +1,13 @@
 //! 仅处理账号显式提供的 URL；本模块不发现账号或密钥。
-use super::types::EmojiInfo;
+use crate::adapters::wechat::emoticons::types::EmojiInfo;
 use crate::attachment::local_files::HostOutputGuard;
 use aes::cipher::{block_padding::NoPadding, BlockDecryptMut, KeyIvInit};
 use anyhow::{ensure, Context, Result};
 use std::{
     fs,
-    io::{Read, Write},
+    io::Read,
     path::PathBuf,
-    process::{Command, Stdio},
+    process::Command,
     time::{Duration, Instant},
 };
 
@@ -37,6 +37,41 @@ pub struct Downloaded {
     pub size: u64,
     pub cached: bool,
     pub conversion_fallback: bool,
+    pub converted: bool,
+}
+
+pub(crate) fn export_from(
+    source: &crate::adapters::wechat::emoticons::CatalogSource,
+    reference: &crate::business::emoticons::CatalogMediaRef,
+    guard: &HostOutputGuard,
+    opts: &DownloadOptions,
+    protected: &[PathBuf],
+) -> Result<(crate::business::emoticons::Exported, Downloaded), crate::business::media::Error> {
+    use crate::business::emoticons::{Error, Exported, Failure, Materialization, Stage};
+    let row = source.material(reference)?;
+    let downloaded = download_with_protection(&row.md5, &row.info, guard, opts, protected)
+        .map_err(|error| {
+            error
+                .downcast_ref::<Error>()
+                .copied()
+                .unwrap_or(Error::new(Stage::Download, Failure::Unavailable))
+        })?;
+    let materialization = if downloaded.cached {
+        Materialization::LegacyCache
+    } else if downloaded.conversion_fallback {
+        Materialization::ConversionFallback
+    } else if downloaded.converted {
+        Materialization::Converted
+    } else {
+        Materialization::Downloaded
+    };
+    Ok((
+        Exported {
+            bytes: downloaded.size,
+            materialization,
+        },
+        downloaded,
+    ))
 }
 
 pub(crate) fn download(
@@ -44,6 +79,16 @@ pub(crate) fn download(
     info: &EmojiInfo,
     guard: &HostOutputGuard,
     opts: &DownloadOptions,
+) -> Result<Downloaded> {
+    download_with_protection(md5, info, guard, opts, &[])
+}
+
+fn download_with_protection(
+    md5: &str,
+    info: &EmojiInfo,
+    guard: &HostOutputGuard,
+    opts: &DownloadOptions,
+    protected: &[PathBuf],
 ) -> Result<Downloaded> {
     ensure!(
         md5.len() == 32 && md5.bytes().all(|b| b.is_ascii_hexdigit()),
@@ -78,6 +123,7 @@ pub(crate) fn download(
                     size,
                     cached: true,
                     conversion_fallback: false,
+                    converted: false,
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -88,6 +134,10 @@ pub(crate) fn download(
         !opts.timeout.is_zero() && opts.max_bytes >= 4 && opts.max_bytes < u64::MAX,
         "invalid emoji download limits"
     );
+    let bin_path = guard.output_root().join(format!("{md5}.bin"));
+    let bin_target = guard
+        .verify_replaceable_file(&bin_path)
+        .and_then(|_| crate::toolkit::files::ExportTarget::capture_paths(&bin_path, protected));
     let redirects = opts.max_redirects;
     let client = reqwest::blocking::Client::builder()
         .no_proxy()
@@ -106,7 +156,11 @@ pub(crate) fn download(
         .map_err(|_| anyhow::anyhow!("emoji HTTP client unavailable"))?;
     let mut data = fetch(&client, &info.cdn_url, opts).unwrap_or_default();
     if data.is_empty() && !info.encrypt_url.is_empty() && !info.aes_key.is_empty() {
-        data = decrypt(&fetch(&client, &info.encrypt_url, opts)?, &info.aes_key)?;
+        let encrypted = fetch(&client, &info.encrypt_url, opts)?;
+        data = decrypt(&encrypted, &info.aes_key).context(crate::business::media::Error::new(
+            crate::business::media::Stage::Decode,
+            crate::business::media::Failure::InvalidMaterial,
+        ))?;
     }
     ensure!(
         data.len() >= 4,
@@ -114,11 +168,13 @@ pub(crate) fn download(
     );
     let mut ext = detect(&data);
     let mut conversion_fallback = false;
+    let mut converted = false;
     if ext == "hevc" {
         match convert_hevc_to_jpeg(&data, guard, opts) {
             Ok(jpeg) => {
                 data = jpeg;
                 ext = "jpg";
+                converted = true;
             }
             Err(_) => {
                 ext = "bin";
@@ -129,41 +185,30 @@ pub(crate) fn download(
     let filename = format!("{md5}.{ext}");
     let path = guard.output_root().join(&filename);
     guard.verify_replaceable_file(&path)?;
-    let mut staged = tempfile::NamedTempFile::new_in(guard.output_root())?;
-    staged.write_all(&data)?;
-    staged.as_file().sync_all()?;
-    let mut check = staged.reopen()?;
-    let mut buffer = [0u8; 8192];
-    for chunk in data.chunks(buffer.len()) {
-        check.read_exact(&mut buffer[..chunk.len()])?;
-        ensure!(
-            &buffer[..chunk.len()] == chunk,
-            "emoji staging content changed"
-        );
-    }
-    ensure!(
-        check.read(&mut buffer[..1])? == 0,
-        "emoji staging size changed"
-    );
-    guard.verify_replaceable_file(&path)?;
-    // Python 不缓存 bin，每次重新下载后替换；失败时保留旧文件。
-    // 图片仍采用无覆盖发布，避免覆盖并发出现的缓存。
-    if ext == "bin" {
-        staged
-            .persist(&path)
-            .map_err(|e| e.error)
-            .context("emoji output publication failed")?;
+    let target = if ext == "bin" {
+        bin_target
     } else {
-        staged
-            .persist_noclobber(&path)
-            .map_err(|e| e.error)
-            .context("emoji output exists or publication failed")?;
+        crate::toolkit::files::ExportTarget::new_file(&path, protected)
     }
+    .context(crate::business::media::Error::new(
+        crate::business::media::Stage::Publication,
+        crate::business::media::Failure::Refused,
+    ))?;
+    target
+        .write_bytes_checked(&data, || {
+            guard.verify()?;
+            guard.verify_replaceable_file(&path)
+        })
+        .context(crate::business::media::Error::new(
+            crate::business::media::Stage::Publication,
+            crate::business::media::Failure::Refused,
+        ))?;
     Ok(Downloaded {
         filename,
         size: data.len() as u64,
         cached: false,
         conversion_fallback,
+        converted,
     })
 }
 
@@ -305,31 +350,15 @@ fn convert_hevc_to_jpeg(
             "-fs",
         ])
         .arg(opts.max_bytes.to_string())
-        .arg(&output)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let mut child = command.spawn().context("emoji converter unavailable")?;
-    let deadline = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if deadline.elapsed() < opts.timeout => {
-                std::thread::sleep(Duration::from_millis(10))
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                anyhow::bail!("emoji converter timed out or failed");
-            }
-        }
-    };
-    ensure!(status.success(), "emoji conversion failed");
+        .arg(&output);
+    let deadline = Instant::now()
+        .checked_add(opts.timeout)
+        .context("emoji conversion timeout invalid")?;
+    let result =
+        crate::windows_process::managed::output(&mut command, deadline, 64 * 1024, || false)
+            .context("emoji converter failed")?;
+    ensure!(result.status.success(), "emoji conversion failed");
+    guard.verify()?;
     let mut data = Vec::new();
     fs::File::open(output)?
         .take(opts.max_bytes + 1)

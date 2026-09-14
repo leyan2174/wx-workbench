@@ -149,13 +149,16 @@ impl ExportTarget {
     }
 
     pub(crate) fn capture(runtime: &crate::runtime::RuntimeContext, path: &Path) -> Result<Self> {
+        Self::capture_paths(path, &export_protected(runtime))
+    }
+
+    pub(crate) fn capture_paths(path: &Path, protected: &[PathBuf]) -> Result<Self> {
         let path = std::path::absolute(path)?;
-        let protected = export_protected(runtime);
-        validate_export_paths(&path, &protected)?;
+        validate_export_paths(&path, protected)?;
         let before = fingerprint(&path)?;
         Ok(Self {
             path,
-            protected,
+            protected: protected.to_vec(),
             before,
         })
     }
@@ -174,9 +177,30 @@ impl ExportTarget {
     }
 
     pub(crate) fn write_bytes(self, bytes: &[u8]) -> Result<()> {
-        publish(&self.path, &self.protected, self.before, |temporary| {
-            Ok(fs::write(temporary, bytes)?)
-        })
+        self.write_bytes_checked(bytes, || Ok(()))
+    }
+
+    pub(crate) fn write_bytes_checked(
+        self,
+        bytes: &[u8],
+        before_publish: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        self.write_with_checked(|temporary| Ok(fs::write(temporary, bytes)?), before_publish)
+    }
+
+    /// Stream into the private stage; callers may preserve file times before sync.
+    pub(crate) fn write_with_checked(
+        self,
+        write: impl FnOnce(&Path) -> Result<()>,
+        before_publish: impl FnOnce() -> Result<()>,
+    ) -> Result<()> {
+        publish_checked(
+            &self.path,
+            &self.protected,
+            self.before,
+            write,
+            before_publish,
+        )
     }
 }
 
@@ -256,6 +280,16 @@ fn publish(
     before: Option<Fingerprint>,
     write: impl FnOnce(&Path) -> Result<()>,
 ) -> Result<()> {
+    publish_checked(path, protected, before, write, || Ok(()))
+}
+
+fn publish_checked(
+    path: &Path,
+    protected: &[PathBuf],
+    before: Option<Fingerprint>,
+    write: impl FnOnce(&Path) -> Result<()>,
+    before_publish: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
     super::setup::check_target(path, protected)?;
     let guard = super::setup::parent_guard(path)?;
@@ -301,6 +335,8 @@ fn publish(
     super::private_file::restrict(&completed)?;
     completed.sync_all()?;
     drop(completed);
+    // Source/authorization evidence is checked after writing, before final path checks.
+    before_publish()?;
     guard.verify_replaceable_file(&temporary)?;
     ensure!(
         file_identity(&fs::File::open(&temporary)?)? == temporary_identity,
@@ -423,6 +459,133 @@ mod export_tests {
         assert!(target.write_bytes(b"new").is_err());
         drop(lock);
         assert_eq!(fs::read(&output).unwrap(), b"old");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn checked_bytes_failure_preserves_output_and_cleans_staging() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("result.bin");
+        fs::write(&output, b"old").unwrap();
+        let target = ExportTarget::capture_paths(&output, &[]).unwrap();
+        let mut checked = false;
+        let result = target.write_bytes_checked(b"new", || {
+            checked = true;
+            assert_eq!(fs::read(&output)?, b"old");
+            anyhow::bail!("synthetic source changed")
+        });
+        assert!(checked);
+        assert!(result.is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"old");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn checked_bytes_rechecks_target_after_callback() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("result.bin");
+        let target = ExportTarget::new_file(&output, &[]).unwrap();
+        assert!(target
+            .write_bytes_checked(b"new", || {
+                fs::write(&output, b"competing")?;
+                Ok(())
+            })
+            .is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"competing");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn explicit_protection_and_checked_overwrite_share_publication_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let protected = dir.path().join("protected.bin");
+        fs::write(&protected, b"protected").unwrap();
+        let alias = dir.path().join("alias.bin");
+        fs::hard_link(&protected, &alias).unwrap();
+        assert!(ExportTarget::capture_paths(&alias, &[protected.clone()]).is_err());
+        fs::remove_file(&alias).unwrap();
+        let output = dir.path().join("result.bin");
+        fs::write(&output, b"old").unwrap();
+        ExportTarget::capture_paths(&output, &[protected.clone()])
+            .unwrap()
+            .write_bytes_checked(b"new", || Ok(()))
+            .unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"new");
+        assert_eq!(fs::read(&protected).unwrap(), b"protected");
+    }
+
+    #[test]
+    fn streaming_writer_preserves_time_without_buffering_the_artifact() {
+        struct Source {
+            remaining: usize,
+            max_buffer: usize,
+        }
+        impl std::io::Read for Source {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                self.max_buffer = self.max_buffer.max(buffer.len());
+                let count = buffer.len().min(self.remaining);
+                buffer[..count].fill(b'x');
+                self.remaining -= count;
+                Ok(count)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("stream.bin");
+        let length = 1024 * 1024;
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        let mut source = Source {
+            remaining: length,
+            max_buffer: 0,
+        };
+        let mut checked = false;
+        ExportTarget::new_file(&output, &[])
+            .unwrap()
+            .write_with_checked(
+                |stage| {
+                    let mut file = fs::OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .open(stage)?;
+                    assert_eq!(std::io::copy(&mut source, &mut file)?, length as u64);
+                    file.set_times(fs::FileTimes::new().set_modified(modified))?;
+                    Ok(())
+                },
+                || {
+                    checked = true;
+                    assert!(!output.exists());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(checked);
+        assert_eq!(source.remaining, 0);
+        assert!(source.max_buffer <= 128 * 1024);
+        let metadata = fs::metadata(&output).unwrap();
+        assert_eq!(metadata.len(), length as u64);
+        assert_eq!(metadata.modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn interrupted_stream_does_not_run_verifier_or_replace_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("stream.bin");
+        fs::write(&output, b"previous").unwrap();
+        let mut checked = false;
+        let result = ExportTarget::capture_paths(&output, &[])
+            .unwrap()
+            .write_with_checked(
+                |stage| {
+                    fs::write(stage, b"partial stream")?;
+                    anyhow::bail!("synthetic short stream")
+                },
+                || {
+                    checked = true;
+                    Ok(())
+                },
+            );
+        assert!(result.is_err());
+        assert!(!checked);
+        assert_eq!(fs::read(&output).unwrap(), b"previous");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 

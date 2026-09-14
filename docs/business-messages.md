@@ -58,3 +58,38 @@ Verification is coordinated by the parent task. Synthetic tests cover duplicate
 records, expiry, metadata-only sources, server scalar types and cross-time ambiguity,
 source whitelisting, unknown call media, unmapped identities and session compatibility.
 This document does not claim unrun tests have passed.
+
+## Statistics and Explicit Export
+
+Statistics use the validated snapshot's metadata projection, without requiring
+body columns. SQLite conversion errors, unavailable sender mappings and arithmetic
+overflow fail the request; they are not counted as zero. The adapter converts
+WeChat types and local-time hours; business statistics aggregate semantic kinds.
+
+The adapter owns session/contact source requests. Hosts resolve their opaque
+descriptors through DbCache; callers cannot supply paths through these descriptors.
+The directory catalog uses validated snapshot streams, not session summaries.
+
+Raw export is a separate projection with nullable timestamps and original SQLite
+storage types. Compact, directory and delta retain distinct compatibility formats;
+they do not serialize ordinary history messages. Raw export streams rows without
+the interactive 100,000-candidate cap, with a separate 64 MiB per stored/decoded
+body ceiling. Publication and whole-output budgets remain with existing exporters.
+Only the explicit delta profile retains its old malformed-compression missing-text
+behavior, while preserving original bytes; resource-limit errors never fall back.
+Its inverted time window retains the legacy empty SQL result, without skipping
+source or projection checks. Other profiles retain normal time-range validation.
+
+Attachment listing has a separate legacy conversion policy. It reports skipped
+invalid rows and degraded sender text; strict metadata rejects row conversion
+errors. Neither policy suppresses source, schema, SQL execution or budget errors.
+
+Legacy transfer/location diagnostics consume only explicitly selected snapshot
+streams. They return detached, non-serializable raw diagnostic records, not verified
+MessageRefs. Production source keys come from the account's selected catalog;
+synthetic keys are constructed only by test fixtures. Timestamp zero retains its
+legacy no-time-filter meaning. All candidate diagnostics are retained within the
+existing bounded read budgets; ambiguity is reported before type checking, and
+type checking before lazy lossy legacy content decoding. Existing transfer/location
+parsers and wire fields remain unchanged. This path does not widen an explicit
+source scope or replace MCP's strict evidence-resolution policy.

@@ -8,7 +8,6 @@ use crate::{
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -131,15 +130,7 @@ fn selected(runtime: &RuntimeContext, args: &Args) -> Result<Vec<Target>> {
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| std::env::var("WECHAT_EXPORT_USERS").unwrap_or_default());
-    if !filter.trim().is_empty() {
-        let wanted: HashSet<_> = filter
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .collect();
-        targets.retain(|target| wanted.contains(target.username.as_str()));
-        ensure!(!targets.is_empty(), "指定 username 列表跟会话表没有交集");
-    }
+    super::export_chats::filter_targets(&mut targets, &filter)?;
     if let Some(path) = &args.from_plan_csv {
         let plan = Plan::load(path, args.plan_mode)?;
         let order = plan.select(targets.iter().map(|t| t.username.as_str()))?;

@@ -1,9 +1,8 @@
 //! 有限本地媒体编排；只扫描显式账号根，持有路径句柄，复用现有解析及解码核心。
 use super::{Media, Options, Row};
+use crate::adapters::wechat::media::local_read::{bounded_read, hash32, Scan};
 use crate::{
-    attachment::{
-        decoder, image_metadata, local_files::HostOutputGuard, native_image::MessageIdentity,
-    },
+    attachment::decoder,
     message::export::Target,
     runtime::RuntimeContext,
     toolkit::{asr, attachment_refs as refs},
@@ -12,7 +11,6 @@ use anyhow::{ensure, Context, Result};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    fs,
     io::{Read, Seek},
     path::{Path, PathBuf},
 };
@@ -25,6 +23,7 @@ pub(super) struct Inputs {
     stickers: Option<PathBuf>,
     sources: Option<Vec<asr::database_media::DecryptedSource>>,
     resources: Vec<PathBuf>,
+    emoticon_catalog: Option<PathBuf>,
     aes: Option<zeroize::Zeroizing<[u8; 16]>>,
     xor: u8,
 }
@@ -75,6 +74,7 @@ impl Inputs {
         });
         let aes = stored.0.map(zeroize::Zeroizing::new);
         let xor = stored.1;
+        let mut emoticon_catalog = None;
         let mut resources = if sources.is_none() {
             vec![runtime
                 .config
@@ -117,6 +117,10 @@ impl Inputs {
                             resources.push(source.path.clone());
                             continue;
                         }
+                        if name == "emoticon/emoticon.db" {
+                            emoticon_catalog = Some(source.path.clone());
+                            continue;
+                        }
                         if name == "contact/contact.db" {
                             continue;
                         }
@@ -148,6 +152,7 @@ impl Inputs {
                 .or_else(|| Some(parent.join("exported_emoticons"))),
             sources,
             resources,
+            emoticon_catalog,
             aes,
             xor,
         })
@@ -156,6 +161,7 @@ impl Inputs {
         let mut paths = vec![self.account.clone(), self.decrypted.clone()];
         paths.extend(self.msgattach.iter().cloned());
         paths.extend(self.stickers.iter().cloned());
+        paths.extend(self.emoticon_catalog.iter().cloned());
         paths
     }
     fn key(&self) -> decoder::V2KeyMaterial<'_> {
@@ -282,7 +288,12 @@ pub(super) fn prepare(
         let media = match base {
             3 => images
                 .messages
-                .get(&(row.source.clone(), row.local_id))
+                .get(&(
+                    row.source.clone(),
+                    row.local_id,
+                    row.create_time,
+                    row.local_type,
+                ))
                 .cloned()
                 .unwrap_or_else(|| marker("image", "unavailable", "图片资源关联缺失")),
             34 => voice(inputs, target, row, output)?,
@@ -307,91 +318,6 @@ fn app_type(row: &Row) -> Option<i64> {
         .ok()
 }
 
-/// 明确的扫描预算，不使用 glob 跟随目录联接；守卫活到候选读取结束。
-struct Scan {
-    left: usize,
-    guards: Vec<HostOutputGuard>,
-}
-impl Scan {
-    fn new() -> Self {
-        Self {
-            left: 20_000,
-            guards: Vec::new(),
-        }
-    }
-    fn entries(&mut self, root: &Path) -> Result<Vec<(PathBuf, bool)>> {
-        match fs::symlink_metadata(root) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(e.into()),
-            Ok(_) => {}
-        }
-        ensure!(self.guards.len() < 1024, "媒体目录数量超过上限");
-        self.guards.push(HostOutputGuard::new(root)?);
-        let mut entries = Vec::new();
-        for entry in fs::read_dir(root)? {
-            self.left = self
-                .left
-                .checked_sub(1)
-                .context("媒体目录扫描条目超过上限")?;
-            let entry = entry?;
-            let meta = fs::symlink_metadata(entry.path())?;
-            use std::os::windows::fs::MetadataExt;
-            ensure!(
-                meta.file_attributes() & 0x400 == 0 && !meta.file_type().is_symlink(),
-                "媒体目录含重解析路径，拒绝跟随"
-            );
-            ensure!(meta.is_file() || meta.is_dir(), "媒体目录含非常规文件");
-            entries.push((entry.path(), meta.is_dir()));
-        }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
-        Ok(entries)
-    }
-    fn verify(&self) -> Result<()> {
-        for guard in &self.guards {
-            guard.verify()?;
-        }
-        Ok(())
-    }
-    fn walk(
-        &mut self,
-        root: &Path,
-        depth: usize,
-        accept: &impl Fn(&Path) -> bool,
-        out: &mut Vec<PathBuf>,
-    ) -> Result<()> {
-        ensure!(depth <= 8, "媒体目录扫描深度超过上限");
-        for (path, is_dir) in self.entries(root)? {
-            if is_dir {
-                self.walk(&path, depth + 1, accept, out)?;
-            } else if accept(&path) {
-                ensure!(out.len() < 128, "媒体候选超过上限");
-                out.push(path);
-            }
-        }
-        Ok(())
-    }
-}
-fn bounded_read(path: &Path, stage: &Path, limit: u64) -> Result<Vec<u8>> {
-    let mut guard = HostOutputGuard::new(stage)?;
-    guard.pin_input(path)?;
-    let file = fs::File::open(path)?;
-    ensure!(
-        file.metadata()?.len() <= limit,
-        "媒体文件超过单文件或剩余预算"
-    );
-    let mut bytes = Vec::new();
-    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() as u64 <= limit, "媒体读取超过预算");
-    guard.verify()?;
-    Ok(bytes)
-}
-fn hash32(raw: &str) -> Result<String> {
-    ensure!(
-        raw.len() == 32 && raw.bytes().all(|b| b.is_ascii_hexdigit()),
-        "媒体 MD5 无效或缺失"
-    );
-    Ok(raw.to_ascii_lowercase())
-}
 fn month(raw: &str) -> bool {
     let b = raw.as_bytes();
     b.len() == 7
@@ -403,7 +329,7 @@ fn month(raw: &str) -> bool {
 #[derive(Default)]
 pub(super) struct ImageCatalog {
     pub(super) directory: BTreeMap<String, Media>,
-    messages: BTreeMap<(String, i64), Media>,
+    messages: BTreeMap<(String, i64, Option<i64>, i64), Media>,
 }
 
 pub(super) fn image_catalog(
@@ -498,77 +424,82 @@ pub(super) fn image_catalog(
                 binding: Some("chat_directory_filename_heuristic".into()),
             })
         })();
-        catalog.directory.insert(
-            hash,
-            result.unwrap_or_else(|e| marker("image", "unavailable", format!("{e:#}"))),
-        );
+        catalog
+            .directory
+            .insert(hash, result.unwrap_or_else(|e| failure_marker("image", &e)));
     }
     scan.verify()?;
     let images: Vec<_> = rows
         .iter()
         .filter(|r| r.local_type & 0xffff_ffff == 3)
         .collect();
-    let mut counts = BTreeMap::new();
-    for row in &images {
-        *counts
-            .entry((row.local_id, row.create_time, row.local_type))
-            .or_insert(0usize) += 1;
+    if images.is_empty() {
+        return Ok(catalog);
     }
-    // 资源库没有消息分片列；跨分片同身份不能冒充唯一关联。
-    for page in images.chunks(1000) {
-        let identities: Vec<_> = page
-            .iter()
-            .filter(|r| r.create_time.is_some())
-            .map(|row| {
-                (
-                    MessageIdentity {
-                        username: target.username.clone(),
-                        source: row.source.clone(),
-                        local_id: row.local_id,
-                        create_time: row.create_time.unwrap(),
-                        local_type: row.local_type,
-                    },
-                    counts[&(row.local_id, row.create_time, row.local_type)] > 1,
-                )
+    let sources = if let Some(sources) = &inputs.sources {
+        sources.clone()
+    } else {
+        asr::database_media::source_files(&inputs.decrypted)?
+            .into_iter()
+            .map(|path| {
+                let source = path
+                    .strip_prefix(&inputs.decrypted)
+                    .context("message source outside decrypted root")?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                Ok(asr::database_media::DecryptedSource { source, path })
             })
-            .collect();
-        let mut matches = vec![(None::<String>, None::<String>); identities.len()];
-        for resource in &inputs.resources {
-            match image_metadata::read_page(Some(resource), None, &identities) {
-                Ok(metadata) => {
-                    for (slot, meta) in matches.iter_mut().zip(metadata) {
-                        if let Some(hash) = meta.md5 {
-                            if slot.0.replace(hash.to_ascii_lowercase()).is_some() {
-                                slot.1 = Some("多个资源分片命中同一图片身份".into());
-                            }
-                        } else if meta.resource_status != "missing" {
-                            slot.1 = Some(format!("图片资源状态：{}", meta.resource_status));
-                        }
-                    }
-                }
-                Err(error) => {
-                    for slot in &mut matches {
-                        slot.1 = Some(format!("图片资源读取失败：{error:#}"));
-                    }
-                }
-            }
-        }
-        for ((identity, _), (hash, error)) in identities.into_iter().zip(matches) {
-            let mut media = if let Some(error) = error {
-                marker("image", "unavailable", error)
-            } else {
-                hash.as_deref()
-                    .and_then(|hash| catalog.directory.get(hash))
-                    .cloned()
-                    .unwrap_or_else(|| marker("image", "unavailable", "精确图片资源或本地图片缺失"))
+            .collect::<Result<Vec<_>>>()?
+    };
+    let files: Vec<_> = sources
+        .into_iter()
+        .filter(|source| super::shard_name(&source.source).is_ok())
+        .map(|source| crate::adapters::wechat::messages::SourceFile {
+            logical_name: source.source,
+            path: source.path,
+            kind: crate::business::messages::SourceKind::Ordinary,
+        })
+        .collect();
+    let pins = files
+        .iter()
+        .map(|file| crate::attachment::local_files::Pin::open(&file.path, false))
+        .collect::<Result<Vec<_>>>()?;
+    let snapshot =
+        crate::adapters::wechat::messages::Snapshot::open(files, [target.username.clone()])?;
+    for row in images {
+        let result = crate::adapters::wechat::media::image_digest(
+            &snapshot,
+            &crate::business::messages::MessageSelector {
+                username: &target.username,
+                local_id: row.local_id,
+                timestamp: row.create_time,
+            },
+            &row.source,
+            row.local_type,
+            &inputs.resources,
+        );
+        let mut media =
+            match result {
+                Ok(hash) => catalog.directory.get(&hash).cloned().unwrap_or_else(|| {
+                    marker("image", "unavailable", "精确图片资源或本地图片缺失")
+                }),
+                Err(error) => failure_marker("image", &error.into()),
             };
-            if media.status == "available" {
-                media.binding = Some("exact_resource_filename_heuristic".into());
-            }
-            catalog
-                .messages
-                .insert((identity.source, identity.local_id), media);
+        if media.status == "available" {
+            media.binding = Some("exact_resource_filename_heuristic".into());
         }
+        catalog.messages.insert(
+            (
+                row.source.clone(),
+                row.local_id,
+                row.create_time,
+                row.local_type,
+            ),
+            media,
+        );
+    }
+    for pin in &pins {
+        pin.verify()?;
     }
     Ok(catalog)
 }
@@ -750,19 +681,34 @@ fn named_media(
         .find(|n| n.has_tag_name(if sticker { "emoji" } else { "videomsg" }))
         .context("媒体 XML 缺少节点")?;
     let hash = hash32(node.attribute("md5").unwrap_or(""))?;
-    let roots = if sticker {
-        vec![inputs
+    if sticker {
+        let root = inputs
             .stickers
-            .clone()
-            .context("未配置 emoticon_output_dir；不自动下载表情")?]
-    } else {
-        vec![
-            inputs.account.join("msg/video"),
-            inputs
-                .attach
-                .join(format!("{:x}", md5::compute(target.username.as_bytes()))),
-        ]
-    };
+            .as_deref()
+            .context("未配置 emoticon_output_dir；不自动下载表情")?;
+        let resolved = crate::adapters::wechat::media::local_emoticon::resolve(
+            root,
+            inputs.emoticon_catalog.as_deref(),
+            &hash,
+            output.stage,
+            output.options.max_media_bytes.min(*output.budget),
+            output.options.max_total_media_bytes.min(500 * 1024 * 1024),
+        )?;
+        return store(
+            output,
+            "sticker",
+            resolved.format,
+            &resolved.bytes,
+            "表情包".into(),
+            resolved.binding.label().into(),
+        );
+    }
+    let roots = vec![
+        inputs.account.join("msg/video"),
+        inputs
+            .attach
+            .join(format!("{:x}", md5::compute(target.username.as_bytes()))),
+    ];
     let mut scan = Scan::new();
     let mut candidates = Vec::new();
     for root in roots {
@@ -775,7 +721,7 @@ fn named_media(
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_ascii_lowercase();
-                stem == hash || (!sticker && stem == format!("{hash}_raw"))
+                stem == hash || stem == format!("{hash}_raw")
             },
             &mut candidates,
         )?;
@@ -803,29 +749,13 @@ fn named_media(
     }
     let bytes = selected.context("本地媒体与消息 MD5 不匹配")?;
     scan.verify()?;
-    if sticker {
-        let ext = decoder::detect_image_format(&bytes);
-        ensure!(
-            matches!(ext, "jpg" | "png" | "gif" | "webp"),
-            "表情不是可展示的本地图片"
-        );
-        store(
-            output,
-            "sticker",
-            ext,
-            &bytes,
-            "表情包".into(),
-            "message_md5".into(),
-        )
-    } else {
-        ensure!(is_mp4(&bytes), "本地视频不是受支持的 MP4");
-        store(
-            output,
-            "video",
-            "mp4",
-            &bytes,
-            "视频".into(),
-            "message_md5".into(),
-        )
-    }
+    ensure!(is_mp4(&bytes), "本地视频不是受支持的 MP4");
+    store(
+        output,
+        "video",
+        "mp4",
+        &bytes,
+        "视频".into(),
+        "message_md5".into(),
+    )
 }

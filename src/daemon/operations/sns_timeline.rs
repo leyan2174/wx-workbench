@@ -1,12 +1,11 @@
 //! 选中配置的 SNS 生产宿主；不发现其他账号，不启动旧 Python。
+use crate::toolkit::directory_publish::ExistingPolicy;
 use crate::{
     runtime::RuntimeContext,
     toolkit::sns::{
         self,
         cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
-        export_database_with_publication,
-        publish::ExistingPolicy,
-        TimelinePublication,
+        export_database_with_publication, TimelinePublication,
     },
 };
 use anyhow::{ensure, Context, Result};

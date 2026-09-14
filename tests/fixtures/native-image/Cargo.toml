@@ -9,6 +9,8 @@ doctest = false
 
 [dependencies]
 anyhow = "1"
+sha2 = "0.10"
+dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "=1.0.140"
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -21,4 +23,4 @@ same-file = "1"
 zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_Shell"] }

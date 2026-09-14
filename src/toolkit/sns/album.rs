@@ -1,8 +1,7 @@
 //! 相册媒体编排：显式输入和来源绑定，不发现账号、不启动 Python 或 Node。
-use super::{
-    album_images, album_render, album_videos, cache, publish, video_runtime::VideoRuntime,
-};
+use super::{album_images, album_render, album_videos, cache, video_runtime::VideoRuntime};
 use crate::attachment::local_files::HostOutputGuard;
+use crate::toolkit::directory_publish as publish;
 use anyhow::{bail, ensure, Context, Result};
 use serde_json::{json, Map, Value};
 use std::{

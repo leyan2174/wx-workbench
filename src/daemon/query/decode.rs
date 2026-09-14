@@ -1,7 +1,15 @@
 //! 消息详细解码共用的定位逻辑：扫描全部已知分片，明确报告 ID 冲突。
 
 use super::*;
+use crate::adapters::wechat::messages::{Snapshot, SourceFile};
+use crate::business::messages::SourceKind;
 use std::path::PathBuf;
+
+struct DecodeShard {
+    source: SourceFile,
+    table: String,
+    display_source: PathBuf,
+}
 
 #[derive(Clone, Copy)]
 pub enum DecodeKind {
@@ -22,18 +30,27 @@ pub async fn q_decode(
     };
     let (resolved, _) = find_msg_shards(db, names, &username).await?;
     // 缓存路径用于读取；原数据库路径用于来源展示，两者不能混用。
-    let sources: HashMap<PathBuf, PathBuf> = resolved
-        .iter()
-        .map(|s| (s.path.clone(), PathBuf::from(&s.rel_key)))
+    let shards: Vec<_> = resolved
+        .into_iter()
+        .map(|shard| DecodeShard {
+            source: SourceFile {
+                logical_name: shard.rel_key.clone(),
+                path: shard.path,
+                kind: SourceKind::Ordinary,
+            },
+            table: shard.table,
+            display_source: PathBuf::from(shard.rel_key),
+        })
         .collect();
-    let shards: Vec<_> = resolved.into_iter().map(|s| (s.path, s.table)).collect();
     if shards.is_empty() {
         return Ok(failure(1, format!("找不到 {chat} 的消息表")));
     }
-    tokio::task::spawn_blocking(move || {
-        lookup_with_sources(&shards, &sources, &username, local_id, create_time, kind)
+    let result = tokio::task::spawn_blocking(move || {
+        lookup_selected(&shards, &username, local_id, create_time, kind)
     })
-    .await?
+    .await?;
+    ensure_complete_message_inventory(db, names)?;
+    result
 }
 
 fn failure(exit_code: i32, text: String) -> Value {
@@ -68,39 +85,68 @@ fn lookup_kind(
     create_time: i64,
     decode_kind: DecodeKind,
 ) -> Result<Value> {
-    lookup_with_sources(
-        shards,
-        &HashMap::new(),
-        username,
-        local_id,
-        create_time,
-        decode_kind,
-    )
+    let selected = shards
+        .iter()
+        .enumerate()
+        .map(|(index, (path, table))| DecodeShard {
+            source: SourceFile {
+                logical_name: format!("message/message_{index}.db"),
+                path: path.clone(),
+                kind: SourceKind::Ordinary,
+            },
+            table: table.clone(),
+            display_source: path.clone(),
+        })
+        .collect::<Vec<_>>();
+    lookup_selected(&selected, username, local_id, create_time, decode_kind)
 }
 
-fn lookup_with_sources(
-    shards: &[(PathBuf, String)],
-    sources: &HashMap<PathBuf, PathBuf>,
+fn lookup_selected(
+    shards: &[DecodeShard],
     username: &str,
     local_id: i64,
     create_time: i64,
     decode_kind: DecodeKind,
 ) -> Result<Value> {
     let mut matches = Vec::new();
-    for (path, table) in shards {
-        anyhow::ensure!(msg_table_re().is_match(table), "消息表名不合法");
-        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        let mut statement = conn.prepare(&format!("SELECT local_type, create_time, message_content, WCDB_CT_message_content FROM [{table}] WHERE local_id=?1 AND (?2=0 OR create_time=?2)"))?;
-        let rows = statement.query_map([local_id, create_time], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                get_content_bytes(row, 2),
-                row.get::<_, i64>(3).unwrap_or(0),
-            ))
-        })?;
-        for row in rows {
-            matches.push((sources.get(path).unwrap_or(path).clone(), row?));
+    if !shards.is_empty() {
+        let mut files = Vec::new();
+        let mut selected = Vec::new();
+        let mut displays = HashMap::new();
+        for shard in shards {
+            crate::adapters::wechat::messages::read::diagnostics::validate_table(&shard.table)?;
+            displays.insert(
+                shard.source.logical_name.clone(),
+                shard.display_source.clone(),
+            );
+            files.push(shard.source.clone());
+            selected.push((shard.source.logical_name.clone(), shard.table.clone()));
+        }
+        let snapshot = Snapshot::open(files, [username.to_owned()])?;
+        let mut streams = Vec::new();
+        for (logical, table) in selected {
+            let mut selected_stream = None;
+            for (index, stream) in snapshot.streams().iter().enumerate() {
+                if snapshot.source_name(index)? == logical
+                    && stream.table_name().eq_ignore_ascii_case(&table)
+                {
+                    selected_stream = Some(index);
+                    break;
+                }
+            }
+            let stream = selected_stream.context("selected message table unavailable")?;
+            streams.push(stream);
+        }
+        for evidence in snapshot.decode_diagnostics(
+            &streams,
+            local_id,
+            (create_time != 0).then_some(create_time),
+        )? {
+            let display = displays
+                .get(&evidence.logical_source)
+                .context("selected message source unavailable")?
+                .clone();
+            matches.push((display, evidence));
         }
     }
     if matches.is_empty() {
@@ -115,7 +161,8 @@ fn lookup_with_sources(
     if matches.len() > 1 {
         let details: Vec<_> = matches
             .iter()
-            .map(|(path, (_, time, _, _))| {
+            .map(|(path, evidence)| {
+                let time = evidence.timestamp;
                 format!(
                     "{} create_time={time}",
                     path.file_name().unwrap_or_default().to_string_lossy()
@@ -131,7 +178,9 @@ fn lookup_with_sources(
             ),
         ));
     }
-    let (path, (kind, time, bytes, compression)) = matches.pop().unwrap();
+    let (path, evidence) = matches.pop().unwrap();
+    let kind = evidence.local_type;
+    let time = evidence.timestamp;
     let expected_type = match decode_kind {
         DecodeKind::Transfer => 49,
         DecodeKind::Location => 48,
@@ -142,7 +191,7 @@ fn lookup_with_sources(
             format!("消息类型不匹配（local_type={kind}），期望 base_type={expected_type}"),
         ));
     }
-    let xml = decompress_message(&bytes, compression);
+    let (xml, _) = evidence.legacy_content()?;
     let xml = if username.ends_with("@chatroom") {
         strip_group_prefix(&xml)
     } else {
@@ -236,6 +285,73 @@ mod tests {
     }
 
     const XML: &str = "<msg><appmsg><type>2000</type><title>微信转账</title><wcpayinfo><paysubtype>1</paysubtype><feedesc>¥0.01</feedesc><transferid>test-id</transferid></wcpayinfo></appmsg></msg>";
+
+    #[test]
+    fn explicit_diagnostic_scope_is_not_expanded_to_other_shards() {
+        let fixture = Fixture::new();
+        let shards = vec![
+            fixture.shard("message_0.db", 100, false, 49, XML),
+            fixture.shard("message_1.db", 100, false, 49, XML),
+        ];
+        let before = shards
+            .iter()
+            .map(|(path, _)| std::fs::read(path).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lookup(&shards[..1], "test-person", 7, 100).unwrap()["exit_code"],
+            0
+        );
+        let result = lookup(&shards, "test-person", 7, 100).unwrap();
+        assert_eq!(result["exit_code"], 2);
+        assert_eq!(result["status"], "refused");
+        assert!(result["text"]
+            .as_str()
+            .unwrap()
+            .contains("message_0.db create_time=100"));
+        assert!(result["text"]
+            .as_str()
+            .unwrap()
+            .contains("message_1.db create_time=100"));
+        assert_eq!(
+            before,
+            shards
+                .iter()
+                .map(|(path, _)| std::fs::read(path).unwrap())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ambiguity_and_wrong_type_precede_diagnostic_body_decode() {
+        let fixture = Fixture::new();
+        let oversized = "x".repeat(crate::adapters::wechat::messages::MAX_DECODED_BYTES + 1);
+        let wrong = fixture.shard("wrong.db", 100, true, 1, &oversized);
+        let result = lookup(std::slice::from_ref(&wrong), "test-person", 7, 100).unwrap();
+        assert_eq!(result["exit_code"], 1);
+        assert!(result["text"].as_str().unwrap().contains("消息类型不匹配"));
+        let valid = fixture.shard("valid.db", 100, false, 49, XML);
+        assert_eq!(
+            lookup(&[wrong, valid], "test-person", 7, 100).unwrap()["exit_code"],
+            2
+        );
+    }
+
+    #[test]
+    fn legacy_diagnostics_keep_plain_xml_with_compression_marker_fallback() {
+        let fixture = Fixture::new();
+        let shard = fixture.shard("message_0.db", 100, false, 49, XML);
+        Connection::open(&shard.0)
+            .unwrap()
+            .execute_batch(&format!(
+                "UPDATE [{}] SET WCDB_CT_message_content=4",
+                shard.1
+            ))
+            .unwrap();
+        assert_eq!(
+            lookup(&[shard], "test-person", 7, 100).unwrap()["exit_code"],
+            0
+        );
+    }
 
     #[test]
     fn location_shards_compression_group_and_errors() {

@@ -87,11 +87,12 @@ fn daemon_and_shared_services_do_not_depend_on_cli_modules() {
     for file in sources(&root.join("daemon"))
         .into_iter()
         .chain(sources(&root.join("service")))
+        .chain(sources(&root.join("toolkit/web")))
     {
         let source = fs::read_to_string(&file).unwrap();
         assert!(
             !production_depends_on_cli(&source),
-            "Service depends on a CLI module: {}",
+            "Execution, service or Web module depends on CLI: {}",
             file.display()
         );
     }

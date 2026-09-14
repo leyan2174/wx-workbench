@@ -128,6 +128,7 @@ pub enum Stage {
     Decode,
     Transcription,
     Publication,
+    Download,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -168,6 +169,29 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod stage_label_tests {
+    use super::{Error, Failure, Stage};
+
+    #[test]
+    fn download_is_distinct_and_existing_stage_labels_are_unchanged() {
+        for (stage, label) in [
+            (Stage::Discovery, "Discovery"),
+            (Stage::Association, "Association"),
+            (Stage::Revalidation, "Revalidation"),
+            (Stage::Decode, "Decode"),
+            (Stage::Transcription, "Transcription"),
+            (Stage::Publication, "Publication"),
+            (Stage::Download, "Download"),
+        ] {
+            assert_eq!(
+                Error::new(stage, Failure::Unavailable).to_string(),
+                format!("Media {label}: Unavailable"),
+            );
+        }
+    }
+}
 
 /// Distinct entry contracts, not permission to retry a failed strict association.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

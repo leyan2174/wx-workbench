@@ -19,9 +19,9 @@ wx-cli 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、输出�
 
 本阶段的源码依赖方向是：入口与执行宿主消费业务契约；`src/adapters/wechat` 实现 `src/business` 的窄数据接口；装配仍复用固定账号的 `DbCache`、查询租约和既有执行边界。业务模块不依赖 SQLite、clap、daemon、具体微信适配器或动态 JSON 值。公共 Operation 请求和 MCP Call 由 service 契约模块拥有，CLI 解析类型与执行请求在入口边界转换。
 
-当前迁移涉及联系人、群成员与标签、朋友圈查询、[收藏](favorites-boundary.md)、[结构化消息预览](structured-message-boundary.md)，以及[会话与消息读取](business-messages.md)、[严格图片和语音关联](media-boundaries.md)、[公众号文章](../src/business/ARTICLES.md)与[增量归档](archive-boundary.md)。各域保留真实来源适配与原有入口投影，不新建任务服务或通用业务总管。业务内存测试单独编译真实业务模块；语法级测试约束新增代码的依赖方向。
+当前迁移涉及联系人、群成员与标签、朋友圈查询、[收藏](favorites-boundary.md)、[结构化消息预览](structured-message-boundary.md)，以及[会话、消息读取、统计与原始导出](business-messages.md)、[附件列表、目录媒体、严格图片和语音关联](media-boundaries.md)、[公众号文章](../src/business/ARTICLES.md)、[表情](../src/business/EMOTICONS.md)与[全量和增量归档](archive-boundary.md)。各域保留真实来源适配与原有入口投影，不新建任务服务或通用业务总管。业务内存测试单独编译真实业务模块；语法级测试约束新增代码的依赖方向。
 
-这不是整仓完成声明。普通附件清单及目录媒体消费者、表情、部分统计与批量原始导出、全量归档编排仍需继续收敛；严格图片的专用发布接口也尚未完全并入共享单文件发布器。部分共享格式助手和执行工作流仍在 `message`、`toolkit`、旧查询及操作模块中；不能据新目录名断言微信 schema 变化已完全被适配层隔离。各阶段还必须通过合成来源、协议兼容和实际进程通道验证。
+这不是仅凭目录结构作出的整仓验收声明。原始导出仍保留显式的物理来源诊断与不透明文档，普通业务对象不依赖其 JSON 结构。复用的格式助手与执行工作流仍有部分位于 `message`、`toolkit` 和操作模块；它们不因搬迁调用方就自动成为业务契约。严格媒体关联与历史列表兼容策略、本地表情摘要匹配与授权目录证据须分别说明。各阶段还必须通过合成来源、协议兼容和实际进程通道验证。
 
 ## 账号身份
 
@@ -93,7 +93,11 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 `src/daemon/operations` 组织初始化、导出、增量、计划、音频和 SNS 操作。类型化调用不递归解析公共 CLI，也不因兼容命令名而执行任意脚本。
 
-增量归档的目标去重、响应身份核对、部分失败与批次完成由 `business::archive` 负责。宿主装配既有查询传输及原始文档发布器，生产发布携带固定账号的保护路径。单文件原子提交、清单最后提交，不声称整个目录事务性或自动续跑。执行层的纯 `transport` 转发文件已删除，调用方直接使用共享查询客户端；实现真实任务管道的 `service/transport.rs` 保留。
+全量归档的准备、读取、身份核对、转换、发布和索引顺序，以及增量归档的目标去重、部分失败与批次完成由 `business::archive` 负责。宿主装配既有查询传输及原始文档发布器。全量目录索引在发布聊天文件之前绑定 `RuntimeContext.id`，拒绝其他运行上下文复用；旧无绑定记录标记 `legacy_unverified`，损坏索引不静默回退。文件已发布但索引失败时报告 `artifact_published`，不推进成功计数。
+
+单文件使用 `toolkit::ExportTarget`，统一路径保护、目标身份、暂存、最后来源复核及提交；流式媒体写入不要求聚合整段视频。多文件使用 `toolkit::directory_publish`，按文件提交、清单最后提交，不声称整个目录事务性或自动续跑。严格图片、表情和 SNS 下载保留各自授权、覆盖与大小限制，仅共享发布机制。
+
+执行层和 CLI 的纯 `transport` 转发文件已删除，调用方直接使用共享查询客户端；实现真实通信帧的 `service/transport.rs` 保留。`service/client.rs` 和 `service/protocol.rs` 承载多类宿主 RPC，不将其误命名为仅有任务的客户端或协议。Web 的启动参数由不带 clap 的 `service::web::HostSettings` 承载，CLI 在入口转换，HTTP 模块不再引用 CLI 参数或启动垫片。Web 使用常规 `toolkit/web/mod.rs` 入口，取消 `server.rs` 及其子模块的冗余 `#[path]` 映射；消息读取与共享目录发布也使用常规模块目录。
 
 SNS 领域模块分别处理数据库解析、缓存、下载、时间线、相册和目录发布。默认离线和显式下载须分开说明；MP4 文件头有效不等于可播放。Web 的鉴权、Host/Origin、CSRF 与输出目录限制仍由适配层维护。
 

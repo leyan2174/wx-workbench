@@ -8,6 +8,26 @@ const HASH: &str = "0123456789abcdef0123456789abcdef";
 const PLAIN: &[u8] = b"\xff\xd8\xffsynthetic image\xff\xd9";
 
 #[test]
+fn final_evidence_refusal_cleans_shared_temporary_and_preserves_existing_output() {
+    let f = Fixture::new();
+    f.legacy(".dat");
+    let old = f.output.join("previous.jpg");
+    fs::write(&old, b"existing valid output").unwrap();
+    let mut checked = false;
+    let result = export_image_impl(f.request(), None, None, || {
+        checked = true;
+        anyhow::bail!("synthetic evidence changed")
+    });
+    assert!(checked);
+    assert!(result
+        .unwrap_err()
+        .chain()
+        .any(|error| error.to_string() == "synthetic evidence changed"));
+    assert_eq!(fs::read(&old).unwrap(), b"existing valid output");
+    assert_eq!(fs::read_dir(&f.output).unwrap().count(), 1);
+}
+
+#[test]
 fn original_host_guard_allows_unchanged_export() {
     let f = Fixture::new();
     f.legacy(".dat");

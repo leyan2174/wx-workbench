@@ -9,7 +9,6 @@ mod decode;
 pub(crate) mod download;
 mod export;
 mod parse;
-pub(crate) mod publish;
 pub mod video_runtime;
 
 #[cfg(test)]

@@ -1,14 +1,9 @@
 //! 相册图片独立下载层；账号隔离及源路径保护由调用者配置的守卫负责。
 use super::{decode::html_unescape, video_runtime::VideoRuntime};
 use crate::attachment::local_files::HostOutputGuard;
+use crate::toolkit::files::ExportTarget;
 use regex::Regex;
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-    sync::OnceLock,
-    time::Duration,
-};
+use std::{fs, io::Read, path::Path, sync::OnceLock, time::Duration};
 
 const MAX_BYTES: usize = 25 * 1024 * 1024;
 const MAX_URL_BYTES: usize = 64 * 1024;
@@ -231,23 +226,8 @@ pub(crate) fn save_image(data: &[u8], name: &str, guard: &HostOutputGuard) -> Re
     let ext = detect(data).ok_or(ImageError::UnsupportedFormat)?;
     let path = destination(guard, name, ext)?;
     let publish = || -> anyhow::Result<()> {
-        let mut staged = tempfile::NamedTempFile::new_in(guard.output_root())?;
-        staged.write_all(data)?;
-        staged.as_file().sync_all()?;
-        let mut check = staged.reopen()?;
-        let mut buffer = [0; 8192];
-        for chunk in data.chunks(buffer.len()) {
-            check.read_exact(&mut buffer[..chunk.len()])?;
-            anyhow::ensure!(&buffer[..chunk.len()] == chunk, "image staging changed");
-        }
-        anyhow::ensure!(
-            check.read(&mut buffer[..1])? == 0,
-            "image staging size changed"
-        );
-        guard.verify_replaceable_file(&path)?;
-        // 仅释放本次暂存文件；绝不删除或覆盖已有目标、源文件或其他调用的暂存文件。
-        staged.persist_noclobber(&path).map_err(|e| e.error)?;
-        Ok(())
+        ExportTarget::new_file(&path, &[])?
+            .write_bytes_checked(data, || guard.verify_replaceable_file(&path))
     };
     publish().map_err(|_| ImageError::Output)?;
     Ok(Outcome {

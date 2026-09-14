@@ -1,13 +1,11 @@
 //! 独立朋友圈缓存图片归档，不要求时间线、联系人库或媒体 ID。
 //! CacheIndex 的图片列表会丢弃失败项和缩略图，不能充当本模块的完整清单。
-use super::{
-    cache::{CacheKeys, CacheLimits, CacheRoots},
-    publish::{self, Binding, ExistingPolicy},
-};
+use super::cache::{CacheKeys, CacheLimits, CacheRoots};
 use crate::attachment::{
     decoder::{dispatch, V2KeyMaterial},
     local_files::HostOutputGuard,
 };
+use crate::toolkit::directory_publish::{self as publish, Binding, ExistingPolicy};
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 use std::{

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{Local, TimeZone, Timelike};
+use chrono::{Local, TimeZone};
 use regex::Regex;
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -41,7 +41,7 @@ mod message_read;
 mod strict_message;
 pub use mcp_refer::q_decode_refer;
 
-const CONTACT_DB_KEY: &str = "contact/contact.db";
+const CONTACT_DB_KEY: &str = crate::adapters::wechat::messages::sources::contacts().cache_key();
 
 /// 静态编译的 Msg 表名正则，避免在热路径中重复编译
 fn msg_table_re() -> &'static Regex {
@@ -265,7 +265,10 @@ fn meta_for_global_query(
 }
 
 async fn session_last_timestamp(db: &DbCache, username: &str) -> Option<i64> {
-    let path = match db.get("session/session.db").await {
+    let path = match db
+        .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
+        .await
+    {
         Ok(Some(path)) => path,
         Ok(None) => return None,
         Err(e) => {
@@ -280,15 +283,7 @@ async fn session_last_timestamp(db: &DbCache, username: &str) -> Option<i64> {
     let username = username.to_string();
     let username_for_query = username.clone();
     match tokio::task::spawn_blocking(move || -> Result<Option<i64>> {
-        let conn = Connection::open(&path)?;
-        let ts = conn
-            .query_row(
-                "SELECT last_timestamp FROM SessionTable WHERE username = ?",
-                [&username_for_query],
-                |row| row.get::<_, i64>(0),
-            )
-            .ok();
-        Ok(ts)
+        crate::adapters::wechat::messages::sessions::last_timestamp(&path, &username_for_query)
     })
     .await
     {
@@ -865,23 +860,6 @@ fn sender_label(
 ///
 /// SQLite 中 message_content 在未压缩时为 TEXT，zstd 压缩后为 BLOB。
 /// rusqlite 的 Vec<u8> FromSql 只接受 BLOB，读 TEXT 会静默返回空。
-fn get_content_bytes(row: &rusqlite::Row<'_>, idx: usize) -> Vec<u8> {
-    // 先尝试 BLOB，再 fallback 到 TEXT→bytes
-    row.get::<_, Vec<u8>>(idx)
-        .or_else(|_| row.get::<_, String>(idx).map(|s| s.into_bytes()))
-        .unwrap_or_default()
-}
-
-fn decompress_message(data: &[u8], ct: i64) -> String {
-    if ct == 4 && !data.is_empty() {
-        // zstd 压缩
-        if let Ok(dec) = zstd::decode_all(data) {
-            return String::from_utf8_lossy(&dec).into_owned();
-        }
-    }
-    String::from_utf8_lossy(data).into_owned()
-}
-
 fn strip_group_prefix(s: &str) -> String {
     crate::message::split_group_content(s).1.to_owned()
 }
@@ -1659,192 +1637,18 @@ pub async fn q_stats(
     with_meta: bool,
     debug_source: bool,
 ) -> Result<Value> {
-    let username =
-        resolve_username(chat, names).with_context(|| format!("找不到联系人: {}", chat))?;
-    let display = names.display(&username);
-    let chat_type = chat_type_of(&username, names);
-    let is_group = chat_type == "group";
-
-    let (shards, scanned) = find_msg_shards(db, names, &username).await?;
-    if shards.is_empty() {
-        anyhow::bail!("找不到 {} 的消息记录", display);
-    }
-
-    // 跨所有分片 DB 累计统计
-    let mut total: i64 = 0;
-    let mut type_counts: HashMap<String, i64> = HashMap::new();
-    let mut sender_counts: HashMap<String, i64> = HashMap::new();
-    let mut hour_counts = [0i64; 24];
-    let group_nicknames = if is_group {
-        load_group_nicknames(db, &username)
-            .await
-            .unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
-    let mut shard_hits = 0usize;
-
-    for shard in &shards {
-        let path = shard.path.clone();
-        let tname = shard.table.clone();
-        let uname = username.clone();
-        let is_group2 = is_group;
-
-        // 用 SQL GROUP BY 在数据库侧聚合，避免把全量消息内容加载进内存
-        let result: (i64, HashMap<String, i64>, HashMap<String, i64>, [i64; 24]) =
-            tokio::task::spawn_blocking(move || {
-                let conn = Connection::open(&path)?;
-                let id2u = load_id2u(&conn)?;
-
-                let mut clauses = Vec::new();
-                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-                if let Some(s) = since {
-                    clauses.push("create_time >= ?");
-                    params.push(Box::new(s));
-                }
-                if let Some(u) = until {
-                    clauses.push("create_time <= ?");
-                    params.push(Box::new(u));
-                }
-                let where_clause = if clauses.is_empty() {
-                    String::new()
-                } else {
-                    format!("WHERE {}", clauses.join(" AND "))
-                };
-                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                    params.iter().map(|p| p.as_ref()).collect();
-
-                // 1. 总数
-                let count: i64 = conn.query_row(
-                    &format!("SELECT COUNT(*) FROM [{}] {}", tname, where_clause),
-                    params_ref.as_slice(),
-                    |row| row.get(0),
-                ).unwrap_or(0);
-
-                // 2. 类型分布：SQL GROUP BY，不加载消息内容
-                let type_sql = format!(
-                    "SELECT (local_type & 0xFFFFFFFF), COUNT(*) FROM [{}] {} GROUP BY (local_type & 0xFFFFFFFF)",
-                    tname, where_clause
-                );
-                let mut type_c: HashMap<String, i64> = HashMap::new();
-                if let Ok(mut stmt) = conn.prepare(&type_sql) {
-                    let _ = stmt.query_map(params_ref.as_slice(), |row| {
-                        Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-                    }).map(|rows| {
-                        for r in rows.flatten() {
-                            *type_c.entry(fmt_type(r.0)).or_insert(0) += r.1;
-                        }
-                    });
-                }
-
-                // 3. 小时分布：只取时间戳，不加载消息内容
-                let hour_sql = format!(
-                    "SELECT create_time FROM [{}] {}",
-                    tname, where_clause
-                );
-                let mut hour_c = [0i64; 24];
-                if let Ok(mut stmt) = conn.prepare(&hour_sql) {
-                    let _ = stmt.query_map(params_ref.as_slice(), |row| row.get::<_, i64>(0))
-                        .map(|rows| {
-                            for ts in rows.flatten() {
-                                if let Some(dt) = Local.timestamp_opt(ts, 0).single() {
-                                    let h = dt.hour() as usize;
-                                    if h < 24 { hour_c[h] += 1; }
-                                }
-                            }
-                        });
-                }
-
-                // 4. 发言排行：只取 real_sender_id，不加载消息内容
-                // where_clause 可能已含 WHERE，用 AND 追加而非重复写 WHERE
-                let sender_filter = if where_clause.is_empty() {
-                    "WHERE real_sender_id > 0".to_string()
-                } else {
-                    format!("{} AND real_sender_id > 0", where_clause)
-                };
-                let sender_sql = format!(
-                    "SELECT real_sender_id, COUNT(*) FROM [{}] {} GROUP BY real_sender_id",
-                    tname, sender_filter
-                );
-                let mut sender_c: HashMap<String, i64> = HashMap::new();
-                if is_group2 {
-                    if let Ok(mut stmt) = conn.prepare(&sender_sql) {
-                        let _ = stmt.query_map(params_ref.as_slice(), |row| {
-                            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-                        }).map(|rows| {
-                            for (id, cnt) in rows.flatten() {
-                                if let Some(u) = id2u.get(&id) {
-                                    if u != &uname {
-                                        *sender_c.entry(u.clone()).or_insert(0) += cnt;
-                                    }
-                                }
-                            }
-                        });
-                    }
-                }
-
-                Ok::<_, anyhow::Error>((count, type_c, sender_c, hour_c))
-            }).await??;
-
-        let (count, type_c, sender_c, hour_c) = result;
-        if count > 0 {
-            shard_hits += 1;
-        }
-        total += count;
-        for (k, v) in type_c {
-            *type_counts.entry(k).or_insert(0) += v;
-        }
-        for (k, v) in sender_c {
-            *sender_counts.entry(k).or_insert(0) += v;
-        }
-        for i in 0..24 {
-            hour_counts[i] += hour_c[i];
-        }
-    }
-
-    // 类型分布，按数量降序
-    let mut by_type: Vec<Value> = type_counts
-        .iter()
-        .map(|(t, c)| json!({ "type": t, "count": c }))
-        .collect();
-    by_type.sort_by_key(|v| std::cmp::Reverse(v["count"].as_i64().unwrap_or(0)));
-
-    // 发言排行，Top 10
-    let top_senders = group_top_senders(&sender_counts, &names.map, &group_nicknames, 10);
-
-    // 24小时分布
-    let by_hour: Vec<Value> = hour_counts
-        .iter()
-        .enumerate()
-        .map(|(h, c)| json!({ "hour": h, "count": c }))
-        .collect();
-    let windowed = since.is_some() || until.is_some();
-    let unknown_shards = current_unknown_shards(db, names);
-    let session_ts = session_last_timestamp(db, &username).await;
-    let meta = meta_for_shards(
-        scanned,
-        &shards,
-        shard_hits,
-        unknown_shards,
-        session_ts,
-        windowed,
+    message_read::stats(
+        db,
+        names,
+        chat,
+        since,
+        until,
         MetaOptions {
             with_meta,
             debug_source,
         },
-    );
-
-    Ok(json!({
-        "chat": display,
-        "username": username,
-        "is_group": is_group,
-        "chat_type": chat_type,
-        "total": total,
-        "by_type": by_type,
-        "top_senders": top_senders,
-        "by_hour": by_hour,
-        "meta": meta,
-    }))
+    )
+    .await
 }
 
 /// 查询朋友圈互动通知（点赞 + 评论），对应微信 app 右上角的红点入口。
@@ -2246,156 +2050,68 @@ async fn q_attachments_impl(
         HashMap::new()
     };
 
-    let mut all_rows: Vec<AttachmentRow> = Vec::new();
-    let mut shard_hits = 0usize;
-    // 保留稳定发送者身份和分片下标；显示名相同的成员、跨分片重复消息不能混用。
-    for (db_idx, shard) in shards.iter().enumerate() {
-        let path = shard.path.clone();
-        let tname = shard.table.clone();
-        let uname = username.clone();
-        let is_group2 = is_group;
-        let names_map = names.map.clone();
-        let group_nicknames2 = group_nicknames.clone();
-        let lo32_types2 = lo32_types.clone();
-        let since2 = since;
-        let until2 = until;
-        // per-DB 软上限避免巨群全量加载
-        let per_db_cap = offset
-            .checked_add(limit)
-            .and_then(|n| n.checked_mul(2))
-            .filter(|n| *n <= i64::MAX as usize)
-            .context("attachment pagination overflow")?;
-        let rows: Vec<AttachmentRow> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&path)?;
-            let id2u = load_id2u(&conn)?;
-
-            // local_type 在 DB 里可能带高位 flag，过滤要 mask 低 32 bit
-            let placeholders = lo32_types2
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(",");
-            let mut clauses: Vec<String> =
-                vec![format!("(local_type & 4294967295) IN ({})", placeholders)];
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = lo32_types2
-                .iter()
-                .map(|t| Box::new(*t) as Box<dyn rusqlite::types::ToSql>)
-                .collect();
-            if let Some(s) = since2 {
-                clauses.push("create_time >= ?".into());
-                params.push(Box::new(s));
-            }
-            if let Some(u) = until2 {
-                clauses.push("create_time <= ?".into());
-                params.push(Box::new(u));
-            }
-            let where_clause = format!("WHERE {}", clauses.join(" AND "));
-
-            let sql = format!(
-                "SELECT local_id, local_type, create_time, real_sender_id,
-                            message_content, WCDB_CT_message_content
-                     FROM [{}] {} ORDER BY create_time DESC LIMIT ?",
-                tname, where_clause
-            );
-            params.push(Box::new(per_db_cap as i64));
-
-            let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                params.iter().map(|p| p.as_ref()).collect();
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params_ref.as_slice(), |row| {
-                let local_id: i64 = row.get(0)?;
-                let raw_type: i64 = row.get(1)?;
-                let ts: i64 = row.get(2)?;
-                let real_sender_id: i64 = row.get(3)?;
-                let content_bytes = get_content_bytes(row, 4);
-                let ct: i64 = row.get::<_, i64>(5).unwrap_or(0);
-                let content = decompress_message(&content_bytes, ct);
-                let (sender, sender_uname) = if is_group2 {
-                    (
-                        sender_label(
-                            real_sender_id,
-                            &content,
-                            true,
-                            &uname,
-                            &id2u,
-                            &names_map,
-                            &group_nicknames2,
-                        ),
-                        sender_username(real_sender_id, &content, true, &uname, &id2u),
-                    )
-                } else {
-                    (String::new(), String::new())
-                };
-                Ok(AttachmentRow {
-                    local_id,
-                    raw_type,
-                    timestamp: ts,
-                    sender,
-                    sender_username: sender_uname,
-                    shard_index: db_idx,
-                })
-            })?;
-            let rows = if image_metadata {
-                rows.collect::<rusqlite::Result<Vec<_>>>()?
-            } else {
-                rows.filter_map(|r| r.ok()).collect()
-            };
-            Ok::<_, anyhow::Error>(rows)
+    let per_db_cap = offset
+        .checked_add(limit)
+        .and_then(|n| n.checked_mul(2))
+        .filter(|n| *n <= i64::MAX as usize)
+        .context("attachment pagination overflow")?;
+    let message_pins = if image_metadata {
+        shards
+            .iter()
+            .map(|shard| crate::attachment::local_files::Pin::open(&shard.path, false))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+    let source_files: Vec<_> = shards
+        .iter()
+        .map(|shard| crate::adapters::wechat::messages::SourceFile {
+            logical_name: shard.rel_key.clone(),
+            path: shard.path.clone(),
+            kind: crate::business::messages::SourceKind::Ordinary,
         })
-        .await??;
-        if !rows.is_empty() {
-            shard_hits += 1;
-        }
-        all_rows.extend(rows);
-    }
-
-    // 合并分片后统一按时间倒序分页，不能在各分片分别截取最终页。
-    all_rows.sort_by_key(|row| std::cmp::Reverse(row.timestamp));
-    let paged: Vec<_> = all_rows.into_iter().skip(offset).take(limit).collect();
-
-    let metadata = if image_metadata && !paged.is_empty() {
-        // 分片查询截断后的页面不足以证明消息唯一，尤其是多条消息时间戳相同时。
-        let identities: HashSet<_> = paged
-            .iter()
-            .map(|row| (row.local_id, row.timestamp, row.raw_type))
-            .collect();
-        let sources: Vec<_> = shards
-            .iter()
-            .map(|shard| (shard.path.clone(), shard.table.clone()))
-            .collect();
-        let identity_counts = tokio::task::spawn_blocking(move || -> Result<HashMap<_, usize>> {
-            let mut counts: HashMap<_, usize> = identities.into_iter().map(|identity| (identity, 0)).collect();
-            for (path, table) in sources {
-                let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-                conn.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF;")?;
-                let mut statement = conn.prepare(&format!(
-                    "SELECT COUNT(*) FROM (SELECT 1 FROM [{}] WHERE local_id=?1 AND create_time=?2 AND local_type=?3 LIMIT 2)", table
-                ))?;
-                for (&(local_id, timestamp, raw_type), count) in &mut counts {
-                    if *count >= 2 { continue; }
-                    let matches: usize = statement.query_row(rusqlite::params![local_id, timestamp, raw_type], |row| row.get(0))?;
-                    *count += matches;
-                }
+        .collect();
+    let needs_resource = if image_metadata && limit != 0 {
+        let files = source_files.clone();
+        let uname = username.clone();
+        let types = lo32_types.clone();
+        tokio::task::spawn_blocking(move || -> Result<bool> {
+            use crate::adapters::wechat::messages::read::attachments::AttachmentReadPolicy;
+            use crate::adapters::wechat::messages::{LegacyReadPolicy, Snapshot};
+            use crate::business::messages::{Filter, SourceKind};
+            let snapshot = Snapshot::open(files, [uname.clone()])?;
+            let mut count = 0usize;
+            for stream in snapshot.streams_for(&uname, SourceKind::Ordinary) {
+                count = count
+                    .checked_add(
+                        snapshot
+                            .read_attachment_page(
+                                stream,
+                                &Filter {
+                                    since,
+                                    until,
+                                    kinds: Vec::new(),
+                                },
+                                &LegacyReadPolicy {
+                                    local_types: types.clone(),
+                                },
+                                per_db_cap,
+                                AttachmentReadPolicy::StrictMetadata,
+                            )?
+                            .rows
+                            .len(),
+                    )
+                    .context("attachment page count overflow")?;
             }
-            anyhow::ensure!(counts.values().all(|count| *count > 0), "image message identity changed");
-            Ok(counts)
-        }).await??;
-        let messages: Vec<_> = paged
-            .iter()
-            .map(|row| {
-                (
-                    crate::attachment::native_image::MessageIdentity {
-                        username: username.clone(),
-                        source: shards[row.shard_index].rel_key.clone(),
-                        local_id: row.local_id,
-                        create_time: row.timestamp,
-                        local_type: row.raw_type,
-                    },
-                    identity_counts[&(row.local_id, row.timestamp, row.raw_type)] > 1,
-                )
-            })
-            .collect();
-        let raw_keys: Vec<_> = db
+            Ok(count > offset)
+        })
+        .await??
+    } else {
+        false
+    };
+    let resource = if needs_resource {
+        ensure_complete_message_inventory(db, names)?;
+        let keys: Vec<_> = db
             .raw_db_keys()
             .into_iter()
             .filter(|key| {
@@ -2403,31 +2119,208 @@ async fn q_attachments_impl(
                     .eq_ignore_ascii_case("message/message_resource.db")
             })
             .collect();
-        anyhow::ensure!(raw_keys.len() <= 1, "ambiguous image resource database");
-        let resource = match raw_keys.first() {
+        anyhow::ensure!(keys.len() <= 1, "ambiguous image resource database");
+        match keys.first() {
             Some(key) => db.get(key).await?,
             None => None,
-        };
-        let attach = crate::attachment::resolver::attach_root_for(
-            db.db_dir().parent().context("missing account root")?,
-        );
-        tokio::task::spawn_blocking(move || {
-            let snapshot = resource
-                .as_deref()
-                .map(crate::daemon::cache::ResourceSnapshot::new)
-                .transpose()?;
-            let resource_path = snapshot.as_ref().map(|snapshot| snapshot.path());
-            crate::attachment::image_metadata::read_page(
-                resource_path.as_deref(),
-                Some(&attach),
-                &messages,
-            )
-            .map_err(|_| anyhow::anyhow!("image metadata query failed"))
-        })
-        .await??
+        }
     } else {
-        Vec::new()
+        None
     };
+    let attach = image_metadata
+        .then(|| {
+            db.db_dir()
+                .parent()
+                .map(crate::attachment::resolver::attach_root_for)
+                .context("missing account root")
+        })
+        .transpose()?;
+    let source_names: Vec<_> = shards.iter().map(|shard| shard.rel_key.clone()).collect();
+    let uname = username.clone();
+    let names_map = names.map.clone();
+    let nicknames = group_nicknames.clone();
+    let (paged, metadata, shard_hits, skipped_rows, degraded_content) =
+        tokio::task::spawn_blocking(move || -> Result<_> {
+            use crate::adapters::wechat::messages::read::attachments::AttachmentReadPolicy;
+            use crate::adapters::wechat::messages::{LegacyReadPolicy, Snapshot};
+            use crate::business::media::{Error, Failure, Kind, Source, Stage};
+            use crate::business::messages::{Filter, MessageSelector, SourceKind};
+            let snapshot = Snapshot::open(source_files, [uname.clone()])?;
+            let filter = Filter {
+                since,
+                until,
+                kinds: Vec::new(),
+            };
+            let policy = if image_metadata {
+                AttachmentReadPolicy::StrictMetadata
+            } else {
+                AttachmentReadPolicy::LegacyList
+            };
+            let legacy = LegacyReadPolicy {
+                local_types: lo32_types,
+            };
+            let mut all_rows = Vec::new();
+            let mut shard_hits = 0;
+            let mut skipped_rows = 0usize;
+            let mut degraded_content = 0usize;
+            for (db_idx, name) in source_names.iter().enumerate() {
+                let mut hit = false;
+                for stream in snapshot.streams_for(&uname, SourceKind::Ordinary) {
+                    if snapshot.source_name(stream)? != name {
+                        continue;
+                    }
+                    let page = snapshot
+                        .read_attachment_page(stream, &filter, &legacy, per_db_cap, policy)?;
+                    skipped_rows += page.skipped_rows;
+                    degraded_content += page.degraded_content;
+                    hit |= !page.rows.is_empty();
+                    for raw in page.rows {
+                        let id2u = raw
+                            .mapped_sender
+                            .clone()
+                            .map(|value| (raw.sender_id, value))
+                            .into_iter()
+                            .collect();
+                        let sender = if is_group {
+                            sender_label(
+                                raw.sender_id,
+                                &raw.sender_content,
+                                true,
+                                &uname,
+                                &id2u,
+                                &names_map,
+                                &nicknames,
+                            )
+                        } else {
+                            String::new()
+                        };
+                        let sender_username = if is_group {
+                            sender_username(raw.sender_id, &raw.sender_content, true, &uname, &id2u)
+                        } else {
+                            String::new()
+                        };
+                        all_rows.push((
+                            AttachmentRow {
+                                local_id: raw.local_id,
+                                raw_type: raw.local_type,
+                                timestamp: raw.timestamp,
+                                sender,
+                                sender_username,
+                                shard_index: db_idx,
+                            },
+                            raw.reference,
+                        ));
+                    }
+                }
+                shard_hits += usize::from(hit);
+            }
+            // Stable ties retain the original shard order and per-stream row order.
+            all_rows.sort_by_key(|(row, _)| std::cmp::Reverse(row.timestamp));
+            let selected: Vec<_> = all_rows.into_iter().skip(offset).take(limit).collect();
+            let mut metadata = Vec::new();
+            if image_metadata && !selected.is_empty() {
+                let resource_snapshot = resource
+                    .as_deref()
+                    .map(crate::daemon::cache::ResourceSnapshot::new)
+                    .transpose()?;
+                let resource_path = resource_snapshot.as_ref().map(|resource| resource.path());
+                let mut identities = Vec::new();
+                let mut proofs = Vec::new();
+                for (row, reference) in &selected {
+                    snapshot.revalidate(reference)?;
+                    let resolved = crate::adapters::wechat::media::image_listing_reference(
+                        &snapshot,
+                        &MessageSelector {
+                            username: &uname,
+                            local_id: row.local_id,
+                            timestamp: Some(row.timestamp),
+                        },
+                        row.raw_type,
+                    );
+                    let ambiguous = match resolved {
+                        Ok(unique) => {
+                            anyhow::ensure!(
+                                unique == *reference,
+                                Error::new(Stage::Revalidation, Failure::StaleEvidence)
+                            );
+                            false
+                        }
+                        Err(error)
+                            if error.downcast_ref::<crate::business::messages::Error>()
+                                == Some(&crate::business::messages::Error::Ambiguous) =>
+                        {
+                            true
+                        }
+                        Err(error) => return Err(error.context("image message identity changed")),
+                    };
+                    identities.push((
+                        crate::adapters::wechat::media::resource::MessageIdentity {
+                            username: uname.clone(),
+                            source: source_names[row.shard_index].clone(),
+                            local_id: row.local_id,
+                            create_time: row.timestamp,
+                            local_type: row.raw_type,
+                        },
+                        ambiguous,
+                    ));
+                    if !ambiguous {
+                        if let Some(path) = resource_path.as_deref() {
+                            let mut source =
+                                crate::adapters::wechat::media::ImageSource::from_reference(
+                                    &snapshot, reference, path,
+                                )?;
+                            match source.discover(reference, Kind::Image) {
+                                Ok(mut items) => {
+                                    anyhow::ensure!(
+                                        items.len() == 1,
+                                        Error::new(Stage::Association, Failure::Ambiguous)
+                                    );
+                                    proofs.push((
+                                        source,
+                                        items.pop().expect("one image reference").reference,
+                                    ));
+                                }
+                                Err(error)
+                                    if error.stage == Stage::Association
+                                        && matches!(
+                                            error.failure,
+                                            Failure::NotFound
+                                                | Failure::Ambiguous
+                                                | Failure::ConflictingEvidence
+                                        ) => {}
+                                Err(error) => return Err(error.into()),
+                            }
+                        }
+                    }
+                }
+                metadata = crate::attachment::image_metadata::read_page(
+                    resource_path.as_deref(),
+                    attach.as_deref(),
+                    &identities,
+                )
+                .map_err(|_| anyhow::anyhow!("image metadata query failed"))?;
+                for (source, reference) in &proofs {
+                    source.revalidate(reference)?;
+                }
+            }
+            for (_, reference) in &selected {
+                snapshot.revalidate(reference)?;
+            }
+            Ok((
+                selected.into_iter().map(|(row, _)| row).collect::<Vec<_>>(),
+                metadata,
+                shard_hits,
+                skipped_rows,
+                degraded_content,
+            ))
+        })
+        .await??;
+    if image_metadata {
+        ensure_complete_message_inventory(db, names)?;
+    }
+    for pin in &message_pins {
+        pin.verify()?;
+    }
 
     // 翻成 JSON
     let mut results: Vec<Value> = Vec::with_capacity(paged.len());
@@ -2500,6 +2393,16 @@ async fn q_attachments_impl(
             debug_source,
         },
     );
+
+    let mut meta = serde_json::to_value(meta)?;
+    if skipped_rows != 0 || degraded_content != 0 {
+        if !meta.is_object() {
+            meta = json!({});
+        }
+        meta["partial"] = json!(true);
+        meta["skipped_rows"] = json!(skipped_rows);
+        meta["degraded_content"] = json!(degraded_content);
+    }
 
     Ok(json!({
         "chat": display,

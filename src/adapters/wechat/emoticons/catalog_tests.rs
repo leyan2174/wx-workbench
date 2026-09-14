@@ -4,7 +4,7 @@ use rusqlite::params;
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, process::Command};
 
-const SCHEMA: &str = include_str!("../../../tests/fixtures/emoticons-catalog/schema.sql");
+const SCHEMA: &str = include_str!("../../../../tests/fixtures/emoticons-catalog/schema.sql");
 
 fn database(path: &Path, sql: &str) {
     let conn = Connection::open(path).unwrap();

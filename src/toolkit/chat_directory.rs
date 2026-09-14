@@ -2,7 +2,7 @@
 mod media;
 mod render;
 
-use super::sns::publish::{self, Binding, ExistingPolicy};
+use super::directory_publish::{self as publish, Binding, ExistingPolicy};
 use crate::{
     attachment::local_files::HostOutputGuard, message::export::Target, runtime::RuntimeContext,
 };

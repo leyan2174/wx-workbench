@@ -1,4 +1,5 @@
 //! Account-scoped message contracts. Evidence references are not transport credentials.
+pub mod statistics;
 use std::{
     collections::HashSet,
     fmt,
@@ -110,7 +111,7 @@ pub enum Conversation {
     Unmapped(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Text,
     Image,

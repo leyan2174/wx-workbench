@@ -1,6 +1,6 @@
 use super::output::{emit_warnings, print_response, OutputOpts};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 pub use crate::service::time::{parse_time, parse_time_end};
 use anyhow::Result;
 

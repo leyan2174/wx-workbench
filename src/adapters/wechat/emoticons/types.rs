@@ -20,4 +20,5 @@ pub struct Catalog {
     pub items: Vec<Emoji>,
     pub non_store_count: usize,
     pub store_added: usize,
+    pub source_available: bool,
 }

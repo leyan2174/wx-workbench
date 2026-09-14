@@ -178,6 +178,66 @@ async fn production_default_and_empty_page_skip_invalid_resource() {
 }
 
 #[tokio::test]
+async fn legacy_bad_rows_are_explicit_partial_but_metadata_remains_strict() {
+    let f = Fixture::new().await;
+    f.insert(0, 7, 100, 3);
+    let conn = Connection::open(&f.messages[0]).unwrap();
+    conn.execute_batch(&format!(
+        "INSERT INTO Msg_{:x} VALUES('bad',3,100,0,NULL,0)",
+        md5::compute(CHAT)
+    ))
+    .unwrap();
+    drop(conn);
+    let ordinary = f.list(false, 20, 0, None, None).await.unwrap();
+    assert_eq!(ordinary["count"], 1);
+    assert_eq!(ordinary["meta"]["partial"], true);
+    assert_eq!(ordinary["meta"]["skipped_rows"], 1);
+    assert!(f.list(true, 20, 0, None, None).await.is_err());
+}
+
+#[tokio::test]
+async fn listing_uses_full_raw_type_while_strict_decode_rejects_cross_type_identity() {
+    let f = Fixture::new().await;
+    f.insert(0, 7, 100, 3);
+    f.insert(1, 7, 100, 34);
+    let flagged_type = 3 + (1i64 << 32);
+    f.insert(1, 7, 100, flagged_type);
+    let flagged_hash = "11111111111111111111111111111111";
+    Connection::open(&f.resource)
+        .unwrap()
+        .execute(
+            "UPDATE MessageResourceInfo SET packed_info=?1 WHERE message_local_type=?2",
+            rusqlite::params![flagged_hash.as_bytes(), flagged_type],
+        )
+        .unwrap();
+    let result = f.list(true, 20, 0, None, None).await.unwrap();
+    assert_eq!(result["count"], 2);
+    assert_eq!(result["attachments"][0]["resource_status"], "found");
+    assert_eq!(result["attachments"][0]["md5"], HASH);
+    assert_eq!(result["attachments"][1]["resource_status"], "found");
+    assert_eq!(result["attachments"][1]["md5"], flagged_hash);
+
+    let output = tempfile::tempdir().unwrap();
+    let decoded = crate::daemon::query::mcp_image::q_decode_image(
+        &f.db,
+        &f.names,
+        CHAT,
+        7,
+        100,
+        output.path(),
+        crate::attachment::decoder::V2KeyMaterial {
+            aes_key: None,
+            xor_key: 0x88,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(decoded["exit_code"], 2);
+    assert_eq!(decoded["text"], "ambiguous message identity");
+    assert_eq!(fs::read_dir(output.path()).unwrap().count(), 0);
+}
+
+#[tokio::test]
 async fn production_cross_shard_identity_is_not_arbitrarily_bound() {
     let f = Fixture::new().await;
     f.insert(0, 1, 100, 3);

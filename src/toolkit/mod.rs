@@ -11,11 +11,11 @@ pub(crate) mod chat_plan;
 pub(crate) mod chat_plan_selection;
 pub(crate) mod contact_metadata;
 mod databases;
+pub(crate) mod directory_publish;
 pub(crate) mod emoticons;
 mod files;
 pub(crate) mod private_file;
 pub(crate) mod sns;
-#[path = "web/server.rs"]
 pub(crate) mod web;
 pub(crate) use files::{
     atomic_output, export_protected, separate, validate_export_target, ExportTarget,

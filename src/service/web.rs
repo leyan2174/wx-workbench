@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 pub const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 
+/// Local host startup settings, not a model- or HTTP-deserializable RPC request.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct HostSettings {
+    pub port: u16,
+    pub open: bool,
+    pub image_cache_dir: Option<std::path::PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {

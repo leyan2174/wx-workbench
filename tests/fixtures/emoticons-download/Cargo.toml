@@ -9,6 +9,14 @@ publish = false
 [lib]
 path = "harness.rs"
 
+[[bin]]
+name = "synthetic-converter"
+path = "synthetic_converter.rs"
+
+[[test]]
+name = "supervision"
+path = "supervision.rs"
+
 [dependencies]
 anyhow = "1"
 aes = "0.8"
@@ -17,6 +25,17 @@ zeroize = "1"
 same-file = "1"
 tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+regex = "1"
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "=1.0.140"
+md5 = "0.7"
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+dirs = "5"
+chrono = "0.4"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security"] }
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_Com", "Win32_UI_Shell"] }

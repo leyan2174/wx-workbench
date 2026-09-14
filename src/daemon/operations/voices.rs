@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use chrono::{Local, TimeZone};
-use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -8,21 +7,15 @@ use std::path::{Path, PathBuf};
 
 use super::history::{parse_time, parse_time_end};
 use super::output::print_value;
-use crate::config;
+use crate::adapters::wechat::media::{
+    voice_catalog::MediaShard,
+    voice_export::{self, Catalog, VoiceRow},
+};
+use crate::business::voice_export::{self as domain, Selection};
 use crate::daemon::cache::DbCache;
 use crate::daemon::query::{chat_type_of, load_names, Names};
-
-#[derive(Debug, Clone)]
-struct VoiceRow {
-    chat_name_id: i64,
-    chat_username: String,
-    create_time: i64,
-    local_id: i64,
-    svr_id: i64,
-    data_index: String,
-    voice_data: Vec<u8>,
-    media_db: String,
-}
+use crate::runtime::RuntimeContext;
+use crate::toolkit::ExportTarget;
 
 #[derive(Debug, Serialize)]
 struct ExportedVoice {
@@ -59,9 +52,18 @@ pub fn cmd_voices(args: Args) -> Result<()> {
     } = args;
     let since_ts = since.as_deref().map(parse_time).transpose()?;
     let until_ts = until.as_deref().map(parse_time_end).transpose()?;
+    let runtime = RuntimeContext::load()?;
+    if let Some(expected) = std::env::var_os("WX_CLI_EXPECTED_RUNTIME") {
+        anyhow::ensure!(
+            expected.to_str() == Some(runtime.id.as_str()),
+            "Account changed before voice export"
+        );
+    }
+    let _config_pin = crate::service::config_pin::ConfigPin::new(&runtime)?;
     let rt = tokio::runtime::Runtime::new().context("创建运行时失败")?;
     let summary = rt.block_on(async {
         export_voices(
+            &runtime,
             chat,
             PathBuf::from(output),
             limit,
@@ -76,6 +78,7 @@ pub fn cmd_voices(args: Args) -> Result<()> {
 }
 
 async fn export_voices(
+    runtime: &RuntimeContext,
     chat: Option<String>,
     out_dir: PathBuf,
     limit: Option<usize>,
@@ -84,14 +87,28 @@ async fn export_voices(
     until: Option<i64>,
     overwrite: bool,
 ) -> Result<Value> {
-    let cfg = config::load_config()?;
-    let all_keys = load_all_keys(&cfg.keys_file)?;
-    let media_keys = media_db_keys(&all_keys);
+    let out_dir = std::path::absolute(out_dir)?;
+    crate::toolkit::validate_export_target(runtime, &out_dir)?;
+    std::fs::create_dir_all(&out_dir)
+        .with_context(|| format!("创建输出目录失败: {}", out_dir.display()))?;
+    let output_guard = crate::attachment::local_files::HostOutputGuard::new(&out_dir)?;
+    let summary_target =
+        ExportTarget::capture(runtime, &out_dir.join("_voice_export_summary.json"))?;
+    let all_keys = crate::key_store::Store::for_runtime(runtime)?
+        .load()?
+        .database_keys();
+    let media_keys = voice_export::media_keys(all_keys.keys());
     if media_keys.is_empty() {
-        bail!("all_keys.json 里没有 message/media_*.db 的密钥，请先运行 wx init --force");
+        bail!("密钥库里没有 message/media_*.db 的密钥，请先运行 wx init --force");
     }
 
-    let db = DbCache::new(cfg.db_dir.clone(), all_keys).await?;
+    let db = DbCache::with_dirs(
+        runtime.config.db_dir.clone(),
+        runtime.cache_dir(),
+        runtime.mtime_file(),
+        all_keys,
+    )
+    .await?;
     let mut names = load_names(&db).await.unwrap_or_else(|_| Names {
         map: HashMap::new(),
         md5_to_uname: HashMap::new(),
@@ -102,192 +119,71 @@ async fn export_voices(
 
     let target_username = chat
         .as_deref()
-        .map(|name| resolve_chat(name, &names))
+        .map(|name| {
+            domain::resolve_chat(
+                name,
+                names
+                    .map
+                    .iter()
+                    .map(|(user, display)| (user.as_str(), display.as_str())),
+            )
+        })
         .transpose()?;
 
-    std::fs::create_dir_all(&out_dir)
-        .with_context(|| format!("创建输出目录失败: {}", out_dir.display()))?;
-
-    let mut exported = Vec::new();
-    let mut scanned = 0usize;
+    let mut shards = Vec::new();
+    let mut missing_shards = Vec::new();
     for rel_key in media_keys {
         let Some(path) = db.get(&rel_key).await? else {
+            missing_shards.push(rel_key);
             continue;
         };
-        let mut rows = read_voice_rows(
-            &path,
-            &rel_key,
-            target_username.as_deref(),
+        shards.push(MediaShard {
+            source: rel_key,
+            path,
+        });
+    }
+    let source = Catalog::open(shards)?;
+    let selected = domain::select(
+        &source,
+        &Selection {
+            username: target_username.as_deref(),
             since,
             until,
             offset,
             limit,
-        )?;
-        scanned += rows.len();
-        for row in rows.drain(..) {
-            if limit.is_some_and(|n| exported.len() >= n) {
-                break;
-            }
-            let item = write_voice_row(&out_dir, &mut names, row, overwrite)?;
-            exported.push(item);
-        }
-        if limit.is_some_and(|n| exported.len() >= n) {
-            break;
-        }
+        },
+    );
+    let scanned = selected.len();
+    let mut exported = Vec::new();
+    for entry in selected {
+        exported.push(write_voice_row(
+            runtime,
+            &out_dir,
+            &mut names,
+            source.material(entry.slot)?,
+            overwrite,
+        )?);
     }
 
-    let summary_path = out_dir.join("_voice_export_summary.json");
     let summary = json!({
         "output_dir": out_dir.to_string_lossy(),
         "chat_filter": chat,
         "target_username": target_username,
         "scanned_rows": scanned,
+        "unmapped_rows": source.unmapped_rows,
+        "missing_shards": missing_shards,
+        "partial": source.unmapped_rows > 0 || !missing_shards.is_empty(),
         "exported": exported.len(),
         "items": exported,
     });
-    std::fs::write(&summary_path, serde_json::to_vec_pretty(&summary)?)?;
+    summary_target.write_bytes_checked(&serde_json::to_vec_pretty(&summary)?, || {
+        output_guard.verify()
+    })?;
     Ok(summary)
 }
 
-fn load_all_keys(path: &Path) -> Result<HashMap<String, String>> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("读取密钥文件失败: {}", path.display()))?;
-    let raw: Value = serde_json::from_str(&text).context("all_keys.json 格式错误")?;
-    let mut result = HashMap::new();
-    if let Some(obj) = raw.as_object() {
-        for (key, value) in obj {
-            if key.starts_with('_') {
-                continue;
-            }
-            let enc_key = value
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| {
-                    value
-                        .as_object()
-                        .and_then(|o| o.get("enc_key"))
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string)
-                })
-                .unwrap_or_default();
-            if !enc_key.is_empty() {
-                result.insert(key.replace('\\', "/"), enc_key);
-            }
-        }
-    }
-    Ok(result)
-}
-
-fn media_db_keys(keys: &HashMap<String, String>) -> Vec<String> {
-    let mut out: Vec<String> = keys
-        .keys()
-        .filter(|key| {
-            let key = key.replace('\\', "/");
-            key.starts_with("message/media_") && key.ends_with(".db")
-        })
-        .cloned()
-        .collect();
-    out.sort();
-    out
-}
-
-fn resolve_chat(chat: &str, names: &Names) -> Result<String> {
-    if names.map.contains_key(chat) {
-        return Ok(chat.to_string());
-    }
-    let needle = chat.to_lowercase();
-    let matches: Vec<_> = names
-        .map
-        .iter()
-        .filter(|(username, display)| {
-            username.to_lowercase().contains(&needle) || display.to_lowercase().contains(&needle)
-        })
-        .map(|(username, _)| username.clone())
-        .collect();
-
-    match matches.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => bail!("找不到会话: {}", chat),
-        many => bail!(
-            "会话名称不唯一: {}，匹配到 {} 个，请使用 wxid 或 @chatroom",
-            chat,
-            many.len()
-        ),
-    }
-}
-
-fn read_voice_rows(
-    media_db_path: &Path,
-    media_db: &str,
-    target_username: Option<&str>,
-    since: Option<i64>,
-    until: Option<i64>,
-    offset: usize,
-    limit: Option<usize>,
-) -> Result<Vec<VoiceRow>> {
-    let conn = Connection::open(media_db_path)
-        .with_context(|| format!("打开语音库失败: {}", media_db_path.display()))?;
-    let id_map = read_name2id(&conn)?;
-    let mut sql = String::from(
-        "SELECT chat_name_id, create_time, local_id, svr_id, COALESCE(data_index, ''), voice_data \
-         FROM VoiceInfo WHERE voice_data IS NOT NULL",
-    );
-    if since.is_some() {
-        sql.push_str(" AND create_time >= ?");
-    }
-    if until.is_some() {
-        sql.push_str(" AND create_time <= ?");
-    }
-    sql.push_str(" ORDER BY create_time, local_id");
-
-    let mut stmt = conn.prepare(&sql)?;
-    let mut params = Vec::new();
-    if let Some(v) = since {
-        params.push(v);
-    }
-    if let Some(v) = until {
-        params.push(v);
-    }
-    let mut rows = stmt.query(rusqlite::params_from_iter(params))?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next()? {
-        let chat_name_id: i64 = row.get(0)?;
-        let Some(chat_username) = id_map.get(&chat_name_id).cloned() else {
-            continue;
-        };
-        if target_username.is_some_and(|target| target != chat_username) {
-            continue;
-        }
-        out.push(VoiceRow {
-            chat_name_id,
-            chat_username,
-            create_time: row.get(1)?,
-            local_id: row.get(2)?,
-            svr_id: row.get(3).unwrap_or(0),
-            data_index: row.get(4).unwrap_or_default(),
-            voice_data: row.get(5)?,
-            media_db: media_db.to_string(),
-        });
-    }
-
-    let start = offset.min(out.len());
-    let end = limit
-        .map(|n| start.saturating_add(n).min(out.len()))
-        .unwrap_or(out.len());
-    Ok(out[start..end].to_vec())
-}
-
-fn read_name2id(conn: &Connection) -> Result<HashMap<i64, String>> {
-    let mut stmt = conn.prepare("SELECT rowid, user_name FROM Name2Id")?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(rows.into_iter().collect())
-}
-
 fn write_voice_row(
+    runtime: &RuntimeContext,
     out_root: &Path,
     names: &mut Names,
     row: VoiceRow,
@@ -302,6 +198,7 @@ fn write_voice_row(
     let display = names.display(&row.chat_username);
     let safe_display = sanitize_path_component(&display);
     let chat_dir = out_root.join(lane).join(safe_display);
+    crate::toolkit::validate_export_target(runtime, &chat_dir)?;
     std::fs::create_dir_all(&chat_dir)?;
 
     let stem = format!("{}_{}", row.create_time, row.local_id);
@@ -314,9 +211,12 @@ fn write_voice_row(
         );
     }
 
+    let audio_target = capture_voice_target(runtime, &silk_path, overwrite)?;
+    let evidence_target = capture_voice_target(runtime, &json_path, overwrite)?;
+
     let (silk, raw_had_0x02_prefix) = normalize_silk(&row.voice_data);
     let silk_header_ok = silk.starts_with(b"#!SILK_V3");
-    std::fs::write(&silk_path, silk)?;
+    audio_target.write_bytes(silk)?;
 
     let time = fmt_time(row.create_time);
     let exported = ExportedVoice {
@@ -337,8 +237,20 @@ fn write_voice_row(
         raw_had_0x02_prefix,
         silk_header_ok,
     };
-    std::fs::write(&json_path, serde_json::to_vec_pretty(&exported)?)?;
+    evidence_target.write_bytes(&serde_json::to_vec_pretty(&exported)?)?;
     Ok(exported)
+}
+
+fn capture_voice_target(
+    runtime: &RuntimeContext,
+    path: &Path,
+    overwrite: bool,
+) -> Result<ExportTarget> {
+    if overwrite {
+        ExportTarget::capture(runtime, path)
+    } else {
+        ExportTarget::new_file(path, &crate::toolkit::export_protected(runtime))
+    }
 }
 
 fn normalize_silk(data: &[u8]) -> (&[u8], bool) {
@@ -372,4 +284,134 @@ fn fmt_time(ts: i64) -> String {
         .single()
         .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| ts.to_string())
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use std::fs;
+
+    fn runtime(root: &Path) -> RuntimeContext {
+        RuntimeContext {
+            config: crate::config::Config {
+                key_store: Some(root.join("store.dpapi")),
+                db_dir: root.join("db"),
+                keys_file: root.join("keys.json"),
+                decrypted_dir: root.join("decrypted"),
+                wechat_process: String::new(),
+            },
+            config_path: root.join("config.json"),
+            root: root.into(),
+            id: "synthetic".into(),
+            directory: root.join("runtime"),
+        }
+    }
+    fn names() -> Names {
+        Names {
+            map: HashMap::from([("chat".into(), "name".into())]),
+            md5_to_uname: HashMap::new(),
+            msg_db_keys: Vec::new(),
+            biz_msg_db_keys: Vec::new(),
+            verify_flags: HashMap::new(),
+        }
+    }
+    fn row() -> VoiceRow {
+        VoiceRow {
+            chat_name_id: 1,
+            chat_username: "chat".into(),
+            create_time: 10,
+            local_id: 2,
+            svr_id: 3,
+            data_index: String::new(),
+            voice_data: b"\x02#!SILK_V3synthetic".to_vec(),
+            media_db: "message/media_0.db".into(),
+        }
+    }
+
+    #[test]
+    fn fixed_runtime_raw_audio_evidence_and_no_overwrite() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        fs::write(&runtime.config_path, b"changed invalid configuration").unwrap();
+        let output = root.path().join("out");
+        let first = write_voice_row(&runtime, &output, &mut names(), row(), false).unwrap();
+        assert_eq!(fs::read(&first.audio_file).unwrap(), b"#!SILK_V3synthetic");
+        let evidence: Value =
+            serde_json::from_slice(&fs::read(&first.evidence_file).unwrap()).unwrap();
+        assert_eq!(evidence["raw_had_0x02_prefix"], true);
+        assert_eq!(evidence["voice_data_bytes"], row().voice_data.len());
+        assert!(write_voice_row(&runtime, &output, &mut names(), row(), false).is_err());
+        write_voice_row(&runtime, &output, &mut names(), row(), true).unwrap();
+        assert_eq!(
+            fs::read(&runtime.config_path).unwrap(),
+            b"changed invalid configuration"
+        );
+    }
+
+    #[test]
+    fn all_artifacts_reject_account_paths_and_hardlink_aliases() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        for protected in [
+            &runtime.config_path,
+            &runtime.config.keys_file,
+            runtime.config.key_store.as_ref().unwrap(),
+        ] {
+            fs::write(protected, b"protected synthetic bytes").unwrap();
+            assert!(capture_voice_target(&runtime, protected, true).is_err());
+        }
+        for protected in [
+            &runtime.config.db_dir,
+            &runtime.config.decrypted_dir,
+            &runtime.directory,
+        ] {
+            assert!(write_voice_row(&runtime, protected, &mut names(), row(), true).is_err());
+            assert!(!protected.exists());
+        }
+        let output = root.path().join("out");
+        fs::create_dir(&output).unwrap();
+        for name in ["10_2.silk", "10_2.voice.json", "_voice_export_summary.json"] {
+            let path = output.join(name);
+            fs::hard_link(&runtime.config.keys_file, &path).unwrap();
+            assert!(capture_voice_target(&runtime, &path, true).is_err());
+            assert_eq!(fs::read(&path).unwrap(), b"protected synthetic bytes");
+        }
+    }
+
+    #[test]
+    fn evidence_publication_failure_keeps_audio_and_old_evidence() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        let output = root.path().join("out");
+        let first = write_voice_row(&runtime, &output, &mut names(), row(), false).unwrap();
+        fs::write(&first.audio_file, b"old audio").unwrap();
+        fs::write(&first.evidence_file, b"old evidence").unwrap();
+        let _locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&first.evidence_file)
+            .unwrap();
+        assert!(write_voice_row(&runtime, &output, &mut names(), row(), true).is_err());
+        assert_eq!(fs::read(&first.audio_file).unwrap(), b"#!SILK_V3synthetic");
+        assert_eq!(fs::read(&first.evidence_file).unwrap(), b"old evidence");
+        assert_eq!(
+            fs::read_dir(Path::new(&first.audio_file).parent().unwrap())
+                .unwrap()
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn captured_summary_refuses_concurrent_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        let path = root.path().join("_voice_export_summary.json");
+        fs::write(&path, b"old summary").unwrap();
+        let summary = ExportTarget::capture(&runtime, &path).unwrap();
+        fs::write(&path, b"concurrent summary").unwrap();
+        assert!(summary.write_bytes(b"new summary").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"concurrent summary");
+    }
 }

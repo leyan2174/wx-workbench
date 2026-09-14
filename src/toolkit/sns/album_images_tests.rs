@@ -1,5 +1,5 @@
 use super::*;
-use std::{net::TcpListener, thread};
+use std::{io::Write, net::TcpListener, thread};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nsynthetic";
 const JPG: &[u8] = b"\xff\xd8\xffsynthetic";
@@ -12,6 +12,16 @@ fn fixture() -> (tempfile::TempDir, HostOutputGuard) {
 }
 fn no_stream(_: &str, _: usize) -> Result<Vec<u8>> {
     panic!("明文或无 key 不应初始化 WASM")
+}
+
+#[test]
+fn shared_image_publication_never_replaces_existing_file() {
+    let (root, guard) = fixture();
+    let path = root.path().join("image.png");
+    fs::write(&path, b"concurrent").unwrap();
+    assert_eq!(save_image(PNG, "image", &guard), Err(ImageError::Output));
+    assert_eq!(fs::read(&path).unwrap(), b"concurrent");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
 }
 
 #[test]

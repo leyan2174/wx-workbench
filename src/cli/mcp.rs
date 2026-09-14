@@ -1,7 +1,8 @@
 // MCP stdio framing, fixed-account binding and daemon transport; no task execution.
+use super::mcp_tasks;
 use super::operation_args::mcp_voice;
-use super::{mcp_tasks, transport};
 use crate::mcp::protocol;
+use crate::service::query_client as transport;
 use crate::{
     ipc::Request,
     service::mcp::{Call, HostSettings},

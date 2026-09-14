@@ -1,6 +1,6 @@
 use super::output::{print_value, resolve};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 fn parse_fav_type(s: &str) -> Option<i64> {

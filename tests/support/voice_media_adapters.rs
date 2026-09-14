@@ -1,5 +1,5 @@
 //! Real metadata and voice adapters for hosts that do not project message bodies.
-#[path = "../../src/adapters/wechat/messages/read.rs"]
+#[path = "../../src/adapters/wechat/messages/read/mod.rs"]
 pub mod message_read;
 #[path = "../../src/adapters/wechat/media/voice.rs"]
 pub mod voice;

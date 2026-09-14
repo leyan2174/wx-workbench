@@ -1,4 +1,8 @@
 //! Read instances over an explicit account inventory. No discovery, keys, or host configuration.
+pub mod attachments;
+pub mod diagnostics;
+pub mod export;
+pub mod layout;
 use crate::business::messages::{
     self as domain, Conversation, EvidenceRef, MessageRef, MessageSelector, SourceKind,
 };
@@ -13,6 +17,12 @@ use std::{
 
 pub const MAX_STORED_BYTES: usize = 1_048_576;
 pub const MAX_DECODED_BYTES: usize = 4 * 1_048_576;
+pub struct MetadataCount {
+    pub local_type: i64,
+    pub timestamp: i64,
+    pub sender: Option<String>,
+    pub count: u64,
+}
 const MAX_STREAMS: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,9 +215,7 @@ pub(super) fn decode_content(
 }
 
 fn valid_table(name: &str) -> bool {
-    name.to_ascii_lowercase()
-        .strip_prefix("msg_")
-        .is_some_and(|s| s.len() == 32 && s.bytes().all(|c| c.is_ascii_hexdigit()))
+    layout::valid_sqlite_table(name)
 }
 pub(super) fn logical_name(raw: &str, kind: SourceKind) -> Result<String> {
     let name = raw.replace('\\', "/").to_ascii_lowercase();
@@ -235,7 +243,7 @@ fn add_name(names: &mut BTreeMap<String, String>, username: &str) -> Result<()> 
     if username.is_empty() {
         return Ok(());
     }
-    let hash = format!("{:x}", md5::compute(username.as_bytes()));
+    let hash = layout::username_hash(username);
     if let Some(previous) = names.insert(hash, username.to_owned()) {
         ensure!(previous == username, domain::Error::Ambiguous);
     }
@@ -355,6 +363,12 @@ impl Snapshot {
             streams,
         })
     }
+    pub fn has_sender_username(&self, username: &str) -> bool {
+        self.sources
+            .iter()
+            .any(|source| source.senders.values().any(|name| name == username))
+    }
+
     pub fn streams(&self) -> &[Stream] {
         &self.streams
     }
@@ -383,7 +397,7 @@ impl Snapshot {
         )?)
     }
     pub fn streams_for(&self, username: &str, kind: SourceKind) -> Vec<usize> {
-        let table = format!("Msg_{:x}", md5::compute(username.as_bytes()));
+        let table = layout::table_for_username(username);
         self.streams
             .iter()
             .enumerate()
@@ -752,6 +766,59 @@ impl Snapshot {
         }
         Ok(result)
     }
+    pub fn visit_metadata_counts(
+        &self,
+        stream: usize,
+        filter: &domain::Filter,
+        with_senders: bool,
+        mut visit: impl FnMut(MetadataCount) -> Result<()>,
+    ) -> Result<bool> {
+        filter.validate()?;
+        ensure!(filter.kinds.is_empty(), domain::Error::Unsupported);
+        let entry = self.streams.get(stream).context("unknown message stream")?;
+        ensure!(
+            !with_senders || entry.supports_senders(),
+            domain::Error::Unsupported
+        );
+        let source = &self.sources[entry.source];
+        let sender = if with_senders {
+            "real_sender_id"
+        } else {
+            "NULL"
+        };
+        let sql = format!("SELECT local_type,create_time,{sender},COUNT(*) FROM [{}] WHERE (?1 IS NULL OR create_time>=?1) AND (?2 IS NULL OR create_time<=?2) GROUP BY local_type,create_time,{sender}", entry.table);
+        let mut statement = source.conn.prepare(&sql)?;
+        let mut rows = statement.query(rusqlite::params![filter.since, filter.until])?;
+        let mut found = false;
+        while let Some(row) = rows.next()? {
+            found = true;
+            let local_type = row.get::<_, i64>(0).context(domain::Error::InvalidData)?;
+            let timestamp = row.get::<_, i64>(1).context(domain::Error::InvalidData)?;
+            let sender_id = row
+                .get::<_, Option<i64>>(2)
+                .context(domain::Error::InvalidData)?;
+            let count =
+                u64::try_from(row.get::<_, i64>(3)?).map_err(|_| domain::Error::InvalidData)?;
+            let sender = match sender_id.filter(|id| *id > 0) {
+                Some(id) => Some(
+                    source
+                        .senders
+                        .get(&id)
+                        .ok_or(domain::Error::Unavailable)?
+                        .clone(),
+                ),
+                None => None,
+            };
+            visit(MetadataCount {
+                local_type,
+                timestamp,
+                sender,
+                count,
+            })?;
+        }
+        Ok(found)
+    }
+
     pub fn order_key(&self, message: &RawMessage) -> Result<domain::OrderKey> {
         message.reference.evidence().validate(&self.owner)?;
         Ok(domain::OrderKey(

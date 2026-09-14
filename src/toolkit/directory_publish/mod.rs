@@ -1,4 +1,4 @@
-//! SNS 输出树预检与逐文件发布，不提供整树事务。
+//! 共享输出树预检与逐文件发布，不提供整树事务。
 use crate::attachment::local_files::HostOutputGuard;
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use std::{
 };
 
 const MANIFEST: &str = "_source_binding.json";
+// Keep the historic name so existing and current exporters use the same lock.
 const LOCK: &str = ".wx-sns-publish.lock";
 const MAX_DEPTH: usize = 4;
 const MAX_MANIFEST: u64 = 64 * 1024;
@@ -517,5 +518,4 @@ impl OutputTree {
 }
 
 #[cfg(test)]
-#[path = "publish_tests.rs"]
 mod tests;
