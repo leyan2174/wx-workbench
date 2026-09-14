@@ -4,6 +4,7 @@ mod config;
 mod crypto;
 mod daemon;
 mod ipc;
+mod key_store;
 mod mcp;
 mod message;
 mod runtime;

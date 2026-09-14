@@ -4,6 +4,7 @@ use std::fs;
 fn runtime(root: &std::path::Path, name: &str) -> RuntimeContext {
     let config_path = root.join(format!("{name}.json"));
     let config = crate::config::Config {
+        key_store: None,
         db_dir: root.join(name).join("db_storage"),
         keys_file: root.join(format!("{name}-keys.json")),
         decrypted_dir: root.join(format!("{name}-decrypted")),

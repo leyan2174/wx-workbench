@@ -122,7 +122,12 @@ impl WebService {
             ));
         }
         self.execute(call).await.map_err(|error| {
-            if query::is_busy(&error) {
+            if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
+                crate::service::protocol::ServiceError::new(
+                    failure.service_code(),
+                    failure.public_message(),
+                )
+            } else if query::is_busy(&error) {
                 crate::service::protocol::ServiceError::new("busy", "Web business service is busy")
             } else {
                 crate::service::protocol::ServiceError::new(

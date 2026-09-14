@@ -1,5 +1,6 @@
 //! 旧 transcribe-chat 的自动数据库入口；待 main 接线及集中验证。
 use super::asr::BackendArgs;
+use crate::toolkit::asr::backend::{self, BackendId, Entry};
 pub use crate::toolkit::asr::batch::{BatchTranscriber, Report};
 use crate::{
     runtime::RuntimeContext,
@@ -35,17 +36,52 @@ pub struct BatchArgs {
 pub fn cmd(args: Args) -> Result<()> {
     let runtime = RuntimeContext::load()?;
     let report = cmd_for(&runtime, args)?;
+    finish_report(&report)
+}
+
+fn finish_report(report: &Report) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
-    ensure!(
-        report.failed == 0,
-        "{} voice messages failed; successful results were published",
-        report.failed
-    );
-    ensure!(
-        report.warnings.is_empty(),
-        "ASR finished with persistence warnings; inspect report"
-    );
+    crate::ipc::outcome::BusinessOutcome::from_counts(
+        report.transcribed.saturating_add(report.skipped_existing) as u64,
+        report.failed.saturating_add(report.warnings.len()) as u64,
+    )
+    .require_success()?;
     Ok(())
+}
+
+#[test]
+fn batch_report_counts_persistence_warnings_but_not_engine_warnings() {
+    use crate::ipc::outcome::{BusinessFailure, BusinessOutcome};
+    for (transcribed, skipped_existing, failed, warning, expected) in [
+        (1, 0, 0, false, BusinessOutcome::Success),
+        (1, 0, 1, false, BusinessOutcome::Partial),
+        (0, 1, 1, false, BusinessOutcome::Partial),
+        (0, 0, 1, false, BusinessOutcome::Failure),
+        (1, 0, 0, true, BusinessOutcome::Partial),
+        (0, 0, 0, true, BusinessOutcome::Failure),
+    ] {
+        let mut report = Report {
+            transcribed,
+            skipped_existing,
+            failed,
+            skipped_non_voice: 3,
+            engine_warnings: vec!["informational backend identity".into()],
+            ..Default::default()
+        };
+        if warning {
+            report.warnings.push(crate::toolkit::asr::batch::Warning {
+                username: "synthetic".into(),
+                source: "message_0.db".into(),
+                local_id: 1,
+                error: "synthetic persistence failure".into(),
+            });
+        }
+        let actual = finish_report(&report).map_or_else(
+            |error| error.downcast_ref::<BusinessFailure>().unwrap().0,
+            |_| BusinessOutcome::Success,
+        );
+        assert_eq!(actual, expected);
+    }
 }
 
 /// main 可沿用已经固定的账号，不重新加载全局运行上下文。
@@ -86,57 +122,59 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
         config.is_object(),
         "transcription configuration must be an object"
     );
-    let configured = match config.get("transcription_backend") {
-        None => "local",
-        Some(value) => value
-            .as_str()
-            .context("transcription_backend must be a string")?,
+    let backend = match overrides.backend {
+        super::asr::BackendKind::Local => BackendId::configured(&config)?,
+        selected => selected.identity(Entry::ConfiguredBatch),
     };
-    let backend = if matches!(overrides.backend, super::asr::BackendKind::ExplicitOpenAi) {
-        "openai"
-    } else {
-        configured
-    };
-    let allow_upload = overrides.allow_upload;
-    ensure!(
-        overrides.timeout_seconds > 0,
-        "ASR timeout must be positive"
-    );
+    overrides.validate_for(backend)?;
     match backend {
-        "local" => {
-            ensure!(!allow_upload && overrides.openai_base_url.is_none() && overrides.openai_model.is_none()
-                && overrides.api_key_file.is_none(), "cloud options cannot be used with configured local Whisper");
-            ensure!(overrides.whisper_binary.is_none() && overrides.whisper_model.is_none(),
-                "whisper.cpp paths require --explicit-backend or configured whisper_cpp; Python local uses local_whisper_model");
-            let model = match config.get("local_whisper_model") {
-                Some(value) => value.as_str().context("local_whisper_model must be a string")?.to_owned(),
-                None => "base".into(),
-            };
+        BackendId::PythonWhisper => {
+            let model = backend::python_model(&config)?;
             let local = local_python::LocalPythonConfig::discover(
-                model, (overrides.language != "auto").then_some(overrides.language), overrides.threads,
+                model,
+                (overrides.language != "auto").then_some(overrides.language),
+                overrides.threads,
                 Duration::from_secs(overrides.timeout_seconds),
-                overrides.temp_root.unwrap_or_else(|| runtime.directory.clone()),
-                runtime.config_path.parent().context("selected configuration parent missing")?.to_owned(),
+                overrides
+                    .temp_root
+                    .unwrap_or_else(|| runtime.directory.clone()),
+                runtime
+                    .config_path
+                    .parent()
+                    .context("selected configuration parent missing")?
+                    .to_owned(),
             )?;
             Ok(Backend::LegacyPythonLocal(local))
         }
-        "whisper_cpp" => {
-            ensure!(!allow_upload, "--allow-upload is only valid with a cloud backend");
-            ensure!(overrides.openai_base_url.is_none() && overrides.openai_model.is_none()
-                && overrides.api_key_file.is_none(), "cloud options require an OpenAI backend");
-            let base = runtime.config_path.parent().context("config parent missing")?;
+        BackendId::WhisperCpp => {
+            let base = runtime
+                .config_path
+                .parent()
+                .context("config parent missing")?;
             let configured_path = |field: &str| -> Result<PathBuf> {
                 let path = PathBuf::from(required_string(&config, field)?);
-                Ok(if path.is_absolute() { path } else { base.join(path) })
+                Ok(if path.is_absolute() {
+                    path
+                } else {
+                    base.join(path)
+                })
             };
-            let binary = match overrides.whisper_binary { Some(path) => path, None => configured_path("whisper_cpp_binary")? };
+            let binary = match overrides.whisper_binary {
+                Some(path) => path,
+                None => configured_path("whisper_cpp_binary")?,
+            };
             let model = match overrides.whisper_model {
                 Some(path) => path,
                 None => match config.get("whisper_cpp_model") {
                     Some(value) => {
-                        let model = value.as_str().context("whisper_cpp_model must be a string")?;
-                        if model.is_empty() { discover_cpp_model()? }
-                        else { configured_path("whisper_cpp_model")? }
+                        let model = value
+                            .as_str()
+                            .context("whisper_cpp_model must be a string")?;
+                        if model.is_empty() {
+                            discover_cpp_model()?
+                        } else {
+                            configured_path("whisper_cpp_model")?
+                        }
                     }
                     None => discover_cpp_model()?,
                 },
@@ -144,17 +182,26 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
             let mut local = local::LocalConfig::new(binary, model);
             local.output_format = local::OutputFormat::Json;
             local.language = match config.get("whisper_cpp_language") {
-                Some(value) => value.as_str().context("whisper_cpp_language must be a string")?.to_owned(),
+                Some(value) => value
+                    .as_str()
+                    .context("whisper_cpp_language must be a string")?
+                    .to_owned(),
                 None => "zh".into(),
             };
-            ensure!(!local.language.is_empty(), "whisper_cpp_language must not be empty");
+            ensure!(
+                !local.language.is_empty(),
+                "whisper_cpp_language must not be empty"
+            );
             let threads = match config.get("whisper_cpp_threads") {
-                Some(value) => value.as_u64().context("whisper_cpp_threads must be a nonnegative integer")?,
+                Some(value) => value
+                    .as_u64()
+                    .context("whisper_cpp_threads must be a nonnegative integer")?,
                 None => 0,
             };
             // 旧配置 0 表示自动线程；本地后端构造默认值提供其原生自动策略。
             if threads != 0 {
-                local.threads = usize::try_from(threads).context("whisper_cpp_threads exceeds platform range")?;
+                local.threads = usize::try_from(threads)
+                    .context("whisper_cpp_threads exceeds platform range")?;
             } else if overrides.threads.is_none() {
                 eprintln!("[asr-batch] legacy whisper_cpp_threads=0 uses native automatic threads (capped at 8); use --threads for an explicit value");
             }
@@ -162,33 +209,47 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
                 ensure!(threads > 0, "threads must be positive");
                 local.threads = threads;
             }
-            if overrides.language != "auto" { local.language = overrides.language; }
+            if overrides.language != "auto" {
+                local.language = overrides.language;
+            }
             local.timeout = Duration::from_secs(overrides.timeout_seconds);
             local.temp_root = overrides.temp_root;
             Ok(Backend::Local(local))
         }
-        "openai" => {
-            ensure!(allow_upload, "configured OpenAI requires --allow-upload before credentials are used or audio is read");
-            ensure!(overrides.whisper_binary.is_none() && overrides.whisper_model.is_none()
-                && overrides.threads.is_none() && overrides.temp_root.is_none(),
-                "local options cannot be used with OpenAI");
+        BackendId::OpenAiCompatible => {
             if overrides.api_key_file.is_some() {
                 return BackendArgs {
                     backend: super::asr::BackendKind::ExplicitOpenAi,
-                    openai_base_url: Some(overrides.openai_base_url.clone().unwrap_or_else(|| "https://api.openai.com/v1".into())),
-                    openai_model: Some(overrides.openai_model.clone().unwrap_or_else(|| "whisper-1".into())),
+                    openai_base_url: Some(
+                        overrides
+                            .openai_base_url
+                            .clone()
+                            .unwrap_or_else(|| "https://api.openai.com/v1".into()),
+                    ),
+                    openai_model: Some(
+                        overrides
+                            .openai_model
+                            .clone()
+                            .unwrap_or_else(|| "whisper-1".into()),
+                    ),
                     ..overrides
-                }.build();
+                }
+                .build();
             }
-            Backend::explicit_openai(openai::OpenAiConfig {
-                base_url: overrides.openai_base_url.unwrap_or_else(|| "https://api.openai.com/v1".into()),
-                model: overrides.openai_model.unwrap_or_else(|| "whisper-1".into()),
-                language: (overrides.language != "auto").then_some(overrides.language),
-                api_key: configured_api_key(&config)?,
-                timeout: Duration::from_secs(overrides.timeout_seconds), max_audio_bytes: openai::OPENAI_AUDIO_LIMIT_BYTES,
-            }, true)
+            Backend::explicit_openai(
+                openai::OpenAiConfig {
+                    base_url: overrides
+                        .openai_base_url
+                        .unwrap_or_else(|| "https://api.openai.com/v1".into()),
+                    model: overrides.openai_model.unwrap_or_else(|| "whisper-1".into()),
+                    language: (overrides.language != "auto").then_some(overrides.language),
+                    api_key: configured_api_key(&config)?,
+                    timeout: Duration::from_secs(overrides.timeout_seconds),
+                    max_audio_bytes: openai::OPENAI_AUDIO_LIMIT_BYTES,
+                },
+                true,
+            )
         }
-        _ => bail!("unsupported transcription_backend; expected local/openai/whisper_cpp; no fallback performed"),
     }
 }
 
@@ -392,6 +453,7 @@ mod credential_tests {
         .unwrap();
         RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: root.join("unused-db"),
                 keys_file: root.join("unused-keys"),
                 decrypted_dir: root.join("unused-decrypted"),
@@ -401,6 +463,59 @@ mod credential_tests {
             root: root.to_owned(),
             id: "synthetic".into(),
             directory: root.join("unused-runtime"),
+        }
+    }
+
+    #[test]
+    fn configured_canonical_selection_and_alias_authorization() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = cloud_runtime(root.path());
+        for name in ["local", "python_whisper"] {
+            fs::write(
+                &runtime.config_path,
+                serde_json::to_vec(&json!({"transcription_backend":name})).unwrap(),
+            )
+            .unwrap();
+            let args = BackendArgs {
+                whisper_binary: Some("not-opened".into()),
+                ..Default::default()
+            };
+            let error = configured_backend(&runtime, args).unwrap_err();
+            assert!(error.to_string().contains("python_whisper"));
+        }
+        for name in ["openai", "openai_compatible"] {
+            fs::write(
+                &runtime.config_path,
+                serde_json::to_vec(&json!({"transcription_backend":name,
+                "openai_api_key_env":null}))
+                .unwrap(),
+            )
+            .unwrap();
+            let error = configured_backend(&runtime, BackendArgs::default()).unwrap_err();
+            assert!(error.to_string().contains("authorization"));
+        }
+        fs::write(
+            &runtime.config_path,
+            serde_json::to_vec(&json!({
+                "transcription_backend":"whisper_cpp", "whisper_cpp_binary":"not-opened",
+                "whisper_cpp_model":"not-opened.bin"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        for kind in [
+            super::super::asr::BackendKind::Local,
+            super::super::asr::BackendKind::WhisperCpp,
+        ] {
+            let selected = configured_backend(
+                &runtime,
+                BackendArgs {
+                    backend: kind,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(selected.identity(), BackendId::WhisperCpp);
         }
     }
 

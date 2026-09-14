@@ -26,7 +26,7 @@ pub(crate) fn run() -> Result<()> {
     let mut bytes = vec![0; length];
     input.read_exact(&mut bytes)?;
     let step: Step = serde_json::from_slice(&bytes)?;
-    execute(&runtime, step)
+    crate::daemon::operation_worker::finish(execute(&runtime, step))
 }
 
 fn selected(runtime: &RuntimeContext, config: &Path) -> Result<()> {
@@ -180,7 +180,11 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             options.contacts = toolkit::audio::batch::parse_contact_filter(&users.join(","));
             let report = toolkit::audio::batch::convert_database(&options)?;
             emit(&report)?;
-            ensure!(report.failed == 0, "Some voice conversions failed");
+            crate::ipc::outcome::BusinessOutcome::from_counts(
+                report.converted + report.skipped_existing,
+                report.failed,
+            )
+            .require_success()?;
             Ok(())
         }
     }

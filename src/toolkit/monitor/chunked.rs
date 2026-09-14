@@ -249,6 +249,7 @@ mod tests {
             let root = tempfile::tempdir().unwrap();
             let runtime = RuntimeContext {
                 config: crate::config::Config {
+                    key_store: None,
                     db_dir: root.path().join("source"),
                     keys_file: root.path().join("keys.json"),
                     decrypted_dir: root.path().join("decrypted"),

@@ -1,12 +1,11 @@
 //! 固定账号的查询与监控；有限等待查询许可，不重放已经发出的请求。
 use super::WebService as Shared;
 use crate::ipc::Request;
-#[cfg(test)]
 use crate::ipc::Response;
 use crate::toolkit::monitor::{
     self as incremental, Cancellation, FixedRuntimeContext, MonitorOptions,
 };
-use anyhow::{ensure, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 #[cfg(test)]
@@ -48,11 +47,11 @@ pub async fn request(state: &Shared, request: Request) -> Result<Value> {
             .map_err(|_| anyhow::anyhow!("fixture closed"))?;
         receive.await?
     } else {
-        super::super::server::dispatch_state(request, &state.query).await
+        dispatch_host_request(state, request).await
     };
     #[cfg(not(test))]
-    let response = super::super::server::dispatch_state(request, &state.query).await;
-    ensure!(response.ok, "background query failed");
+    let response = dispatch_host_request(state, request).await;
+    response.require_success()?;
     let mut data = response.data;
     if decorate_history {
         if let Some(chat) = data["username"].as_str().map(str::to_owned) {
@@ -64,6 +63,48 @@ pub async fn request(state: &Shared, request: Request) -> Result<Value> {
         }
     }
     Ok(data)
+}
+
+async fn dispatch_host_request(state: &Shared, request: Request) -> Response {
+    if let Request::DecodeImage {
+        chat,
+        local_id,
+        create_time,
+        output_root,
+        image_key_file: None,
+    } = &request
+    {
+        let decode = async {
+            let lease = state.query.snapshot().await?;
+            let names = lease.names().read().await.clone();
+            let material = zeroize::Zeroizing::new(
+                crate::key_store::Store::for_runtime(&state.runtime)?
+                    .load()?
+                    .image_material(),
+            );
+            super::super::query::mcp_image::q_decode_image_with_material(
+                lease.db(),
+                &names,
+                chat,
+                *local_id,
+                *create_time,
+                std::path::Path::new(output_root),
+                crate::attachment::decoder::V2KeyMaterial {
+                    aes_key: material.0.as_ref(),
+                    xor_key: material.1,
+                },
+            )
+            .await
+        }
+        .await;
+        return match decode {
+            Ok(value) => Response::ok(value),
+            Err(_) => Response::ok(
+                json!({"exit_code":3,"status":"error","message":"Image export failed"}),
+            ),
+        };
+    }
+    super::super::server::dispatch_state(request, &state.query).await
 }
 
 pub async fn monitor(state: Arc<Shared>) {
@@ -212,17 +253,66 @@ mod tests {
         use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced, ListenerOptions};
         let root = tempfile::tempdir().unwrap();
         let config = Config {
+            key_store: Some(root.path().join("keys.dpapi")),
             db_dir: root.path().join("db"),
             keys_file: root.path().join("keys.json"),
             decrypted_dir: root.path().join("plain"),
             wechat_process: String::new(),
         };
+        std::fs::create_dir_all(&config.db_dir).unwrap();
+        std::fs::write(
+            root.path().join("config.json"),
+            serde_json::to_vec(&config).unwrap(),
+        )
+        .unwrap();
         let runtime = RuntimeContext::from_config(
             root.path().join("config.json"),
             config,
             root.path().to_owned(),
         )
         .unwrap();
+        crate::key_store::Store::for_runtime(&runtime)
+            .unwrap()
+            .update(
+                Some(0),
+                &[crate::key_store::Update::ImageXor(
+                    0x88,
+                    crate::key_store::Verification::Verified,
+                )],
+            )
+            .unwrap();
+        use windows::Win32::{
+            Foundation::FILETIME,
+            System::Threading::{GetCurrentProcess, GetProcessTimes},
+        };
+        let (mut birth, mut exit, mut kernel, mut user) = (
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+            FILETIME::default(),
+        );
+        unsafe {
+            GetProcessTimes(
+                GetCurrentProcess(),
+                &mut birth,
+                &mut exit,
+                &mut kernel,
+                &mut user,
+            )
+            .unwrap();
+        }
+        std::fs::create_dir_all(&runtime.directory).unwrap();
+        std::fs::write(
+            runtime.pid_path(),
+            serde_json::to_vec(&json!({
+                "pid":std::process::id(),"exe":std::env::current_exe().unwrap(),
+                "created":(u64::from(birth.dwHighDateTime)<<32)|u64::from(birth.dwLowDateTime),
+                "runtime_id":runtime.id,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let runtime_id = runtime.id.clone();
         let name = runtime.pipe_name();
         let listener = ListenerOptions::new()
             .name(name.to_ns_name::<GenericNamespaced>().unwrap())
@@ -235,11 +325,13 @@ mod tests {
         let next = json!({"alice":now+1,"new_empty":now+2});
         let good = json!({"status":"ok","unknown_shards":[]});
         let bad = json!({"status":"partial","unknown_shards":["synthetic"]});
-        // IPC 响应为扁平 JSON；用真实类型生成，避免夹具多包一层 data。
+        // Use the actual authenticated query envelope, not a legacy bare response.
         let batch = |messages: Value, cursor: Value, meta: Value| {
-            serde_json::to_value(Response::ok(json!({
+            serde_json::to_value(crate::ipc::QueryReply::Response {
+                version:crate::ipc::QUERY_VERSION, runtime_id:runtime_id.clone(),
+                response:Response::ok(json!({
             "count":messages.as_array().unwrap().len(),"messages":messages,"new_state":cursor,"meta":meta
-        }))).unwrap()
+        }))}).unwrap()
         };
         let replies = vec![
             batch(json!([]), base.clone(), good.clone()),
@@ -266,9 +358,21 @@ mod tests {
             for reply in replies {
                 let stream = listener.accept().await.unwrap();
                 let mut reader = BufReader::new(stream);
+                let hello = crate::ipc::QueryHello {
+                    version: crate::ipc::QUERY_VERSION,
+                    runtime_id: runtime_id.clone(),
+                };
+                reader
+                    .get_mut()
+                    .write_all((serde_json::to_string(&hello).unwrap() + "\n").as_bytes())
+                    .await
+                    .unwrap();
                 let mut line = String::new();
                 reader.read_line(&mut line).await.unwrap();
-                seen.push(serde_json::from_str::<Value>(&line).unwrap());
+                let envelope: crate::ipc::QueryEnvelope = serde_json::from_str(&line).unwrap();
+                assert_eq!(envelope.version, crate::ipc::QUERY_VERSION);
+                assert_eq!(envelope.runtime_id, runtime_id);
+                seen.push(serde_json::to_value(envelope.request).unwrap());
                 reader
                     .get_mut()
                     .write_all(format!("{reply}\n").as_bytes())

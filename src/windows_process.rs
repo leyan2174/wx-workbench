@@ -1,4 +1,7 @@
 //! Keep long-lived children from retaining the CLI caller's output pipes.
+#[path = "windows_process/managed.rs"]
+pub(crate) mod managed;
+
 use windows::Win32::Foundation::{SetHandleInformation, HANDLE_FLAGS, HANDLE_FLAG_INHERIT};
 use windows::Win32::System::Console::{
     GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
@@ -82,17 +85,14 @@ mod tests {
     }
 
     fn assert_pipe_eof(frida: bool) {
+        let module = module_path!().split_once("::").unwrap().1;
+        let fixture = format!("{module}::background_parent_fixture");
         let file = std::env::temp_dir().join(format!("wx-pipe-{}-{frida}.pid", std::process::id()));
         let mut cmd = Command::new(std::env::current_exe().unwrap());
-        cmd.args([
-            "--exact",
-            "windows_process::tests::background_parent_fixture",
-            "--ignored",
-            "--nocapture",
-        ])
-        .env("WX_PIPE_TEST_PID_FILE", &file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        cmd.args(["--exact", fixture.as_str(), "--ignored", "--nocapture"])
+            .env("WX_PIPE_TEST_PID_FILE", &file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         if frida {
             cmd.env("WX_PIPE_TEST_FRIDA", "1");
         }

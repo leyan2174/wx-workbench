@@ -37,7 +37,11 @@ pub async fn q_decode(
 }
 
 fn failure(exit_code: i32, text: String) -> Value {
-    json!({"exit_code":exit_code,"text":text})
+    let mut result = json!({"exit_code":exit_code,"text":text});
+    if exit_code == 2 {
+        result["status"] = json!("refused");
+    }
+    result
 }
 
 #[cfg(test)]
@@ -168,6 +172,25 @@ fn lookup_with_sources(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn decode_ambiguity_is_explicit_refusal_without_reclassifying_other_code_two() {
+        use crate::ipc::{outcome::BusinessOutcome, Response};
+        let result = super::failure(2, "synthetic private diagnostic".into());
+        assert_eq!(result["exit_code"], 2);
+        assert_eq!(result["status"], "refused");
+        let error = Response::ok(result).require_success().unwrap_err();
+        assert_eq!(error.0, BusinessOutcome::Refused);
+        assert_eq!(error.legacy_exit_code(), Some(2));
+        assert_eq!(error.public_message(), "Business request refused");
+        assert_eq!(
+            BusinessOutcome::from_legacy(&serde_json::json!({"exit_code": 2})),
+            BusinessOutcome::Failure,
+        );
+        assert!(super::failure(1, "not found".into())
+            .get("status")
+            .is_none());
+    }
+
     use super::*;
 
     struct Fixture(PathBuf);

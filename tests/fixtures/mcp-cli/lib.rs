@@ -10,6 +10,7 @@ pub mod config;
 #[path = "../../../src/attachment/local_files.rs"]
 pub mod local_files;
 pub mod attachment {
+    pub use crate::local_files;
     pub mod native_image {
         pub(crate) use crate::local_files::HostOutputGuard;
     }
@@ -19,12 +20,10 @@ pub mod private_file;
 pub mod toolkit {
     pub use crate::{audio, legacy, private_file, toolkit_asr as asr};
 }
-#[allow(dead_code)]
-pub mod transport {
-    include!(concat!(env!("OUT_DIR"), "/service_query_client.rs"));
-}
+pub use service::query_client as transport;
 #[allow(dead_code)]
 pub mod service {
+    pub mod query_client { include!(concat!(env!("OUT_DIR"), "/service_query_client.rs")); }
     pub mod config_pin { include!(concat!(env!("OUT_DIR"), "/service_config_pin.rs")); }
     pub mod plan { include!(concat!(env!("OUT_DIR"), "/service_plan.rs")); }
     pub mod settings { include!(concat!(env!("OUT_DIR"), "/service_settings.rs")); }

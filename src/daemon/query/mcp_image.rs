@@ -25,6 +25,49 @@ pub async fn q_decode_image_with_key_file(
     output_root: &Path,
     key_file: Option<&Path>,
 ) -> Result<Value> {
+    ensure!(
+        key_file.is_none(),
+        "Legacy plaintext image key files are unsupported"
+    );
+    let guard = image_guard(db, output_root, local_id, create_time)?;
+    q_decode_image_guarded(
+        db,
+        names,
+        chat,
+        local_id,
+        create_time,
+        V2KeyMaterial {
+            aes_key: None,
+            xor_key: 0x88,
+        },
+        guard,
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("image decoding failed; V2 requires an explicit valid image key"))
+}
+
+/// Web host-only adapter: caller supplies authorized account material in memory.
+pub(crate) async fn q_decode_image_with_material(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    local_id: i64,
+    create_time: i64,
+    output_root: &Path,
+    material: V2KeyMaterial<'_>,
+) -> Result<Value> {
+    let guard = image_guard(db, output_root, local_id, create_time)?;
+    q_decode_image_guarded(db, names, chat, local_id, create_time, material, guard)
+        .await
+        .map_err(|_| anyhow::anyhow!("image decoding failed"))
+}
+
+fn image_guard(
+    db: &DbCache,
+    output_root: &Path,
+    local_id: i64,
+    create_time: i64,
+) -> Result<native_image::HostOutputGuard> {
     // 必须先做此检查；缺少宿主输出时不得访问账号或密钥文件。
     let mut guard = native_image::HostOutputGuard::new(output_root).map_err(|_| {
         anyhow::anyhow!("explicit existing absolute host output directory required")
@@ -48,93 +91,7 @@ pub async fn q_decode_image_with_key_file(
             .protect(&path)
             .map_err(|_| anyhow::anyhow!("image output conflicts with protected input"))?;
     }
-    let keys = match key_file {
-        Some(path) => {
-            let bytes = guard
-                .read_key_file(path)
-                .map_err(|_| anyhow::anyhow!("cannot read bounded isolated image key file"))?;
-            parse_key_json(&bytes)?
-        }
-        None => ImageKeys {
-            aes: zeroize::Zeroizing::new(None),
-            xor: zeroize::Zeroizing::new(0x88),
-        },
-    };
-    q_decode_image_guarded(
-        db,
-        names,
-        chat,
-        local_id,
-        create_time,
-        V2KeyMaterial {
-            aes_key: (*keys.aes).as_ref(),
-            xor_key: *keys.xor,
-        },
-        guard,
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("image decoding failed; V2 requires an explicit valid image key"))
-}
-
-struct ImageKeys {
-    aes: zeroize::Zeroizing<Option<[u8; 16]>>,
-    xor: zeroize::Zeroizing<u8>,
-}
-
-struct SecretString(zeroize::Zeroizing<String>);
-
-impl<'de> serde::Deserialize<'de> for SecretString {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
-        <String as serde::Deserialize>::deserialize(deserializer)
-            .map(|value| Self(zeroize::Zeroizing::new(value)))
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(untagged)]
-enum JsonXor {
-    Number(u8),
-    Text(SecretString),
-}
-
-impl Drop for JsonXor {
-    fn drop(&mut self) {
-        use zeroize::Zeroize;
-        if let Self::Number(value) = self {
-            value.zeroize();
-        }
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct KeyJson {
-    aes_key: Option<SecretString>,
-    xor_key: Option<JsonXor>,
-}
-
-fn parse_key_json(bytes: &[u8]) -> Result<ImageKeys> {
-    let parsed: KeyJson =
-        serde_json::from_slice(bytes).map_err(|_| anyhow::anyhow!("invalid image key JSON"))?;
-    let aes = parsed
-        .aes_key
-        .as_ref()
-        .map(|key| crate::toolkit::parse_image_aes(&key.0))
-        .transpose()
-        .map_err(|_| anyhow::anyhow!("invalid image AES key"))?;
-    let aes = zeroize::Zeroizing::new(aes);
-    let xor = match parsed.xor_key.as_ref() {
-        Some(JsonXor::Number(value)) => *value,
-        Some(JsonXor::Text(value)) => crate::toolkit::parse_image_xor(&value.0)
-            .map_err(|_| anyhow::anyhow!("invalid image XOR key"))?,
-        None => 0x88,
-    };
-    Ok(ImageKeys {
-        aes,
-        xor: zeroize::Zeroizing::new(xor),
-    })
+    Ok(guard)
 }
 
 /// 仅供模块测试直接注入密钥；生产统一通过宿主入口保留最初的路径守卫。

@@ -384,7 +384,7 @@ fn explicit_cloud_pipeline_uploads_wav_to_loopback_only() {
     let request = server.join().unwrap();
     let result = result.unwrap();
     assert_eq!(result.text, "cloud fixture");
-    assert_eq!(result.backend, "openai");
+    assert_eq!(result.backend, "openai_compatible");
     assert!(request
         .windows(expected.len())
         .any(|bytes| bytes == expected));

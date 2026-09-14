@@ -85,6 +85,22 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
 #[path = "../../../src/daemon/query/mcp_image.rs"]
 pub mod mcp_image;
 
+// Integration tests cross the fixture crate boundary, not the production API.
+pub async fn decode_with_material(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    local_id: i64,
+    create_time: i64,
+    output_root: &std::path::Path,
+    material: decoder::V2KeyMaterial<'_>,
+) -> anyhow::Result<serde_json::Value> {
+    mcp_image::q_decode_image_with_material(
+        db, names, chat, local_id, create_time, output_root, material,
+    )
+    .await
+}
+
 pub mod toolkit;
 pub mod config {
     pub struct Config {
@@ -95,13 +111,13 @@ pub mod config {
     }
 }
 
+#[path = "../../../src/service/transport/framing.rs"]
+mod ipc_framing;
 pub mod ipc_reader {
-    use crate::ipc::Response;
-    use anyhow::{ensure, Context, Result};
-    // Build-time AST extraction keeps the private production function unchanged.
-    include!(concat!(env!("OUT_DIR"), "/ipc_reader.rs"));
-    pub async fn read(bytes: &[u8], limit: usize) -> Result<Response> {
-        read_response(bytes, Some(limit)).await
+    pub async fn read(mut bytes: &[u8], limit: usize) -> anyhow::Result<()> {
+        // The same bounded frame implementation used by both production clients.
+        crate::ipc_framing::line(&mut bytes, limit).await?;
+        Ok(())
     }
 }
 

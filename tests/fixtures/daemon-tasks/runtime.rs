@@ -44,7 +44,7 @@ fn removed_enterprise_entrypoints_fail_before_account_access() {
     assert!(!fixture.root.join("shared-runtime").exists());
 }
 
-fn personal_messages(account: &Path, count: usize) -> PathBuf {
+fn personal_messages(fixture: &Fixture, account: &Path, count: usize) -> PathBuf {
     let plain = account.join("messages-plain.db");
     fs::copy(account.join("fixture.db"), &plain).unwrap();
     let mut db = rusqlite::Connection::open(&plain).unwrap();
@@ -75,6 +75,7 @@ fn personal_messages(account: &Path, count: usize) -> PathBuf {
         .to_string(),
     )
     .unwrap();
+    fixture.migrate(account);
     encrypted
 }
 
@@ -146,7 +147,7 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     let mut fixture = Fixture::new();
     let account = fixture.account("task-owner", true);
     let other = fixture.account("other-task-owner", false);
-    let source = personal_messages(&account, 4);
+    let source = personal_messages(&fixture, &account, 4);
     let before = fs::read(&source).unwrap();
     let images = fixture.root.join("images");
     fs::create_dir(&images).unwrap();
@@ -307,7 +308,7 @@ impl Drop for Web {
 fn web_and_cli_share_tasks_and_web_shutdown_does_not_stop_daemon() {
     let mut fixture = Fixture::new();
     let account = fixture.account("web-task-owner", true);
-    personal_messages(&account, 4);
+    personal_messages(&fixture, &account, 4);
     let mut web = Web::start(&fixture, &account);
     let info = call(&fixture, &account, &["tasks", "info"]);
     let directory = fixture
@@ -425,7 +426,7 @@ fn cancelling_and_stopping_reap_running_workers_without_stopping_queries_early()
     };
     let mut fixture = Fixture::new();
     let account = fixture.account("cancel-task-owner", true);
-    personal_messages(&account, 100_000);
+    personal_messages(&fixture, &account, 100_000);
     let info = call(&fixture, &account, &["tasks", "configure"]);
     let directory = fixture
         .root

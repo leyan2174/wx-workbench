@@ -1,9 +1,8 @@
 //! 复用现有 IPC 类型和账号管道命名，不调用会自动启动后台的 CLI transport。
 use super::{millis, Cancellation};
-use crate::{
-    ipc::{Request, Response},
-    runtime::RuntimeContext,
-};
+#[cfg(test)]
+use crate::ipc::Response;
+use crate::{ipc::Request, runtime::RuntimeContext};
 use anyhow::{ensure, Result};
 use serde::Serialize;
 use serde_json::Value;
@@ -140,12 +139,18 @@ async fn exchange(
     current_phase: &AtomicU8,
     upload_id: &std::sync::Mutex<Option<String>>,
 ) -> std::result::Result<Reply, QueryFailure> {
-    use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use crate::service::{query_client, transport::framing};
     let started = Instant::now();
-    let mut payload = serde_json::to_vec(&request)
+    if context.pipe != context.runtime.pipe_name() {
+        return Err(QueryFailure::new(
+            "connect",
+            "invalid_account_pipe",
+            started,
+        ));
+    }
+    let payload = serde_json::to_vec(&request)
         .map_err(|_| QueryFailure::new("serialize", "request_encoding_failed", started))?;
-    if payload.len() + 1 > crate::service::protocol::MAX_REQUEST_BYTES {
+    if payload.len() + context.runtime.id.len() + 256 > crate::ipc::QUERY_REQUEST_LIMIT {
         drop(payload);
         return chunked::exchange(
             context,
@@ -157,34 +162,37 @@ async fn exchange(
         )
         .await;
     }
-    payload.push(b'\n');
+    drop(payload);
     let serialize_ms = millis(started.elapsed());
     current_phase.store(1, Ordering::Relaxed);
     let phase = Instant::now();
-    let name = context
-        .pipe
-        .as_str()
-        .to_ns_name::<GenericNamespaced>()
-        .map_err(|_| QueryFailure::new("connect", "invalid_account_pipe", started))?;
-    let mut stream = interprocess::local_socket::tokio::Stream::connect(name)
+    let mut reader = query_client::connect_query(&context.runtime)
         .await
-        .map_err(|_| QueryFailure::new("connect", "existing_daemon_unavailable", started))?;
+        .map_err(|_| QueryFailure::new("connect", "query_peer_or_protocol_invalid", started))?;
     let connect_ms = millis(phase.elapsed());
     current_phase.store(2, Ordering::Relaxed);
     let phase = Instant::now();
-    stream
-        .write_all(&payload)
+    query_client::write_query(&mut reader, &context.runtime, request, max_bytes)
         .await
         .map_err(|_| QueryFailure::new("write", "request_write_failed", started))?;
     let write_ms = millis(phase.elapsed());
     current_phase.store(3, Ordering::Relaxed);
     let phase = Instant::now();
-    let mut reader = BufReader::new(stream).take(max_bytes as u64 + 1);
-    let mut line = Vec::new();
-    reader
-        .read_until(b'\n', &mut line)
+    let line = framing::line(&mut reader, max_bytes)
         .await
-        .map_err(|_| QueryFailure::new("read", "response_read_failed", started))?;
+        .map_err(|error| {
+            QueryFailure::new(
+                "read",
+                match error {
+                    framing::FrameError::Oversize => "response_limit_exceeded",
+                    framing::FrameError::Eof | framing::FrameError::Incomplete => {
+                        "response_frame_incomplete"
+                    }
+                    _ => "response_read_failed",
+                },
+                started,
+            )
+        })?;
     let wait_read_ms = millis(phase.elapsed());
     if line.len() > max_bytes {
         return Err(QueryFailure::new(
@@ -202,8 +210,21 @@ async fn exchange(
     }
     current_phase.store(4, Ordering::Relaxed);
     let phase = Instant::now();
-    let response: Response = serde_json::from_slice(&line)
-        .map_err(|_| QueryFailure::new("parse", "response_json_invalid", started))?;
+    let response =
+        query_client::decode_query_response(&line, &context.runtime).map_err(|error| {
+            QueryFailure::new(
+                "parse",
+                if matches!(
+                    error.downcast_ref::<framing::FrameError>(),
+                    Some(framing::FrameError::Oversize)
+                ) {
+                    "response_limit_exceeded"
+                } else {
+                    "response_json_invalid"
+                },
+                started,
+            )
+        })?;
     // 不输出后台原始错误串，避免把内部配置/敏感调试数据带到终端。
     if !response.ok {
         return Err(QueryFailure::new(

@@ -5,6 +5,14 @@ pub mod config;
 pub mod runtime;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
+#[path = "../../../src/toolkit/files.rs"]
+pub mod files;
+#[path = "../../../src/key_store/mod.rs"]
+pub mod key_store;
+#[path = "../../../src/windows_process.rs"]
+pub mod windows_process;
 #[path = "../../../src/attachment/local_files.rs"]
 pub mod local_files;
 pub mod attachment {
@@ -29,6 +37,8 @@ pub mod crypto {
 #[allow(dead_code)]
 pub mod legacy;
 pub mod toolkit {
+    pub use crate::setup;
+    pub(crate) use crate::files::{separate, validate_export_target};
     pub use crate::private_file;
     pub use crate::toolkit_asr as asr;
     pub use crate::legacy;
@@ -49,6 +59,8 @@ pub mod mcp_voice {
 }
 #[path = "../../../src/cli/mcp.rs"]
 pub mod cli_mcp;
+#[path = "../../../src/cli/mcp_tasks.rs"]
+pub mod mcp_tasks;
 pub mod mcp_service { include!(concat!(env!("OUT_DIR"), "/mcp_service.rs")); }
 pub mod daemon {
     pub use crate::db_cache as cache;
@@ -57,6 +69,10 @@ pub mod daemon {
 }
 #[allow(dead_code)]
 pub mod service {
+    pub mod query_client { include!(concat!(env!("OUT_DIR"), "/service_query_client.rs")); }
+    pub mod config_pin { include!(concat!(env!("OUT_DIR"), "/service_config_pin.rs")); }
+    pub mod plan { include!(concat!(env!("OUT_DIR"), "/service_plan.rs")); }
+    pub mod settings { include!(concat!(env!("OUT_DIR"), "/service_settings.rs")); }
     pub mod mcp { pub use crate::mcp_service::Call; }
     pub mod protocol { include!(concat!(env!("OUT_DIR"), "/service_protocol.rs")); }
     pub mod client { include!(concat!(env!("OUT_DIR"), "/service_client.rs")); }
@@ -64,5 +80,4 @@ pub mod service {
 }
 #[path = "../mcp-auth/mock.rs"]
 pub mod authenticated_mock;
-#[allow(dead_code)]
-pub mod transport { include!(concat!(env!("OUT_DIR"), "/service_query_client.rs")); }
+pub use service::query_client as transport;

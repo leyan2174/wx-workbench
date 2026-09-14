@@ -147,7 +147,7 @@ fn image_mcp_uses_real_accounts_decodes_exact_bytes_and_never_overwrites() {
     let tools = list["result"]["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 17);
     assert_eq!(tools[14]["name"], "decode_image");
-    assert!(!home.path().join("accounts").exists());
+    assert!(a.ipc(json!({"cmd":"ping"})).is_err());
     assert!(!a.root().join("decrypted").exists());
     assert_eq!(a.snapshot(), warm_before);
     assert_eq!(fs::read_dir(output.path()).unwrap().count(), 0);

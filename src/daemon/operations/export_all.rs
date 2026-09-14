@@ -84,22 +84,70 @@ impl Args {
 
 pub(super) fn emit(report: Value) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
-    let failures = report["failures"].as_array().map_or(0, Vec::len);
-    let asr_failed: u64 = report["transcriptions"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["failed"].as_u64())
-        .sum();
-    ensure!(
-        failures == 0 && report.get("success") != Some(&Value::Bool(false)),
-        "部分会话导出失败，成功结果已保留，详见输出统计或 manifest"
-    );
-    ensure!(
-        asr_failed == 0,
-        "{asr_failed} 条语音转录失败，已保留原消息和成功结果"
-    );
+    report_outcome(&report).require_success()?;
     Ok(())
+}
+
+fn report_outcome(report: &Value) -> crate::ipc::outcome::BusinessOutcome {
+    use crate::ipc::outcome::BusinessOutcome;
+    let mut succeeded = report["written"].as_u64().unwrap_or(0);
+    let mut failed = report["failures"]
+        .as_array()
+        .map_or(0, |items| items.len() as u64);
+    if let Some(results) = report["results"].as_array() {
+        for item in results {
+            if BusinessOutcome::from_legacy(item) == BusinessOutcome::Success {
+                succeeded = succeeded.saturating_add(1);
+            } else {
+                failed = failed.saturating_add(1);
+            }
+        }
+    }
+    for item in report["transcriptions"].as_array().into_iter().flatten() {
+        succeeded = succeeded.saturating_add(item["transcribed"].as_u64().unwrap_or(0));
+        failed = failed.saturating_add(item["failed"].as_u64().unwrap_or(0));
+        if item["warnings"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+        {
+            failed = failed.saturating_add(1);
+        }
+    }
+    if failed != 0 {
+        BusinessOutcome::from_counts(succeeded, failed)
+    } else {
+        BusinessOutcome::from_legacy(report)
+    }
+}
+
+#[test]
+fn aggregate_outcome_preserves_partial_exports_and_asr_failures() {
+    use crate::ipc::outcome::BusinessOutcome;
+    for (report, expected) in [
+        (json!({"written":2,"failures":[]}), BusinessOutcome::Success),
+        (
+            json!({"written":1,"failures":[{"error":"PRIVATE"}]}),
+            BusinessOutcome::Partial,
+        ),
+        (
+            json!({"written":0,"failures":[{"error":"PRIVATE"}]}),
+            BusinessOutcome::Failure,
+        ),
+        (
+            json!({"success":false,"results":[{"success":true},{"success":false}]}),
+            BusinessOutcome::Partial,
+        ),
+        (
+            json!({"written":1,"transcriptions":[{"failed":1}]}),
+            BusinessOutcome::Partial,
+        ),
+        (
+            json!({"written":1,"transcriptions":[{"failed":0,"warnings":["PRIVATE"]}]}),
+            BusinessOutcome::Partial,
+        ),
+    ] {
+        assert_eq!(report_outcome(&report), expected);
+    }
 }
 
 pub(super) fn export_for(runtime: &RuntimeContext, args: Args) -> Result<Value> {

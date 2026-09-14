@@ -49,16 +49,14 @@ async fn run_case(wrong_source: bool) -> Result<()> {
     let root = tempfile::tempdir()?;
     let config_path = root.path().join("config.json");
     let config = crate::config::Config {
+        key_store: Some(root.path().join("keys.dpapi")),
         db_dir: root.path().join("account/db_storage"),
         keys_file: root.path().join("keys.json"),
         decrypted_dir: root.path().join("decrypted"),
         wechat_process: "SyntheticNeverLaunched.exe".into(),
     };
     fs::create_dir_all(&config.db_dir)?;
-    let mut config_json = serde_json::to_value(&config)?;
-    config_json["image_aes_key"] = json!(std::str::from_utf8(AES)?);
-    config_json["image_xor_key"] = json!(XOR);
-    let original = serde_json::to_vec(&config_json)?;
+    let original = serde_json::to_vec(&config)?;
     fs::write(&config_path, &original)?;
     fs::write(&config.keys_file, b"{}")?;
     let runtime = crate::runtime::RuntimeContext::from_config(
@@ -67,6 +65,15 @@ async fn run_case(wrong_source: bool) -> Result<()> {
         root.path().join("runtime"),
     )?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+    let store = crate::key_store::Store::for_runtime(&runtime)?;
+    store.update(
+        Some(0),
+        &[crate::key_store::Update::Image(
+            AES,
+            XOR,
+            crate::key_store::Verification::Verified,
+        )],
+    )?;
     let address = listener.local_addr()?;
     let (events, _) = broadcast::channel(8);
     let (shutdown, mut stop) = watch::channel(false);
@@ -138,8 +145,12 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             "IPC lost exact message identity"
         );
         let output = PathBuf::from(output_root);
-        let key = PathBuf::from(image_key_file.context("missing private image key path")?);
+        ensure!(
+            image_key_file.is_none(),
+            "automatic request leaked a plaintext key path"
+        );
         let temporary = output.parent().context("output parent missing")?.to_owned();
+        let key = temporary.join("image-key.json");
         let image = output.join(format!("{:x}.png", md5::compute(PNG)));
         *capture.lock().unwrap() = Some(PublishedPaths {
             temporary: temporary.clone(),
@@ -151,23 +162,14 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             output.is_absolute() && output.is_dir(),
             "output root not prepared"
         );
-        ensure!(
-            key == temporary.join("image-key.json") && key.is_file(),
-            "key not prepared"
-        );
+        ensure!(!key.exists(), "automatic decoding wrote plaintext keys");
         ensure!(
             !temporary.canonicalize()?.starts_with(&account_fixture),
             "automatic output must be outside account/config fixture"
         );
-        crate::toolkit::private_file::assert_private_acl(&key);
-        // Use the real consumer's ASCII parser, never a fixture-specific hex decoder.
-        let key_json: Value = serde_json::from_slice(&fs::read(&key)?)?;
-        let aes = crate::toolkit::parse_image_aes(
-            key_json["aes_key"]
-                .as_str()
-                .context("missing AES material")?,
-        )?;
-        let xor = crate::toolkit::parse_image_xor(&key_json["xor_key"].to_string())?;
+        crate::toolkit::private_file::assert_private_acl(store.path());
+        let (aes, xor) = store.load()?.image_material();
+        let aes = aes.context("missing encrypted AES material")?;
         ensure!(aes == *AES && xor == XOR, "consumer key bytes changed");
         let dat: Vec<_> = PNG.iter().map(|byte| byte ^ XOR).collect();
         let decoded = decoder::dispatch(

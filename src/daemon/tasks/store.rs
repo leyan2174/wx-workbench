@@ -44,10 +44,7 @@ impl Redactor {
             }
         }
         let mut secrets = Vec::new();
-        for (path, all) in [
-            (&runtime.config_path, false),
-            (&runtime.config.keys_file, true),
-        ] {
+        for (path, all) in [(&runtime.config_path, false)] {
             if !path.exists() {
                 continue;
             }
@@ -70,6 +67,25 @@ impl Redactor {
                     }
                 }
                 Err(_) => anyhow::bail!("Invalid account configuration"),
+            }
+        }
+        // Redaction is not a business key reader: unavailable stores must not block
+        // the explicit migration entry. Actual operations still reject these errors.
+        if let Ok(snapshot) =
+            crate::key_store::Store::for_runtime(runtime).and_then(|store| store.load())
+        {
+            secrets.extend(
+                snapshot
+                    .database_keys()
+                    .into_values()
+                    .map(zeroize::Zeroizing::new),
+            );
+            if let Some((mut aes, _)) = snapshot.image_key() {
+                if let Ok(text) = std::str::from_utf8(&aes) {
+                    secrets.push(zeroize::Zeroizing::new(text.to_owned()));
+                }
+                use zeroize::Zeroize;
+                aes.zeroize();
             }
         }
         Ok(Self {

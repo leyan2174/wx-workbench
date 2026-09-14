@@ -354,15 +354,25 @@ async fn explicit_v2_key_is_required_and_forwarded() {
         "image decoding failed; V2 requires an explicit valid image key"
     );
     let key_file = f._root.path().join("image-key.json");
-    fs::write(
-        &key_file,
-        br#"{"aes_key":"1234567890abcdef","xor_key":"0xa2"}"#,
-    )
-    .unwrap();
-    let out =
+    assert!(
         q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, Some(&key_file))
             .await
-            .unwrap();
+            .is_err()
+    );
+    let out = q_decode_image_with_material(
+        &f.db,
+        &f.names,
+        CHAT,
+        42,
+        0,
+        &f.output,
+        V2KeyMaterial {
+            aes_key: Some(b"1234567890abcdef"),
+            xor_key: 0xa2,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(out["image"]["decoder"], "v2");
     assert_eq!(
         fs::read(out["image"]["path"].as_str().unwrap()).unwrap(),
@@ -395,45 +405,8 @@ async fn native_root_policy_and_resource_corruption_remain_fail_closed() {
     f.empty_output();
 }
 
-#[test]
-fn host_key_json_uses_cli_parsers_and_default_xor() {
-    let keys = parse_key_json(br#"{"aes_key":"1234567890abcdef"}"#).unwrap();
-    assert_eq!((*keys.aes).as_ref(), Some(b"1234567890abcdef"));
-    assert_eq!(*keys.xor, 0x88);
-    for value in [br#"{"xor_key":"0xa2"}"#.as_slice(), br#"{"xor_key":162}"#] {
-        let keys = parse_key_json(value).unwrap();
-        assert!((*keys.aes).is_none());
-        assert_eq!(*keys.xor, 0xa2);
-    }
-    let keys = parse_key_json(b"{}").unwrap();
-    assert!((*keys.aes).is_none());
-    assert_eq!(*keys.xor, 0x88);
-}
-
-#[test]
-fn malformed_key_json_errors_never_echo_secret_content() {
-    for value in [
-        br#"{"aes_key":"SECRET"}"#.as_slice(),
-        br#"{"aes_key":"1234567890abcdef","xor_key":"SECRET"}"#,
-        br#"{"SECRET":"1234567890abcdef"}"#,
-        br#"{"aes_key":"1234567890abcdef","aes_key":"SECRET"}"#,
-        br#"{"xor_key":256}"#,
-        br#"{"xor_key":-1}"#,
-        br#"{"xor_key":1.5}"#,
-        b"SECRET invalid JSON",
-    ] {
-        let error = match parse_key_json(value) {
-            Ok(_) => panic!("invalid key unexpectedly accepted"),
-            Err(error) => format!("{error:#}"),
-        };
-        assert!(!error.contains("SECRET"));
-        assert!(!error.contains("1234567890abcdef"));
-        assert!(error.starts_with("invalid image"));
-    }
-}
-
 #[tokio::test]
-async fn missing_host_output_precedes_account_and_key_file_access() {
+async fn plaintext_key_override_is_refused_before_account_and_file_access() {
     let f = Fixture::new(&[]).await;
     for key in &f.names.msg_db_keys {
         fs::remove_file(f.db.db_dir().join(key)).unwrap();
@@ -446,7 +419,7 @@ async fn missing_host_output_precedes_account_and_key_file_access() {
                 .unwrap_err();
         assert_eq!(
             format!("{error:#}"),
-            "explicit existing absolute host output directory required"
+            "Legacy plaintext image key files are unsupported"
         );
     }
     f.empty_output();
@@ -506,7 +479,7 @@ async fn host_wrapper_isolates_source_cache_and_explicit_key_file() {
         .unwrap_err();
     assert_eq!(
         format!("{error:#}"),
-        "cannot read bounded isolated image key file"
+        "Legacy plaintext image key files are unsupported"
     );
     assert_eq!(fs::read(key).unwrap(), b"SECRET protected sentinel");
     assert_eq!(fs::read_dir(&f.output).unwrap().count(), 1);

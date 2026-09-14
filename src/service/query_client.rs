@@ -31,16 +31,19 @@ pub(crate) fn ensure_running_quiet(runtime: &RuntimeContext) -> Result<()> {
 }
 
 fn ensure_running_with_notice(runtime: &RuntimeContext, notice: bool) -> Result<()> {
-    if ping(runtime).unwrap_or(false) {
+    ensure_running_until(runtime, notice, Instant::now() + STARTUP_TIMEOUT)
+}
+
+fn ensure_running_until(runtime: &RuntimeContext, notice: bool, deadline: Instant) -> Result<()> {
+    if ping_until(runtime, deadline)? {
         return Ok(());
     }
     // 并发客户端串行确认并启动；持锁期间第二个客户端不能再次启动同一后台。
-    let deadline = Instant::now() + STARTUP_TIMEOUT;
     let _lock = loop {
         match runtime.lock("startup.lock") {
             Ok(lock) => break lock,
             Err(error) => {
-                if ping(runtime).unwrap_or(false) {
+                if ping_until(runtime, deadline)? {
                     return Ok(());
                 }
                 if Instant::now() >= deadline {
@@ -50,14 +53,15 @@ fn ensure_running_with_notice(runtime: &RuntimeContext, notice: bool) -> Result<
             }
         }
     };
-    if ping(runtime).unwrap_or(false) {
+    if ping_until(runtime, deadline)? {
         return Ok(());
     }
     ensure!(
         !recorded_process_alive(runtime)?,
         "当前账号后台仍存活但未响应，未覆盖其身份记录；请先执行 daemon stop 或检查日志"
     );
-    start_daemon(runtime, notice)
+    ensure!(Instant::now() < deadline, "后台启动超时");
+    start_daemon(runtime, notice, deadline)
 }
 
 fn recorded_process_alive(runtime: &RuntimeContext) -> Result<bool> {
@@ -98,7 +102,7 @@ fn process_active(handle: windows::Win32::Foundation::HANDLE) -> Result<bool> {
     Ok(code == 259) // Windows STILL_ACTIVE；本程序不使用该退出码。
 }
 
-fn start_daemon(runtime: &RuntimeContext, notice: bool) -> Result<()> {
+fn start_daemon(runtime: &RuntimeContext, notice: bool, deadline: Instant) -> Result<()> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe()?.canonicalize()?;
@@ -135,7 +139,6 @@ fn start_daemon(runtime: &RuntimeContext, notice: bool) -> Result<()> {
             runtime_id: runtime.id.clone(),
         };
         std::fs::write(runtime.pid_path(), serde_json::to_vec(&record)?)?;
-        let deadline = Instant::now() + STARTUP_TIMEOUT;
         while Instant::now() < deadline {
             if let Some(status) = child.try_wait()? {
                 bail!(
@@ -143,7 +146,7 @@ fn start_daemon(runtime: &RuntimeContext, notice: bool) -> Result<()> {
                     runtime.log_path().display()
                 );
             }
-            if ping(runtime).unwrap_or(false) {
+            if ping_until(runtime, deadline)? {
                 return Ok(());
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -209,10 +212,9 @@ pub(crate) fn stop_runtime(runtime: &RuntimeContext) -> Result<()> {
                     );
                 }
             } else {
-                ensure!(
-                    !ping(runtime).unwrap_or(false),
-                    "PID 已复用或身份不符，拒绝停止"
-                );
+                // An authenticated ping also rejects a tampered identity record; its
+                // failure is not evidence that the recorded process has exited.
+                ensure!(!process_active(handle.0)?, "PID 已复用或身份不符，拒绝停止");
             }
         }
         Err(e) => {
@@ -317,6 +319,21 @@ fn ping(runtime: &RuntimeContext) -> Result<bool> {
     Ok(response.data.get("pong").and_then(|v| v.as_bool()) == Some(true))
 }
 
+fn ping_until(runtime: &RuntimeContext, deadline: Instant) -> Result<bool> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(super::transport::framing::FrameError::Timeout.into());
+    }
+    Ok(request_with_options(
+        runtime,
+        Request::Ping,
+        remaining.min(Duration::from_secs(1)),
+        Some(1024),
+    )
+    .map(|response| response.data.get("pong").and_then(|v| v.as_bool()) == Some(true))
+    .unwrap_or(false))
+}
+
 pub fn send(req: Request) -> Result<Response> {
     let runtime = RuntimeContext::load()?;
     send_for(&runtime, req)
@@ -324,7 +341,6 @@ pub fn send(req: Request) -> Result<Response> {
 
 /// 同一批次固定账号身份；配置切换不能将后续请求发往另一条账号管道。
 pub(crate) fn send_for(runtime: &RuntimeContext, req: Request) -> Result<Response> {
-    ensure_running(runtime)?;
     request(runtime, req)
 }
 
@@ -335,13 +351,13 @@ pub(crate) fn send_with_limits(
     timeout: Duration,
     max_response_bytes: usize,
 ) -> Result<Response> {
+    super::transport::framing::budget(max_response_bytes)?;
     ensure!(
-        max_response_bytes > 0 && max_response_bytes < usize::MAX,
-        "后台响应限额无效"
+        !timeout.is_zero() && timeout <= Duration::from_secs(3600),
+        "invalid query deadline"
     );
-    ensure!(!timeout.is_zero(), "后台请求超时");
     let started = Instant::now();
-    ensure_running(runtime)?;
+    ensure_running_until(runtime, true, started + timeout.min(STARTUP_TIMEOUT))?;
     let remaining = timeout.saturating_sub(started.elapsed());
     ensure!(!remaining.is_zero(), "后台启动后请求已超时");
     request_with_options(runtime, req, remaining, Some(max_response_bytes))
@@ -356,9 +372,11 @@ fn request(runtime: &RuntimeContext, req: Request) -> Result<Response> {
         })
         .unwrap_or(Ok(300))?;
     ensure!(seconds > 0, "WX_CLI_REQUEST_TIMEOUT_SECS 必须大于零");
-    request_with_timeout(runtime, req, Duration::from_secs(seconds))
+    let limit = crate::ipc::query_response_limit(&req);
+    send_with_limits(runtime, req, Duration::from_secs(seconds), limit)
 }
 
+#[cfg(test)]
 fn request_with_timeout(
     runtime: &RuntimeContext,
     req: Request,
@@ -373,61 +391,108 @@ fn request_with_options(
     timeout: Duration,
     max_response_bytes: Option<usize>,
 ) -> Result<Response> {
-    use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
-    use tokio::io::{AsyncWriteExt, BufReader};
+    use super::transport::framing::{self, FrameError};
+    let max_response_bytes =
+        max_response_bytes.unwrap_or_else(|| crate::ipc::query_response_limit(&req));
+    framing::budget(max_response_bytes)?;
+    ensure!(
+        !timeout.is_zero() && timeout <= Duration::from_secs(3600),
+        "invalid query deadline"
+    );
     // 异步 I/O 可在连接、写入和读取任一阶段取消，不留下占用管道的工作线程。
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
         .block_on(async {
-            let phase = std::cell::Cell::new("connect");
             let result = tokio::time::timeout(timeout, async {
-                let pipe = runtime.pipe_name();
-                let name = pipe.to_ns_name::<GenericNamespaced>()?;
-                let stream = interprocess::local_socket::tokio::Stream::connect(name)
-                    .await
-                    .context("连接当前账号的后台失败")?;
-                phase.set("write");
-                let mut reader = BufReader::new(stream);
-                reader
-                    .get_mut()
-                    .write_all((serde_json::to_string(&req)? + "\n").as_bytes())
-                    .await?;
-                phase.set("read response");
-                read_response(reader, max_response_bytes).await
+                let mut reader = connect_query(runtime).await?;
+                write_query(&mut reader, runtime, req, max_response_bytes).await?;
+                let bytes = framing::line(&mut reader, max_response_bytes).await?;
+                let response = decode_query_response(&bytes, runtime)?;
+                response.require_success()?;
+                Ok::<_, anyhow::Error>(response)
             })
             .await;
-            result.with_context(|| {
-                format!(
-                    "后台请求超时（{}）；可通过 WX_CLI_REQUEST_TIMEOUT_SECS 调整查询期限",
-                    phase.get()
-                )
-            })?
+            result.map_err(|_| anyhow::Error::new(FrameError::Timeout).context("后台请求超时"))?
         })
 }
 
+/// Connect-only: verify the OS peer, then its protocol/runtime before business data.
+pub(crate) async fn connect_query(
+    runtime: &RuntimeContext,
+) -> Result<tokio::io::BufReader<tokio::net::windows::named_pipe::NamedPipeClient>> {
+    use super::transport::framing::{self, FrameError};
+    let name = format!(r"\\.\pipe\{}", runtime.pipe_name());
+    let stream = super::client::connect_named(runtime, &name).await?;
+    let mut reader = tokio::io::BufReader::new(stream);
+    let bytes = tokio::time::timeout(Duration::from_secs(3), framing::line(&mut reader, 1024))
+        .await
+        .map_err(|_| FrameError::Timeout)
+        .context("query v3 handshake required; restart an older daemon explicitly")??;
+    let hello: crate::ipc::QueryHello =
+        serde_json::from_slice(&bytes).map_err(|_| FrameError::Protocol)?;
+    if hello.version != crate::ipc::QUERY_VERSION || hello.runtime_id != runtime.id {
+        return Err(FrameError::Protocol.into());
+    }
+    Ok(reader)
+}
+
+pub(crate) async fn write_query(
+    reader: &mut tokio::io::BufReader<tokio::net::windows::named_pipe::NamedPipeClient>,
+    runtime: &RuntimeContext,
+    request: Request,
+    response_limit: usize,
+) -> Result<()> {
+    use super::transport::{self, framing};
+    framing::budget(response_limit)?;
+    let envelope = crate::ipc::QueryEnvelope {
+        version: crate::ipc::QUERY_VERSION,
+        runtime_id: runtime.id.clone(),
+        response_limit,
+        request,
+    };
+    let bytes = transport::encode(&envelope, crate::ipc::QUERY_REQUEST_LIMIT - 1)?;
+    framing::write_line(reader.get_mut(), &bytes, crate::ipc::QUERY_REQUEST_LIMIT).await?;
+    Ok(())
+}
+
+pub(crate) fn decode_query_response(bytes: &[u8], runtime: &RuntimeContext) -> Result<Response> {
+    use super::transport::framing::FrameError;
+    use crate::ipc::{QueryReply, QUERY_VERSION};
+    let reply: QueryReply = serde_json::from_slice(bytes).map_err(|_| FrameError::Protocol)?;
+    let (version, runtime_id) = match &reply {
+        QueryReply::Response {
+            version,
+            runtime_id,
+            ..
+        }
+        | QueryReply::Oversize {
+            version,
+            runtime_id,
+        } => (*version, runtime_id),
+    };
+    if version != QUERY_VERSION || runtime_id != &runtime.id {
+        return Err(FrameError::Protocol.into());
+    }
+    match reply {
+        QueryReply::Response { response, .. } => Ok(response),
+        QueryReply::Oversize { .. } => Err(FrameError::Oversize.into()),
+    }
+}
+
+#[cfg(test)]
 async fn read_response<R: tokio::io::AsyncBufRead + Unpin>(
-    reader: R,
+    mut reader: R,
     max_response_bytes: Option<usize>,
 ) -> Result<Response> {
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
-    let limit = max_response_bytes
-        .map(|max| max.checked_add(1).context("后台响应限额溢出"))
-        .transpose()?
-        .map(|max| max as u64)
-        .unwrap_or(u64::MAX);
-    let mut reader = reader.take(limit);
-    let mut line = String::new();
-    reader.read_line(&mut line).await?;
-    if let Some(max) = max_response_bytes {
-        ensure!(line.len() <= max, "后台响应超过大小限制");
-    }
-    let response: Response = serde_json::from_str(&line).context("解析后台响应失败")?;
-    ensure!(
-        response.ok,
-        "{}",
-        response.error.as_deref().unwrap_or("后台请求失败")
-    );
+    let line = super::transport::framing::line(
+        &mut reader,
+        max_response_bytes.unwrap_or(crate::ipc::QUERY_RESPONSE_LIMIT),
+    )
+    .await
+    .context("后台响应帧不完整或超过大小限制")?;
+    let response: Response = serde_json::from_slice(&line).context("解析后台响应失败")?;
+    response.require_success()?;
     Ok(response)
 }
 
@@ -483,8 +548,10 @@ mod tests {
 
     #[test]
     fn connected_but_silent_server_times_out_without_leaking_reader() {
+        let temp = tempfile::tempdir().unwrap();
         let runtime = RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: PathBuf::new(),
                 keys_file: PathBuf::new(),
                 decrypted_dir: PathBuf::new(),
@@ -492,13 +559,25 @@ mod tests {
             },
             config_path: PathBuf::new(),
             root: PathBuf::new(),
-            directory: PathBuf::new(),
+            directory: temp.path().to_path_buf(),
             id: format!(
                 "timeout-test-{}-{}",
                 std::process::id(),
                 chrono::Utc::now().timestamp_nanos_opt().unwrap()
             ),
         };
+        let handle = process_handle(std::process::id(), false).unwrap();
+        std::fs::write(
+            runtime.pid_path(),
+            serde_json::to_vec(&PidFile {
+                pid: std::process::id(),
+                exe: std::env::current_exe().unwrap(),
+                created: process_created(handle.0).unwrap(),
+                runtime_id: runtime.id.clone(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
         let pipe = runtime.pipe_name();
         let (ready, wait) = std::sync::mpsc::channel();
         let server = std::thread::spawn(move || {
@@ -530,5 +609,140 @@ mod tests {
         server.join().unwrap();
         assert!(result.unwrap_err().to_string().contains("超时"));
         assert!(elapsed < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn real_query_pipe_rejects_peer_protocol_and_incomplete_frames() {
+        use super::super::transport::framing::FrameError;
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::windows::named_pipe::ServerOptions,
+        };
+        for mode in [
+            "pid",
+            "birth",
+            "exe",
+            "version",
+            "runtime",
+            "oversize",
+            "truncated",
+            "ok",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let runtime = RuntimeContext {
+                config: crate::config::Config {
+                    key_store: None,
+                    db_dir: PathBuf::new(),
+                    keys_file: PathBuf::new(),
+                    decrypted_dir: PathBuf::new(),
+                    wechat_process: String::new(),
+                },
+                config_path: PathBuf::new(),
+                root: temp.path().into(),
+                directory: temp.path().into(),
+                id: format!(
+                    "query-fixture-{}-{mode}-{}",
+                    std::process::id(),
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap()
+                ),
+            };
+            let handle = process_handle(std::process::id(), false).unwrap();
+            let mut record = PidFile {
+                pid: std::process::id(),
+                exe: std::env::current_exe().unwrap(),
+                created: process_created(handle.0).unwrap(),
+                runtime_id: runtime.id.clone(),
+            };
+            match mode {
+                "pid" => record.pid = record.pid.wrapping_add(1),
+                "birth" => record.created += 1,
+                "exe" => record.exe = temp.path().join("wrong.exe"),
+                _ => (),
+            }
+            std::fs::write(runtime.pid_path(), serde_json::to_vec(&record).unwrap()).unwrap();
+            let name = format!(r"\\.\pipe\{}", runtime.pipe_name());
+            let mut server = ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(&name)
+                .unwrap();
+            let id = runtime.id.clone();
+            let reject = matches!(mode, "pid" | "birth" | "exe" | "version" | "runtime");
+            let serving = tokio::spawn(async move {
+                server.connect().await.unwrap();
+                if !matches!(mode, "pid" | "birth" | "exe") {
+                    let hello = crate::ipc::QueryHello {
+                        version: if mode == "version" {
+                            0
+                        } else {
+                            crate::ipc::QUERY_VERSION
+                        },
+                        runtime_id: if mode == "runtime" {
+                            "other".into()
+                        } else {
+                            id.clone()
+                        },
+                    };
+                    let _ = server
+                        .write_all((serde_json::to_string(&hello).unwrap() + "\n").as_bytes())
+                        .await;
+                }
+                let mut request = [0; 1024];
+                let count = server.read(&mut request).await.unwrap_or(0);
+                if reject {
+                    assert_eq!(count, 0, "business data sent to rejected peer");
+                    return;
+                }
+                assert!(count > 0);
+                match mode {
+                    "oversize" => server.write_all(&[b'x'; 1025]).await.unwrap(),
+                    "truncated" => {
+                        server.write_all(b"{\"ok\":true}").await.unwrap();
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    _ => {
+                        let reply = crate::ipc::QueryReply::Response {
+                            version: crate::ipc::QUERY_VERSION,
+                            runtime_id: id,
+                            response: Response::ok(serde_json::json!({"pong":true})),
+                        };
+                        server
+                            .write_all((serde_json::to_string(&reply).unwrap() + "\n").as_bytes())
+                            .await
+                            .unwrap();
+                    }
+                }
+                if mode != "truncated" {
+                    let _ = server.read(&mut request).await;
+                }
+            });
+            let result = tokio::time::timeout(Duration::from_secs(2), async {
+                let mut reader = connect_query(&runtime).await?;
+                write_query(&mut reader, &runtime, Request::Ping, 1024).await?;
+                let bytes = super::super::transport::framing::line(&mut reader, 1024).await?;
+                decode_query_response(&bytes, &runtime)
+            })
+            .await
+            .unwrap();
+            match mode {
+                "ok" => assert!(result.is_ok()),
+                "oversize" => assert!(matches!(
+                    result.unwrap_err().downcast_ref::<FrameError>(),
+                    Some(FrameError::Oversize)
+                )),
+                "truncated" => assert!(matches!(
+                    result.unwrap_err().downcast_ref::<FrameError>(),
+                    Some(FrameError::Incomplete)
+                )),
+                "version" | "runtime" => assert!(matches!(
+                    result.unwrap_err().downcast_ref::<FrameError>(),
+                    Some(FrameError::Protocol)
+                )),
+                _ => assert!(result.is_err()),
+            }
+            tokio::time::timeout(Duration::from_secs(2), serving)
+                .await
+                .unwrap()
+                .unwrap();
+        }
     }
 }

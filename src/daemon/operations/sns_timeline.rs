@@ -1,15 +1,12 @@
 //! 选中配置的 SNS 生产宿主；不发现其他账号，不启动旧 Python。
 use crate::{
     runtime::RuntimeContext,
-    toolkit::{
-        parse_image_aes, parse_image_xor,
-        sns::{
-            self,
-            cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
-            export_database_with_publication,
-            publish::ExistingPolicy,
-            TimelinePublication,
-        },
+    toolkit::sns::{
+        self,
+        cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
+        export_database_with_publication,
+        publish::ExistingPolicy,
+        TimelinePublication,
     },
 };
 use anyhow::{ensure, Context, Result};
@@ -107,7 +104,9 @@ fn paths(runtime: &RuntimeContext, raw: &Value, args: &Args) -> Result<(PathBuf,
     ))
 }
 
+#[cfg(test)]
 fn image_keys(raw: &Value) -> Result<CacheKeys> {
+    use crate::toolkit::{parse_image_aes, parse_image_xor};
     let aes = match raw.get("image_aes_key") {
         None | Some(Value::Null) => None,
         Some(Value::String(s)) if s.is_empty() => None,
@@ -214,7 +213,15 @@ fn export_for(
     let keys = if missing {
         CacheKeys::default()
     } else {
-        image_keys(raw)?
+        let material = zeroize::Zeroizing::new(
+            crate::key_store::Store::for_runtime(runtime)?
+                .load()?
+                .image_material(),
+        );
+        CacheKeys {
+            image_aes_key: material.0,
+            image_xor_key: material.1,
+        }
     };
     // 旧脚本跳过不存在的缓存；存在但不可读或不安全的根仍由 core 报错。
     for root in [&mut roots.xwechat, &mut roots.file_storage_sns] {
@@ -298,8 +305,9 @@ mod tests {
     }
 
     fn runtime(root: &Path) -> RuntimeContext {
-        RuntimeContext {
+        let runtime = RuntimeContext {
             config: crate::config::Config {
+                key_store: Some(root.join("keys.dpapi")),
                 db_dir: root.join("accounts/selected/db_storage"),
                 keys_file: root.join("all_keys.json"),
                 decrypted_dir: root.join("decrypted"),
@@ -309,7 +317,19 @@ mod tests {
             root: root.to_owned(),
             id: "selected-runtime-id".into(),
             directory: root.join("runtime/selected"),
-        }
+        };
+        fs::create_dir_all(&runtime.config.db_dir).unwrap();
+        crate::key_store::Store::for_runtime(&runtime)
+            .unwrap()
+            .update(
+                Some(0),
+                &[crate::key_store::Update::ImageXor(
+                    0x88,
+                    crate::key_store::Verification::Verified,
+                )],
+            )
+            .unwrap();
+        runtime
     }
 
     #[test]

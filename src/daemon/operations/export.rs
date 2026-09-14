@@ -16,6 +16,11 @@ pub fn cmd_export(
     let since_ts = since.as_deref().map(parse_time).transpose()?;
     let until_ts = until.as_deref().map(parse_time_end).transpose()?;
     let (with_meta, debug_source) = opts.request_flags();
+    let runtime = crate::runtime::RuntimeContext::load()?;
+    let target = output
+        .as_ref()
+        .map(|path| crate::toolkit::ExportTarget::capture(&runtime, std::path::Path::new(path)))
+        .transpose()?;
 
     let req = Request::History {
         chat,
@@ -30,7 +35,7 @@ pub fn cmd_export(
         debug_source,
     };
 
-    let resp = transport::send(req)?;
+    let resp = transport::send_for(&runtime, req)?;
     emit_warnings(&resp.data);
     let messages = resp.data["messages"]
         .as_array()
@@ -93,7 +98,9 @@ pub fn cmd_export(
 
     match output {
         Some(path) => {
-            std::fs::write(&path, &text)?;
+            target
+                .expect("file target captured before query")
+                .write_bytes(text.as_bytes())?;
             println!("已导出 {} 条消息到 {}", count, path);
         }
         None => println!("{}", text),

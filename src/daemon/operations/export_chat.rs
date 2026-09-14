@@ -6,8 +6,9 @@ pub fn cmd_export(chat: String, output: PathBuf) -> Result<()> {
     let runtime = crate::runtime::RuntimeContext::load()?;
     let output = std::path::absolute(output)?;
     validate_output_for(&runtime, &output)?;
+    let target = crate::toolkit::ExportTarget::capture(&runtime, &output)?;
     let response = super::transport::send_for(&runtime, crate::ipc::Request::ExportChat { chat })?;
-    write_document_for(&runtime, &output, &response.data)?;
+    target.write_json(&response.data)?;
     println!(
         "已导出 {} 条消息至 {}",
         response.data["messages"].as_array().map_or(0, Vec::len),
@@ -20,42 +21,17 @@ pub(super) fn validate_output_for(
     runtime: &crate::runtime::RuntimeContext,
     output: &std::path::Path,
 ) -> Result<()> {
-    let config = &runtime.config;
-    for source in [&config.db_dir, &config.decrypted_dir, &runtime.directory] {
-        crate::toolkit::separate(source, output)?;
-    }
-    if output.exists() {
-        let destination = output.canonicalize()?;
-        for protected in [&config.keys_file, &runtime.config_path] {
-            if protected.exists() {
-                anyhow::ensure!(
-                    !destination
-                        .to_string_lossy()
-                        .eq_ignore_ascii_case(&protected.canonicalize()?.to_string_lossy()),
-                    "导出不能覆盖账号配置或密钥文件"
-                );
-            }
-        }
-    }
-    Ok(())
+    crate::toolkit::validate_export_target(runtime, output)
 }
 
 /// 固定账号的校验与原子发布，不重新读取配置。
+#[cfg(test)]
 pub(super) fn write_document_for(
     runtime: &crate::runtime::RuntimeContext,
     output: &std::path::Path,
     data: &serde_json::Value,
 ) -> Result<()> {
-    validate_output_for(runtime, output)?;
-    crate::toolkit::atomic_output(output, |temporary| {
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .open(temporary)?;
-        serde_json::to_writer_pretty(file, data)?;
-        Ok(())
-    })?;
-    Ok(())
+    crate::toolkit::ExportTarget::capture(runtime, output)?.write_json(data)
 }
 
 #[cfg(test)]
@@ -68,6 +44,7 @@ mod tests {
         let root = temp.path();
         let runtime = crate::runtime::RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: root.join("db"),
                 keys_file: root.join("keys.json"),
                 decrypted_dir: root.join("decrypted"),

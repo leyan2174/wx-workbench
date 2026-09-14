@@ -1,6 +1,8 @@
 //! 真实 CLI 的静态合成 SQLite 契约；daemon 执行业务，不依赖 Python。
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -63,16 +65,22 @@ impl Fixture {
                 )
                 .unwrap();
         }
-        fs::write(p.join("all_keys.json"), b"{}").unwrap();
         fs::write(
             p.join("config.json"),
             json!({
                 "db_dir":"db_storage", "keys_file":"all_keys.json",
-                "decrypted_dir":"decrypted", "output_base_dir":"exports"
+                "decrypted_dir":"decrypted", "output_base_dir":"exports",
+                "image_xor_key":136
             })
             .to_string(),
         )
         .unwrap();
+        key_store_fixture::migrate_with_unverified(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &p.join("config.json"),
+            &self.root.path().join("runtime"),
+            true,
+        );
         p
     }
 
@@ -191,7 +199,13 @@ impl Fixture {
         ] {
             digest.update(
                 path.canonicalize()
-                    .unwrap()
+                    .unwrap_or_else(|_| {
+                        path.parent()
+                            .unwrap()
+                            .canonicalize()
+                            .unwrap()
+                            .join(path.file_name().unwrap())
+                    })
                     .to_string_lossy()
                     .to_lowercase()
                     .as_bytes(),

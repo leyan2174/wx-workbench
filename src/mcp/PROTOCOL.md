@@ -22,7 +22,7 @@
 | `WX_CLI_CONFIG` | 必须由宿主显式设置；首次查询固定账号和配置读锁，不由工具参数选账号 |
 | `--max-frame-bytes` | 默认 1048576，允许 1024..16777216；MCP 双向帧上限不含结尾 LF，其他普通 IPC 响应也受该预算约束 |
 | `--media-output-root` | 无默认，必须已存在且可信；图片/语音解码发布必需，不自动创建 |
-| `--image-key-file` | 可选，必须同时给输出根；仅供图片显式密钥，不自动发现 |
+| `--image-key-file` | 旧明文密钥文件接口不再支持；显式设置时拒绝图片请求，不读取文件 |
 | `--backend` | 默认 `local` 指 whisper.cpp，要求 `--whisper-binary` 和 `--whisper-model`；云端选 `explicit-open-ai` |
 | `--language`、`--threads`、`--timeout-seconds` | 默认 `auto`、原生自动且最多 8、120 秒；显式线程和超时须正值。Python 未给线程时沿用 PyTorch 默认。MCP context 默认 30 秒，实际剩余期限会收紧后端预算，120 秒不延长此请求期限 |
 | `--temp-root` | 普通 whisper.cpp 可指定可信目录，省略时 host 创建请求独占 TempDir；配置式 Python 不接受此用户参数，使用 host 私有目录 |
@@ -137,7 +137,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 | 工具参数 | `chat_name` 非空白；`local_id` 为 1..i64::MAX；`create_time` 为 0..i64::MAX，默认 0 表示不限定时间，仍要求唯一消息 |
 | 路由 golden | `{chat_name:"peer",local_id:7}` → `{cmd:"decode_image",chat:"peer",local_id:7,create_time:0}`；未注入时空 `output_root` 和 None `image_key_file` 不序列化 |
 | 宿主输出 | `wx mcp --media-output-root <已存在的可信目录>`；不自动创建，未配置时在账号访问前拒绝；宿主相对路径转绝对路径，拒绝 `..`，daemon 再检查目录与受保护输入隔离 |
-| 宿主密钥 | 可选 `--image-key-file <文件>`，必须同时设置输出根；仅宿主提供，不接受工具参数中的路径或密钥；有界读取最多 4096 字节 JSON，支持 `aes_key` 与 `xor_key`，拒绝未知字段 |
+| 宿主密钥 | 不支持明文 `--image-key-file`，显式设置时拒绝请求；工具参数中的路径仍被剥离。Web 专用宿主入口从账号加密 Store 读取并在内存中传递材料，不创建明文临时文件 |
 | 解码范围 | 当前账号的唯一图片消息、唯一资源库及受限 DAT 候选；完整分片检查、歧义拒绝；V2 无有效显式 AES 密钥失败，不调用自动 provider |
 | 发布 | 同目录临时文件、`sync_all`、发布前复核、`persist_noclobber`；输出名为 `<decoded_md5>.<format>`，已有文件、链接或目录均不覆盖 |
 | 外部行为 | 不下载、不上传、不执行外部转换器；`readOnlyHint=false`、`destructiveHint=false`、`openWorldHint=false`；不公布覆盖、上传或自动重试选项 |

@@ -156,8 +156,8 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
             std::fs::OpenOptions::new()
                 .write(true)
                 .open(&config_a)
-                .is_err(),
-            "account configuration must be pinned"
+                .is_ok(),
+            "idle session must release the operation-scoped configuration lock"
         );
     }
     send(

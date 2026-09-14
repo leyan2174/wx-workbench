@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite},
     net::windows::named_pipe::{NamedPipeServer, ServerOptions},
     sync::{watch, Semaphore},
     task::JoinSet,
@@ -39,6 +39,9 @@ use windows::Win32::{
     },
 };
 use zeroize::{Zeroize, Zeroizing};
+
+#[path = "transport/framing.rs"]
+pub(crate) mod framing;
 
 pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_SHARE: u32 = 1;
@@ -383,21 +386,20 @@ pub(crate) async fn read_frame<R: AsyncRead + Unpin>(
     reader: &mut R,
     limit: usize,
 ) -> Result<Zeroizing<Vec<u8>>> {
-    let size = reader.read_u32_le().await? as usize;
-    ensure!(size > 0 && size <= limit, "task frame exceeds size limit");
-    let mut bytes = Zeroizing::new(vec![0; size]);
-    reader.read_exact(&mut bytes).await?;
-    Ok(bytes)
+    Ok(framing::length(reader, limit).await?)
 }
 
 pub(crate) fn encode<T: Serialize>(value: &T, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
+    framing::budget(limit)?;
     struct Bounded {
         bytes: Zeroizing<Vec<u8>>,
         limit: usize,
+        exceeded: bool,
     }
     impl Write for Bounded {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
             if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+                self.exceeded = true;
                 return Err(std::io::Error::other("task frame exceeds size limit"));
             }
             self.bytes.extend_from_slice(bytes);
@@ -410,16 +412,21 @@ pub(crate) fn encode<T: Serialize>(value: &T, limit: usize) -> Result<Zeroizing<
     let mut writer = Bounded {
         bytes: Zeroizing::new(Vec::new()),
         limit,
+        exceeded: false,
     };
-    serde_json::to_writer(&mut writer, value)
-        .map_err(|_| anyhow::anyhow!("cannot encode task frame within limit"))?;
+    if serde_json::to_writer(&mut writer, value).is_err() {
+        return Err(if writer.exceeded {
+            framing::FrameError::Oversize
+        } else {
+            framing::FrameError::Protocol
+        }
+        .into());
+    }
     Ok(writer.bytes)
 }
 
 pub(crate) async fn write_frame<W: AsyncWrite + Unpin>(writer: &mut W, bytes: &[u8]) -> Result<()> {
-    writer.write_u32_le(u32::try_from(bytes.len())?).await?;
-    writer.write_all(bytes).await?;
-    Ok(())
+    Ok(framing::write_length(writer, bytes).await?)
 }
 
 fn error(code: &str, message: &str) -> ServiceError {
@@ -500,7 +507,8 @@ where
             let runtime_id = runtime.id.clone();
             connections.spawn(async move {
                 let _permit = permit;
-                let _ = async {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(80);
+                let _ = tokio::time::timeout_at(deadline, async {
                     let bytes = Zeroizing::new(tokio::time::timeout(CALL_TIMEOUT, read_frame(&mut stream, MAX_REQUEST_BYTES)).await??);
                     let mut envelope: Envelope = match serde_json::from_slice(&bytes) {
                         Ok(envelope) => envelope,
@@ -537,7 +545,7 @@ where
                         Ok::<(), anyhow::Error>(())
                     }).await??;
                     Ok::<(), anyhow::Error>(())
-                }.await;
+                }).await;
             });
             while connections.try_join_next().is_some() {}
         }
@@ -559,6 +567,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncWriteExt;
 
     fn test_name(directory: &Path) -> String {
         format!(
@@ -595,6 +604,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let runtime = RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: PathBuf::new(),
                 keys_file: PathBuf::new(),
                 decrypted_dir: PathBuf::new(),

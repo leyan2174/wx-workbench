@@ -18,6 +18,7 @@ fn runtime(root: &Path) -> RuntimeContext {
     fs::create_dir(&account).unwrap();
     RuntimeContext {
         config: Config {
+            key_store: None,
             db_dir: account.join("db"),
             keys_file: account.join("keys.json"),
             decrypted_dir: account.join("decrypted"),

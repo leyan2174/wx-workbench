@@ -20,6 +20,7 @@ pub(crate) mod history;
 pub(crate) mod image_key_sample;
 pub(crate) mod image_keys;
 pub(crate) mod init;
+pub(crate) mod key_migration;
 pub(crate) mod monitor_native;
 pub(crate) mod new_messages;
 pub(crate) mod output;
@@ -38,6 +39,7 @@ pub(crate) mod voices;
 pub(crate) fn execute(operation: Operation) -> Result<()> {
     operation.validate_request()?;
     match operation {
+        Operation::MigrateKeys { args } => key_migration::cmd(args),
         Operation::Extract {
             attachment_id,
             output,

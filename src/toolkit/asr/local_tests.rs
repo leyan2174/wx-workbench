@@ -112,11 +112,14 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.get(1).map(String::as_str) == Some("child") {
         let mut f = fs::File::create(&args[2]).unwrap();
-        for _ in 0..1000 { f.write_all(b"x").unwrap(); f.flush().unwrap(); thread::sleep(Duration::from_millis(5)); }
-        return;
+        f.write_all(b"x").unwrap();
+        f.flush().unwrap();
+        fs::write(PathBuf::from(&args[2]).with_extension("child-ready"), std::process::id().to_string()).unwrap();
+        loop { f.write_all(b"x").unwrap(); f.flush().unwrap(); thread::sleep(Duration::from_millis(5)); }
     }
     let arg = |key: &str| &args[args.iter().position(|s| s == key).unwrap() + 1];
     let mode = fs::read_to_string(arg("-m")).unwrap();
+    fs::write(PathBuf::from(arg("-f")).with_extension("started"), std::process::id().to_string()).unwrap();
     if mode.starts_with("tree") {
         thread::sleep(Duration::from_millis(50));
         let marker = PathBuf::from(arg("-f")).with_extension("heartbeat");
@@ -124,7 +127,12 @@ fn main() {
         cmd.arg("child").arg(&marker);
         #[cfg(windows)] { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
         let _child = cmd.spawn().unwrap();
-        while !marker.exists() { thread::sleep(Duration::from_millis(5)); }
+        let ready = marker.with_extension("child-ready");
+        let deadline = std::time::Instant::now() + Duration::from_secs(6);
+        while !ready.exists() {
+            assert!(std::time::Instant::now() < deadline, "synthetic child startup deadline exceeded");
+            thread::sleep(Duration::from_millis(5));
+        }
         if mode == "tree-exit" { fs::write(PathBuf::from(arg("-of")).with_extension("txt"), "ok").unwrap(); return; }
     }
     if mode == "stream" {
@@ -137,7 +145,7 @@ fn main() {
         for n in 0..10000 { fs::write(format!("extra-{n}.bin"), vec![0; 16384]).unwrap(); thread::sleep(Duration::from_millis(1)); }
     }
     if mode == "entries" { for n in 0..10000 { fs::write(format!("entry-{n}"), []).unwrap(); } }
-    thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(60));
 }
 "#).unwrap();
         let output = child.wait_with_output().unwrap();
@@ -154,10 +162,22 @@ fn resource_run(mode: &str, limits: ResourceLimits) -> Result<Transcription> {
     fs::write(&audio, "synthetic").unwrap();
     let mut config = LocalConfig::new(resource_executable().to_owned(), model);
     config.temp_root = Some(dir.path().to_owned());
-    config.timeout = Duration::from_millis(800);
+    // This budget includes Windows loader/Job startup under concurrent integration tests.
+    config.timeout = Duration::from_secs(8);
     let start = Instant::now();
     let result = transcribe_with_limits(&config, &audio, limits);
-    assert!(start.elapsed() < Duration::from_secs(4));
+    let outcome = match &result {
+        Ok(_) => "success".to_owned(),
+        Err(error) => format!("{error:#}"),
+    };
+    assert!(
+        start.elapsed() < Duration::from_secs(20),
+        "{mode}: {outcome}"
+    );
+    assert!(
+        audio.with_extension("started").is_file(),
+        "fixture did not start ({mode}): {outcome}"
+    );
     assert!(!fs::read_dir(dir.path()).unwrap().any(|e| e
         .unwrap()
         .file_name()
@@ -165,13 +185,22 @@ fn resource_run(mode: &str, limits: ResourceLimits) -> Result<Transcription> {
         .starts_with("wx-asr-local-")));
     if mode.starts_with("tree") {
         let marker = audio.with_extension("heartbeat");
-        let before = fs::metadata(&marker).expect("child actually started").len();
+        let ready = audio.with_extension("child-ready");
+        assert!(
+            ready.is_file(),
+            "child did not acknowledge startup ({mode}): {outcome}"
+        );
+        let pid: u32 = fs::read_to_string(&ready).unwrap().parse().unwrap();
+        assert!(pid > 0);
+        let before = fs::metadata(&marker)
+            .unwrap_or_else(|error| panic!("child heartbeat missing ({mode}): {error}; {outcome}"))
+            .len();
         assert!(before > 0);
         thread::sleep(Duration::from_millis(100));
         assert_eq!(
             fs::metadata(marker).unwrap().len(),
             before,
-            "descendant still writing"
+            "descendant {pid} still writing ({mode}): {outcome}"
         );
     }
     if let Err(error) = &result {
@@ -196,10 +225,8 @@ fn response_growth_is_stopped() {
         max_response_bytes: 1024,
         ..ResourceLimits::default()
     };
-    assert!(resource_run("response", limits)
-        .unwrap_err()
-        .to_string()
-        .contains("response limit"));
+    let error = resource_run("response", limits).unwrap_err();
+    assert!(error.to_string().contains("response limit"), "{error:#}");
 }
 
 #[test]
@@ -208,10 +235,8 @@ fn both_output_streams_are_bounded_and_private() {
         max_stream_bytes: 4096,
         ..ResourceLimits::default()
     };
-    assert!(resource_run("stream", limits)
-        .unwrap_err()
-        .to_string()
-        .contains("stream limit"));
+    let error = resource_run("stream", limits).unwrap_err();
+    assert!(error.to_string().contains("stream limit"), "{error:#}");
 }
 
 #[test]
@@ -220,18 +245,14 @@ fn temporary_entry_count_is_bounded() {
         max_temp_entries: 8,
         ..ResourceLimits::default()
     };
-    assert!(resource_run("entries", limits)
-        .unwrap_err()
-        .to_string()
-        .contains("entry limit"));
+    let error = resource_run("entries", limits).unwrap_err();
+    assert!(error.to_string().contains("entry limit"), "{error:#}");
 }
 
 #[test]
 fn job_reaps_descendants_on_timeout() {
-    assert!(resource_run("tree-hang", ResourceLimits::default())
-        .unwrap_err()
-        .to_string()
-        .contains("timed out"));
+    let error = resource_run("tree-hang", ResourceLimits::default()).unwrap_err();
+    assert!(error.to_string().contains("timed out"), "{error:#}");
 }
 
 #[test]

@@ -9,6 +9,7 @@ use super::{cache::DbCache, query, query::Names};
 use crate::runtime::RuntimeContext;
 
 struct QuerySnapshot {
+    key_revision: u64,
     db: DbCache,
     names: RwLock<Arc<Names>>,
 }
@@ -34,6 +35,8 @@ pub struct QueryState {
     snapshot: RwLock<OnceCell<QuerySnapshot>>,
     cache_work: Arc<Mutex<()>>,
     stopped: AtomicBool,
+    #[cfg(test)]
+    lease_acquired: tokio::sync::Notify,
 }
 
 impl QueryState {
@@ -43,26 +46,48 @@ impl QueryState {
             snapshot: RwLock::new(OnceCell::new()),
             cache_work: Arc::new(Mutex::new(())),
             stopped: AtomicBool::new(false),
+            #[cfg(test)]
+            lease_acquired: tokio::sync::Notify::new(),
         }
     }
 
     pub async fn snapshot(&self) -> Result<QueryLease<'_>> {
-        let cell = self.snapshot.read().await;
-        ensure!(
-            !self.stopped.load(Ordering::Acquire),
-            "Query service is stopping"
-        );
-        cell.get_or_try_init(|| self.initialize()).await?;
-        ensure!(
-            !self.stopped.load(Ordering::Acquire),
-            "Query service is stopping"
-        );
-        Ok(QueryLease {
-            snapshot: RwLockReadGuard::map(cell, |cell| {
-                cell.get()
-                    .expect("query generation initialized under read lock")
-            }),
-        })
+        loop {
+            let expected = self.runtime.clone();
+            let revision = tokio::task::spawn_blocking(move || -> Result<u64> {
+                let runtime = validated_runtime(&expected)?;
+                Ok(crate::key_store::Store::for_runtime(&runtime)?
+                    .load()?
+                    .revision())
+            })
+            .await??;
+            let cell = self.snapshot.read().await;
+            ensure!(
+                !self.stopped.load(Ordering::Acquire),
+                "Query service is stopping"
+            );
+            cell.get_or_try_init(|| self.initialize()).await?;
+            if cell
+                .get()
+                .is_some_and(|snapshot| snapshot.key_revision != revision)
+            {
+                drop(cell);
+                self.invalidate().await;
+                continue;
+            }
+            ensure!(
+                !self.stopped.load(Ordering::Acquire),
+                "Query service is stopping"
+            );
+            #[cfg(test)]
+            self.lease_acquired.notify_waiters();
+            return Ok(QueryLease {
+                snapshot: RwLockReadGuard::map(cell, |cell| {
+                    cell.get()
+                        .expect("query generation initialized under read lock")
+                }),
+            });
+        }
     }
 
     /// 等待已有查询及取消后仍在提交的缓存任务结束，再丢弃旧代际。
@@ -81,13 +106,12 @@ impl QueryState {
 
     async fn initialize(&self) -> Result<QuerySnapshot> {
         let expected = self.runtime.clone();
-        let (runtime, all_keys) = tokio::task::spawn_blocking(move || {
+        let (runtime, all_keys, key_revision) = tokio::task::spawn_blocking(move || {
             let runtime = validated_runtime(&expected)?;
-            let content = std::fs::read_to_string(&runtime.config.keys_file)?;
-            let raw = serde_json::from_str(&content)?;
-            let keys = super::extract_keys(&raw);
+            let snapshot = crate::key_store::Store::for_runtime(&runtime)?.load()?;
+            let keys = snapshot.database_keys();
             ensure!(!keys.is_empty(), "Query keys are unavailable");
-            Ok::<_, anyhow::Error>((runtime, keys))
+            Ok::<_, anyhow::Error>((runtime, keys, snapshot.revision()))
         })
         .await??;
 
@@ -108,6 +132,7 @@ impl QueryState {
         let _ = db.get("session/session.db").await;
         let _ = db.get("sns/sns.db").await;
         Ok(QuerySnapshot {
+            key_revision,
             db,
             names: RwLock::new(Arc::new(names)),
         })
@@ -119,7 +144,7 @@ fn validated_runtime(expected: &RuntimeContext) -> Result<RuntimeContext> {
     let current =
         RuntimeContext::from_config(expected.config_path.clone(), config, expected.root.clone())?;
     ensure!(
-        current.id == expected.id && current.directory == expected.directory,
+        current.same_account(expected)?,
         "Account configuration changed; restart the daemon"
     );
     Ok(current)
@@ -141,7 +166,8 @@ mod tests {
         let path = root.join("config.json");
         fs::write(
             &path,
-            json!({"db_dir":"db_storage", "keys_file":"keys.json"}).to_string(),
+            json!({"db_dir":"db_storage", "keys_file":"keys.json", "key_store":"keys.dpapi"})
+                .to_string(),
         )
         .unwrap();
         RuntimeContext::from_config(
@@ -169,14 +195,12 @@ mod tests {
             json!({"contact/contact.db":{"db_mt":mt,"wal_mt":0,"path":cached}}).to_string(),
         )
         .unwrap();
-        fs::write(
-            &runtime.config.keys_file,
+        crate::key_store::seed_databases(
+            runtime,
             json!({"contact/contact.db":"11".repeat(32),
                 "message/message_0.db":"22".repeat(32),
-                "message/biz_message_0.db":"33".repeat(32)})
-            .to_string(),
-        )
-        .unwrap();
+                "message/biz_message_0.db":"33".repeat(32)}),
+        );
     }
 
     #[tokio::test]
@@ -192,19 +216,18 @@ mod tests {
 
         for content in [None, Some("secret-invalid-json"), Some("{}")] {
             if let Some(content) = content {
-                fs::write(&runtime.config.keys_file, content).unwrap();
+                fs::write(runtime.config.key_store.as_ref().unwrap(), content).unwrap();
             }
             let response = dispatch_state(Request::ContactTags, &state).await;
             assert!(!response.ok);
             assert_eq!(
                 response.error.as_deref(),
-                Some(
-                    "Query initialization failed; check account configuration and keys, then retry"
-                )
+                Some("Key store file or path validation failed")
             );
             assert!(state.snapshot.read().await.get().is_none());
         }
 
+        fs::remove_file(runtime.config.key_store.as_ref().unwrap()).unwrap();
         seed(&runtime);
         let (first, second) = tokio::join!(state.snapshot(), state.snapshot());
         let first = first.unwrap();
@@ -230,15 +253,13 @@ mod tests {
         seed(&runtime);
         let state = QueryState::new(runtime.clone());
         let active = state.snapshot().await.unwrap();
-        fs::write(
-            &runtime.config.keys_file,
+        crate::key_store::seed_databases(
+            &runtime,
             json!({
                 "contact/contact.db":"11".repeat(32),
                 "message/message_1.db":"22".repeat(32)
-            })
-            .to_string(),
-        )
-        .unwrap();
+            }),
+        );
 
         let mut invalidate = Box::pin(state.invalidate());
         std::future::poll_fn(|cx| {
@@ -281,11 +302,13 @@ mod tests {
             },
             &state,
         ));
-        std::future::poll_fn(|cx| {
-            assert!(request.as_mut().poll(cx).is_pending());
-            Poll::Ready(())
-        })
-        .await;
+        let acquired = state.lease_acquired.notified();
+        tokio::pin!(acquired);
+        tokio::select! {
+            biased;
+            _ = &mut acquired => {},
+            _ = &mut request => panic!("query completed while names were write-locked"),
+        }
         drop(names_writer);
         drop(active);
         let mut invalidate = Box::pin(state.invalidate());
@@ -297,6 +320,40 @@ mod tests {
         assert!(request.await.ok);
         invalidate.await;
         assert!(state.snapshot.read().await.get().is_none());
+    }
+
+    #[tokio::test]
+    async fn key_revision_refresh_drops_its_read_lease_before_waiting() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = runtime(root.path());
+        seed(&runtime);
+        let state = QueryState::new(runtime.clone());
+        let active = state.snapshot().await.unwrap();
+        let store = crate::key_store::Store::for_runtime(&runtime).unwrap();
+        let revision = store
+            .update(
+                None,
+                &[crate::key_store::Update::Image(
+                    b"syntheticAESkey1",
+                    0x88,
+                    crate::key_store::Verification::Verified,
+                )],
+            )
+            .unwrap()
+            .revision();
+        assert_ne!(active.snapshot.key_revision, revision);
+        let mut pending = Box::pin(state.snapshot());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(40), &mut pending)
+                .await
+                .is_err()
+        );
+        drop(active);
+        let fresh = tokio::time::timeout(std::time::Duration::from_secs(5), pending)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fresh.snapshot.key_revision, revision);
     }
 
     #[tokio::test]
@@ -399,7 +456,8 @@ mod tests {
         }
         fs::write(
             &runtime.config_path,
-            json!({"db_dir":"db_storage", "keys_file":"keys.json"}).to_string(),
+            json!({"db_dir":"db_storage", "keys_file":"keys.json", "key_store":"keys.dpapi"})
+                .to_string(),
         )
         .unwrap();
         assert!(validated_runtime(&runtime).is_ok());
@@ -409,7 +467,7 @@ mod tests {
 
     #[tokio::test]
     async fn frame_reader_preserves_lines_eof_utf8_and_boundaries() {
-        for bytes in [b"hello\n".as_slice(), b"hello\r\n", b"hello"] {
+        for bytes in [b"hello\n".as_slice(), b"hello\r\n"] {
             assert_eq!(
                 read_request_frame(&mut BufReader::new(bytes))
                     .await
@@ -417,6 +475,9 @@ mod tests {
                 Some("hello".to_owned())
             );
         }
+        assert!(read_request_frame(&mut BufReader::new(b"hello".as_slice()))
+            .await
+            .is_err());
         assert!(read_request_frame(&mut BufReader::new(b"".as_slice()))
             .await
             .unwrap()
@@ -438,7 +499,7 @@ mod tests {
         let mut boundary = vec![b'x'; MAX_REQUEST_FRAME_BYTES];
         assert!(read_request_frame(&mut BufReader::new(boundary.as_slice()))
             .await
-            .is_ok());
+            .is_err());
         boundary[MAX_REQUEST_FRAME_BYTES - 1] = b'\n';
         assert!(read_request_frame(&mut BufReader::new(boundary.as_slice()))
             .await

@@ -1,12 +1,9 @@
 //! standalone decrypt_sns.py 的账号固定宿主，不加载时间线或自动发现其他账号。
 use crate::{
     runtime::RuntimeContext,
-    toolkit::{
-        parse_image_aes, parse_image_xor,
-        sns::{
-            archive::{self, ArchiveOptions, ArchiveReport},
-            cache::{CacheKeys, CacheLimits, CacheRoots},
-        },
+    toolkit::sns::{
+        archive::{self, ArchiveOptions, ArchiveReport},
+        cache::{CacheKeys, CacheLimits, CacheRoots},
     },
 };
 use anyhow::{ensure, Context, Result};
@@ -36,28 +33,15 @@ fn resolve(base: &Path, path: &Path) -> Result<PathBuf> {
     })
 }
 
-fn keys(raw: &Value) -> Result<CacheKeys> {
-    let aes = match raw.get("image_aes_key") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(s)) if s.is_empty() => None,
-        Some(Value::String(s)) => {
-            Some(parse_image_aes(s).map_err(|_| anyhow::anyhow!("image_aes_key 格式无效"))?)
-        }
-        Some(_) => anyhow::bail!("image_aes_key 必须为字符串"),
-    };
-    let xor = match raw.get("image_xor_key") {
-        None => 0x88,
-        Some(value) => parse_image_xor(
-            &value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| value.to_string()),
-        )
-        .map_err(|_| anyhow::anyhow!("image_xor_key 必须为 0 至 255 的十进制或十六进制字节"))?,
-    };
+fn keys(runtime: &RuntimeContext) -> Result<CacheKeys> {
+    let material = zeroize::Zeroizing::new(
+        crate::key_store::Store::for_runtime(runtime)?
+            .load()?
+            .image_material(),
+    );
     Ok(CacheKeys {
-        image_aes_key: aes,
-        image_xor_key: xor,
+        image_aes_key: material.0,
+        image_xor_key: material.1,
     })
 }
 
@@ -109,7 +93,7 @@ pub fn export_for(runtime: &RuntimeContext, raw: &Value, args: Args) -> Result<A
         adopt_existing: args.adopt_existing,
         limits: CacheLimits::default(),
     };
-    let keys = keys(raw)?;
+    let keys = keys(runtime)?;
     archive::export(&roots, &keys, &options)
 }
 

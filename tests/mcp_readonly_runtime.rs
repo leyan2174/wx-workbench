@@ -122,11 +122,11 @@ fn six_readonly_tools_use_real_encrypted_accounts_and_reject_missing_voice_argum
     tags(&mut mb, "B", 1);
     safe_failure(
         ma.call("get_tag_members", json!({"tag_name":"标签B"})),
-        "Query backend unavailable",
+        "Query failed",
     );
     safe_failure(
         mb.call("get_tag_members", json!({"tag_name":"标签A"})),
-        "Query backend unavailable",
+        "Query failed",
     );
     for (account, mcp, length) in [(&a, &mut ma, 3), (&b, &mut mb, 5)] {
         refer(mcp, account.marker, 7, 100);

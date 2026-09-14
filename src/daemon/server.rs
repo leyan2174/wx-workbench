@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[cfg(test)]
+use tokio::io::AsyncBufRead;
+use tokio::io::BufReader;
 
 use super::cache::DbCache;
 use super::query::Names;
@@ -30,6 +32,11 @@ async fn serve_windows(state: Arc<QueryState>, pipe_name: &str) -> Result<()> {
     let name = pipe_name.to_ns_name::<GenericNamespaced>()?;
     let opts = ListenerOptions::new().name(name);
     let listener = opts.create_tokio()?;
+    let runtime_id = pipe_name
+        .strip_prefix("wx-cli-v2-")
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("invalid query runtime pipe"))?
+        .to_owned();
     let connections = Arc::new(tokio::sync::Semaphore::new(64));
 
     eprintln!("[server] 监听账号管道 {pipe_name}");
@@ -39,10 +46,11 @@ async fn serve_windows(state: Arc<QueryState>, pipe_name: &str) -> Result<()> {
         let permit = Arc::clone(&connections).acquire_owned().await?;
         let conn = listener.accept().await?;
         let state = Arc::clone(&state);
+        let runtime_id = runtime_id.clone();
 
         tokio::spawn(async move {
             let _permit = permit;
-            if let Err(e) = handle_connection_windows(conn, state).await {
+            if let Err(e) = handle_connection_windows(conn, state, &runtime_id).await {
                 eprintln!("[server] 连接处理错误: {}", e);
             }
         });
@@ -53,31 +61,56 @@ async fn serve_windows(state: Arc<QueryState>, pipe_name: &str) -> Result<()> {
 async fn handle_connection_windows(
     conn: interprocess::local_socket::tokio::Stream,
     state: Arc<QueryState>,
+    runtime_id: &str,
 ) -> Result<()> {
-    let (reader, mut writer) = tokio::io::split(conn);
-    let line = match read_initial_request_frame(&mut BufReader::new(reader)).await {
-        Ok(Some(line)) => line,
-        Ok(None) => return Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::TimedOut => return Ok(()),
-        Err(_) => {
-            let resp = Response::err("Invalid request frame (maximum 64 KiB)");
-            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
-            return Ok(());
+    use crate::ipc::{QueryEnvelope, QueryHello, QUERY_VERSION};
+    use crate::service::transport::{self, framing};
+    // One deadline includes handshake, request, dispatch and response writing.
+    tokio::time::timeout(std::time::Duration::from_secs(3600), async {
+        let (reader, mut writer) = tokio::io::split(conn);
+        let hello = transport::encode(
+            &QueryHello {
+                version: QUERY_VERSION,
+                runtime_id: runtime_id.into(),
+            },
+            1023,
+        )?;
+        let line = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            framing::write_line(&mut writer, &hello, 1024).await?;
+            framing::line(&mut BufReader::new(reader), MAX_REQUEST_FRAME_BYTES).await
+        })
+        .await
+        .map_err(|_| framing::FrameError::Timeout)??;
+        let envelope: QueryEnvelope =
+            serde_json::from_slice(&line).map_err(|_| framing::FrameError::Protocol)?;
+        if envelope.version != QUERY_VERSION || envelope.runtime_id != runtime_id {
+            return Err(framing::FrameError::Protocol.into());
         }
-    };
-
-    let req: Request = match serde_json::from_str(&line) {
-        Ok(r) => r,
-        Err(e) => {
-            let resp = Response::err(format!("JSON 解析错误: {}", e));
-            writer.write_all(resp.to_json_line()?.as_bytes()).await?;
-            return Ok(());
-        }
-    };
-
-    let resp = dispatch_state(req, &state).await;
-    writer.write_all(resp.to_json_line()?.as_bytes()).await?;
-    Ok(())
+        framing::budget(envelope.response_limit)?;
+        let limit = envelope
+            .response_limit
+            .min(crate::ipc::query_response_limit(&envelope.request));
+        let resp = dispatch_state(envelope.request, &state).await;
+        let reply = crate::ipc::QueryReply::Response {
+            version: QUERY_VERSION,
+            runtime_id: runtime_id.into(),
+            response: resp,
+        };
+        let bytes = match transport::encode(&reply, limit.saturating_sub(1)) {
+            Ok(bytes) => bytes,
+            Err(_) => transport::encode(
+                &crate::ipc::QueryReply::Oversize {
+                    version: QUERY_VERSION,
+                    runtime_id: runtime_id.into(),
+                },
+                limit.saturating_sub(1),
+            )?,
+        };
+        framing::write_line(&mut writer, &bytes, limit).await?;
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .map_err(|_| framing::FrameError::Timeout)?
 }
 
 pub(super) async fn dispatch_state(req: Request, state: &QueryState) -> Response {
@@ -90,14 +123,71 @@ pub(super) async fn dispatch_state(req: Request, state: &QueryState) -> Response
             drop(lease);
             response
         }
-        Err(_) => Response::err(
-            "Query initialization failed; check account configuration and keys, then retry",
-        ),
+        Err(error) => query_initialization_failure(&error),
     }
+}
+
+fn query_initialization_failure(error: &anyhow::Error) -> Response {
+    use crate::{ipc::outcome::KeyStoreDiagnostic as Diagnostic, key_store::Error};
+    let Some(error) = error.downcast_ref::<Error>() else {
+        return Response::err(
+            "Query initialization failed; check account configuration and keys, then retry",
+        );
+    };
+    let diagnostic = match error {
+        Error::Missing => Diagnostic::Missing,
+        Error::LegacyMigrationRequired => Diagnostic::LegacyMigrationRequired,
+        Error::Invalid => Diagnostic::Invalid,
+        Error::WrongAccount => Diagnostic::WrongAccount,
+        Error::Protection => Diagnostic::Protection,
+        Error::Conflict => Diagnostic::Conflict,
+        Error::Busy => Diagnostic::Busy,
+        Error::Io => Diagnostic::Io,
+    };
+    let mut response = Response::err(diagnostic.message());
+    response.data = serde_json::json!({"error_code":diagnostic.code()});
+    response
+}
+
+#[test]
+fn typed_key_store_initialization_errors_are_distinct_and_private() {
+    use crate::{ipc::outcome::KeyStoreDiagnostic as Diagnostic, key_store::Error};
+    for (error, diagnostic) in [
+        (Error::Missing, Diagnostic::Missing),
+        (
+            Error::LegacyMigrationRequired,
+            Diagnostic::LegacyMigrationRequired,
+        ),
+        (Error::Invalid, Diagnostic::Invalid),
+        (Error::WrongAccount, Diagnostic::WrongAccount),
+        (Error::Protection, Diagnostic::Protection),
+        (Error::Conflict, Diagnostic::Conflict),
+        (Error::Busy, Diagnostic::Busy),
+        (Error::Io, Diagnostic::Io),
+    ] {
+        let response = query_initialization_failure(
+            &anyhow::Error::new(error).context("SYNTHETIC_PRIVATE_KEY"),
+        );
+        assert!(!response.ok);
+        assert_eq!(response.error.as_deref(), Some(diagnostic.message()));
+        assert_eq!(response.data["error_code"], diagnostic.code());
+        assert_eq!(
+            response.require_success().unwrap_err().diagnostic(),
+            Some(diagnostic)
+        );
+        assert!(!serde_json::to_string(&response)
+            .unwrap()
+            .contains("SYNTHETIC_PRIVATE_KEY"));
+    }
+    let response = query_initialization_failure(&anyhow::anyhow!("SYNTHETIC_PRIVATE_KEY"));
+    assert!(!serde_json::to_string(&response)
+        .unwrap()
+        .contains("SYNTHETIC_PRIVATE_KEY"));
 }
 
 pub(super) const MAX_REQUEST_FRAME_BYTES: usize = 64 * 1024;
 
+#[cfg(test)]
 pub(super) async fn read_initial_request_frame<R: AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<String>> {
@@ -114,37 +204,18 @@ pub(super) async fn read_initial_request_frame<R: AsyncBufRead + Unpin>(
     })?
 }
 
+#[cfg(test)]
 pub(super) async fn read_request_frame<R: AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<String>> {
-    let mut frame = Vec::new();
-    loop {
-        let available = reader.fill_buf().await?;
-        if available.is_empty() {
-            if frame.is_empty() {
-                return Ok(None);
-            }
-            break;
-        }
-        let newline = available.iter().position(|byte| *byte == b'\n');
-        let count = newline.map_or(available.len(), |position| position + 1);
-        if count > MAX_REQUEST_FRAME_BYTES - frame.len() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Request frame exceeds 64 KiB",
-            ));
-        }
-        frame.extend_from_slice(&available[..count]);
-        reader.consume(count);
-        if newline.is_some() {
-            frame.pop();
-            if frame.last() == Some(&b'\r') {
-                frame.pop();
-            }
-            break;
-        }
-    }
-    String::from_utf8(frame)
+    use crate::service::transport::framing::{self, FrameError};
+    let frame = match framing::line(reader, MAX_REQUEST_FRAME_BYTES).await {
+        Ok(frame) => frame,
+        Err(FrameError::Eof) => return Ok(None),
+        Err(error) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+    };
+    String::from_utf8(frame.to_vec())
+        .map(|s| s.trim_end_matches(['\r', '\n']).to_owned())
         .map(Some)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }

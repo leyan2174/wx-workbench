@@ -74,19 +74,21 @@ pub fn inspect(config_path: &Path, exported_dir: Option<&Path>) -> Result<Status
             name.starts_with("all_keys") && name.ends_with(".json")
         })
         .collect();
-    if let Some(path) = config
-        .get("keys_file")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-    {
-        let path = base.join(path);
-        if fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_file()) {
-            let target = path.canonicalize()?;
-            if !keys
-                .iter()
-                .any(|old| old.canonicalize().is_ok_and(|old| old == target))
-            {
-                keys.push(path);
+    for field in ["keys_file", "key_store"] {
+        if let Some(path) = config
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            let path = base.join(path);
+            if fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_file()) {
+                let target = path.canonicalize()?;
+                if !keys
+                    .iter()
+                    .any(|old| old.canonicalize().is_ok_and(|old| old == target))
+                {
+                    keys.push(path);
+                }
             }
         }
     }

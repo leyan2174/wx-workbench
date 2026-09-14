@@ -1,5 +1,8 @@
 //! Daemon-owned MCP voice authorization, cache, ASR and WAV publication.
-use crate::daemon::operations::asr::{BackendArgs, BackendKind};
+use crate::daemon::operations::asr::BackendArgs;
+#[cfg(test)]
+use crate::daemon::operations::asr::BackendKind;
+use crate::toolkit::asr::backend::{self, BackendId, Entry};
 use crate::{
     attachment::local_files::HostOutputGuard,
     ipc::{Response, MAX_PREPARED_VOICE_RESPONSE_BYTES},
@@ -86,41 +89,13 @@ impl Args {
             ),
             Operation::Transcribe => {
                 let b = &self.backend;
-                let valid = b.timeout_seconds > 0
-                    && !b.language.trim().is_empty()
-                    && if configured_local_python {
-                        matches!(b.backend, BackendKind::Local)
-                            && !b.allow_upload
-                            && b.openai_base_url.is_none()
-                            && b.openai_model.is_none()
-                            && b.api_key_file.is_none()
-                            && b.whisper_binary.is_none()
-                            && b.whisper_model.is_none()
-                            && b.temp_root.is_none()
-                            && b.threads != Some(0)
-                    } else {
-                        match b.backend {
-                            BackendKind::Local => {
-                                !b.allow_upload
-                                    && b.openai_base_url.is_none()
-                                    && b.openai_model.is_none()
-                                    && b.api_key_file.is_none()
-                                    && b.whisper_binary.is_some()
-                                    && b.whisper_model.is_some()
-                                    && b.threads != Some(0)
-                            }
-                            BackendKind::ExplicitOpenAi => {
-                                b.allow_upload
-                                    && b.openai_base_url.is_some()
-                                    && b.openai_model.is_some()
-                                    && b.api_key_file.is_some()
-                                    && b.whisper_binary.is_none()
-                                    && b.whisper_model.is_none()
-                                    && b.threads.is_none()
-                                    && b.temp_root.is_none()
-                            }
-                        }
-                    };
+                let valid = if configured_local_python {
+                    b.backend.identity(Entry::ConfiguredBatch) == BackendId::PythonWhisper
+                        && b.validate_for(BackendId::PythonWhisper).is_ok()
+                        && b.temp_root.is_none()
+                } else {
+                    b.validate_explicit().is_ok()
+                };
                 if !valid {
                     return Err(DispatchError::Unavailable);
                 }
@@ -136,8 +111,12 @@ impl Args {
                 {
                     *path = host_path(path)?;
                 }
-                match b.backend {
-                    BackendKind::Local => {
+                match b.backend.identity(if configured_local_python {
+                    Entry::ConfiguredBatch
+                } else {
+                    Entry::Native
+                }) {
+                    BackendId::WhisperCpp | BackendId::PythonWhisper => {
                         if args.backend.temp_root.is_none() {
                             let directory = tempfile::Builder::new()
                                 .prefix("wx-cli-mcp-voice-")
@@ -156,7 +135,7 @@ impl Args {
                             .map_err(|_| DispatchError::Unavailable)?,
                         )
                     }
-                    BackendKind::ExplicitOpenAi => None,
+                    BackendId::OpenAiCompatible => None,
                 }
             }
         };
@@ -170,7 +149,7 @@ impl Args {
                     guard
                         .verify_replaceable_file(path)
                         .map_err(|_| DispatchError::Unavailable)?;
-                    Ok(guard)
+                    Ok::<_, DispatchError>(guard)
                 })
                 .transpose()?
         } else {
@@ -304,7 +283,10 @@ impl Pending {
     ) -> Result<Response, DispatchError> {
         context.check()?;
         let bound = self.bound.as_ref().ok_or(DispatchError::Unavailable)?;
-        if !same_runtime(bound, runtime) {
+        if !bound
+            .same_account(runtime)
+            .map_err(|_| DispatchError::Unavailable)?
+        {
             return Err(DispatchError::Unavailable);
         }
         if !response.ok
@@ -485,22 +467,11 @@ fn configured_local_backend(
 
 fn configured_local_model(config: &serde_json::Value) -> anyhow::Result<String> {
     anyhow::ensure!(
-        config
-            .get("transcription_backend")
-            .and_then(serde_json::Value::as_str)
-            == Some("local"),
+        config.get("transcription_backend").is_some()
+            && BackendId::configured(config)? == BackendId::PythonWhisper,
         "configured local Python requires an explicit local backend"
     );
-    match config.get("local_whisper_model") {
-        None => Ok("base".into()),
-        Some(value) => {
-            let model = value
-                .as_str()
-                .filter(|model| !model.trim().is_empty())
-                .ok_or_else(|| anyhow::anyhow!("invalid configured local model"))?;
-            Ok(model.to_owned())
-        }
-    }
+    backend::python_model(config)
 }
 
 fn limit_backend(backend: &mut asr::Backend, context: &CallContext) -> Result<(), DispatchError> {
@@ -566,17 +537,6 @@ fn protect_runtime(guard: &mut HostOutputGuard, runtime: &RuntimeContext) -> any
     Ok(())
 }
 
-fn same_runtime(a: &RuntimeContext, b: &RuntimeContext) -> bool {
-    a.id == b.id
-        && a.root == b.root
-        && a.directory == b.directory
-        && a.config_path == b.config_path
-        && a.config.db_dir == b.config.db_dir
-        && a.config.keys_file == b.config.keys_file
-        && a.config.decrypted_dir == b.config.decrypted_dir
-        && a.config.wechat_process == b.config.wechat_process
-}
-
 fn grouped(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
@@ -617,6 +577,7 @@ mod configured_local_tests {
         fs::write(&keys_file, b"{}").unwrap();
         RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: root.join("db"),
                 keys_file,
                 decrypted_dir: root.join("decrypted"),
@@ -637,6 +598,10 @@ mod configured_local_tests {
             Err(DispatchError::Unavailable)
         ));
         let candidates = [
+            BackendArgs {
+                backend: BackendKind::WhisperCpp,
+                ..Default::default()
+            },
             BackendArgs {
                 allow_upload: true,
                 ..Default::default()
@@ -688,6 +653,30 @@ mod configured_local_tests {
                 Err(DispatchError::Unavailable)
             ));
         }
+    }
+
+    #[test]
+    fn canonical_python_still_requires_configured_host_entry() {
+        let context = CallContext::default();
+        let args = Args {
+            backend: BackendArgs {
+                backend: BackendKind::PythonWhisper,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(matches!(
+            args.prepare(Operation::Transcribe, 1, None, &context),
+            Err(DispatchError::Unavailable)
+        ));
+        assert!(args.prepare_configured_local(1, &context).is_ok());
+        assert_eq!(
+            configured_local_model(&json!({"transcription_backend":"python_whisper"})).unwrap(),
+            "base"
+        );
+        assert!(
+            configured_local_model(&json!({"transcription_backend":"openai_compatible"})).is_err()
+        );
     }
 
     #[test]

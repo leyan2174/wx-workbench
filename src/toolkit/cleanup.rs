@@ -268,6 +268,7 @@ fn overlaps(a: &Path, b: &Path) -> bool {
 struct RawConfig {
     db_dir: String,
     keys_file: Option<String>,
+    key_store: Option<String>,
     decrypted_dir: Option<String>,
     #[serde(default)]
     wechat_process: String,
@@ -294,6 +295,7 @@ pub fn selected_runtime(config_path: &Path, runtime_root: &Path) -> Result<Runti
     let config = Config {
         db_dir: resolve(&raw.db_dir)?,
         keys_file: resolve(raw.keys_file.as_deref().unwrap_or("all_keys.json"))?,
+        key_store: raw.key_store.as_deref().map(resolve).transpose()?,
         decrypted_dir: resolve(raw.decrypted_dir.as_deref().unwrap_or("decrypted"))?,
         wechat_process: raw.wechat_process,
     };
@@ -330,6 +332,10 @@ impl Bound {
         ] {
             ensure!(same(a, &absolute(b)?), "固定账号后配置路径变化");
         }
+        ensure!(
+            fixed.config.key_store == runtime.config.key_store,
+            "固定账号后密钥存储引用变化"
+        );
         let base = fixed.config_path.parent().context("配置路径缺少父目录")?;
         let roots = [
             (Category::RuntimeCache, fixed.cache_dir()),
@@ -367,6 +373,18 @@ impl Bound {
                 current_key: true,
             },
         ];
+        if let Some(path) = &fixed.config.key_store {
+            protected.push(Protected {
+                path: path.clone(),
+                directory: false,
+                current_key: false,
+            });
+        }
+        protected.push(Protected {
+            path: base.join("account_key.dpapi"),
+            directory: false,
+            current_key: false,
+        });
         // 原始 db_storage 的同账号附件也属于输入，不允许当成缓存接管。
         if fixed
             .config

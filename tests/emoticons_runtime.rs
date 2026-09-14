@@ -2,6 +2,8 @@
 mod bootstrap;
 #[path = "fixtures/mcp-readonly-runtime/encrypted_sqlite.rs"]
 mod encrypted_sqlite;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 
 use serde_json::json;
 use std::{
@@ -41,10 +43,19 @@ fn fixture_with_url(root: &Path, url: &str) -> Vec<(std::path::PathBuf, Vec<u8>)
     fs::write(
         &keys,
         serde_json::to_vec(&json!({"emoticon/emoticon.db":{"enc_key":"11".repeat(32)},
-            "message/old-missing.db":{"enc_key":"22".repeat(32)}}))
+            "message/old-missing.db":{"enc_key":"11".repeat(32)}}))
         .unwrap(),
     )
     .unwrap();
+    let old_source = root.join("db_storage/message/old-missing.db");
+    fs::create_dir_all(old_source.parent().unwrap()).unwrap();
+    fs::copy(&source, &old_source).unwrap();
+    key_store_fixture::migrate(
+        Path::new(env!("CARGO_BIN_EXE_wx")),
+        &config,
+        &root.join("runtime"),
+    );
+    fs::remove_file(old_source).unwrap();
     [source, config, keys]
         .into_iter()
         .map(|path| {
@@ -130,7 +141,7 @@ fn per_item_failure_retains_legacy_success_exit_and_missing_keys_fail() {
     fixture(root.path());
     assert!(success(run(root.path(), &["out"])).contains("0 成功, 1 失败"));
     assert_eq!(fs::read_dir(root.path().join("out")).unwrap().count(), 0);
-    fs::remove_file(root.path().join("all_keys.json")).unwrap();
+    fs::remove_file(root.path().join("keys.dpapi")).unwrap();
     assert!(!run(root.path(), &["--dry-run"]).status.success());
 }
 

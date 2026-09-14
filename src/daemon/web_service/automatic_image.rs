@@ -3,15 +3,13 @@ use super::{query, WebService as Shared};
 use crate::attachment::{local_files::HostOutputGuard, AttachmentId, AttachmentKind};
 use crate::service::web::{exact_identity as identity, valid_source, Failure};
 use anyhow::{ensure, Context, Result};
+#[cfg(test)]
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::{
-    fs,
-    io::{Read, Write},
-    path::Path,
-    sync::Arc,
-    time::Duration,
-};
+#[cfg(test)]
+use std::io::Write;
+use std::{fs, io::Read, path::Path, sync::Arc, time::Duration};
+#[cfg(test)]
 use zeroize::{Zeroize, Zeroizing};
 
 const MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
@@ -62,11 +60,13 @@ pub fn descriptor(chat: &str, message: &Value) -> Option<Value> {
         "status":"pending", "binding":"pending_strict_validation"}))
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct ConfigKeys {
     image_aes_key: Option<String>,
     image_xor_key: Option<Value>,
 }
+#[cfg(test)]
 impl Drop for ConfigKeys {
     fn drop(&mut self) {
         if let Some(key) = self.image_aes_key.as_mut() {
@@ -79,6 +79,7 @@ impl Drop for ConfigKeys {
     }
 }
 
+#[cfg(test)]
 fn key_bytes(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     let config: ConfigKeys = serde_json::from_slice(bytes)
         .map_err(|_| anyhow::anyhow!("invalid image configuration"))?;
@@ -170,6 +171,7 @@ async fn cleanup(temporary: tempfile::TempDir) -> std::result::Result<(), Failur
     temporary.close().map_err(|_| Failure::DecodeFailed)
 }
 
+#[cfg(test)]
 fn create_key_file(path: &Path) -> Result<fs::File> {
     use std::os::windows::fs::OpenOptionsExt;
     // 写入前禁止其他数据句柄打开空文件，权限设置失败时不写入任何密钥。
@@ -185,6 +187,12 @@ fn create_key_file(path: &Path) -> Result<fs::File> {
 fn query_failure(error: anyhow::Error) -> Failure {
     if query::is_busy(&error) {
         Failure::Busy
+    } else if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
+        match failure.legacy_exit_code() {
+            Some(1) => Failure::Unavailable,
+            Some(2) => Failure::Ambiguous,
+            _ => Failure::DecodeFailed,
+        }
     } else {
         Failure::DecodeFailed
     }
@@ -196,7 +204,7 @@ async fn decode_at(
     source: &str,
     root: &Path,
 ) -> std::result::Result<Image, Failure> {
-    let prepare = || -> Result<(HostOutputGuard, std::path::PathBuf, std::path::PathBuf)> {
+    let prepare = || -> Result<(HostOutputGuard, std::path::PathBuf)> {
         let mut guard = HostOutputGuard::new(root)?;
         let account = state
             .runtime
@@ -215,33 +223,27 @@ async fn decode_at(
             }
             Err(error) => return Err(error.into()),
         }
-        let mut bytes = Zeroizing::new(Vec::new());
-        fs::File::open(&state.runtime.config_path)?
-            .take(1024 * 1024 + 1)
-            .read_to_end(&mut bytes)?;
-        ensure!(bytes.len() <= 1024 * 1024, "configuration too large");
-        let current = crate::config::load_config_at(&state.runtime.config_path)?;
-        for (current, expected) in [
-            (&current.db_dir, &state.runtime.config.db_dir),
-            (&current.keys_file, &state.runtime.config.keys_file),
-            (&current.decrypted_dir, &state.runtime.config.decrypted_dir),
-        ] {
-            ensure!(
-                crate::toolkit::setup::same_path(current, expected)?,
-                "fixed configuration identity changed"
-            );
+        if let Some(path) = &state.runtime.config.key_store {
+            match fs::symlink_metadata(path) {
+                Ok(_) => guard.protect(path)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    guard.protect_future(path)?
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
-        let key = key_bytes(&bytes)?;
-        let key_path = root.join("image-key.json");
-        let mut file = create_key_file(&key_path)?;
-        file.write_all(&key)?;
-        file.sync_all()?;
+        let mut current = state.runtime.clone();
+        current.config = crate::config::load_config_at(&state.runtime.config_path)?;
+        ensure!(
+            state.runtime.same_account(&current)?,
+            "fixed configuration identity changed"
+        );
         let output = root.join("output");
         fs::create_dir(&output)?;
         guard.verify()?;
-        Ok((guard, output, key_path))
+        Ok((guard, output))
     };
-    let (_guard, output, key_path) = prepare().map_err(|_| Failure::DecodeFailed)?;
+    let (_guard, output) = prepare().map_err(|_| Failure::DecodeFailed)?;
     let report = query::request(
         state,
         crate::ipc::Request::DecodeImage {
@@ -249,7 +251,7 @@ async fn decode_at(
             local_id: id.local_id,
             create_time: id.create_time,
             output_root: output.to_str().ok_or(Failure::DecodeFailed)?.into(),
-            image_key_file: Some(key_path.to_str().ok_or(Failure::DecodeFailed)?.into()),
+            image_key_file: None,
         },
     )
     .await
@@ -351,6 +353,7 @@ mod tests {
         let root = tempfile::tempdir()?;
         let config_path = root.path().join("config.json");
         let config = crate::config::Config {
+            key_store: Some(root.path().join("keys.dpapi")),
             db_dir: root.path().join("account/db_storage"),
             keys_file: root.path().join("keys.json"),
             decrypted_dir: root.path().join("decrypted"),
@@ -363,6 +366,13 @@ mod tests {
             config_path,
             config,
             root.path().join("runtime"),
+        )?;
+        crate::key_store::Store::for_runtime(&runtime)?.update(
+            Some(0),
+            &[crate::key_store::Update::ImageXor(
+                0xa2,
+                crate::key_store::Verification::Verified,
+            )],
         )?;
         let state = Shared::new(
             runtime.clone(),
@@ -383,7 +393,8 @@ mod tests {
         assert!(matches!(result, Err(Failure::Busy)));
         assert_eq!(Failure::Busy.http_status(), 429);
         assert_eq!(state.queries.available_permits(), 0);
-        assert!(work_path.join("image-key.json").is_file());
+        assert!(!work_path.join("image-key.json").exists());
+        assert!(work_path.join("output").is_dir());
         assert!(cleanup(work).await.is_ok());
         assert!(!work_path.exists());
         for error in [

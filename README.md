@@ -38,6 +38,8 @@ wx contacts -n 20 --json
 
 普通查询需要已保存且适用于该账号的密钥。不要跨账号复用配置或密钥。provider、DPAPI 与显式重启捕获见[账号密钥](docs/account-key-provider.md)。只有用户明确授权后，才使用 `--force --key-provider account --restart-wechat`；该操作可能需要手机确认登录。
 
+旧版密钥先显式迁移：`wx migrate-keys --cleanup-legacy`。迁移只验证本地材料，不扫描内存、不重启微信、不上传。新配置使用 `key_store` 指向统一 DPAPI 存储；`keys_file` 保留为账号标识锚点。无法验证的材料须显式允许，不能当成已验证。详见[密钥存储与迁移](docs/key-store.md)。
+
 缓存命中仍检查当前源库首页，正式解密逐页认证；密钥失效或首页校验失败时不以旧缓存掩盖。主库与 WAL 在副本上完成后发布，但这不是在线账号的事务快照。详见[数据库认证边界](docs/architecture.md#数据库认证与缓存发布)。
 
 配置、密钥、解密缓存、导出内容和运行令牌都是私人材料，不放入源码目录、版本控制或公开日志。
@@ -135,7 +137,7 @@ wx daemon stop
 
 MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。17 项注册工具包含只读查询及受控媒体执行，没有独立 stats 工具。工具参数不能设置账号、宿主输出根、模型或凭据。详见[MCP 协议](src/mcp/PROTOCOL.md)。
 
-Web 是本地界面，不应暴露到不可信网络。只停止本任务创建且身份可验证的 daemon，不按进程名清理其他账号或用户应用。活动 MCP 会话中不替换配置；切换账号使用新会话。生命周期见[入口边界](docs/daemon-entrypoints.md)和[后台任务](docs/daemon-tasks.md)。
+Web 是本地界面，不应暴露到不可信网络。只停止本任务创建且身份可验证的 daemon，不按进程名清理其他账号或用户应用。MCP 按操作短时固定配置，同一账号的密钥更新不需要关闭会话；替换配置或切换账号仍需重新连接。生命周期见[入口边界](docs/daemon-entrypoints.md)和[后台任务](docs/daemon-tasks.md)。
 
 ## 开发与测试
 

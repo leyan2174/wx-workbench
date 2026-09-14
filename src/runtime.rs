@@ -37,6 +37,7 @@ impl RuntimeContext {
         let directory = root.join("bootstrap").join(&id);
         Ok(Self {
             config: Config {
+                key_store: None,
                 db_dir: directory.join("no-account"),
                 keys_file: directory.join("no-keys"),
                 decrypted_dir: directory.join("no-cache"),
@@ -57,6 +58,34 @@ impl RuntimeContext {
         let config_path = config::find_config_file()?;
         let config = config::load_config_at(&config_path)?;
         Self::from_config(config_path, config, config::cli_dir())
+    }
+
+    pub(crate) fn same_account(&self, other: &Self) -> Result<bool> {
+        if self.id != other.id || self.config.wechat_process != other.config.wechat_process {
+            return Ok(false);
+        }
+        for (left, right) in [
+            (&self.config_path, &other.config_path),
+            (&self.root, &other.root),
+            (&self.directory, &other.directory),
+            (&self.config.db_dir, &other.config.db_dir),
+            (&self.config.keys_file, &other.config.keys_file),
+            (&self.config.decrypted_dir, &other.config.decrypted_dir),
+        ] {
+            if !normalized_path(left)?
+                .as_os_str()
+                .eq_ignore_ascii_case(normalized_path(right)?.as_os_str())
+            {
+                return Ok(false);
+            }
+        }
+        match (&self.config.key_store, &other.config.key_store) {
+            (Some(left), Some(right)) => Ok(normalized_path(left)?
+                .as_os_str()
+                .eq_ignore_ascii_case(normalized_path(right)?.as_os_str())),
+            (None, None) => Ok(true),
+            _ => Ok(false),
+        }
     }
 
     pub(crate) fn from_config(config_path: PathBuf, config: Config, root: PathBuf) -> Result<Self> {
@@ -141,6 +170,7 @@ mod tests {
         RuntimeContext::from_config(
             base.join(workspace).join("config.json"),
             Config {
+                key_store: None,
                 db_dir: base.join(account).join("db_storage"),
                 keys_file: base.join(workspace).join("all_keys.json"),
                 decrypted_dir: base.join(workspace).join("decrypted"),
@@ -184,6 +214,7 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
         let cfg = Config {
+            key_store: None,
             db_dir: base.join("db"),
             keys_file: base.join("keys.json"),
             decrypted_dir: base.join("out"),

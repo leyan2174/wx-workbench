@@ -66,28 +66,15 @@ impl Inputs {
                 "wechat_base_dir 与固定账号不一致，拒绝跨账号媒体读取"
             );
         }
-        let aes = config
-            .get("image_aes_key")
-            .filter(|_| media_enabled)
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(crate::toolkit::parse_image_aes)
-            .transpose()?
-            .map(zeroize::Zeroizing::new);
-        let xor = config
-            .get("image_xor_key")
-            .filter(|_| media_enabled)
-            .filter(|v| !v.is_null())
-            .map(|value| {
-                crate::toolkit::parse_image_xor(
-                    &value
-                        .as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
-                )
-            })
-            .transpose()?
-            .unwrap_or(0x88);
+        let stored = zeroize::Zeroizing::new(if media_enabled {
+            crate::key_store::Store::for_runtime(runtime)?
+                .load()?
+                .image_material()
+        } else {
+            (None, 0x88)
+        });
+        let aes = stored.0.map(zeroize::Zeroizing::new);
+        let xor = stored.1;
         let mut resources = if sources.is_none() {
             vec![runtime
                 .config

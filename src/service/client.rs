@@ -137,6 +137,10 @@ fn verify_process(pid: u32, record: &PidRecord) -> Result<()> {
 
 /// Verifies the actual connected pipe before reading or transmitting credentials.
 pub(crate) async fn connect(runtime: &RuntimeContext) -> Result<NamedPipeClient> {
+    connect_named(runtime, &transport::pipe_name(runtime)?).await
+}
+
+pub(crate) async fn connect_named(runtime: &RuntimeContext, name: &str) -> Result<NamedPipeClient> {
     let directory = DirectoryGuard::open(&runtime.directory)?;
     let bytes = transport::read_identity(&directory.path.join("daemon.pid"), 16 * 1024)?;
     let record: PidRecord =
@@ -145,10 +149,9 @@ pub(crate) async fn connect(runtime: &RuntimeContext) -> Result<NamedPipeClient>
         record.runtime_id == runtime.id,
         "daemon identity belongs to another runtime"
     );
-    let name = transport::pipe_name(runtime)?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     let pipe = loop {
-        match ClientOptions::new().open(&name) {
+        match ClientOptions::new().open(name) {
             Ok(pipe) => break pipe,
             Err(error)
                 if error.raw_os_error() == Some(231) && tokio::time::Instant::now() < deadline =>
@@ -208,7 +211,7 @@ pub(crate) async fn request_with_timeout(
         }
         ensure!(reply.error.is_none(), "inconsistent task reply");
         Ok(reply.data)
-    }).await.context("task request timed out; outcome may be unknown, do not retry Submit without its original idempotency key")?
+    }).await.map_err(|_| anyhow::Error::new(transport::framing::FrameError::Timeout).context("task request timed out; outcome may be unknown, do not retry Submit without its original idempotency key"))?
 }
 
 #[cfg(test)]

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     pub db_dir: PathBuf,
     pub keys_file: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_store: Option<PathBuf>,
     pub decrypted_dir: PathBuf,
     #[serde(default)]
     pub wechat_process: String,
@@ -48,6 +50,19 @@ pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
         })
         .unwrap_or_else(|| base_dir.join("all_keys.json"));
 
+    let key_store = match raw.get("key_store") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(value)) if !value.is_empty() => {
+            let path = PathBuf::from(value);
+            Some(if path.is_absolute() {
+                path
+            } else {
+                base_dir.join(path)
+            })
+        }
+        _ => anyhow::bail!("key_store must be a nonempty path reference"),
+    };
+
     let decrypted_dir = raw
         .get("decrypted_dir")
         .and_then(|v| v.as_str())
@@ -70,6 +85,7 @@ pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
     Ok(Config {
         db_dir,
         keys_file,
+        key_store,
         decrypted_dir,
         wechat_process,
     })
@@ -288,6 +304,17 @@ fn known_documents_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn absent_key_store_is_omitted_in_serialized_legacy_configuration() {
+        let config: super::Config = serde_json::from_value(serde_json::json!({
+            "db_dir":"db_storage", "keys_file":"all_keys.json", "decrypted_dir":"decrypted"
+        }))
+        .unwrap();
+        assert!(serde_json::to_value(config)
+            .unwrap()
+            .get("key_store")
+            .is_none());
+    }
     use super::{
         config_path_in_dir, default_config_path, find_existing_config_path, home_config_path,
     };

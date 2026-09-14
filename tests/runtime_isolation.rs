@@ -4,6 +4,8 @@
 mod bootstrap;
 #[path = "fixtures/daemon-tasks/runtime.rs"]
 mod daemon_tasks;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
@@ -63,9 +65,24 @@ impl Fixture {
             serde_json::json!({})
         };
         fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
-        fs::write(profile.join("config.json"), serde_json::json!({"db_dir":"db_storage", "keys_file":"all_keys.json", "decrypted_dir":"decrypted"}).to_string()).unwrap();
+        let mut config = serde_json::json!({"db_dir":"db_storage", "keys_file":"all_keys.json", "decrypted_dir":"decrypted"});
+        if !valid {
+            config["key_store"] = serde_json::json!("keys.dpapi");
+        }
+        fs::write(profile.join("config.json"), config.to_string()).unwrap();
         self.profiles.push(profile.clone());
+        if valid {
+            self.migrate(&profile);
+        }
         profile
+    }
+
+    fn migrate(&self, profile: &Path) {
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &profile.join("config.json"),
+            &self.root.join("shared-runtime"),
+        );
     }
 
     fn run(&self, profile: &Path, args: &[&str]) -> Output {
@@ -224,6 +241,7 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
         .to_string(),
     )
     .unwrap();
+    fixture.migrate(&profile);
     let output = fixture.root.join("batch-output");
     daemon_tasks::assert_personal_tasks(&fixture, &profile, users[0]);
     let output_arg = output.to_str().unwrap();
@@ -598,6 +616,18 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     let mut fixture = Fixture::new();
     let a = fixture.account("alpha-person", true);
     let b = fixture.account("beta-person", true);
+    let accounts = fixture.root.join("shared-runtime/accounts");
+    let previous_starts: std::collections::HashMap<_, _> = fs::read_dir(&accounts)
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let count = fs::read_to_string(path.join("daemon.log"))
+                .unwrap()
+                .matches("[daemon] wx-daemon 启动")
+                .count();
+            (path, count)
+        })
+        .collect();
     let threads: Vec<_> = (0..4)
         .map(|_| {
             let root = fixture.root.clone();
@@ -612,7 +642,6 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     }
     let text = success(fixture.run(&b, &["contacts", "--json"]));
     assert!(text.contains("beta-person") && !text.contains("alpha-person"));
-    let accounts = fixture.root.join("shared-runtime/accounts");
     let records: Vec<serde_json::Value> = fs::read_dir(&accounts)
         .unwrap()
         .map(|entry| {
@@ -624,8 +653,12 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     assert_ne!(records[0]["pid"], records[1]["pid"]);
     assert_ne!(records[0]["runtime_id"], records[1]["runtime_id"]);
     for entry in fs::read_dir(&accounts).unwrap() {
-        let log = fs::read_to_string(entry.unwrap().path().join("daemon.log")).unwrap();
-        assert_eq!(log.matches("[daemon] wx-daemon 启动").count(), 1);
+        let path = entry.unwrap().path();
+        let log = fs::read_to_string(path.join("daemon.log")).unwrap();
+        assert_eq!(
+            log.matches("[daemon] wx-daemon 启动").count(),
+            previous_starts[&path] + 1
+        );
     }
     let before = success(fixture.run(&b, &["daemon", "status"]));
     success(fixture.run(&a, &["daemon", "stop"]));
@@ -661,6 +694,7 @@ fn failed_query_keeps_service_alive_and_retries_after_keys_are_repaired() {
         .to_string(),
     )
     .unwrap();
+    fixture.migrate(&bad);
     assert!(success(fixture.run(&bad, &["contacts", "--json"])).contains("broken-account"));
     assert_eq!(fs::read(directory.join("daemon.pid")).unwrap(), record);
     success(fixture.run(&bad, &["daemon", "stop"]));
@@ -729,12 +763,19 @@ fn tampered_birth_time_is_rejected_and_stale_record_allows_restart() {
         .unwrap()
     });
     record["created"] = serde_json::json!(record["created"].as_u64().unwrap() + 1);
-    fs::write(&pid_path, record.to_string()).unwrap();
+    let tampered = record.to_string().into_bytes();
+    fs::write(&pid_path, &tampered).unwrap();
     eprintln!("阶段 2：篡改创建时间后拒绝 stop");
     let rejected = fixture.run(&account, &["daemon", "stop"]);
+    let retained = fs::read(&pid_path);
     // 无论断言是否通过，都先恢复测试账号的合法记录，确保析构可停止后台。
     fs::write(&pid_path, &original).unwrap();
     assert!(!rejected.status.success());
+    assert_eq!(
+        retained.unwrap(),
+        tampered,
+        "identity rejection must preserve the PID record"
+    );
     eprintln!("阶段 3：恢复合法 PID 记录后查询 status");
     assert!(success(fixture.run(&account, &["daemon", "status"])).contains("运行中"));
     eprintln!("阶段 4：停止合法后台");
@@ -779,6 +820,7 @@ fn export_keeps_null_timestamp_rows_and_empty_tables() {
             serde_json::from_slice(&fs::read(profile.join("all_keys.json")).unwrap()).unwrap();
         keys["message/message_0.db"] = serde_json::json!("11".repeat(32));
         fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
+        fixture.migrate(&profile);
         let output = fixture.root.join(format!("{name}.json"));
         success(fixture.run(&profile, &["export-chat", name, output.to_str().unwrap()]));
         let value: serde_json::Value = serde_json::from_slice(&fs::read(output).unwrap()).unwrap();
@@ -862,6 +904,7 @@ fn detail_clis_preserve_ambiguity_exit_code_and_select_exact_shards() {
         keys[rel] = serde_json::json!("11".repeat(32));
     }
     fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
+    fixture.migrate(&profile);
     let export_path = fixture.root.join("native-export.json");
     success(fixture.run(
         &profile,
@@ -908,16 +951,18 @@ fn detail_clis_preserve_ambiguity_exit_code_and_select_exact_shards() {
         .status
         .success());
     assert!(!forbidden.exists());
-    let key_path = profile.join("all_keys.json");
-    let keys_before = fs::read(&key_path).unwrap();
-    assert!(!fixture
-        .run(
-            &profile,
-            &["export-chat", "transfer-person", key_path.to_str().unwrap()]
-        )
-        .status
-        .success());
-    assert_eq!(fs::read(&key_path).unwrap(), keys_before);
+    for name in ["all_keys.json", "keys.dpapi", "config.json"] {
+        let key_path = profile.join(name);
+        let keys_before = fs::read(&key_path).unwrap();
+        assert!(!fixture
+            .run(
+                &profile,
+                &["export-chat", "transfer-person", key_path.to_str().unwrap()]
+            )
+            .status
+            .success());
+        assert_eq!(fs::read(&key_path).unwrap(), keys_before);
+    }
     let ambiguous = fixture.run(&profile, &["decode-transfer", "transfer-person", "7"]);
     assert_eq!(
         ambiguous.status.code(),
@@ -925,7 +970,13 @@ fn detail_clis_preserve_ambiguity_exit_code_and_select_exact_shards() {
         "{}",
         String::from_utf8_lossy(&ambiguous.stderr)
     );
-    assert!(String::from_utf8_lossy(&ambiguous.stdout).contains("无法唯一定位"));
+    assert!(
+        String::from_utf8_lossy(&ambiguous.stderr).contains("Business request refused"),
+        "status={}\nstdout={}\nstderr={}",
+        ambiguous.status,
+        String::from_utf8_lossy(&ambiguous.stdout),
+        String::from_utf8_lossy(&ambiguous.stderr),
+    );
     let selected = success(fixture.run(
         &profile,
         &["decode-transfer", "transfer-person", "7", "101", "--json"],

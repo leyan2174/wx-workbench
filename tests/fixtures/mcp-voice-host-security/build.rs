@@ -4,9 +4,9 @@ mod support;
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    support::authenticated_transport(&root, &out);
+    support::authenticated_task_transport(&root, &out);
     for (name, relative, target, tag) in [
-        ("mcp_service", "daemon/mcp_service.rs", "open_config_read_lock", "account-open"),
+        ("mcp_service", "daemon/mcp_service.rs", "open", "account-open"),
         ("mcp_voice", "daemon/mcp_service/voice.rs", "host_path", "host-path"),
         ("asr", "daemon/operations/asr.rs", "build", "backend-build"),
     ] {
@@ -31,6 +31,9 @@ fn main() {
                     count += 1;
                 }
                 syn::Item::Impl(i) => {
+                    if name == "mcp_service" && !matches!(i.self_ty.as_ref(), syn::Type::Path(path) if path.path.is_ident("PinnedAccount")) {
+                        continue;
+                    }
                     for member in &mut i.items {
                         if let syn::ImplItem::Fn(f) = member {
                             if f.sig.ident == target {

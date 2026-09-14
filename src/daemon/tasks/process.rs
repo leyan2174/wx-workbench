@@ -1,4 +1,5 @@
 //! Suspended start, Job assignment, then resume; descendants are owned by default.
+pub use crate::windows_process::managed::Job;
 use crate::{
     runtime::RuntimeContext,
     service::{plan::Step, protocol::MAX_REQUEST_BYTES},
@@ -9,105 +10,6 @@ use tokio::{
     io::AsyncWriteExt,
     process::{Child, Command},
 };
-use windows::{
-    core::PCWSTR,
-    Win32::{
-        Foundation::{CloseHandle, HANDLE},
-        System::{
-            Diagnostics::ToolHelp::{
-                CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD,
-                THREADENTRY32,
-            },
-            JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
-                SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
-            },
-            Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
-        },
-    },
-};
-
-pub struct Job(HANDLE);
-unsafe impl Send for Job {}
-unsafe impl Sync for Job {}
-impl Drop for Job {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = TerminateJobObject(self.0, 1);
-            let _ = CloseHandle(self.0);
-        }
-    }
-}
-
-impl Job {
-    pub(crate) fn attach(&self, child: &Child) -> Result<()> {
-        let handle = HANDLE(child.raw_handle().context("Missing worker handle")?);
-        unsafe {
-            AssignProcessToJobObject(self.0, handle)?;
-        }
-        resume(child.id().context("Worker exited")?)
-    }
-    pub(crate) fn new() -> Result<Self> {
-        Self::create(false)
-    }
-
-    pub(crate) fn for_account_capture() -> Result<Self> {
-        Self::create(true)
-    }
-
-    fn create(account_capture: bool) -> Result<Self> {
-        let job = Self(unsafe { CreateJobObjectW(None, PCWSTR::null())? });
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if account_capture {
-            // The capture worker stays owned; the user's restarted Weixin must outlive it.
-            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
-        }
-        unsafe {
-            SetInformationJobObject(
-                job.0,
-                JobObjectExtendedLimitInformation,
-                &info as *const _ as *const _,
-                std::mem::size_of_val(&info) as u32,
-            )?;
-        }
-        Ok(job)
-    }
-}
-
-fn resume(pid: u32) -> Result<()> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)? };
-    let result = (|| -> Result<()> {
-        let mut entry = THREADENTRY32 {
-            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
-            ..Default::default()
-        };
-        unsafe {
-            Thread32First(snapshot, &mut entry)?;
-        }
-        loop {
-            if entry.th32OwnerProcessID == pid {
-                let thread =
-                    unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID)? };
-                let count = unsafe { ResumeThread(thread) };
-                unsafe {
-                    let _ = CloseHandle(thread);
-                }
-                ensure!(count != u32::MAX, "Unable to resume task worker");
-                return Ok(());
-            }
-            if unsafe { Thread32Next(snapshot, &mut entry) }.is_err() {
-                break;
-            }
-        }
-        anyhow::bail!("Suspended task thread not found")
-    })();
-    unsafe {
-        let _ = CloseHandle(snapshot);
-    }
-    result
-}
 
 pub async fn spawn(runtime: &RuntimeContext, step: &Step) -> Result<(Child, Job)> {
     let bytes = serde_json::to_vec(step)?;
@@ -154,16 +56,30 @@ pub async fn spawn(runtime: &RuntimeContext, step: &Step) -> Result<(Child, Job)
     }
     .await;
     if let Err(error) = result {
-        reap(child, job).await;
+        reap(child, job)
+            .await
+            .context("Unable to confirm failed worker cleanup")?;
         return Err(error);
     }
     Ok((child, job))
 }
 
-pub async fn reap(mut child: Child, job: Job) {
-    drop(job);
-    let _ = child.kill().await;
-    let _ = child.wait().await;
+pub async fn reap(mut child: Child, job: Job) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + crate::windows_process::managed::CLEANUP_TIMEOUT;
+    let termination = job.start_terminate();
+    let _ = child.start_kill();
+    tokio::time::timeout_at(deadline, child.wait())
+        .await
+        .context("Worker cleanup timed out; termination not confirmed")??;
+    termination?;
+    while !job.is_empty()? {
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "Worker descendant cleanup timed out; termination not confirmed"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -255,7 +171,7 @@ mod tests {
             } else {
                 child.try_wait()?.is_none()
             };
-            reap(child, job).await;
+            reap(child, job).await?;
             let app_survived = unsafe { WaitForSingleObject(handle, 200) } == WAIT_TIMEOUT;
             // Only terminate the fixture we hold a handle to, even if an assertion fails.
             unsafe {
@@ -294,7 +210,7 @@ mod tests {
             .spawn()?;
         assert!(!marker.exists());
         if let Err(error) = job.attach(&child) {
-            reap(child, job).await;
+            reap(child, job).await?;
             return Err(error);
         }
         let descendant = tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -311,7 +227,7 @@ mod tests {
         let pid = match descendant {
             Ok(pid) => pid,
             Err(error) => {
-                reap(child, job).await;
+                reap(child, job).await?;
                 return Err(error.into());
             }
         };
@@ -319,12 +235,12 @@ mod tests {
         let handle = match handle {
             Ok(handle) => handle,
             Err(error) => {
-                reap(child, job).await;
+                reap(child, job).await?;
                 return Err(error.into());
             }
         };
         let _owned = unsafe { OwnedHandle::from_raw_handle(handle.0) };
-        reap(child, job).await;
+        reap(child, job).await?;
         assert_eq!(unsafe { WaitForSingleObject(handle, 2000) }, WAIT_OBJECT_0);
         Ok(())
     }

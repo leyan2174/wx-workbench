@@ -272,14 +272,16 @@ impl LocalPythonConfig {
 
     /// 同一个推理进程提供配置身份及后续识别；不另起模型探测脚本。
     pub(super) fn cache_identity(&self) -> Result<String> {
-        self.with_worker(|worker| Ok(worker.identity.clone()))
+        self.with_worker(|worker, _| Ok(worker.identity.clone()))
     }
 
-    fn with_worker<T>(&self, operation: impl FnOnce(&mut Worker) -> Result<T>) -> Result<T> {
-        self.remaining_timeout()?;
+    fn with_worker<T>(&self, operation: impl FnOnce(&mut Worker, &Self) -> Result<T>) -> Result<T> {
+        // Lock contention, cold start and inference share one absolute call deadline.
+        let mut budget = self.clone();
+        budget.tighten_timeout(self.remaining_timeout()?)?;
         let start = Instant::now();
         let mut slot = loop {
-            self.remaining_timeout()?;
+            budget.remaining_timeout()?;
             match self.worker.try_lock() {
                 Ok(slot) => break slot,
                 Err(std::sync::TryLockError::Poisoned(_)) => {
@@ -302,11 +304,11 @@ impl LocalPythonConfig {
             }
         }
         if slot.is_none() {
-            *slot = Some(Worker::start(self)?);
+            *slot = Some(Worker::start(&budget)?);
         }
-        let result = self
+        let result = budget
             .remaining_timeout()
-            .and_then(|_| operation(slot.as_mut().expect("worker started")));
+            .and_then(|_| operation(slot.as_mut().expect("worker started"), &budget));
         if result.is_err() {
             if let Some(mut worker) = slot.take() {
                 worker
@@ -376,7 +378,7 @@ pub fn transcribe_wav(config: &LocalPythonConfig, wav: &[u8]) -> Result<Transcri
         "local inference WAV exceeds limit"
     );
     super::validate_wav(wav)?;
-    config.with_worker(|worker| {
+    config.with_worker(|worker, budget| {
         worker.clear_response()?;
         let audio = worker.root().join("audio.wav");
         let mut file = File::create(&audio).context("create private inference WAV")?;
@@ -384,7 +386,7 @@ pub fn transcribe_wav(config: &LocalPythonConfig, wav: &[u8]) -> Result<Transcri
         file.flush()?;
         drop(file);
         worker.send(&json!({"audio": audio}))?;
-        let result = worker.response(config.remaining_timeout()?)?;
+        let result = worker.response(budget.remaining_timeout()?)?;
         fs::remove_file(&audio).context("remove private inference WAV")?;
         worker.clear_response()?;
         Ok(Transcription {
@@ -417,7 +419,9 @@ impl Worker {
     fn start(config: &LocalPythonConfig) -> Result<Self> {
         #[cfg(not(windows))]
         bail!("legacy Python inference supervision requires Windows");
-        config.remaining_timeout()?;
+        let mut budget = config.clone();
+        budget.tighten_timeout(config.remaining_timeout()?)?;
+        let config = &budget;
         let python = config
             .python
             .as_ref()
@@ -465,7 +469,7 @@ impl Worker {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000);
+            command.creation_flags(crate::windows_process::managed::SUSPENDED_NO_WINDOW);
         }
         config.remaining_timeout()?;
         let mut process = Process {
@@ -639,20 +643,7 @@ struct Process {
 impl Process {
     fn stop(&mut self) -> Result<()> {
         self.child.stdin.take();
-        #[cfg(windows)]
-        let job_result = self.job.as_ref().map_or(Ok(()), |job| job.terminate());
-        let _ = self.child.kill();
-        let start = Instant::now();
-        while self.child.try_wait()?.is_none() {
-            ensure!(
-                start.elapsed() < Duration::from_secs(2),
-                "local inference reap timed out"
-            );
-            thread::sleep(Duration::from_millis(5));
-        }
-        #[cfg(windows)]
-        job_result?;
-        Ok(())
+        supervision::stop(&mut self.child, self.job.as_ref())
     }
 }
 

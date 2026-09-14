@@ -1,23 +1,13 @@
 use quote::ToTokens;
 fn main() {
-    let path = "../../../src/service/query_client.rs";
-    println!("cargo:rerun-if-changed={path}");
-    let source = std::fs::read_to_string(path).unwrap();
-    let parsed = syn::parse_file(&source).unwrap();
-    let function = parsed
-        .items
-        .iter()
-        .find_map(|item| match item {
-            syn::Item::Fn(function) if function.sig.ident == "read_response" => Some(function),
-            _ => None,
-        })
-        .expect("actual production read_response must exist");
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    std::fs::write(
-        output.join("ipc_reader.rs"),
-        function.to_token_stream().to_string(),
-    )
-    .unwrap();
+    let keys_path = "../../../src/toolkit/images.rs";
+    println!("cargo:rerun-if-changed={keys_path}");
+    let keys = syn::parse_file(&std::fs::read_to_string(keys_path).unwrap()).unwrap();
+    let parsers: Vec<_> = keys.items.iter().filter(|item| matches!(item,
+        syn::Item::Fn(function) if function.sig.ident == "parse_aes" || function.sig.ident == "parse_xor")).collect();
+    assert_eq!(parsers.len(), 2);
+    std::fs::write(output.join("image_key_parsers.rs"), quote::quote!(#(#parsers)*).to_string()).unwrap();
     let wav_path = "../../../src/toolkit/asr/mod.rs";
     println!("cargo:rerun-if-changed={wav_path}");
     let wav = syn::parse_file(&std::fs::read_to_string(wav_path).unwrap()).unwrap();

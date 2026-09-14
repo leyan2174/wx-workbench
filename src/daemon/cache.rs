@@ -215,6 +215,13 @@ pub struct DbCache {
     before_commit: CommitHook,
 }
 
+impl Drop for DbCache {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.all_keys.values_mut().for_each(Zeroize::zeroize);
+    }
+}
+
 #[cfg(test)]
 type CommitHook = Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 

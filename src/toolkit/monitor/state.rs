@@ -117,7 +117,10 @@ pub(super) fn load(context: &FixedRuntimeContext, path: &Path) -> Result<StateFi
         &context.runtime.config.keys_file,
         &context.runtime.pid_path(),
         &context.runtime.log_path(),
-    ] {
+    ]
+    .into_iter()
+    .chain(context.runtime.config.key_store.iter())
+    {
         if protected.try_exists()? {
             // 只比较文件身份，不读取这些受保护文件的内容；同时挡住硬链接别名。
             ensure!(

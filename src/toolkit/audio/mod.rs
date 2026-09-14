@@ -89,6 +89,22 @@ pub fn convert_silk_to_mp3_with_ffmpeg(
     output: &Path,
     ffmpeg: &Path,
 ) -> Result<Conversion> {
+    convert_controlled(
+        input,
+        output,
+        ffmpeg,
+        std::time::Instant::now() + std::time::Duration::from_secs(120),
+        || false,
+    )
+}
+
+fn convert_controlled(
+    input: &Path,
+    output: &Path,
+    ffmpeg: &Path,
+    deadline: std::time::Instant,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<Conversion> {
     ensure!(input.is_file(), "input is not a file: {}", input.display());
     ensure!(
         fs::metadata(input)?.len() <= MAX_INPUT_BYTES as u64,
@@ -128,13 +144,15 @@ pub fn convert_silk_to_mp3_with_ffmpeg(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW：禁止弹出控制台。
     }
-    let result = command.output().context("start ffmpeg")?;
+    let result = crate::windows_process::managed::output(
+        &mut command,
+        deadline,
+        1024 * 1024,
+        &mut cancelled,
+    )
+    .context("start ffmpeg or complete bounded execution")?;
     if !result.status.success() {
-        bail!(
-            "ffmpeg failed ({}): {}",
-            result.status,
-            String::from_utf8_lossy(&result.stderr).trim()
-        );
+        bail!("ffmpeg failed ({}); process output withheld", result.status);
     }
     let size = fs::metadata(&encoded)?.len();
     ensure!(size > 0, "ffmpeg produced an empty MP3");
@@ -143,6 +161,11 @@ pub fn convert_silk_to_mp3_with_ffmpeg(
         .open(&encoded)?
         .sync_all()?;
     protect_source(input, &output)?;
+    ensure!(!cancelled(), "Audio conversion cancelled");
+    ensure!(
+        std::time::Instant::now() < deadline,
+        "Audio conversion deadline expired"
+    );
     // 同目录、同卷的原子替换；失败时 RAII 清理临时文件，保留原输出。
     encoded
         .persist(&output)
@@ -167,3 +190,6 @@ fn protect_source(input: &Path, output: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod process_tests;

@@ -1,7 +1,7 @@
 //! 固定账号的显式数据库取钥入口；不写配置、不重启微信、不输出密钥材料。
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
-use std::{collections::HashMap, fs::OpenOptions};
+use std::collections::HashMap;
 use zeroize::Zeroize;
 
 use super::toolkit_run_prepare::{save_keys, snapshot_keys, validate_keys};
@@ -31,30 +31,14 @@ fn extract_for(runtime: &RuntimeContext) -> Result<Value> {
             "当前账号与父进程固定账号不一致，未开始扫描"
         );
     }
-    let config_parent = runtime.config_path.parent().context("配置缺少父目录")?;
-    let config_guard = HostOutputGuard::new(config_parent)?;
-    config_guard.verify_replaceable_file(&runtime.config_path)?;
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.share_mode(1).custom_flags(0x00200000);
-    }
-    let _config_pin = options
-        .open(&runtime.config_path)
-        .context("无法锁定当前账号配置")?;
+    let config_pin = crate::service::config_pin::ConfigPin::new(runtime)?;
     let current = RuntimeContext::load()?;
     ensure!(
-        current.id == runtime.id
-            && current.config_path == runtime.config_path
-            && current.config.db_dir == runtime.config.db_dir
-            && current.config.keys_file == runtime.config.keys_file
-            && current.config.decrypted_dir == runtime.config.decrypted_dir
-            && current.config.wechat_process == runtime.config.wechat_process,
+        current.same_account(runtime)?,
         "选中账号配置发生变化，未开始扫描"
     );
-    let target = &runtime.config.keys_file;
+    let store = crate::key_store::Store::for_runtime(runtime)?;
+    let target = store.path();
     let parent = target.parent().context("密钥输出缺少父目录")?;
     let output_guard = HostOutputGuard::new(parent)?;
     output_guard.verify_replaceable_file(target)?;
@@ -100,7 +84,7 @@ fn extract_for(runtime: &RuntimeContext) -> Result<Value> {
         }
         validate_keys(runtime, &keys)?;
         source_guard.verify()?;
-        config_guard.verify()?;
+        config_pin.verify(runtime)?;
         output_guard.verify_replaceable_file(target)?;
         ensure!(
             snapshot_keys(target)? == before,

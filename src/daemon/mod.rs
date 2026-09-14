@@ -215,33 +215,6 @@ async fn async_run() -> Result<()> {
 /// 兼容两种格式：
 /// - `{ "rel/path.db": { "enc_key": "hex" } }`（Python 版原生格式）
 /// - `{ "rel/path.db": "hex" }`（简化格式）
-fn extract_keys(json: &serde_json::Value) -> HashMap<String, String> {
-    let mut result = HashMap::new();
-    if let Some(obj) = json.as_object() {
-        for (k, v) in obj {
-            if k.starts_with('_') {
-                continue;
-            }
-            let enc_key = if let Some(s) = v.as_str() {
-                s.to_string()
-            } else if let Some(obj2) = v.as_object() {
-                obj2.get("enc_key")
-                    .and_then(|e| e.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                continue;
-            };
-            if !enc_key.is_empty() {
-                // 统一路径分隔符
-                let rel = k.replace('\\', "/");
-                result.insert(rel, enc_key);
-            }
-        }
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::{is_biz_msg_db_key, is_msg_db_key};

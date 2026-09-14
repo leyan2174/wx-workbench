@@ -10,10 +10,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{CloseHandle, LocalFree, HLOCAL};
-use windows::Win32::Security::Cryptography::{
-    CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
-};
+use windows::Win32::Foundation::CloseHandle;
 use zeroize::{Zeroize, Zeroizing};
 
 enum Event {
@@ -77,42 +74,10 @@ fn binding(db_dir: &Path) -> Result<String> {
 
 fn protect(data: &[u8], decrypt: bool) -> Result<Zeroizing<Vec<u8>>> {
     ensure!(data.len() <= 65536, "账号密钥文件长度无效");
-    let input = CRYPT_INTEGER_BLOB {
-        cbData: data.len() as u32,
-        pbData: data.as_ptr() as *mut u8,
-    };
-    let mut output = CRYPT_INTEGER_BLOB::default();
-    unsafe {
-        if decrypt {
-            CryptUnprotectData(
-                &input,
-                None,
-                None,
-                None,
-                None,
-                CRYPTPROTECT_UI_FORBIDDEN,
-                &mut output,
-            )
-        } else {
-            CryptProtectData(
-                &input,
-                None,
-                None,
-                None,
-                None,
-                CRYPTPROTECT_UI_FORBIDDEN,
-                &mut output,
-            )
-        }
-        .context("Windows DPAPI 处理失败，请使用保存密钥时的 Windows 用户")?;
-        let slice = std::slice::from_raw_parts_mut(output.pbData, output.cbData as usize);
-        let result = Zeroizing::new(slice.to_vec());
-        slice.zeroize();
-        let _ = LocalFree(HLOCAL(output.pbData as *mut _));
-        Ok(result)
-    }
+    crate::key_store::dpapi::transform(data, decrypt)
 }
 
+#[cfg(test)]
 fn save(db_dir: &Path, file: &Path, key: &[u8]) -> Result<()> {
     use std::io::Write;
     let record = SavedKey {
@@ -206,9 +171,16 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|value| format!("{value:02x}")).collect()
 }
 
+#[cfg(test)]
 pub(crate) fn derive_saved(db_dir: &Path, file: &Path) -> Result<Vec<KeyEntry>> {
+    let key = load_legacy(db_dir, file)?;
+    verify_material(db_dir, &key)
+}
+
+pub(crate) fn load_legacy(db_dir: &Path, file: &Path) -> Result<Zeroizing<Vec<u8>>> {
     ensure!(std::fs::metadata(file)?.len() <= 65536, "账号密钥文件过大");
-    let encrypted = std::fs::read(file)?;
+    let snapshot = crate::toolkit::setup::Snapshot::capture(file)?;
+    let encrypted = snapshot.bytes().context("账号密钥文件不存在")?;
     let plain = protect(&encrypted, true)?;
     let record: SavedKey = serde_json::from_slice(&plain).context("账号密钥记录无效")?;
     ensure!(
@@ -219,11 +191,17 @@ pub(crate) fn derive_saved(db_dir: &Path, file: &Path) -> Result<Vec<KeyEntry>> 
         record.db_dir == binding(db_dir)?,
         "账号密钥属于不同的数据库目录"
     );
+    snapshot.verify()?;
+    Ok(Zeroizing::new(record.key.clone()))
+}
+
+pub(crate) fn verify_material(db_dir: &Path, key: &[u8]) -> Result<Vec<KeyEntry>> {
+    ensure!(key.len() == 32, "账号密钥长度无效");
     let targets = collect_db_salts(db_dir)
         .into_iter()
         .map(|(_, name)| name)
         .collect();
-    verified_entries(&record.key, &collect_db_pages(db_dir)?, &targets)
+    verified_entries(key, &collect_db_pages(db_dir)?, &targets)
 }
 
 fn executable(override_path: Option<&Path>) -> Result<PathBuf> {
@@ -255,7 +233,7 @@ pub(crate) fn capture_and_save(
     db_dir: &Path,
     override_path: Option<&Path>,
     timeout: u64,
-    file: &Path,
+    store: &crate::key_store::Store,
 ) -> Result<Vec<KeyEntry>> {
     let pages = collect_db_pages(db_dir)?;
     let target = pages
@@ -362,8 +340,14 @@ pub(crate) fn capture_and_save(
         .map(|(_, name)| name)
         .collect();
     let entries = verified_entries(&raw, &collect_db_pages(db_dir)?, &targets)?;
-    save(db_dir, file, &raw)?;
-    eprintln!("账号密钥已使用 Windows DPAPI 加密保存: {}", file.display());
+    store.update(
+        None,
+        &[crate::key_store::Update::Account(
+            &raw,
+            crate::key_store::Verification::Verified,
+        )],
+    )?;
+    eprintln!("账号密钥已使用 Windows DPAPI 加密保存");
     Ok(entries)
 }
 

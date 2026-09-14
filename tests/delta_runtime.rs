@@ -1,5 +1,7 @@
 //! 真实 wx 进程及 IPC 的 delta 回归；账号、数据库和密钥全部为临时合成数据。
 #![cfg(windows)]
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
@@ -135,6 +137,11 @@ impl Fixture {
         )
         .unwrap();
         fs::write(account.join("config.json"), json!({"db_dir":"db_storage", "keys_file":"all_keys.json", "decrypted_dir":"decrypted"}).to_string()).unwrap();
+        crate::key_store_fixture::migrate(
+            std::path::Path::new(env!("CARGO_BIN_EXE_wx")),
+            &account.join("config.json"),
+            &fixture.runtime_root(),
+        );
         fixture
     }
 
@@ -611,10 +618,10 @@ fn disappeared_known_shard_fails_without_publishing_a_partial_chat() {
     );
     assert!(!result.status.success(), "缺失已知分片必须返回非零退出码");
     let manifest = assert_no_partial_success(&output, "missing-shard", "wxid_peer");
-    assert!(manifest["errors"][0]["reason"]
-        .as_str()
-        .unwrap()
-        .contains("message_1.db"));
+    assert_eq!(
+        manifest["errors"][0]["reason"],
+        "delta query error: Business operation failed"
+    );
     assert_eq!(
         fs::read(runtime.join("daemon.pid")).unwrap(),
         before,
@@ -635,6 +642,12 @@ fn encrypted_shard_without_a_key_is_an_error_not_a_successful_subset() {
     let mut keys = read_json(&keys_path);
     keys.as_object_mut().unwrap().remove("message/message_1.db");
     fs::write(&keys_path, serde_json::to_vec(&keys).unwrap()).unwrap();
+    fs::remove_file(f.profile.join("keys.dpapi")).unwrap();
+    key_store_fixture::migrate(
+        Path::new(env!("CARGO_BIN_EXE_wx")),
+        &f.profile.join("config.json"),
+        &f.runtime_root(),
+    );
     let output = f.output("unkeyed-shard");
     let result = f.delta(
         &output,
@@ -645,10 +658,10 @@ fn encrypted_shard_without_a_key_is_an_error_not_a_successful_subset() {
     );
     assert!(!result.status.success());
     let manifest = assert_no_partial_success(&output, "unkeyed-shard", "wxid_peer");
-    assert!(manifest["errors"][0]["reason"]
-        .as_str()
-        .unwrap()
-        .contains("未知消息分片"));
+    assert_eq!(
+        manifest["errors"][0]["reason"],
+        "delta query error: Business operation failed"
+    );
     assert_eq!(
         fs::read(&keys_path).unwrap(),
         serde_json::to_vec(&keys).unwrap()
@@ -794,6 +807,7 @@ fn append_run_rejects_source_decrypted_cache_and_runtime_directories() {
     }
     for output in [
         f.profile.join("all_keys.json"),
+        f.profile.join("keys.dpapi"),
         f.profile.join("config.json"),
     ] {
         assert!(!f.append_delta(&output, "forbidden-run").status.success());

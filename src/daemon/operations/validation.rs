@@ -8,50 +8,7 @@ use anyhow::{ensure, Result};
 use std::path::{Component, Path};
 
 fn backend(args: &BackendArgs) -> Result<()> {
-    ensure!(args.timeout_seconds > 0, "timeout must be positive");
-    ensure!(
-        !args.language.trim().is_empty(),
-        "language must not be empty"
-    );
-    match args.backend {
-        BackendKind::Local => {
-            ensure!(
-                !args.allow_upload
-                    && args.openai_base_url.is_none()
-                    && args.openai_model.is_none()
-                    && args.api_key_file.is_none(),
-                "cloud options require explicit-open-ai backend"
-            );
-            ensure!(
-                args.whisper_binary.is_some(),
-                "--whisper-binary is required"
-            );
-            ensure!(args.whisper_model.is_some(), "--whisper-model is required");
-            ensure!(
-                args.threads.is_none_or(|threads| threads > 0),
-                "threads must be positive"
-            );
-        }
-        BackendKind::ExplicitOpenAi => {
-            ensure!(
-                args.allow_upload,
-                "--allow-upload is required before reading credentials or audio"
-            );
-            ensure!(
-                args.whisper_binary.is_none()
-                    && args.whisper_model.is_none()
-                    && args.threads.is_none()
-                    && args.temp_root.is_none(),
-                "local options cannot be used with explicit-open-ai"
-            );
-            ensure!(
-                args.openai_base_url.is_some(),
-                "--openai-base-url is required"
-            );
-            ensure!(args.openai_model.is_some(), "--openai-model is required");
-            ensure!(args.api_key_file.is_some(), "--api-key-file is required");
-        }
-    }
+    args.validate_explicit()?;
     Ok(())
 }
 
@@ -299,6 +256,7 @@ fn directory(args: &super::export_messages::Args) -> Result<()> {
 
 pub(crate) fn validate(operation: &Operation) -> Result<()> {
     match operation {
+        Operation::MigrateKeys { .. } => Ok(()),
         Operation::Initialize {
             force,
             provider,

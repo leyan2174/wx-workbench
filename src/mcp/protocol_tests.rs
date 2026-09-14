@@ -894,6 +894,61 @@ fn errors_never_echo_backend_message_keys_or_decode_failure_text() {
 }
 
 #[test]
+fn business_partial_and_refusal_are_not_transport_unavailability_or_success() {
+    for (data, expected) in [
+        (
+            json!({"status":"partial","success":false,"message":"PRIVATE SECRET"}),
+            "Operation partially completed; successful artifacts were preserved",
+        ),
+        (
+            json!({"status":"refused","message":"PRIVATE SECRET"}),
+            "Business request refused",
+        ),
+        (
+            json!({"success":false,"message":"PRIVATE SECRET"}),
+            "Query failed",
+        ),
+    ] {
+        let mut protocol = Protocol::new(move |_| Ok(Response::ok(data.clone())));
+        ready(&mut protocol);
+        let response = send(
+            &mut protocol,
+            call("decode_transfer", json!({"chat_name":"s","local_id":1})),
+        )
+        .unwrap();
+        assert_eq!(response["result"]["isError"], true);
+        assert_eq!(reply_text(&response), expected);
+        assert!(!response.to_string().contains("PRIVATE"));
+        assert!(!response.to_string().contains("SECRET"));
+    }
+}
+
+#[test]
+fn key_store_diagnosis_is_static_not_backend_message_or_unavailability() {
+    use crate::ipc::outcome::KeyStoreDiagnostic;
+    for diagnostic in [
+        KeyStoreDiagnostic::Missing,
+        KeyStoreDiagnostic::Invalid,
+        KeyStoreDiagnostic::WrongAccount,
+        KeyStoreDiagnostic::LegacyMigrationRequired,
+    ] {
+        let mut response = Response::err("PRIVATE SECRET");
+        response.data = json!({"error_code":diagnostic.code()});
+        let mut protocol = Protocol::new(move |_| Ok(response.clone()));
+        ready(&mut protocol);
+        let result = send(
+            &mut protocol,
+            call("decode_transfer", json!({"chat_name":"s","local_id":1})),
+        )
+        .unwrap();
+        assert_eq!(result["result"]["isError"], true);
+        assert_eq!(reply_text(&result), diagnostic.message());
+        assert!(!result.to_string().contains("PRIVATE"));
+        assert!(!result.to_string().contains("SECRET"));
+    }
+}
+
+#[test]
 fn cancelled_or_expired_context_never_starts_callback() {
     let mut p =
         Protocol::new(|_| -> Result<Response, DispatchError> { panic!("must not dispatch") });

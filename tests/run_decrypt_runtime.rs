@@ -4,6 +4,8 @@
 mod bootstrap;
 #[path = "fixtures/mcp-readonly-runtime/encrypted_sqlite.rs"]
 mod encrypted_sqlite;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -19,6 +21,7 @@ struct Fixture {
     root: tempfile::TempDir,
     config: PathBuf,
     keys: PathBuf,
+    store: PathBuf,
     source: PathBuf,
     destination: PathBuf,
 }
@@ -32,6 +35,7 @@ impl Fixture {
         let fixture = Self {
             config: account.join("config.db"),
             keys: account.join("all_keys.db"),
+            store: account.join("encrypted_keys.db"),
             destination: account.join("decrypted"),
             source,
             root,
@@ -49,12 +53,59 @@ impl Fixture {
             .unwrap(),
         )
         .unwrap();
-        fixture.write_keys(json!({"unrelated/missing.db": "11".repeat(32)}));
+        fixture.write_legacy_keys(json!({"unrelated/missing.db": "11".repeat(32)}));
         fixture
     }
 
     fn write_keys(&self, keys: Value) {
+        self.write_legacy_keys(keys);
+        self.configure("key_store", "encrypted_keys.db");
+        key_store_fixture::migrate_with_unverified(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &self.config,
+            &self.root.path().join("isolated-runtime"),
+            true,
+        );
+        self.stop_daemon();
+        let encrypted = fs::read(&self.store).unwrap();
+        assert!(encrypted.starts_with(b"WXKEYS\0\x01"));
+        let plaintext_key = "11".repeat(32);
+        assert!(!encrypted
+            .windows(64)
+            .any(|bytes| bytes == plaintext_key.as_bytes()));
+    }
+
+    fn write_legacy_keys(&self, mut keys: Value) {
+        // Missing synthetic databases require explicit account binding during migration.
+        keys["_db_dir"] = json!(self.source);
         fs::write(&self.keys, serde_json::to_vec(&keys).unwrap()).unwrap();
+    }
+
+    fn stop_daemon(&self) {
+        success(
+            &command(self.root.path(), &self.config)
+                .args(["daemon", "stop"])
+                .output()
+                .unwrap(),
+        );
+    }
+
+    fn reject_migration(&self) {
+        let before = self.protected();
+        let output = command(self.root.path(), &self.config)
+            .args(["migrate-keys", "--allow-unverified"])
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert!(
+            diagnostic(&output).contains("Legacy database key"),
+            "{}",
+            diagnostic(&output)
+        );
+        assert!(!self.store.exists());
+        assert!(!self.config.parent().unwrap().join("keys.dpapi").exists());
+        assert_eq!(self.protected(), before);
+        self.stop_daemon();
     }
 
     fn configure(&self, field: &str, value: &str) {
@@ -77,6 +128,17 @@ impl Fixture {
     }
 
     fn command(&self, direct: bool, args: &[&str]) -> Output {
+        // Never let the prepared workflow receive Missing and enter memory acquisition.
+        let config: Value = serde_json::from_slice(&fs::read(&self.config).unwrap()).unwrap();
+        if config
+            .get("key_store")
+            .is_some_and(|value| !value.is_null())
+        {
+            assert!(
+                self.store.is_file(),
+                "decrypt fixture must not enter missing-store acquisition"
+            );
+        }
         let mut command = command(self.root.path(), &self.config);
         if direct {
             command.args(["toolkit", "decrypt"]);
@@ -86,9 +148,13 @@ impl Fixture {
         command.args(args).output().unwrap()
     }
 
-    fn protected(&self) -> Vec<Vec<u8>> {
-        [&self.config, &self.keys]
-            .map(|path| fs::read(path).unwrap())
+    fn protected(&self) -> Vec<Option<Vec<u8>>> {
+        [&self.config, &self.keys, &self.store]
+            .map(|path| match fs::read(path) {
+                Ok(bytes) => Some(bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => panic!("protected fixture read failed: {error}"),
+            })
             .into()
     }
 }
@@ -199,9 +265,6 @@ fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
     ] {
         f.database(name, value);
     }
-    let mut damaged = fs::read(f.source.join("bad.db")).unwrap();
-    damaged[4032] ^= 1;
-    fs::write(f.source.join("bad.db"), damaged).unwrap();
     f.write_keys(json!({
         "a\\valid.db": {"enc_key": "11".repeat(32)},
         "b/valid.db": "11".repeat(32),
@@ -209,6 +272,10 @@ fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
         "unrelated/missing.db": "11".repeat(32),
         "_db_dir": ""
     }));
+    // Migration verifies the original page; corruption is the decrypt-time failure.
+    let mut damaged = fs::read(f.source.join("bad.db")).unwrap();
+    damaged[4032] ^= 1;
+    fs::write(f.source.join("bad.db"), damaged).unwrap();
     fs::create_dir(&f.destination).unwrap();
     fs::write(f.destination.join("bad.db"), b"old target must survive").unwrap();
     let protected = f.protected();
@@ -250,17 +317,18 @@ fn direct_decrypt_needs_no_process_and_returns_nonzero_for_item_failure() {
     f.database("missing.db", "no-key");
     let output = f.command(true, &[]);
     assert!(!output.status.success(), "{}", diagnostic(&output));
+    assert_eq!(output.status.code(), Some(20), "{}", diagnostic(&output));
     count(&output, &["failures", "failed"], "失败", 1);
     assert!(!f.destination.join("missing.db").exists());
     assert_eq!(f.protected(), protected);
 }
 
 #[test]
-fn incremental_aliases_skip_before_parsing_key_hex() {
+fn incremental_aliases_skip_newer_targets_with_valid_store() {
     for flag in ["-i", "--incremental"] {
         let f = Fixture::new();
         f.database("valid.db", "source");
-        f.write_keys(json!({"valid.db": "not-hex"}));
+        f.write_keys(json!({"valid.db": "11".repeat(32)}));
         fs::create_dir(&f.destination).unwrap();
         let destination = f.destination.join("valid.db");
         fs::write(&destination, b"newer target must not be opened").unwrap();
@@ -347,11 +415,17 @@ fn raw_key_slash_and_case_collisions_are_rejected_before_output() {
         f.database("nested/valid.db", "collision");
         let mut keys = json!({"nested/valid.db": "11".repeat(32)});
         keys[alias] = json!("11".repeat(32));
-        f.write_keys(keys);
+        f.write_legacy_keys(keys);
+        f.reject_migration();
         let protected = f.protected();
         let source = snapshot(&f.source);
         let output = f.command(false, &[]);
         assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert!(
+            diagnostic(&output).contains("Legacy key material requires explicit migration"),
+            "{}",
+            diagnostic(&output)
+        );
         assert!(!f.destination.exists());
         assert_eq!(f.protected(), protected);
         assert_eq!(snapshot(&f.source), source);
@@ -360,7 +434,7 @@ fn raw_key_slash_and_case_collisions_are_rejected_before_output() {
 
 #[test]
 fn output_cannot_overwrite_config_or_saved_keys() {
-    for name in ["config.db", "all_keys.db"] {
+    for name in ["config.db", "all_keys.db", "encrypted_keys.db"] {
         let f = Fixture::new();
         f.database(name, "must not replace account metadata");
         let mut keys = serde_json::Map::new();
@@ -419,17 +493,61 @@ fn legacy_run_includes_migrate_while_direct_decrypt_skips_it() {
 }
 
 #[test]
-fn dry_run_plans_before_parsing_key_hex() {
+fn invalid_legacy_key_is_rejected_before_incremental_or_dry_run() {
+    for flag in ["-i", "--incremental", "--dry-run"] {
+        let f = Fixture::new();
+        f.database("valid.db", "invalid material must not reach planning");
+        f.write_legacy_keys(json!({"valid.db": "not-hex"}));
+        fs::create_dir(&f.destination).unwrap();
+        let destination = f.destination.join("valid.db");
+        fs::write(&destination, b"old valid target").unwrap();
+        let source_time = fs::metadata(f.source.join("valid.db"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&destination)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(source_time + Duration::from_secs(60)))
+            .unwrap();
+        let source = snapshot(&f.source);
+        let before = snapshot(&f.destination);
+        f.reject_migration();
+        let protected = f.protected();
+        for direct in [false, true] {
+            let output = f.command(direct, &[flag]);
+            assert!(!output.status.success(), "{}", diagnostic(&output));
+            assert!(
+                diagnostic(&output).contains("Legacy key material requires explicit migration"),
+                "{}",
+                diagnostic(&output)
+            );
+            assert_eq!(snapshot(&f.source), source);
+            assert_eq!(snapshot(&f.destination), before);
+            assert_eq!(f.protected(), protected);
+        }
+    }
+}
+
+#[test]
+fn corrupt_store_never_falls_back_to_valid_legacy_keys() {
     let f = Fixture::new();
-    f.database("valid.db", "preview without key parsing");
-    f.write_keys(json!({"valid.db": "not-hex"}));
+    f.database("valid.db", "valid legacy material must not be used");
+    f.write_keys(json!({"valid.db": "11".repeat(32)}));
+    fs::write(&f.store, b"invalid encrypted store").unwrap();
     let source = snapshot(&f.source);
     let protected = f.protected();
-    let output = f.command(false, &["--dry-run"]);
-    success(&output);
-    count(&output, &["planned"], "待解密", 1);
-    count(&output, &["failures", "failed"], "失败", 0);
-    assert!(!f.destination.exists());
-    assert_eq!(snapshot(&f.source), source);
-    assert_eq!(f.protected(), protected);
+    for direct in [false, true] {
+        let output = f.command(direct, &[]);
+        assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert!(
+            diagnostic(&output).contains("Invalid key store format"),
+            "{}",
+            diagnostic(&output)
+        );
+        assert!(!f.destination.exists());
+        assert_eq!(snapshot(&f.source), source);
+        assert_eq!(f.protected(), protected);
+    }
 }

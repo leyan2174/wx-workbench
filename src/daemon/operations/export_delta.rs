@@ -92,10 +92,15 @@ pub fn cmd(args: Args) -> Result<()> {
         cmd_export_delta(&output, &users, window, dispatch)?
     };
     println!("{}", serde_json::to_string_pretty(&report)?);
-    ensure!(
-        report["success"] == true,
-        "部分增量会话导出失败，详见 manifest"
-    );
+    let results = report["results"]
+        .as_array()
+        .context("Invalid delta export report")?;
+    let succeeded = results
+        .iter()
+        .filter(|item| item["success"] == true)
+        .count() as u64;
+    crate::ipc::outcome::BusinessOutcome::from_counts(succeeded, results.len() as u64 - succeeded)
+        .require_success()?;
     Ok(())
 }
 

@@ -4,6 +4,9 @@ use std::path::Path;
 
 #[cfg(target_os = "windows")]
 mod windows;
+pub(crate) use windows::account::{
+    load_legacy as load_legacy_account, verify_material as verify_account_material,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum KeyProvider {
@@ -19,23 +22,25 @@ pub fn scan_with_provider(
     restart: bool,
     executable: Option<&Path>,
     timeout: u64,
-    key_file: &Path,
+    store: &crate::key_store::Store,
 ) -> Result<Vec<KeyEntry>> {
     #[cfg(target_os = "windows")]
     {
         if provider == KeyProvider::Account {
             anyhow::ensure!(restart, "账号级捕获会重启微信，请显式添加 --restart-wechat");
-            return windows::account::capture_and_save(db_dir, executable, timeout, key_file);
+            return windows::account::capture_and_save(db_dir, executable, timeout, store);
         }
-        if provider == KeyProvider::Auto && key_file.is_file() {
-            match windows::account::derive_saved(db_dir, key_file) {
-                Ok(entries) => {
-                    eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
-                    return Ok(entries);
+        if provider == KeyProvider::Auto {
+            match store.load() {
+                Ok(snapshot) => {
+                    if let Some(key) = snapshot.account_key() {
+                        let entries = windows::account::verify_material(db_dir, key)?;
+                        eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
+                        return Ok(entries);
+                    }
                 }
-                Err(_) => {
-                    eprintln!("保存的账号密钥未通过完整验证，转为只读内存扫描；旧账号密钥保留")
-                }
+                Err(crate::key_store::Error::Missing) => {}
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -43,7 +48,7 @@ pub fn scan_with_provider(
 }
 
 /// 扫描到的一条密钥记录
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct KeyEntry {
     /// 相对路径，如 "message/message_0.db"
     pub db_name: String,
@@ -51,6 +56,16 @@ pub struct KeyEntry {
     pub enc_key: String,
     /// 16字节 salt（hex，来自数据库文件头）
     pub salt: String,
+}
+
+impl std::fmt::Debug for KeyEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyEntry")
+            .field("db_name", &self.db_name)
+            .field("enc_key", &"[REDACTED]")
+            .field("salt", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// 从进程内存中扫描所有 SQLCipher 密钥。

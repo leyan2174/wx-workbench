@@ -2,6 +2,8 @@
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256, Sha512};
@@ -125,10 +127,16 @@ impl Fixture {
             br#"{"db_dir":"db_storage","keys_file":"all_keys.json","decrypted_dir":"decrypted"}"#,
         )
         .unwrap();
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &self.path("profile/config.json"),
+            &self.path("runtime"),
+        );
         for name in [
             "profile/db_storage/contact/contact.db",
             "profile/db_storage/message/message_0.db",
             "profile/all_keys.json",
+            "profile/keys.dpapi",
             "profile/config.json",
         ] {
             self.remember(self.path(name));
@@ -216,13 +224,16 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         "--run-id",
         "safe",
     ]));
-    assert!(
-        !f.path("runtime").exists(),
-        "pure argument validation started a daemon"
-    );
+    for entry in fs::read_dir(f.path("runtime/accounts")).unwrap() {
+        assert!(
+            !entry.unwrap().path().join("daemon.pid").exists(),
+            "pure argument validation started a daemon after fixture migration"
+        );
+    }
     for path in [
         f.path("profile/db_storage/new"),
         f.path("profile/all_keys.json"),
+        f.path("profile/keys.dpapi"),
         f.path("profile/config.json"),
         f.path("profile/db_storage/../db_storage/escape"),
     ] {

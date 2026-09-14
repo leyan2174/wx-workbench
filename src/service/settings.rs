@@ -1,5 +1,6 @@
 //! Allowed paths enter through authenticated Configure, never task submissions.
 use crate::runtime::RuntimeContext;
+use crate::toolkit::asr::backend::{BackendId, Entry};
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,6 +21,12 @@ pub struct SettingsInput {
 pub struct Settings {
     pub image_cache_dir: Option<PathBuf>,
     pub transcription_backend: String,
+}
+
+pub struct TranscriptionCapabilities {
+    pub available: bool,
+    pub legacy_local: bool,
+    pub requires_upload: bool,
 }
 
 const MAX_PATH_BYTES: usize = 32768;
@@ -44,18 +51,20 @@ impl SettingsInput {
     }
 }
 impl Settings {
+    pub fn transcription_capabilities(&self) -> TranscriptionCapabilities {
+        let backend = BackendId::parse(&self.transcription_backend, Entry::ConfiguredBatch).ok();
+        TranscriptionCapabilities {
+            available: backend.is_some(),
+            legacy_local: backend == Some(BackendId::PythonWhisper),
+            requires_upload: backend == Some(BackendId::OpenAiCompatible),
+        }
+    }
+
     /// Recheck private serialized settings before use. This does not authorize new paths.
     pub fn validate_serialized(&self) -> Result<()> {
         ensure!(
-            [
-                "",
-                "unconfigured",
-                "unsupported",
-                "local",
-                "openai",
-                "whisper_cpp"
-            ]
-            .contains(&self.transcription_backend.as_str()),
+            ["", "unconfigured", "unsupported"].contains(&self.transcription_backend.as_str())
+                || BackendId::parse(&self.transcription_backend, Entry::ConfiguredBatch).is_ok(),
             "Invalid transcription backend"
         );
         if let Some(path) = &self.image_cache_dir {
@@ -112,9 +121,9 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
         image_cache_dir: path(&args.image_cache_dir, "image_cache_dir")?,
         transcription_backend: match raw.get("transcription_backend") {
             None => "unconfigured".into(),
-            Some(Value::String(s)) if ["local", "openai", "whisper_cpp"].contains(&s.as_str()) => {
-                s.clone()
-            }
+            Some(Value::String(s)) => BackendId::parse(s, Entry::ConfiguredBatch)
+                .map(|id| id.as_str().to_owned())
+                .unwrap_or_else(|_| "unsupported".into()),
             _ => "unsupported".into(),
         },
     };
@@ -126,6 +135,57 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn asr_settings_accept_canonical_names_and_legacy_aliases() {
+        for name in [
+            "local",
+            "openai",
+            "whisper_cpp",
+            "python_whisper",
+            "openai_compatible",
+        ] {
+            assert!(Settings {
+                transcription_backend: name.into(),
+                ..Default::default()
+            }
+            .validate_serialized()
+            .is_ok());
+        }
+        assert!(Settings {
+            transcription_backend: "unknown-engine".into(),
+            ..Default::default()
+        }
+        .validate_serialized()
+        .is_err());
+    }
+
+    #[test]
+    fn transcription_capabilities_preserve_configured_alias_engines() {
+        for (name, available, python, upload) in [
+            ("local", true, true, false),
+            ("python_whisper", true, true, false),
+            ("whisper_cpp", true, false, false),
+            ("openai", true, false, true),
+            ("openai_compatible", true, false, true),
+            ("unconfigured", false, false, false),
+        ] {
+            let capabilities = Settings {
+                transcription_backend: name.into(),
+                ..Default::default()
+            }
+            .transcription_capabilities();
+            assert_eq!(
+                (
+                    capabilities.available,
+                    capabilities.legacy_local,
+                    capabilities.requires_upload
+                ),
+                (available, python, upload),
+                "{name}"
+            );
+        }
+    }
 
     #[test]
     fn rejects_serialized_injection_and_invalid_paths() -> Result<()> {
@@ -172,6 +232,7 @@ mod tests {
         let root = tempfile::tempdir()?;
         let config_path = root.path().join("config.json");
         let config = crate::config::Config {
+            key_store: None,
             db_dir: root.path().join("account/db_storage"),
             keys_file: root.path().join("personal-keys.json"),
             decrypted_dir: root.path().join("decrypted"),

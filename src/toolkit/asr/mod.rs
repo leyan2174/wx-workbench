@@ -7,6 +7,7 @@
 //! batch 自动固定账号快照并逐条提交成功缓存，聊天 JSON 最后原子发布。
 //! 显式配置的 legacy-python-local 保留旧 Whisper/PyTorch 推理，尚未完成原生引擎迁移。
 
+pub mod backend;
 pub mod batch;
 pub mod cache;
 pub mod cached;
@@ -41,6 +42,14 @@ pub enum Backend {
 }
 
 impl Backend {
+    pub fn identity(&self) -> backend::BackendId {
+        match self {
+            Self::Local(_) => backend::BackendId::WhisperCpp,
+            Self::LegacyPythonLocal(_) => backend::BackendId::PythonWhisper,
+            Self::ExplicitOpenAi { .. } => backend::BackendId::OpenAiCompatible,
+        }
+    }
+
     /// 授权先于客户端创建；不读取环境配置或默认凭证。
     pub fn explicit_openai(config: openai::OpenAiConfig, allow_upload: bool) -> Result<Self> {
         ensure!(allow_upload, "audio upload requires explicit authorization");
@@ -85,7 +94,7 @@ pub fn transcribe_audio_bytes(bytes: &[u8], backend: &Backend) -> Result<Transcr
 
 // 仅接收两个已授权入口完成校验/解码的 WAV，共用后端逻辑而不重复解码。
 fn transcribe_wav(wav: &[u8], backend: &Backend) -> Result<Transcription> {
-    match backend {
+    let mut result = match backend {
         Backend::LegacyPythonLocal(config) => local_python::transcribe_wav(config, wav),
         Backend::Local(config) => {
             let mut builder = tempfile::Builder::new();
@@ -111,10 +120,12 @@ fn transcribe_wav(wav: &[u8], backend: &Backend) -> Result<Transcription> {
             Ok(Transcription {
                 text: result.text,
                 language: result.language,
-                backend: "openai".into(),
+                backend: "openai_compatible".into(),
             })
         }
-    }
+    }?;
+    result.backend = backend.identity().as_str().into();
+    Ok(result)
 }
 
 fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {

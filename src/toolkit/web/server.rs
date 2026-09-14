@@ -58,11 +58,59 @@ fn bad() -> ApiError {
 }
 
 fn query_error(error: anyhow::Error) -> ApiError {
-    if query::is_busy(&error) {
+    if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
+        let mut public = business_error(failure.0);
+        public.1 = failure.public_message();
+        public
+    } else if let Some(failure) = error
+        .downcast_ref::<crate::service::protocol::ServiceError>()
+        .and_then(|error| crate::ipc::outcome::BusinessFailure::from_service_code(&error.code))
+    {
+        let mut public = business_error(failure.0);
+        public.1 = failure.public_message();
+        public
+    } else if query::is_busy(&error) {
         ApiError(StatusCode::TOO_MANY_REQUESTS, "查询繁忙，请稍后重试")
     } else {
         unavailable(error)
     }
+}
+
+fn business_error(outcome: crate::ipc::outcome::BusinessOutcome) -> ApiError {
+    use crate::ipc::outcome::BusinessOutcome;
+    let status = match outcome {
+        BusinessOutcome::Partial => StatusCode::CONFLICT,
+        BusinessOutcome::Refused | BusinessOutcome::Failure => StatusCode::UNPROCESSABLE_ENTITY,
+        BusinessOutcome::Success => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    ApiError(status, outcome.public_message())
+}
+
+#[test]
+fn business_http_status_is_distinct_from_transport_and_sanitized() {
+    use crate::ipc::outcome::BusinessOutcome;
+    for (outcome, status) in [
+        (BusinessOutcome::Partial, StatusCode::CONFLICT),
+        (BusinessOutcome::Refused, StatusCode::UNPROCESSABLE_ENTITY),
+        (BusinessOutcome::Failure, StatusCode::UNPROCESSABLE_ENTITY),
+    ] {
+        let typed = query_error(anyhow::Error::new(outcome.require_success().unwrap_err()));
+        assert_eq!(typed.0, status);
+        let wire = query_error(
+            crate::service::protocol::ServiceError::new(
+                outcome.service_code(),
+                "SYNTHETIC_PRIVATE_KEY",
+            )
+            .into(),
+        );
+        assert_eq!(wire.0, status);
+        assert_eq!(wire.1, typed.1);
+        assert!(!wire.1.contains("SYNTHETIC_PRIVATE_KEY"));
+    }
+    assert_eq!(
+        query_error(anyhow::anyhow!("SYNTHETIC_PRIVATE_KEY")).0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
 }
 
 #[test]
@@ -195,6 +243,7 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     let info = state.backend(Call::Info {}).await.map_err(backend_error)?;
     let settings: server_types::Settings =
         serde_json::from_value(info["settings"].clone()).map_err(unavailable)?;
+    let asr = settings.transcription_capabilities();
     let mut limits = info["limits"].clone();
     if let Some(limits) = limits.as_object_mut() {
         limits.insert("sse_clients".into(), json!(16));
@@ -206,9 +255,9 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
         "history_persisted":info["history_persisted"],"running":info["running"],
         "sources":["wechat"],
         "transcription":{"backend":settings.transcription_backend,
-            "available":matches!(settings.transcription_backend.as_str(),"openai"|"whisper_cpp"|"local"),
-            "legacy_local":settings.transcription_backend=="local",
-            "requires_upload":settings.transcription_backend=="openai","output":"separate_json"},
+            "available":asr.available,
+            "legacy_local":asr.legacy_local,
+            "requires_upload":asr.requires_upload,"output":"separate_json"},
         "image_preview":{"enabled":true,"readonly":true,"max_bytes":16777216,"requires_decoded_cache":true},
         "boundaries":["GUI 为本地浏览器页面，不是原 tkinter/EXE 窗口","转录另写 JSON，不宣称已写入 CSV/HTML","图片预览只读取缓存；没有缓存时须先批量解密图片"]}),
     ))
@@ -1323,6 +1372,7 @@ mod tests {
         let root = tempfile::tempdir()?;
         let config_path = root.path().join("config.json");
         let config = crate::config::Config {
+            key_store: None,
             db_dir: root.path().join("account/db_storage"),
             keys_file: root.path().join("keys.json"),
             decrypted_dir: root.path().join("decrypted"),

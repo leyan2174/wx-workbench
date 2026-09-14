@@ -412,17 +412,10 @@ fn export_document_impl(
             "重复分片/local_id，不能安全导出"
         );
     }
-    let mut protected = vec![
-        runtime.config_path.clone(),
-        runtime.config.keys_file.clone(),
-    ];
-    protected.extend([
-        runtime.config.db_dir.clone(),
-        runtime.config.decrypted_dir.clone(),
-        runtime.directory.clone(),
-    ]);
+    let mut protected = super::export_protected(runtime);
     let inputs = media::Inputs::from_config(runtime, config, sources, options.media_enabled)?;
     protected.extend(inputs.paths());
+    super::validate_export_target(runtime, output)?;
     for path in &protected {
         super::separate(path, output)?;
     }
@@ -526,6 +519,7 @@ fn export_document_impl(
         .cloned()
         .chain(std::iter::once(PathBuf::from(INVENTORY)))
         .collect();
+    super::validate_export_target(runtime, output)?;
     let tree = publish::prepare(
         output,
         &Binding {
@@ -603,6 +597,7 @@ fn export_document_impl(
         PathBuf::from(INVENTORY),
         staged[Path::new(INVENTORY)].clone(),
     ));
+    super::validate_export_target(runtime, output)?;
     tree.publish_all(&entries)?;
     Ok(Report {
         username: target.username.clone(),

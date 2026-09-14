@@ -540,8 +540,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
                 _ => unreachable!(),
             }
         }
-        assert!(fs::OpenOptions::new().write(true).open(&a.config).is_err());
-        assert!(fs::rename(&a.config, a.config.with_extension("renamed")).is_err());
+        assert!(fs::OpenOptions::new().write(true).open(&a.config).is_ok());
     }
     for (index, name) in REQUIRED_VOICE_ARGS.iter().enumerate() {
         assert_eq!(
@@ -673,12 +672,17 @@ fn real_wx_ipc_limit_is_inclusive_and_bad_backend_frames_are_safe() {
         wx.call(1, "get_chat_images", json!({"chat_name":"synthetic"}))["result"]["isError"],
         false
     );
-    for id in 2..=4 {
+    for id in 2..=3 {
         tool_error(
             &wx.call(id, "get_chat_images", json!({"chat_name":"synthetic"})),
             "Query backend unavailable",
         );
     }
+    // A valid business failure is distinct from an invalid transport frame,
+    // while its private backend message must still never reach MCP output.
+    let failure = wx.call(4, "get_chat_images", json!({"chat_name":"synthetic"}));
+    tool_error(&failure, "Query failed");
+    assert!(!failure.to_string().contains("SYNTHETIC_SECRET"));
     success(wx.finish());
     assert_eq!(server.finish().len(), 8);
     fixture.assert_no_daemon_or_database_output(&account);

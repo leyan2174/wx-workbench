@@ -1,5 +1,8 @@
 # 本地 ASR：whisper.cpp 与可选 Python 推理桥
 
+规范名称、旧入口别名及授权边界见 [BACKENDS.md](BACKENDS.md)。MCP 显式配置中的
+`local` 与 `python_whisper` 等价，仍要求宿主启用配置式 Python 入口。
+
 ## 当前入口与默认值
 
 Rust 已负责音频校验/SILK 解码、数据库关联、缓存、回写和进程监管；`asr/mod.rs` 已注册两个本地后端。Python 只保留 Whisper/PyTorch 推理桥，不运行旧 `mcp_server.py` 或批量导出脚本，也不是识别失败后的自动回退。
@@ -34,15 +37,17 @@ JSON 支持 whisper.cpp 的 `transcription[].text` 与 `result.language`，
 产出的 whisper.cpp 支持音频；本模块不校验音频编码、不重复 SILK 解码。
 上层继续负责账号隔离、缓存身份、批处理和导出持久化时机；摘要与 receipt 不是数字签名。
 
-Windows 使用 CREATE_NO_WINDOW，不经过 shell。启动后立即将进程加入
-启用 KILL_ON_JOB_CLOSE 的 Job Object；绑定失败则终止直接进程并报错。
+Windows 使用 CREATE_NO_WINDOW | CREATE_SUSPENDED，不经过 shell。先将挂起进程加入
+启用 KILL_ON_JOB_CLOSE 的 Job Object，再恢复其主线程；绑定失败则终止直接进程并报错。
 超时、超限、读取失败、正常退出均终止 Job 并等待活动进程归零，回收
 已纳管的子孙进程。目录删除最多重试 1 秒，失败明确报错。
-`windows_supervision.rs` 已合并两个后端的 Job 与管道读取：Job 使用现有
-`windows::Win32::System::JobObjects` 类型绑定和 `OwnedHandle` RAII；仅
+`windows_supervision.rs` 仅保留 ASR 诊断适配，Job、管道读取和回收复用
+`windows_process::managed`，与直接 FFmpeg、daemon worker 使用相同实现；仅
 `PeekNamedPipe` 保留一份 kernel32 FFI，无新增 crate 或 Windows feature。
-每次终止 Job 最多等待 2 秒、每 5ms 检查活动进程数；调用方仍分别负责
-直接子进程 wait、错误顺序和临时目录清理。共享 Job 可随 Python worker 跨线程移动。
+每次显式回收使用独立的 2 秒预算，覆盖 Job 活动进程归零和直接子进程退出，
+不会无限 wait；回收失败不宣称终止已确认。共享 Job 可随 Python worker 跨线程移动。
+内层 Job 不允许 breakaway；终止内层不会终止外层 worker，终止外层会回收内层后代。
+Python 单次调用的锁等待、冷启动与识别共用同一截止时间，不为每个阶段重置完整预算。
 
 需要调整资源预算时使用：
 
@@ -63,8 +68,8 @@ PeekNamedPipe 查询可读量，每管道每轮最多读 64KiB，不等待 EOF�
 
 限制必须明确：这是约 10ms 轮询的终止阈值，不是文件系统硬配额；高速写入
 可能短暂超调，目录扫描也有开销。只统计专属临时目录，不限制可执行文件
-主动写到其他位置。Job 在 spawn 后绑定，存在绑定前派生进程逃逸窗口，
-不声称无竞态沙箱。只运行可信 whisper.cpp，不执行不可信包装程序；临时根
+主动写到其他位置。挂起启动消除了绑定前运行子进程代码的窗口，但 Job 不是安全沙箱。
+只运行可信 whisper.cpp，不执行不可信包装程序；临时根
 必须为可信账户隔离目录。非 Windows 平台拒绝运行。
 
 ## Python 推理桥

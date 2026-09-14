@@ -11,25 +11,36 @@ pub mod config;
 pub mod crypto;
 #[path = "../../../src/toolkit/files.rs"]
 mod files;
+#[path = "../../../src/ipc.rs"]
+pub mod ipc;
+#[path = "../../../src/key_store/mod.rs"]
+pub mod key_store;
 #[path = "../../../src/toolkit/legacy.rs"]
 pub mod legacy;
 #[path = "../../../src/attachment/local_files.rs"]
 pub mod local_files;
+#[path = "../../../src/toolkit/private_file.rs"]
+pub mod private_file;
 #[path = "../../../src/daemon/cache.rs"]
 #[allow(unused_imports)] // 语音和视频测试不调用图片资源快照接口。
 pub mod production_cache;
 #[path = "../../../src/runtime.rs"]
 pub mod runtime;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
 #[path = "../../../src/toolkit/sns/video_runtime.rs"]
 pub mod video;
+#[path = "../../../src/windows_process.rs"]
+pub mod windows_process;
 
 pub mod daemon {
     pub use super::production_cache as cache;
 }
 
 pub mod toolkit {
-    pub(crate) use super::files::separate;
+    pub(crate) use super::files::{separate, validate_export_target};
     pub use super::{asr, audio, legacy};
+    pub use super::{private_file, setup};
 }
 
 pub mod attachment {

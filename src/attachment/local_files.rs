@@ -196,6 +196,7 @@ impl HostOutputGuard {
     }
 
     /// 仅读取已隔离的显式文件，缓冲区在成功和失败路径都会清零。
+    #[cfg(test)]
     pub(crate) fn read_key_file(&mut self, path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         const LIMIT: u64 = 4096;
         self.protect(path)?;

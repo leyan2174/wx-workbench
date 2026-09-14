@@ -18,10 +18,16 @@ use crate::attachment::decoder::{detect_image_format, V2_MAGIC};
 /// V2 图片真正需要的是两份材料：
 /// - 16 字节 ASCII AES key
 /// - XOR key（由图片内容验证）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ImageKeyMaterial {
     pub aes_key: [u8; 16],
     pub xor_key: u8,
+}
+
+impl std::fmt::Debug for ImageKeyMaterial {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ImageKeyMaterial { [REDACTED] }")
+    }
 }
 
 /// 单个 wxid 的 V2 image key 提取接口。

@@ -85,4 +85,5 @@ pub fn seed(account: &Account) {
         keys[key] = json!("11".repeat(32));
     }
     fs::write(keys_path, serde_json::to_vec(&keys).unwrap()).unwrap();
+    account.migrate_keys();
 }

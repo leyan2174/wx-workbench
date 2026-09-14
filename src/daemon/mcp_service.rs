@@ -11,8 +11,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs::{File, OpenOptions},
-    io::{self, Read},
+    fs::OpenOptions,
+    io::Read,
     path::PathBuf,
     sync::{Arc, Condvar, Mutex, OnceLock},
 };
@@ -231,10 +231,7 @@ pub fn dispatch(
             context.check()?;
             let response = query(request, context, limit)?;
             context.check()?;
-            // The previous bounded query client rejected transport-level ok:false.
-            if !response.ok {
-                return Err(DispatchError::Unavailable);
-            }
+            // A received business failure is not a transport availability failure.
             if serde_json::to_vec(&response)
                 .map_err(|_| DispatchError::InvalidResponse)?
                 .len()
@@ -322,6 +319,8 @@ impl Session {
             self.policy = Some(fingerprint);
         }
         let pinned = self.pinned.as_ref().ok_or(DispatchError::Unavailable)?;
+        let _operation_pin = crate::service::config_pin::ConfigPin::new(&pinned.context)
+            .map_err(|_| DispatchError::Unavailable)?;
         if !same_account(&pinned.context, runtime) || !pinned.is_current() {
             self.invalidated = true;
             return Err(DispatchError::Unavailable);
@@ -349,19 +348,7 @@ impl Session {
                 let resolved = query(Request::ResolveChat { chat: chat.clone() }, context, 8192)
                     .map_err(|_| DispatchError::Unavailable)?;
                 current()?;
-                if !resolved.ok
-                    || resolved.error.is_some()
-                    || resolved
-                        .data
-                        .get("exit_code")
-                        .is_some_and(|value| value.as_i64() != Some(0))
-                    || resolved
-                        .data
-                        .get("error")
-                        .is_some_and(|value| !value.is_null())
-                {
-                    return Err(DispatchError::QueryFailed);
-                }
+                resolved.require_success().map_err(DispatchError::from)?;
                 let username = resolved.data["username"]
                     .as_str()
                     .filter(|name| !name.trim().is_empty() && name.len() <= 4096)
@@ -426,16 +413,10 @@ impl HostSettings {
                 return Err(DispatchError::Unavailable);
             }
             *output_root = root.to_str().ok_or(DispatchError::Unavailable)?.to_owned();
-            *image_key_file = self
-                .image_key_file
-                .as_deref()
-                .map(|path| {
-                    host_path(path)?
-                        .to_str()
-                        .map(str::to_owned)
-                        .ok_or(DispatchError::Unavailable)
-                })
-                .transpose()?;
+            if self.image_key_file.is_some() {
+                return Err(DispatchError::Unavailable);
+            }
+            *image_key_file = None;
         }
         Ok(())
     }
@@ -452,10 +433,11 @@ fn host_path(path: &std::path::Path) -> std::result::Result<PathBuf, DispatchErr
     std::path::absolute(path).map_err(|_| DispatchError::Unavailable)
 }
 
-/// 持有配置读锁直到 stdio 会话结束，阻止普通写入/替换将轮询游标带到另一账号。
+/// 会话只保存文件身份；每次操作持有短时配置锁，替换后拒绝继续使用旧游标。
 /// 文件锁不替代操作系统账户权限；不保证抵御特权进程更换祖先目录联接。
 struct PinnedAccount {
-    _config_lock: File,
+    identity: (u32, u64),
+    fingerprint: String,
     context: RuntimeContext,
     owner: Owner,
 }
@@ -464,8 +446,13 @@ impl PinnedAccount {
     fn open(expected: &RuntimeContext, owner_pid: u32) -> Result<Self> {
         let owner = Owner::open(owner_pid).map_err(|_| anyhow!("MCP owner unavailable"))?;
         let path = expected.config_path.clone();
-        let mut file = open_config_read_lock(&path)?;
-        let mut bytes = Vec::new();
+        let pin = crate::service::config_pin::ConfigPin::new(expected)?;
+        use std::os::windows::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2 | 4)
+            .open(&path)?;
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
         (&mut file)
             .take(MAX_CONFIG_BYTES + 1)
             .read_to_end(&mut bytes)?;
@@ -490,7 +477,8 @@ impl PinnedAccount {
             return Err(anyhow!("MCP account configuration changed"));
         }
         Ok(Self {
-            _config_lock: file,
+            identity: pin.file_identity()?,
+            fingerprint: pin.fingerprint()?,
             context,
             owner,
         })
@@ -498,6 +486,12 @@ impl PinnedAccount {
 
     fn is_current(&self) -> bool {
         self.owner.alive()
+            && crate::service::config_pin::ConfigPin::new(&self.context)
+                .and_then(|pin| {
+                    Ok(pin.file_identity()? == self.identity
+                        && pin.fingerprint()? == self.fingerprint)
+                })
+                .unwrap_or(false)
             && crate::config::load_config_at(&self.context.config_path)
                 .and_then(|config| {
                     RuntimeContext::from_config(
@@ -511,19 +505,7 @@ impl PinnedAccount {
 }
 
 fn same_account(a: &RuntimeContext, b: &RuntimeContext) -> bool {
-    a.id == b.id
-        && a.config_path == b.config_path
-        && a.root == b.root
-        && a.config.db_dir == b.config.db_dir
-        && a.config.keys_file == b.config.keys_file
-        && a.config.decrypted_dir == b.config.decrypted_dir
-        && a.config.wechat_process == b.config.wechat_process
-}
-
-fn open_config_read_lock(path: &std::path::Path) -> io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    // FILE_SHARE_READ：其他读取不受影响，编辑配置须先退出 MCP 会话。
-    OpenOptions::new().read(true).share_mode(1).open(path)
+    a.same_account(b).unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -545,19 +527,21 @@ mod tests {
         assert!(HostSettings::default()
             .prepare_request(&mut Request::Ping)
             .is_ok());
-        let host = HostSettings {
+        let mut host = HostSettings {
             media_output_root: Some(root.path().into()),
             image_key_file: Some(root.path().join("key.json")),
             ..HostSettings::default()
         };
         let mut request = image();
+        assert_eq!(
+            host.prepare_request(&mut request),
+            Err(DispatchError::Unavailable)
+        );
+        host.image_key_file = None;
         host.prepare_request(&mut request).unwrap();
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(value["output_root"], root.path().to_str().unwrap());
-        assert_eq!(
-            value["image_key_file"],
-            root.path().join("key.json").to_str().unwrap()
-        );
+        assert!(value["image_key_file"].is_null());
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
         for invalid in [
             root.path().join("missing"),
@@ -580,6 +564,7 @@ mod tests {
     fn fixture() -> (tempfile::TempDir, RuntimeContext, Call) {
         let temp = tempfile::tempdir().unwrap();
         let config = crate::config::Config {
+            key_store: None,
             db_dir: temp.path().join("db"),
             keys_file: temp.path().join("keys.json"),
             decrypted_dir: temp.path().join("decrypted"),
@@ -674,11 +659,15 @@ mod tests {
     }
 
     #[test]
-    fn session_holds_config_lock_and_close_releases_it() {
+    fn session_uses_operation_scoped_config_lock() {
         let (_temp, runtime, mut call) = fixture();
         let expected = json!({"tags":[], "total_tags":0});
         let result = unpack(dispatch(call.clone(), &runtime, |request, _, _| {
             assert!(matches!(request, Request::ContactTags));
+            assert!(OpenOptions::new()
+                .write(true)
+                .open(&runtime.config_path)
+                .is_err());
             Ok(Response::ok(expected.clone()))
         }))
         .unwrap();
@@ -686,7 +675,7 @@ mod tests {
         assert!(OpenOptions::new()
             .write(true)
             .open(&runtime.config_path)
-            .is_err());
+            .is_ok());
         call.request = None;
         unpack(dispatch(call, &runtime, forbidden)).unwrap();
         assert!(OpenOptions::new()
@@ -715,6 +704,56 @@ mod tests {
             DispatchError::Unavailable
         );
         call.host.voice.backend.allow_upload = false;
+        assert_eq!(
+            session
+                .execute(call, &runtime, &CallContext::default(), forbidden)
+                .unwrap_err(),
+            DispatchError::Unavailable
+        );
+    }
+
+    #[test]
+    fn session_accepts_key_rotation_but_rejects_identical_config_replacement() {
+        let (_temp, mut runtime, call) = fixture();
+        std::fs::create_dir(&runtime.config.db_dir).unwrap();
+        runtime.config.key_store = Some(runtime.config_path.with_file_name("keys.dpapi"));
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&runtime.config_path).unwrap()).unwrap();
+        config["key_store"] = json!(runtime.config.key_store);
+        std::fs::write(&runtime.config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let store = crate::key_store::Store::for_runtime(&runtime).unwrap();
+        store
+            .update(
+                None,
+                &[crate::key_store::Update::Image(
+                    b"syntheticAESkey1",
+                    0x88,
+                    crate::key_store::Verification::Verified,
+                )],
+            )
+            .unwrap();
+        let mut session = Session::default();
+        let query = |_, _: &CallContext, _| Ok(Response::ok(json!({})));
+        session
+            .execute(call.clone(), &runtime, &CallContext::default(), query)
+            .unwrap();
+        store
+            .update(
+                None,
+                &[crate::key_store::Update::Image(
+                    b"syntheticAESkey2",
+                    0x89,
+                    crate::key_store::Verification::Verified,
+                )],
+            )
+            .unwrap();
+        session
+            .execute(call.clone(), &runtime, &CallContext::default(), query)
+            .unwrap();
+        let snapshot = crate::toolkit::setup::Snapshot::capture(&runtime.config_path).unwrap();
+        snapshot
+            .write_bytes(snapshot.bytes().unwrap(), &[])
+            .unwrap();
         assert_eq!(
             session
                 .execute(call, &runtime, &CallContext::default(), forbidden)

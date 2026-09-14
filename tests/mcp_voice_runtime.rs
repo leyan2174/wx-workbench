@@ -416,7 +416,7 @@ fn voice_without_explicit_output_or_backend_does_not_start_account_or_read_crede
         assert_eq!(a.snapshot(), before);
         assert!(!a.root().join("decrypted").exists());
         assert!(!a.root().join("daemon.log").exists());
-        assert!(!home.path().join("accounts").exists());
+        assert!(a.ipc(json!({"cmd":"ping"})).is_err());
         assert_eq!(fs::read_dir(output.path()).unwrap().count(), 0);
     }
 }

@@ -6,7 +6,26 @@ use anyhow::{Context, Result};
 use std::io::Write;
 
 pub fn cmd_decode(request: Request, json: bool) -> Result<()> {
-    let response = transport::send(request)?;
+    let response = match transport::send(request) {
+        Ok(response) => response,
+        Err(error) => {
+            if json {
+                if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>()
+                {
+                    if let Some(code) = failure.legacy_exit_code() {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "exit_code":code, "text":failure.to_string()
+                            }))?
+                        );
+                        std::io::stdout().flush()?;
+                    }
+                }
+            }
+            return Err(error);
+        }
+    };
     let code = response
         .data
         .get("exit_code")

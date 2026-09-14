@@ -4,7 +4,13 @@ use crate::{
     service::{config_pin::ConfigPin, plan, protocol::Kind},
 };
 use anyhow::{ensure, Result};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     sync::{mpsc, watch},
@@ -22,20 +28,24 @@ async fn drain<R: AsyncRead + Unpin>(
     id: String,
     stream: &'static str,
     suppress: bool,
-) {
+    total: Arc<AtomicU64>,
+) -> Result<()> {
     let mut chunk = [0; 2048];
     let mut line = Vec::new();
     let mut oversized = false;
     loop {
-        let count = match pipe.read(&mut chunk).await {
-            Ok(0) | Err(_) => break,
-            Ok(count) => count,
-        };
+        let count = pipe.read(&mut chunk).await?;
+        if count == 0 {
+            break;
+        }
+        let bytes = total.fetch_add(count as u64, Ordering::Relaxed) + count as u64;
         if suppress {
             use zeroize::Zeroize;
             chunk[..count].zeroize();
+            ensure!(bytes <= 64 * 1024 * 1024, "Worker output limit exceeded");
             continue;
         }
+        ensure!(bytes <= 64 * 1024 * 1024, "Worker output limit exceeded");
         for byte in &chunk[..count] {
             if *byte == b'\n' {
                 if oversized {
@@ -57,6 +67,7 @@ async fn drain<R: AsyncRead + Unpin>(
     } else if !line.is_empty() {
         state.log(&id, stream, &String::from_utf8_lossy(&line));
     }
+    Ok(())
 }
 
 pub async fn run(state: Arc<Service>, mut queue: mpsc::Receiver<Work>) {
@@ -95,7 +106,8 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         return;
     }
     let mut pin = None;
-    let mut released = false;
+    // One generous total budget across all steps; large offline exports remain supported.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
     let result: Result<Option<i32>> = async {
         let locked = ConfigPin::new(&state.runtime)?;
         ensure!(
@@ -113,6 +125,7 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         for source in [
             Some(&state.runtime.config_path),
             Some(&state.runtime.config.keys_file),
+            state.runtime.config.key_store.as_ref(),
             Some(&state.runtime.config.db_dir),
             Some(&state.runtime.config.decrypted_dir),
             Some(&state.runtime.directory),
@@ -145,23 +158,19 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
                 &format!("开始步骤 {}/{}", index + 1, steps.len()),
             );
             let suppress = matches!(work.request.kind, Kind::ImageKey | Kind::WechatKeys);
-            if work.request.kind == Kind::ImageKey {
-                pin.as_mut()
-                    .unwrap()
-                    .release_for_image_key(&state.runtime)?;
-                released = true;
-            }
             let (mut child, job) = process::spawn(&state.runtime, step).await?;
             let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
-                process::reap(child, job).await;
+                process::reap(child, job).await?;
                 anyhow::bail!("Task output handles unavailable");
             };
+            let total = Arc::new(AtomicU64::new(0));
             let mut out = tokio::spawn(drain(
                 stdout,
                 state.clone(),
                 work.id.clone(),
                 "stdout",
                 suppress,
+                total.clone(),
             ));
             let mut err = tokio::spawn(drain(
                 stderr,
@@ -169,22 +178,38 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
                 work.id.clone(),
                 "stderr",
                 suppress,
+                total,
             ));
-            let exit = tokio::select! { biased;
-                _ = signalled(&mut work.cancel) => None,
-                _ = signalled(shutdown) => None,
-                result = child.wait() => Some(result),
-            };
-            process::reap(child, job).await;
-            for reader in [&mut out, &mut err] {
-                if tokio::time::timeout(Duration::from_secs(2), &mut *reader)
-                    .await
-                    .is_err()
-                {
-                    reader.abort();
-                    let _ = reader.await;
+            let (mut out_done, mut err_done) = (false, false);
+            let exit: Result<_> = async {
+                loop {
+                    tokio::select! { biased;
+                        _ = signalled(&mut work.cancel) => return Ok(None),
+                        _ = signalled(shutdown) => return Ok(None),
+                        _ = tokio::time::sleep_until(deadline) => anyhow::bail!("Worker task deadline expired"),
+                        result = &mut out, if !out_done => { out_done = true; result??; },
+                        result = &mut err, if !err_done => { err_done = true; result??; },
+                        result = child.wait() => return Ok(Some(result)),
+                    }
+                }
+            }.await;
+            let cleanup = process::reap(child, job).await;
+            let mut pipes = Ok(());
+            for (reader, done) in [(&mut out, out_done), (&mut err, err_done)] {
+                if done { continue; }
+                match tokio::time::timeout(Duration::from_secs(2), &mut *reader).await {
+                    Ok(Ok(Ok(()))) => {},
+                    Ok(_) => pipes = Err(anyhow::anyhow!("Worker output reader failed")),
+                    Err(_) => {
+                        reader.abort();
+                        let _ = reader.await;
+                        pipes = Err(anyhow::anyhow!("Worker output cleanup timed out"));
+                    }
                 }
             }
+            cleanup?;
+            pipes?;
+            let exit = exit?;
             let Some(exit) = exit else { return Ok(None) };
             let status = exit?;
             if !status.success() {
@@ -196,15 +221,13 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         Ok(Some(0))
     }
     .await;
-    let config_error = if released {
-        pin.as_mut().unwrap().repin(&state.runtime).is_err()
-    } else {
-        false
-    };
+    let identity_changed = pin
+        .as_ref()
+        .is_some_and(|pin| pin.verify(&state.runtime).is_err());
     if matches!(work.request.kind, Kind::WechatKeys | Kind::ImageKey) {
         state.refresh_configuration().await;
     }
-    if config_error {
+    if identity_changed {
         state.log(&work.id, "system", "配置身份复核失败，后台停止接受任务");
         state.request_shutdown();
     }
@@ -212,17 +235,23 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
     state.update(&work.id, |task| {
         task.finished_at = Some(now());
         match result {
-            _ if config_error => {
+            _ if identity_changed => {
                 task.status = "failed".into();
                 task.error = Some("配置身份复核失败，后台已停止".into());
             }
-            _ if cancelled => task.status = "cancelled".into(),
+            Ok(_) if cancelled => task.status = "cancelled".into(),
             Ok(None) => task.status = "cancelled".into(),
             Ok(Some(code)) => {
+                let outcome = crate::ipc::outcome::BusinessOutcome::from_worker_exit(code);
                 task.exit_code = Some(code);
-                task.status = if code == 0 { "succeeded" } else { "failed" }.into();
-                if code != 0 {
-                    task.error = Some("任务进程未成功完成，请查看脱敏日志".into());
+                task.status = if outcome == crate::ipc::outcome::BusinessOutcome::Success {
+                    "succeeded"
+                } else {
+                    "failed"
+                }
+                .into();
+                if outcome != crate::ipc::outcome::BusinessOutcome::Success {
+                    task.error = Some(outcome.public_message().into());
                 }
             }
             Err(_) => {

@@ -10,6 +10,9 @@ use std::path::PathBuf;
 )]
 pub enum Operation {
     FirstRunCheck,
+    MigrateKeys {
+        args: crate::daemon::operations::key_migration::Args,
+    },
     Extract {
         attachment_id: String,
         output: String,
@@ -147,6 +150,7 @@ impl Operation {
     pub fn invalidates_query(&self) -> bool {
         match self {
             Self::Initialize { .. }
+            | Self::MigrateKeys { .. }
             | Self::DatabaseKeys { .. }
             | Self::PreparedDecrypt { .. }
             | Self::PreparedEmoticons { .. } => true,

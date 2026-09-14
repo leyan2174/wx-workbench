@@ -5,6 +5,7 @@ fn fixture() -> Result<(tempfile::TempDir, Arc<WebService>)> {
     let root = tempfile::tempdir()?;
     let config_path = root.path().join("config.json");
     let config = crate::config::Config {
+        key_store: Some(root.path().join("keys.dpapi")),
         db_dir: root.path().join("account/db_storage"),
         keys_file: root.path().join("keys.json"),
         decrypted_dir: root.path().join("decrypted"),
@@ -14,6 +15,14 @@ fn fixture() -> Result<(tempfile::TempDir, Arc<WebService>)> {
     std::fs::write(&config_path, serde_json::to_vec(&config)?)?;
     std::fs::write(&config.keys_file, b"{}")?;
     let runtime = RuntimeContext::from_config(config_path, config, root.path().join("runtime"))?;
+    crate::key_store::Store::for_runtime(&runtime)?.update(
+        Some(0),
+        &[crate::key_store::Update::Image(
+            b"syntheticAESkey1",
+            0xa2,
+            crate::key_store::Verification::Verified,
+        )],
+    )?;
     let query = Arc::new(crate::daemon::query_state::QueryState::new(runtime.clone()));
     Ok((root, WebService::new(runtime, query)))
 }
@@ -110,7 +119,7 @@ async fn cancelled_query_waiter_returns_call_and_never_consumes_later_query() ->
 }
 
 #[tokio::test]
-async fn handle_nonbusy_errors_remain_unavailable_and_redacted() -> Result<()> {
+async fn handle_nonbusy_errors_remain_distinct_and_redacted() -> Result<()> {
     let (_root, state) = fixture()?;
     let invalid = state
         .handle(Call::Tags {
@@ -128,7 +137,11 @@ async fn handle_nonbusy_errors_remain_unavailable_and_redacted() -> Result<()> {
     reply
         .send(Response::err("PRIVATE path SECRET key 查询繁忙"))
         .unwrap();
-    assert_eq!(call.await.unwrap_err(), invalid);
+    let business = call.await.unwrap_err();
+    assert_eq!(business.code, "business_failed");
+    assert_eq!(business.message, "Business operation failed");
+    assert!(!format!("{business:?}").contains("PRIVATE"));
+    assert!(!format!("{business:?}").contains("SECRET"));
     assert_eq!(state.calls.available_permits(), 32);
     assert_eq!(state.queries.available_permits(), 4);
     Ok(())
@@ -174,8 +187,12 @@ async fn image_business_codes_keep_missing_distinct_from_export_failure_and_clea
             anyhow::bail!("unexpected query");
         };
         let output = std::path::PathBuf::from(output_root);
-        let key = std::path::PathBuf::from(image_key_file.unwrap());
-        assert!(key.is_file());
+        assert!(image_key_file.is_none());
+        let key = output.parent().unwrap().join("image-key.json");
+        assert!(
+            !key.exists(),
+            "automatic decoding must not write plaintext keys"
+        );
         reply
             .send(Response::ok(
                 json!({"exit_code":code,"status":"error","message":"PRIVATE SECRET"}),
@@ -300,15 +317,24 @@ async fn cancelled_image_waiter_does_not_own_cleanup_or_daemon_shutdown() -> Res
     else {
         anyhow::bail!("unexpected internal query");
     };
-    let key = std::path::PathBuf::from(image_key_file.unwrap());
+    assert!(image_key_file.is_none());
     let temporary = std::path::PathBuf::from(output_root)
         .parent()
         .unwrap()
         .to_owned();
-    assert!(key.is_file());
+    let key = temporary.join("image-key.json");
+    assert!(!key.exists());
+    assert!(temporary.is_dir());
     waiter.abort();
     assert!(waiter.await.unwrap_err().is_cancelled());
-    assert!(key.is_file(), "HTTP cancellation released daemon's key");
+    assert!(
+        temporary.is_dir(),
+        "HTTP cancellation released daemon's work directory"
+    );
+    assert!(
+        !key.exists(),
+        "HTTP cancellation created a plaintext key file"
+    );
     let owner = state.clone();
     let mut stopping = tokio::spawn(async move { owner.shutdown().await });
     tokio::task::yield_now().await;

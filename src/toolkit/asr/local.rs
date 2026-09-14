@@ -81,13 +81,7 @@ struct ProcessGuard {
 
 impl ProcessGuard {
     fn stop(&mut self) -> Result<()> {
-        #[cfg(windows)]
-        if let Some(job) = &self.job {
-            job.terminate()?;
-        }
-        let _ = self.child.kill();
-        self.child.wait().context("reap whisper.cpp")?;
-        Ok(())
+        supervision::stop(&mut self.child, self.job.as_ref()).context("reap whisper.cpp")
     }
 }
 impl Drop for ProcessGuard {
@@ -135,6 +129,7 @@ pub fn transcribe_with_limits(
         None => builder.tempdir(),
     }
     .context("create ASR temporary directory")?;
+    let mut owned_process = None;
     let result = (|| {
         let prefix = work.path().join("result");
         let mut command = Command::new(executable);
@@ -161,14 +156,15 @@ pub fn transcribe_with_limits(
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            command.creation_flags(crate::windows_process::managed::SUSPENDED_NO_WINDOW);
         }
         let start = Instant::now();
-        let mut process = ProcessGuard {
+        owned_process = Some(ProcessGuard {
             child: command.spawn().context("start whisper.cpp")?,
             #[cfg(windows)]
             job: None,
-        };
+        });
+        let process = owned_process.as_mut().expect("process created");
         #[cfg(windows)]
         {
             process.job = Some(supervision::Job::attach(
@@ -241,6 +237,9 @@ pub fn transcribe_with_limits(
             &config.language,
         )
     })();
+    let cleanup = owned_process.as_mut().map_or(Ok(()), ProcessGuard::stop);
+    drop(owned_process);
+    cleanup.context("Unable to confirm ASR child cleanup")?;
     // Job 计数归零后，Windows 仍可能短暂持有已终止进程的文件句柄。
     // 在进程和管道 RAII 完成之后有界重试；清理失败不能静默报告成功。
     let cleanup_start = Instant::now();

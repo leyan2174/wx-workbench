@@ -21,6 +21,9 @@ pub enum DispatchError {
     Cancelled,
     TimedOut,
     QueryFailed,
+    Partial,
+    Refused,
+    KeyStore(crate::ipc::outcome::KeyStoreDiagnostic),
     InvalidResponse,
     ResultLimit,
     InvalidArguments,
@@ -607,6 +610,21 @@ fn image_metadata(row: &Value) -> Result<Value, DispatchError> {
     }))
 }
 
+impl From<crate::ipc::outcome::BusinessFailure> for DispatchError {
+    fn from(failure: crate::ipc::outcome::BusinessFailure) -> Self {
+        if let Some(diagnostic) = failure.diagnostic() {
+            return Self::KeyStore(diagnostic);
+        }
+        use crate::ipc::outcome::BusinessOutcome;
+        match failure.0 {
+            BusinessOutcome::Partial => Self::Partial,
+            BusinessOutcome::Refused => Self::Refused,
+            BusinessOutcome::Failure => Self::QueryFailed,
+            BusinessOutcome::Success => Self::Internal,
+        }
+    }
+}
+
 fn text_result(text: String, is_error: bool) -> Value {
     json!({"content":[{"type":"text","text":text}],"isError":is_error})
 }
@@ -617,6 +635,11 @@ fn public_failure(failure: &DispatchError) -> &'static str {
         DispatchError::Cancelled => "Query cancelled",
         DispatchError::TimedOut => "Query timed out",
         DispatchError::QueryFailed => "Query failed",
+        DispatchError::Partial => {
+            "Operation partially completed; successful artifacts were preserved"
+        }
+        DispatchError::Refused => "Business request refused",
+        DispatchError::KeyStore(diagnostic) => diagnostic.message(),
         DispatchError::InvalidResponse => "Invalid query response",
         DispatchError::ResultLimit => "Query result exceeds safe limit",
         DispatchError::InvalidArguments => "Invalid tool arguments",
@@ -825,16 +848,8 @@ impl<D: Dispatcher> Protocol<D> {
         let response = self.dispatcher.dispatch(request, context)?;
         // 不合作 callback 的迟到结果也不能伪装成按时成功。
         context.check()?;
-        if !response.ok || response.error.is_some() {
-            return Err(DispatchError::QueryFailed);
-        }
+        response.require_success().map_err(DispatchError::from)?;
         let mut data = response.data;
-        // 解码查询可能将业务失败包在 ok 响应的 exit_code/text 中，统一隐藏底层错误。
-        if data.get("exit_code").is_some_and(|v| v.as_i64() != Some(0))
-            || data.get("error").is_some_and(|v| !v.is_null())
-        {
-            return Err(DispatchError::QueryFailed);
-        }
         if matches!(name, "decode_voice" | "transcribe_voice") {
             // 仅交付宿主完成解码或识别后的文本；准备音频绝不能成为公开成功。
             let text = data

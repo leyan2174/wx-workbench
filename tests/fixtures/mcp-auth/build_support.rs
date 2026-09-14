@@ -11,6 +11,10 @@ pub fn authenticated_task_transport(root: &Path, out: &Path) {
 }
 
 fn generate_transport(root: &Path, out: &Path, tasks: bool) {
+    let framing = root.join("../../../src/service/transport/framing.rs");
+    println!("cargo:rerun-if-changed={}", framing.display());
+    fs::create_dir_all(out.join("transport")).unwrap();
+    fs::copy(framing, out.join("transport/framing.rs")).unwrap();
     let mut calls = vec!["Mcp", "Info", "Shutdown"];
     let mut types = vec!["Call", "Envelope", "Reply", "ServiceError"];
     if tasks {

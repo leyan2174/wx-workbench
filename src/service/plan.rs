@@ -161,15 +161,10 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
         "上传授权必须属于本次转录任务"
     );
     if o.with_transcriptions {
+        use crate::toolkit::asr::backend::{BackendId, Entry};
+        let backend = BackendId::parse(&settings.transcription_backend, Entry::ConfiguredBatch)?;
         ensure!(
-            matches!(
-                settings.transcription_backend.as_str(),
-                "openai" | "whisper_cpp" | "local"
-            ),
-            "需要明确配置 local、whisper_cpp 或 openai 转录后端"
-        );
-        ensure!(
-            (settings.transcription_backend == "openai") == o.allow_upload,
+            (backend == BackendId::OpenAiCompatible) == o.allow_upload,
             "云端转录须明确授权上传；本地转录不接受上传选项"
         );
     }
@@ -344,5 +339,19 @@ mod tests {
         assert!(validate(&r, &settings).is_ok());
         settings.transcription_backend = "local".into();
         assert!(validate(&r, &settings).is_err());
+        for name in ["openai", "openai_compatible", "explicit-open-ai"] {
+            settings.transcription_backend = name.into();
+            r.options.allow_upload = false;
+            assert!(validate(&r, &settings).is_err());
+            r.options.allow_upload = true;
+            assert!(validate(&r, &settings).is_ok());
+        }
+        for name in ["local", "python_whisper", "whisper_cpp"] {
+            settings.transcription_backend = name.into();
+            r.options.allow_upload = true;
+            assert!(validate(&r, &settings).is_err());
+            r.options.allow_upload = false;
+            assert!(validate(&r, &settings).is_ok());
+        }
     }
 }

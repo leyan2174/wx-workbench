@@ -65,7 +65,7 @@ pub struct Warning {
 impl Report {
     fn for_backend(backend: &Backend) -> Self {
         let mut report = Self {
-            backend_kind: cached::backend_name(backend).into(),
+            backend_kind: backend.identity().as_str().into(),
             ..Self::default()
         };
         if matches!(backend, Backend::LegacyPythonLocal(_)) {
@@ -235,6 +235,7 @@ impl BatchTranscriber {
     }
 
     fn protect_output(&self, output: &Path) -> Result<()> {
+        crate::toolkit::validate_export_target(&self.runtime, &std::path::absolute(output)?)?;
         let parent = output
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -440,24 +441,18 @@ pub fn prepare_snapshot(runtime: &RuntimeContext) -> Result<Snapshot> {
                     let paths = snapshot_source_files(&runtime.config.db_dir)?;
                     let before = states(&paths)?;
                     let root = runtime.config.db_dir.canonicalize()?;
-                    let raw: Value = serde_json::from_slice(
-                        &fs::read(&runtime.config.keys_file)
-                            .context("read fixed-account database keys")?,
-                    )?;
-                    let keys = raw.as_object().context("database keys must be an object")?;
+                    let keys = crate::key_store::Store::for_runtime(runtime)?
+                        .load()?
+                        .database_keys();
                     let mut normalized = BTreeMap::new();
-                    for (source, value) in keys {
+                    for (source, key) in keys {
                         let source = source.replace('\\', "/").to_ascii_lowercase();
                         if source.starts_with("message/message_")
                             || source.starts_with("message/media_")
                             || source == "contact/contact.db"
                         {
-                            let key = value
-                                .as_str()
-                                .or_else(|| value.get("enc_key").and_then(Value::as_str))
-                                .context("unsupported database key entry")?;
                             ensure!(
-                                normalized.insert(source, key.to_owned()).is_none(),
+                                normalized.insert(source, key).is_none(),
                                 "duplicate database key source"
                             );
                         }

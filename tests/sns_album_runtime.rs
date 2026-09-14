@@ -96,7 +96,13 @@ impl Fixture {
                 .to_string(),
         )
         .unwrap();
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &profile.join("config.json"),
+            &self.root.path().join("shared-runtime"),
+        );
         for relative in [
+            "keys.dpapi",
             "db_storage/contact/contact.db",
             "db_storage/sns/sns.db",
             "all_keys.json",
@@ -165,6 +171,8 @@ impl Fixture {
 
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
 
 impl Drop for Fixture {
     fn drop(&mut self) {

@@ -233,17 +233,23 @@ impl Mock {
             };
             use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
             tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-                let listener = ListenerOptions::new().name(pipe.to_ns_name::<GenericNamespaced>().unwrap()).create_tokio().unwrap();
+                let listener = ListenerOptions::new().name(pipe.clone().to_ns_name::<GenericNamespaced>().unwrap()).create_tokio().unwrap();
                 ready.send(()).unwrap();
                 let mut requests = Vec::new();
                 let mut first_ping = true;
                 let serve = async {
                     loop {
-                        let stream = listener.accept().await.unwrap();
+                        let mut stream = listener.accept().await.unwrap();
+                        let runtime_id = pipe.strip_prefix("wx-cli-v2-").unwrap();
+                        let hello = json!({"version":3,"runtime_id":runtime_id});
+                        stream.write_all(format!("{hello}\n").as_bytes()).await.unwrap();
                         let mut reader = tokio::io::BufReader::new(stream.take(16 * 1024));
                         let mut line = String::new();
                         reader.read_line(&mut line).await.unwrap();
-                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let envelope: Value = serde_json::from_str(&line).unwrap();
+                        assert_eq!(envelope["version"], 3);
+                        assert_eq!(envelope["runtime_id"], runtime_id);
+                        let request = envelope["request"].clone();
                         let ping = request["cmd"] == "ping";
                         let reply = if ping && first_ping && oversized_initial_ping {
                             first_ping = false;
@@ -252,6 +258,8 @@ impl Mock {
                         } else if ping { "{\"ok\":true,\"pong\":true}\n".to_owned() }
                         else { "{\"ok\":true,\"contacts\":[]}\n".to_owned() };
                         requests.push(request);
+                        let response: Value = serde_json::from_str(&reply).unwrap();
+                        let reply = format!("{}\n", json!({"version":3,"runtime_id":runtime_id,"result":"response","response":response}));
                         // 客户端拒绝超限响应后可以断开；写入成功也可能仅代表系统缓冲。
                         let _ = reader.get_mut().get_mut().write_all(reply.as_bytes()).await;
                     }
@@ -369,6 +377,7 @@ fn mcp_empty_or_invalid_explicit_config_never_falls_back_or_echoes_details() {
     let runtime = runtime::RuntimeContext::from_config(
         implicit.clone(),
         config::Config {
+            key_store: None,
             db_dir: fallback_db_dir.clone(),
             keys_file: f.keys.clone(),
             decrypted_dir: f.root.path().join("decrypted"),
@@ -414,15 +423,18 @@ fn mcp_empty_or_invalid_explicit_config_never_falls_back_or_echoes_details() {
 fn mcp_fixture_cleanup_stops_daemon_after_configuration_changes() {
     use std::os::windows::fs::OpenOptionsExt;
     let f = Fixture::new();
+    // Only this lifecycle fixture needs a real query daemon. Keep the legacy
+    // sentinel untouched and seed an isolated production DPAPI store directly.
+    let mut document: Value = serde_json::from_slice(&fs::read(&f.config).unwrap()).unwrap();
+    document["key_store"] = json!(f.root.path().join("synthetic-keys.dpapi"));
+    fs::write(&f.config, serde_json::to_vec(&document).unwrap()).unwrap();
     let runtime = fixture_runtime(&f.config, &f.home).unwrap();
+    key_store::seed_databases(&runtime, json!({}));
     let mut wx = Session::start(f.command(Some(&f.config)));
     wx.ready();
     let reply = wx.call(1, "get_contacts", json!({}));
     assert_eq!(reply["result"]["isError"], true);
-    assert_eq!(
-        reply["result"]["content"][0]["text"],
-        "Query backend unavailable"
-    );
+    assert_eq!(reply["result"]["content"][0]["text"], "Query failed");
     wx.finish(true);
     assert!(
         runtime.pid_path().is_file(),

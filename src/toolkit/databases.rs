@@ -107,7 +107,11 @@ pub fn decrypt(
             guard.protect_future(&cfg.db_dir)?;
             guard.protect_future(&runtime.directory)?;
             guard.pin_input(&runtime.config_path)?;
-            guard.pin_input(&cfg.keys_file)?;
+            if let Some(path) = &cfg.key_store {
+                guard.pin_input(path)?;
+            }
+            // Keep the legacy pathname protected after explicit migration removed its file.
+            guard.protect(&cfg.keys_file)?;
             guard.verify_replaceable_file(&output)?;
             atomic_output(&output, |tmp| {
                 crate::crypto::full_decrypt(&source, tmp, &key)?;
@@ -188,7 +192,10 @@ fn validate_target(runtime: &RuntimeContext, output: &Path) -> Result<()> {
     separate(&runtime.config.db_dir, output)?;
     separate(&runtime.directory, output)?;
     let target = resolved(output)?;
-    for source in [&runtime.config_path, &runtime.config.keys_file] {
+    for source in [&runtime.config_path, &runtime.config.keys_file]
+        .into_iter()
+        .chain(runtime.config.key_store.iter())
+    {
         ensure!(
             !target
                 .as_os_str()

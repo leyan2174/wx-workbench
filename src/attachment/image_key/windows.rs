@@ -248,6 +248,30 @@ pub fn validate_existing_for_db_dir(
     timeout: Duration,
     max_bytes: u64,
 ) -> Result<bool> {
+    match validate_existing_evidence_for_db_dir(db_dir, aes_key, timeout, max_bytes)? {
+        ExistingKeyEvidence::Verified => Ok(true),
+        ExistingKeyEvidence::Contradicted => Ok(false),
+        ExistingKeyEvidence::NoEvidence => {
+            bail!("固定账号附件目录没有可用的 V2 模板，无法验证现有密钥")
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExistingKeyEvidence {
+    Verified,
+    NoEvidence,
+    Contradicted,
+}
+
+/// Migration validation: only NoEvidence may be treated as unverified.
+/// Contradicted and all I/O, path and budget errors must stop migration.
+pub fn validate_existing_evidence_for_db_dir(
+    db_dir: &Path,
+    aes_key: &[u8; 16],
+    timeout: Duration,
+    max_bytes: u64,
+) -> Result<ExistingKeyEvidence> {
     let mut budget = ExtractionBudget::new(timeout, max_bytes)?;
     // 复用纯参数校验；此处的文件名不用于任何进程访问。
     validate_inputs(db_dir, "Weixin.exe")?;
@@ -258,15 +282,59 @@ pub fn validate_existing_for_db_dir(
         .context("db_dir 缺少父目录")?
         .join("msg/attach");
     let templates = find_templates_bounded(&attach_dir, 3, 4096, &mut budget)?;
-    ensure!(
-        !templates.is_empty(),
-        "固定账号附件目录没有可用的 V2 模板，无法验证现有密钥"
-    );
     budget.check()?;
-    let valid = verify_aes_key(aes_key, &templates);
+    let evidence = if templates.is_empty() {
+        ExistingKeyEvidence::NoEvidence
+    } else if verify_aes_key(aes_key, &templates) {
+        ExistingKeyEvidence::Verified
+    } else {
+        ExistingKeyEvidence::Contradicted
+    };
     source.verify()?;
     budget.check()?;
-    Ok(valid)
+    Ok(evidence)
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+    use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+
+    #[test]
+    fn existing_image_evidence_distinguishes_absence_conflict_and_errors() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let db = root.path().join("db_storage");
+        std::fs::create_dir(&db)?;
+        let key = *b"syntheticAESkey1";
+        let validate = |key: &[u8; 16]| {
+            validate_existing_evidence_for_db_dir(&db, key, Duration::from_secs(5), 1024 * 1024)
+        };
+        assert_eq!(validate(&key)?, ExistingKeyEvidence::NoEvidence);
+        assert!(
+            validate_existing_for_db_dir(&db, &key, Duration::from_secs(5), 1024 * 1024).is_err()
+        );
+        let attach = root.path().join("msg/attach");
+        std::fs::create_dir_all(&attach)?;
+        let mut block = [0u8; 16];
+        block[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        aes::Aes128::new_from_slice(&key)
+            .expect("AES-128 key")
+            .encrypt_block(GenericArray::from_mut_slice(&mut block));
+        let mut sample = vec![0u8; 15];
+        sample[..6].copy_from_slice(&crate::attachment::decoder::V2_MAGIC);
+        sample.extend_from_slice(&block);
+        std::fs::write(attach.join("sample_t.dat"), sample)?;
+        assert_eq!(validate(&key)?, ExistingKeyEvidence::Verified);
+        assert_eq!(validate(&[0x51; 16])?, ExistingKeyEvidence::Contradicted);
+        assert!(!validate_existing_for_db_dir(
+            &db,
+            &[0x51; 16],
+            Duration::from_secs(5),
+            1024 * 1024
+        )?);
+        assert!(validate_existing_evidence_for_db_dir(&db, &key, Duration::ZERO, 1024).is_err());
+        Ok(())
+    }
 }
 
 fn no_more_files(error: &windows::core::Error) -> bool {

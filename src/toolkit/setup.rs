@@ -165,7 +165,7 @@ pub(crate) fn check_target(path: &Path, protected: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn parent_guard(path: &Path) -> Result<HostOutputGuard> {
+pub(crate) fn parent_guard(path: &Path) -> Result<HostOutputGuard> {
     local_path(path)?;
     let parent = path.parent().context("配置输出缺少父目录")?;
     let (_, mut guard, present) = inspect(parent)?;
@@ -227,6 +227,10 @@ impl Snapshot {
         self.bytes.is_some()
     }
 
+    pub(crate) fn bytes(&self) -> Option<&[u8]> {
+        self.bytes.as_deref().map(Vec::as_slice)
+    }
+
     pub fn verify(&self) -> Result<()> {
         let now = Self::capture(&self.path)?;
         ensure!(
@@ -238,15 +242,20 @@ impl Snapshot {
 
     /// 调用者持有 ConfigLock；仅逐文件原子发布，不声称两个文件构成事务。
     pub fn write_json(&self, value: &Value, protected: &[PathBuf]) -> Result<()> {
+        let bytes = Zeroizing::new(serde_json::to_vec_pretty(value)?);
+        self.write_bytes(&bytes, protected)
+    }
+
+    pub(crate) fn write_bytes(&self, bytes: &[u8], protected: &[PathBuf]) -> Result<()> {
         check_target(&self.path, protected)?;
         let guard = parent_guard(&self.path)?;
-        let bytes = Zeroizing::new(serde_json::to_vec_pretty(value)?);
         ensure!(
             bytes.len() as u64 <= MAX_JSON,
             "配置或密钥 JSON 超过大小限制"
         );
         let mut temporary = tempfile::NamedTempFile::new_in(guard.output_root())?;
-        temporary.write_all(&bytes)?;
+        crate::toolkit::private_file::restrict(temporary.as_file())?;
+        temporary.write_all(bytes)?;
         temporary.as_file().sync_all()?;
         self.verify()?;
         check_target(&self.path, protected)?;
@@ -280,7 +289,13 @@ impl ConfigDocument {
                 .map_err(|_| anyhow::anyhow!("选中配置 JSON 无效，未覆盖文件"))?,
         };
         ensure!(value.is_object(), "选中配置必须为 JSON 对象，未覆盖文件");
-        for key in ["db_dir", "keys_file", "decrypted_dir", "wechat_process"] {
+        for key in [
+            "db_dir",
+            "keys_file",
+            "key_store",
+            "decrypted_dir",
+            "wechat_process",
+        ] {
             if let Some(value) = text(&value, key)? {
                 ensure!(
                     key == "db_dir" || !value.trim().is_empty(),
@@ -327,14 +342,28 @@ impl ConfigDocument {
         self.ensure_account(db)?;
         let mut value = self.value.clone();
         let map = value.as_object_mut().expect("已验证对象");
-        map.insert(
-            "db_dir".into(),
-            Value::String(db.to_str().context("账号路径编码无效")?.into()),
-        );
+        if self.configured_db()?.is_none() {
+            map.insert(
+                "db_dir".into(),
+                Value::String(db.to_str().context("账号路径编码无效")?.into()),
+            );
+        }
         map.entry("keys_file")
             .or_insert_with(|| json!("all_keys.json"));
         map.entry("decrypted_dir")
             .or_insert_with(|| json!("decrypted"));
+        let keys = self.path_field(&value, "keys_file", "all_keys.json")?;
+        if !exists(&keys)?
+            && !exists(&self.base().join("account_key.dpapi"))?
+            && value.get("image_aes_key").is_none()
+            && value.get("image_xor_key").is_none()
+        {
+            value
+                .as_object_mut()
+                .unwrap()
+                .entry("key_store")
+                .or_insert_with(|| json!("keys.dpapi"));
+        }
         Ok(value)
     }
 
@@ -366,7 +395,11 @@ impl ConfigDocument {
         ];
         let keys_file = self.path_field(value, "keys_file", "all_keys.json")?;
         let account_key_file = self.base().join("account_key.dpapi");
-        let targets = [&self.snapshot.path, &keys_file, &account_key_file];
+        let key_store = text(value, "key_store")?
+            .map(|path| resolve(self.base(), Path::new(path)))
+            .transpose()?;
+        let mut targets = vec![&self.snapshot.path, &keys_file, &account_key_file];
+        targets.extend(key_store.as_ref());
         for (index, target) in targets.iter().enumerate() {
             check_target(target, &protected)?;
             ensure!(
@@ -389,6 +422,14 @@ impl ConfigDocument {
 
     pub fn lock(&self) -> Result<ConfigLock> {
         let path = self.lock_path()?;
+        let lock = ConfigLock::acquire(&path)?;
+        self.snapshot.verify()?;
+        Ok(lock)
+    }
+}
+
+impl ConfigLock {
+    pub(crate) fn acquire(path: &Path) -> Result<Self> {
         let guard = parent_guard(&path)?;
         guard.verify_replaceable_file(&path)?;
         use std::os::windows::fs::OpenOptionsExt;
@@ -416,7 +457,6 @@ impl ConfigDocument {
             "配置锁文件不安全"
         );
         guard.verify()?;
-        self.snapshot.verify()?;
         Ok(ConfigLock {
             _file: file,
             _guard: guard,
@@ -445,6 +485,19 @@ fn env_present(name: &str) -> bool {
 
 #[cfg(all(test, windows))]
 mod tests {
+    #[test]
+    fn xor_only_legacy_configuration_requires_explicit_migration() {
+        let root = tempfile::tempdir().unwrap();
+        let db = root.path().join("account/db_storage");
+        std::fs::create_dir_all(&db).unwrap();
+        let path = root.path().join("config.json");
+        std::fs::write(&path, br#"{"image_xor_key":136}"#).unwrap();
+        let document = super::ConfigDocument::load(&path).unwrap();
+        let configured = document.with_db(&db).unwrap();
+        assert!(configured.get("key_store").is_none());
+        assert_eq!(configured["image_xor_key"], 136);
+        assert!(!root.path().join("keys.dpapi").exists());
+    }
     use super::*;
 
     #[test]

@@ -189,6 +189,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Explicitly migrate this account's legacy keys into current-user DPAPI storage.
+    MigrateKeys(crate::daemon::operations::key_migration::Args),
     /// 原生 MCP stdio 入口：只读查询及受控图片导出，调用需显式 WX_CLI_CONFIG
     Mcp(mcp::McpArgs),
     /// 初始化：检测数据目录并扫描加密密钥
@@ -548,6 +550,16 @@ fn exit_dispatch_error(error: anyhow::Error) -> ! {
     if let Some(exit) = error.downcast_ref::<crate::service::operation_client::OperationExit>() {
         std::process::exit(exit.0);
     }
+    if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
+        eprintln!("{}", failure);
+        // Preserve the public query ambiguity code; worker refusal uses reserved 21.
+        let code = if failure.legacy_exit_code() == Some(2) {
+            2
+        } else {
+            failure.0.worker_exit_code()
+        };
+        std::process::exit(code);
+    }
     eprintln!("错误: {error}");
     std::process::exit(1);
 }
@@ -557,6 +569,9 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_debug_source = cli.debug_source;
     match cli.command {
         Commands::Mcp(args) => mcp::cmd(args),
+        Commands::MigrateKeys(args) => crate::service::operation_client::run(
+            crate::service::operations::Operation::MigrateKeys { args },
+        ),
         Commands::Init {
             force,
             db_dir,

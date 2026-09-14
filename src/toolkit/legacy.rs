@@ -1,7 +1,8 @@
 //! 保留本地语音兼容与诊断所需的路径发现，不再调度旧业务脚本。
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+use std::time::{Duration, Instant};
 
 const BUNDLED_WECHAT_DECRYPT_DIR: &str = r"vendor\wechat-decrypt";
 
@@ -72,14 +73,48 @@ pub(crate) fn python_available(python: &Path) -> bool {
         return true;
     }
     if python.components().count() == 1 {
-        return Command::new(python)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
+        return probe_python(python, Instant::now() + Duration::from_secs(2));
     }
     false
+}
+
+fn probe_python(python: &Path, deadline: Instant) -> bool {
+    crate::windows_process::managed::output(
+        Command::new(python).arg("--version"),
+        deadline,
+        64 * 1024,
+        || false,
+    )
+    .is_ok_and(|output| output.status.success())
+}
+
+#[test]
+fn hanging_version_probe_is_bounded_and_reaped() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("probe.rs");
+    let executable = directory.path().join("synthetic-python.exe");
+    std::fs::write(
+        &source,
+        "fn main() { std::thread::sleep(std::time::Duration::from_secs(30)); }",
+    )
+    .unwrap();
+    let result = crate::windows_process::managed::output(
+        Command::new("rustc")
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable),
+        Instant::now() + Duration::from_secs(60),
+        1024 * 1024,
+        || false,
+    )
+    .unwrap();
+    assert!(result.status.success());
+    let start = Instant::now();
+    assert!(!probe_python(
+        &executable,
+        start + Duration::from_millis(100)
+    ));
+    assert!(start.elapsed() < Duration::from_secs(3));
+    // Windows won't allow replacing an executable image while it is still running.
+    std::fs::remove_file(executable).unwrap();
 }

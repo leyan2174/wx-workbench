@@ -6,7 +6,9 @@ mod bootstrap;
 mod production;
 use bootstrap::BootstrapCleanup;
 use production::{asr, video};
-pub use production::{attachment, cli, config, crypto, daemon, runtime, toolkit};
+pub use production::{
+    attachment, cli, config, crypto, daemon, ipc, key_store, runtime, toolkit, windows_process,
+};
 use std::{
     collections::BTreeMap,
     fs,

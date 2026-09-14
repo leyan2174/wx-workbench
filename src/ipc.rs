@@ -5,7 +5,54 @@ use std::collections::HashMap;
 /// 内部语音响应含最多 16 MiB SILK 的 base64；不改变公开 MCP 帧上限。
 pub const MAX_PREPARED_VOICE_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 
-/// CLI 向 daemon 发送的请求（换行符分隔 JSON，与 Python 版兼容）
+pub const QUERY_VERSION: u32 = 3;
+pub const QUERY_REQUEST_LIMIT: usize = 64 * 1024;
+pub const QUERY_RESPONSE_LIMIT: usize = 32 * 1024 * 1024;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryHello {
+    pub version: u32,
+    pub runtime_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryEnvelope {
+    pub version: u32,
+    pub runtime_id: String,
+    pub response_limit: usize,
+    pub request: Request,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+pub enum QueryReply {
+    Response {
+        version: u32,
+        runtime_id: String,
+        response: Response,
+    },
+    Oversize {
+        version: u32,
+        runtime_id: String,
+    },
+}
+
+pub fn query_response_limit(request: &Request) -> usize {
+    match request {
+        Request::Ping => 1024,
+        Request::ExportChatList
+        | Request::ExportDirectoryCatalog
+        | Request::ExportChatByUsername { .. }
+        | Request::ExportDirectoryByUsername { .. }
+        | Request::ExportDelta { .. }
+        | Request::ExportChat { .. } => 256 * 1024 * 1024,
+        _ => QUERY_RESPONSE_LIMIT,
+    }
+}
+
+/// Query payload inside the versioned account-bound envelope; no legacy wire fallback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Request {
@@ -297,6 +344,9 @@ pub enum Request {
     },
 }
 
+#[path = "ipc/outcome.rs"]
+pub mod outcome;
+
 /// daemon 的响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
@@ -308,6 +358,40 @@ pub struct Response {
 }
 
 impl Response {
+    /// Business meaning only. Connection/framing failures never produce a Response.
+    pub fn outcome(&self) -> outcome::BusinessOutcome {
+        if let Some(diagnostic) = self
+            .data
+            .get("error_code")
+            .and_then(Value::as_str)
+            .and_then(outcome::KeyStoreDiagnostic::from_code)
+        {
+            return diagnostic.outcome();
+        }
+        let payload = outcome::BusinessOutcome::from_legacy(&self.data);
+        if (!self.ok || self.error.is_some()) && payload == outcome::BusinessOutcome::Success {
+            outcome::BusinessOutcome::Failure
+        } else {
+            payload
+        }
+    }
+
+    pub fn require_success(&self) -> Result<(), outcome::BusinessFailure> {
+        self.outcome().require_success().map_err(|mut failure| {
+            failure.1 = self
+                .data
+                .get("exit_code")
+                .and_then(Value::as_i64)
+                .and_then(|code| i32::try_from(code).ok());
+            failure.2 = self
+                .data
+                .get("error_code")
+                .and_then(Value::as_str)
+                .and_then(outcome::KeyStoreDiagnostic::from_code);
+            failure
+        })
+    }
+
     pub fn ok(data: Value) -> Self {
         Self {
             ok: true,

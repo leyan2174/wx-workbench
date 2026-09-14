@@ -165,15 +165,25 @@ impl Mock {
                             let stream = stream.unwrap();
                             let requests = Arc::clone(&requests);
                             let initial_ping = Arc::clone(&initial_ping);
+                            let runtime_id = runtime.id.clone();
                             connections.spawn(async move {
                                 let mut reader = tokio::io::BufReader::new(stream);
+                                let hello = json!({"version":3,"runtime_id":runtime_id});
+                                reader.get_mut().write_all(format!("{hello}\n").as_bytes()).await.unwrap();
                                 let mut line = String::new();
                                 reader.read_line(&mut line).await.unwrap();
-                                let request: Value = serde_json::from_str(&line).unwrap();
+                                let envelope: Value = serde_json::from_str(&line).unwrap();
+                                assert_eq!(envelope["version"], 3);
+                                assert_eq!(envelope["runtime_id"], runtime_id);
+                                let request = envelope["request"].clone();
                                 assert_eq!(request["cmd"], "ping", "business bypassed authenticated service");
                                 requests.lock().unwrap().push(request);
                                 let reply = initial_ping.lock().unwrap().take()
                                     .unwrap_or_else(|| b"{\"ok\":true,\"pong\":true}\n".to_vec());
+                                let reply = match serde_json::from_slice::<Value>(&reply) {
+                                    Ok(response) => format!("{}\n", json!({"version":3,"runtime_id":runtime_id,"result":"response","response":response})).into_bytes(),
+                                    Err(_) => reply,
+                                };
                                 // Oversized health replies may be rejected while the server writes.
                                 let _ = reader.get_mut().write_all(&reply).await;
                             });

@@ -1,6 +1,8 @@
 # Decrypted databases and keys - NEVER upload
 all_keys.json
 account_key.dpapi*
+keys.dpapi*
+*.key-update.lock
 wechat_key.txt
 config.json
 decrypted/

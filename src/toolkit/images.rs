@@ -33,31 +33,40 @@ pub(super) fn parse_xor(value: &str) -> Result<u8> {
     }
 }
 fn image_keys(
-    cfg: &Value,
+    cfg: &crate::config::Config,
     aes: Option<String>,
     xor: Option<String>,
 ) -> Result<(Option<[u8; 16]>, u8)> {
-    let aes = aes.or_else(|| {
-        cfg.get("image_aes_key")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-    });
-    let xor = xor.or_else(|| {
-        cfg.get("image_xor_key").map(|v| {
-            v.as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| v.to_string())
-        })
-    });
-    Ok((
-        aes.as_deref().map(parse_aes).transpose()?,
-        xor.as_deref().map(parse_xor).transpose()?.unwrap_or(0x88),
-    ))
+    let aes = aes.as_deref().map(parse_aes).transpose()?;
+    let xor = xor.as_deref().map(parse_xor).transpose()?;
+    let stored = if aes.is_some() && (xor.is_some() || cfg.key_store.is_none()) {
+        (None, 0x88)
+    } else {
+        crate::key_store::Store::for_config(cfg)?
+            .load()?
+            .image_material()
+    };
+    let stored = zeroize::Zeroizing::new(stored);
+    Ok((aes.or(stored.0), xor.unwrap_or(stored.1)))
+}
+
+fn explicit_path_image_keys(
+    config_path: &Path,
+    aes: Option<String>,
+    xor: Option<String>,
+) -> Result<(Option<[u8; 16]>, u8)> {
+    match fs::symlink_metadata(config_path) {
+        Ok(_) => image_keys(&crate::config::load_config_at(config_path)?, aes, xor),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((
+            aes.as_deref().map(parse_aes).transpose()?,
+            xor.as_deref().map(parse_xor).transpose()?.unwrap_or(0x88),
+        )),
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub fn decode_image(input: String, output: Option<String>) -> Result<()> {
-    let (_, cfg) = raw_config()?;
+    let cfg = crate::config::load_config()?;
     let (aes, xor) = image_keys(&cfg, None, None)?;
     let input = PathBuf::from(input);
     let decoded = dispatch(
@@ -94,6 +103,22 @@ pub fn decode_images(
     xor: Option<String>,
     force: bool,
 ) -> Result<()> {
+    if let (Some(input), Some(output)) = (&input, &output) {
+        let material = zeroize::Zeroizing::new(explicit_path_image_keys(
+            &crate::config::find_config_file()?,
+            aes,
+            xor,
+        )?);
+        return batch(
+            Path::new(input),
+            Path::new(output),
+            material.0.as_ref(),
+            material.1,
+            force,
+            true,
+        )?
+        .finish();
+    }
     let (base, cfg) = raw_config()?;
     let input = match input {
         Some(p) => PathBuf::from(p),
@@ -111,12 +136,12 @@ pub fn decode_images(
                 .unwrap_or("decoded_images"),
         )
     });
-    let (aes, xor) = image_keys(&cfg, aes, xor)?;
+    let (aes, xor) = image_keys(&crate::config::load_config()?, aes, xor)?;
     batch(&input, &output, aes.as_ref(), xor, force, true)?.finish()
 }
 
 pub fn batch_images(input: String, output: Option<String>) -> Result<()> {
-    let (_, cfg) = raw_config()?;
+    let cfg = crate::config::load_config()?;
     let (aes, xor) = image_keys(&cfg, None, None)?;
     let output = output.map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(format!("{}_decoded", input.trim_end_matches(['\\', '/'])))
@@ -237,6 +262,126 @@ pub(super) fn batch(
         }
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod encrypted_image_tests {
+    use super::*;
+    use crate::key_store::{Error, Store, Update, Verification};
+
+    #[test]
+    fn explicit_image_paths_allow_absent_config_but_never_fallback_from_a_store() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("config.json");
+        let (aes, xor) = explicit_path_image_keys(&path, None, None)?;
+        assert_eq!((aes, xor), (None, 0x88));
+        let plain = b"\x89PNG\r\n\x1a\nsynthetic image";
+        let bytes: Vec<_> = plain.iter().map(|byte| byte ^ 0x37).collect();
+        assert_eq!(
+            dispatch(
+                &bytes,
+                V2KeyMaterial {
+                    aes_key: aes.as_ref(),
+                    xor_key: xor
+                }
+            )?
+            .data,
+            plain
+        );
+        assert!(dispatch(
+            &V2_MAGIC,
+            V2KeyMaterial {
+                aes_key: None,
+                xor_key: xor
+            }
+        )
+        .is_err());
+        let mut config = serde_json::json!({"db_dir":"db_storage", "keys_file":"all_keys.json"});
+        fs::create_dir(root.path().join("db_storage"))?;
+        fs::write(&path, serde_json::to_vec(&config)?)?;
+        assert!(matches!(
+            explicit_path_image_keys(&path, None, None)
+                .unwrap_err()
+                .downcast_ref::<Error>(),
+            Some(Error::LegacyMigrationRequired)
+        ));
+        config["key_store"] = serde_json::json!("keys.dpapi");
+        fs::write(&path, serde_json::to_vec(&config)?)?;
+        assert!(matches!(
+            explicit_path_image_keys(&path, None, None)
+                .unwrap_err()
+                .downcast_ref::<Error>(),
+            Some(Error::Missing)
+        ));
+        fs::write(
+            root.path().join("keys.dpapi"),
+            b"synthetic corrupted ciphertext",
+        )?;
+        assert!(explicit_path_image_keys(&path, None, None).is_err());
+        fs::write(&path, b"invalid synthetic configuration")?;
+        assert!(explicit_path_image_keys(&path, None, None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn encrypted_image_reader_requires_store_and_preserves_explicit_overrides() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let mut config = crate::config::Config {
+            key_store: Some(root.path().join("keys.dpapi")),
+            db_dir: root.path().join("db_storage"),
+            keys_file: root.path().join("all_keys.json"),
+            decrypted_dir: root.path().join("decrypted"),
+            wechat_process: String::new(),
+        };
+        fs::create_dir(&config.db_dir)?;
+        let store = Store::for_config(&config)?;
+        assert!(matches!(
+            image_keys(&config, None, None)
+                .unwrap_err()
+                .downcast_ref::<Error>(),
+            Some(Error::Missing)
+        ));
+        let aes = *b"syntheticAESkey1";
+        let xor_only = store.update(Some(0), &[Update::ImageXor(0xa2, Verification::Verified)])?;
+        assert_eq!(xor_only.image_key(), None);
+        assert_eq!(image_keys(&config, None, None)?, (None, 0xa2));
+        assert_eq!(
+            image_keys(&config, Some("explicitAESkey12".into()), None)?,
+            (Some(*b"explicitAESkey12"), 0xa2)
+        );
+        store.update(
+            Some(xor_only.revision()),
+            &[Update::Image(&aes, 0xa2, Verification::Verified)],
+        )?;
+        assert_eq!(image_keys(&config, None, None)?, (Some(aes), 0xa2));
+        assert_eq!(
+            image_keys(&config, Some("explicitAESkey12".into()), None)?,
+            (Some(*b"explicitAESkey12"), 0xa2)
+        );
+        fs::write(store.path(), b"corrupted")?;
+        assert!(image_keys(&config, None, None).is_err());
+        assert!(image_keys(&config, Some("explicitAESkey12".into()), None).is_err());
+        assert_eq!(
+            image_keys(
+                &config,
+                Some("explicitAESkey12".into()),
+                Some("0x51".into())
+            )?,
+            (Some(*b"explicitAESkey12"), 0x51)
+        );
+        config.key_store = None;
+        assert!(matches!(
+            image_keys(&config, None, None)
+                .unwrap_err()
+                .downcast_ref::<Error>(),
+            Some(Error::LegacyMigrationRequired)
+        ));
+        assert_eq!(
+            image_keys(&config, Some("explicitAESkey12".into()), None)?,
+            (Some(*b"explicitAESkey12"), 0x88)
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]

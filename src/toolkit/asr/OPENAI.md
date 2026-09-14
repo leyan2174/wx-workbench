@@ -1,5 +1,8 @@
 # Rust OpenAI 兼容转录模块
 
+规范名称是 `openai_compatible`；`openai` 与 `explicit-open-ai` 为兼容别名。
+共享解析与各入口授权边界见 [BACKENDS.md](BACKENDS.md)，命名更新不迁移 API 凭据。
+
 ## 接入边界
 
 `openai.rs` 负责原生 HTTP multipart 转录；模块自身不读取环境变量、配置文件、音频文件、聊天或密钥文件，不执行 SILK 解码或缓存回写。它已通过 `asr/mod.rs` 接入 CLI、固定账号批处理和 MCP 宿主；daemon 内的宿主策略执行器在授权后读取显式凭证并调用此模块。构造客户端不会上传；只有调用 `transcribe_wav(audio, true)` 才可能发送请求。

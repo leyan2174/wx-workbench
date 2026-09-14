@@ -278,7 +278,12 @@ fn mcp_tasks_reject_model_authorization_paths_and_changed_account() {
             "{reply}"
         );
     }
-    assert!(!fixture.root.join("shared-runtime/accounts").exists());
+    for entry in fs::read_dir(fixture.root.join("shared-runtime/accounts")).unwrap() {
+        assert!(
+            !entry.unwrap().path().join("daemon.pid").exists(),
+            "Rejected host requests must not start a daemon after fixture migration"
+        );
+    }
     mcp.data("list_tasks", json!({}));
     let original = fs::read(account.join("config.json")).unwrap();
     let mut config: Value = serde_json::from_slice(&original).unwrap();
@@ -340,7 +345,7 @@ fn mcp_tasks_cancel_reaps_worker_and_crash_restores_interrupted() {
     };
     let mut fixture = Fixture::new();
     let account = fixture.account("mcp-lifecycle", true);
-    super::personal_messages(&account, 100_000);
+    super::personal_messages(&fixture, &account, 100_000);
     let mut mcp = Mcp::start(
         &fixture,
         &account,

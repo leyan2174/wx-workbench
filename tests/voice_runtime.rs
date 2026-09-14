@@ -1,5 +1,9 @@
 //! 合成加密账号的真实 daemon / named pipe 回归，不读取真实微信数据。
 #![cfg(windows)]
+#[path = "support/key_store.rs"]
+mod key_store_fixture;
+#[path = "fixtures/query_v3.rs"]
+mod query_v3;
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
 use rusqlite::Connection;
@@ -69,6 +73,11 @@ impl Account {
                 .to_string(),
         )
         .unwrap();
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &profile.join("config.json"),
+            home,
+        );
         let mut digest = Sha256::new();
         digest.update(b"wx-cli-runtime-v2\0");
         for path in [
@@ -141,7 +150,6 @@ impl Account {
 
     fn try_request(&self, request: Value) -> Result<Value, String> {
         use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -153,21 +161,10 @@ impl Account {
                         .as_str()
                         .to_ns_name::<GenericNamespaced>()
                         .map_err(|e| e.to_string())?;
-                    let mut stream = interprocess::local_socket::tokio::Stream::connect(name)
+                    let stream = interprocess::local_socket::tokio::Stream::connect(name)
                         .await
                         .map_err(|e| e.to_string())?;
-                    println!("IPC {} REQUEST: {request}", self.pipe);
-                    stream
-                        .write_all(format!("{request}\n").as_bytes())
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let mut line = String::new();
-                    tokio::io::BufReader::new(stream.take(1024 * 1024))
-                        .read_line(&mut line)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    println!("IPC RESPONSE: {line}");
-                    serde_json::from_str(&line).map_err(|e| e.to_string())
+                    query_v3::exchange(stream, &self.pipe, request).await
                 })
                 .await
                 .map_err(|e| e.to_string())?

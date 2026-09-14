@@ -2,9 +2,13 @@
 pub mod attachments;
 pub(crate) mod encrypted_sqlite;
 pub mod history;
+#[path = "../../support/key_store.rs"]
+mod key_store_fixture;
 #[path = "../../../src/toolkit/private_file.rs"]
 #[allow(dead_code)]
 mod private_file;
+#[path = "../query_v3.rs"]
+mod query_v3;
 #[path = "../../support/bootstrap.rs"]
 mod runtime_cleanup;
 use encrypted_sqlite::{encrypt, sqlite};
@@ -94,6 +98,11 @@ impl Account {
         )
         .unwrap();
         fs::write(root.path().join("config.json"), json!({"db_dir":storage,"keys_file":root.path().join("keys.json"),"decrypted_dir":root.path().join("decrypted")}).to_string()).unwrap();
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &root.path().join("config.json"),
+            home,
+        );
         let mut hash = Sha256::new();
         hash.update(b"wx-cli-runtime-v2\0");
         for path in [
@@ -211,7 +220,6 @@ impl Account {
 
     pub fn ipc(&self, request: Value) -> Result<Value, String> {
         use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
-        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -223,21 +231,10 @@ impl Account {
                         .as_str()
                         .to_ns_name::<GenericNamespaced>()
                         .map_err(|e| e.to_string())?;
-                    let mut socket = interprocess::local_socket::tokio::Stream::connect(name)
+                    let socket = interprocess::local_socket::tokio::Stream::connect(name)
                         .await
                         .map_err(|e| e.to_string())?;
-                    println!("IPC {} REQUEST: {request}", self.marker);
-                    socket
-                        .write_all(format!("{request}\n").as_bytes())
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    let mut text = String::new();
-                    tokio::io::BufReader::new(socket.take(1024 * 1024))
-                        .read_line(&mut text)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    println!("IPC RESPONSE: {text}");
-                    serde_json::from_str(&text).map_err(|e| e.to_string())
+                    query_v3::exchange(socket, &self.pipe, request).await
                 })
                 .await
                 .map_err(|e| e.to_string())?
@@ -313,6 +310,22 @@ impl Account {
 
     pub fn root(&self) -> &Path {
         self.root.path()
+    }
+
+    pub fn migrate_keys(&self) {
+        key_store_fixture::migrate(
+            Path::new(env!("CARGO_BIN_EXE_wx")),
+            &self.root.path().join("config.json"),
+            &self.home,
+        );
+        // Additional fixture shards are seeded before the test's explicit daemon start.
+        assert!(self
+            .command()
+            .args(["daemon", "stop"])
+            .output()
+            .unwrap()
+            .status
+            .success());
     }
 
     pub fn stop(&mut self) {

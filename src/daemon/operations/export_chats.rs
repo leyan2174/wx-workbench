@@ -126,7 +126,11 @@ pub fn cmd_export(args: Args) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     }
     let failures = summary["failures"].as_array().map_or(0, Vec::len);
-    ensure!(failures == 0, "{} 个会话导出失败，已保留其他结果", failures);
+    crate::ipc::outcome::BusinessOutcome::from_counts(
+        summary["written"].as_u64().unwrap_or(0),
+        failures as u64,
+    )
+    .require_success()?;
     Ok(())
 }
 
@@ -233,6 +237,7 @@ fn export_with(
         let result = (|| -> Result<(usize, usize)> {
             let path = index.choose(&target.username, &target.chat, target.is_group)?;
             super::export_chat::validate_output_for(runtime, &path)?;
+            let destination = crate::toolkit::ExportTarget::capture(runtime, &path)?;
             let mut response = send(
                 runtime,
                 Request::ExportChatByUsername {
@@ -288,7 +293,7 @@ fn export_with(
                     "处理后的聊天身份与请求不符"
                 );
             }
-            super::export_chat::write_document_for(runtime, &path, &response.data)?;
+            destination.write_json(&response.data)?;
             index.record(&path, &target.username)?;
             Ok((count, added))
         })();
@@ -326,6 +331,7 @@ mod tests {
     fn runtime(root: &std::path::Path) -> RuntimeContext {
         RuntimeContext {
             config: crate::config::Config {
+                key_store: None,
                 db_dir: root.join("db"),
                 keys_file: root.join("keys.json"),
                 decrypted_dir: root.join("decrypted"),

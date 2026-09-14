@@ -1,10 +1,10 @@
-//! 独立图片密钥命令；只更新已固定账号的配置，不在终端输出密钥材料。
+//! 独立图片密钥命令；只更新固定账号的加密存储，不改配置或输出密钥材料。
 use crate::{attachment::local_files::HostOutputGuard, runtime::RuntimeContext};
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::{
     fs,
-    io::{Read, Write},
+    io::Read,
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,7 +24,7 @@ pub struct Args {
     /// 仅从当前账号目录及图片缓存推导密钥，不读取进程内存
     #[arg(long)]
     pub offline: bool,
-    /// 仅提取和验证，不更新配置
+    /// 仅提取和验证，不保存密钥
     #[arg(long)]
     pub no_save: bool,
     /// 离线推导或全部候选进程共用的时间预算（秒）
@@ -57,6 +57,22 @@ fn read_config(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
     Ok(bytes)
 }
 
+fn save_image_material(
+    store: &crate::key_store::Store,
+    revision: u64,
+    material: &crate::attachment::image_key::ImageKeyMaterial,
+) -> Result<()> {
+    store.update(
+        Some(revision),
+        &[crate::key_store::Update::Image(
+            &material.aes_key,
+            material.xor_key,
+            crate::key_store::Verification::Verified,
+        )],
+    )?;
+    Ok(())
+}
+
 pub(super) fn extract_for(runtime: &RuntimeContext, args: Args) -> Result<Value> {
     extract_cancellable(runtime, args, &AtomicBool::new(false), false)
 }
@@ -87,25 +103,26 @@ fn extract_cancellable(
     let guard = HostOutputGuard::new(parent)?;
     guard.verify_replaceable_file(&runtime.config_path)?;
     let original = read_config(&runtime.config_path)?;
-    let mut config: Value = serde_json::from_slice(&original).context("账号配置 JSON 无效")?;
-    ensure!(config.is_object(), "账号配置必须为对象");
+    let store = if !args.no_save || reuse_existing {
+        Some(crate::key_store::Store::for_runtime(runtime)?)
+    } else {
+        None
+    };
+    let snapshot = match store.as_ref().map(|store| store.load()).transpose() {
+        Ok(snapshot) => snapshot,
+        Err(crate::key_store::Error::Missing) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let revision = snapshot.as_ref().map_or(0, |snapshot| snapshot.revision());
     let current = RuntimeContext::load()?;
     ensure!(
-        current.id == runtime.id
-            && current.config_path == runtime.config_path
-            && current.config.db_dir == runtime.config.db_dir
-            && current.config.keys_file == runtime.config.keys_file
-            && current.config.decrypted_dir == runtime.config.decrypted_dir
-            && current.config.wechat_process == runtime.config.wechat_process,
+        runtime.same_account(&current)?,
         "选中账号配置发生变化，未开始扫描"
     );
     if reuse_existing {
-        if let Some(value) = config
-            .get("image_aes_key")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
+        if let Some((Some(aes), xor)) = snapshot.as_ref().map(|snapshot| snapshot.image_material())
         {
-            let key = Zeroizing::new(crate::toolkit::parse_image_aes(value)?);
+            let key = Zeroizing::new(aes);
             let valid = crate::attachment::image_key::windows::validate_existing_for_db_dir(
                 &runtime.config.db_dir,
                 &key,
@@ -114,25 +131,24 @@ fn extract_cancellable(
             )?;
             ensure!(!cancelled.load(Ordering::SeqCst), "图片取钥已取消");
             if valid {
+                ensure!(
+                    store
+                        .as_ref()
+                        .context("encrypted key store unavailable")?
+                        .load()?
+                        .revision()
+                        == revision,
+                    "图片密钥在验证期间变化"
+                );
                 guard.verify_replaceable_file(&runtime.config_path)?;
                 ensure!(
                     read_config(&runtime.config_path)?.as_slice() == original.as_slice(),
                     "验证期间账号配置发生变化"
                 );
                 let sample_report = if let Some(sample) = sample {
-                    let xor = config.get("image_xor_key").map(|value| {
-                        value
-                            .as_str()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| value.to_string())
-                    });
                     let mut material = crate::attachment::image_key::ImageKeyMaterial {
                         aes_key: *key,
-                        xor_key: xor
-                            .as_deref()
-                            .map(crate::toolkit::parse_image_xor)
-                            .transpose()?
-                            .unwrap_or(0x88),
+                        xor_key: xor,
                     };
                     let staged = sample.stage(&material);
                     material.aes_key.zeroize();
@@ -146,7 +162,7 @@ fn extract_cancellable(
                     None
                 };
                 return Ok(json!({"engine":"rust", "account_id":runtime.id,
-                    "existing_key_valid":true, "config_updated":false, "keys_redacted":true, "sample":sample_report}));
+                    "existing_key_valid":true, "config_updated":false, "key_store_updated":false, "keys_redacted":true, "sample":sample_report}));
             }
         }
     }
@@ -172,24 +188,6 @@ fn extract_cancellable(
         );
         let staged_sample = sample.map(|sample| sample.stage(&material)).transpose()?;
         if !args.no_save {
-            let key = Zeroizing::new(
-                String::from_utf8(material.aes_key.to_vec())
-                    .context("图片 AES 材料不是 ASCII 文本")?,
-            );
-            config["image_aes_key"] = Value::String(key.to_string());
-            config["image_xor_key"] = material.xor_key.into();
-            let encoded = Zeroizing::new(serde_json::to_vec_pretty(&config)?);
-            if let Some(Value::String(secret)) = config.get_mut("image_aes_key") {
-                secret.zeroize();
-            }
-            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-            temporary.write_all(&encoded)?;
-            temporary.write_all(b"\n")?;
-            temporary.as_file().sync_all()?;
-            fs::set_permissions(
-                temporary.path(),
-                fs::metadata(&runtime.config_path)?.permissions(),
-            )?;
             guard.verify_replaceable_file(&runtime.config_path)?;
             ensure!(
                 read_config(&runtime.config_path)?.as_slice() == original.as_slice(),
@@ -199,10 +197,11 @@ fn extract_cancellable(
                 !cancelled.load(Ordering::SeqCst),
                 "图片取钥已取消，未更新配置"
             );
-            temporary
-                .persist(&runtime.config_path)
-                .map_err(|error| error.error)
-                .context("图片密钥配置更新失败，原配置已保留")?;
+            save_image_material(
+                store.as_ref().context("encrypted key store unavailable")?,
+                revision,
+                &material,
+            )?;
         }
         let sample_report = staged_sample
             .map(|sample| sample.publish())
@@ -211,14 +210,14 @@ fn extract_cancellable(
                 if args.no_save {
                     "样本发布失败，未更新配置"
                 } else {
-                    "图片密钥配置已更新，但样本发布失败"
+                    "加密图片密钥已更新，但样本发布失败"
                 }
             })?;
         Ok(json!({"engine":"rust", "account_id":runtime.id,
             "aes_template_verified":true,
             "inference_mode":if args.offline {"offline"} else {"process_memory"},
             "xor_policy":if args.offline {"thumbnail_tail_vote"} else {"sample_vote_or_0x88"},
-            "config_updated":!args.no_save, "keys_redacted":true, "sample":sample_report}))
+            "config_updated":false, "key_store_updated":!args.no_save, "keys_redacted":true, "sample":sample_report}))
     })();
     material.aes_key.zeroize();
     result
@@ -231,7 +230,7 @@ pub struct MonitorArgs {
     /// 明确授权在监控期间重复读取当前微信进程内存
     #[arg(long, required = true)]
     authorize_memory_scan: bool,
-    /// 找到后仅验证，不更新配置
+    /// 找到后仅验证，不保存密钥
     #[arg(long)]
     no_save: bool,
     /// 单轮扫描上限（秒）；取消时等待当前有界扫描回收资源
@@ -337,6 +336,53 @@ pub fn cmd_monitor(args: MonitorArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encrypted_image_save_preserves_other_material_and_config() -> Result<()> {
+        use crate::key_store::{Store, Update, Verification};
+        let root = tempfile::tempdir()?;
+        let db = root.path().join("db_storage");
+        fs::create_dir(&db)?;
+        let config_path = root.path().join("config.json");
+        let original = br#"{"key_store":"keys.dpapi","unchanged":true}"#;
+        fs::write(&config_path, original)?;
+        let store = Store::new(
+            &db,
+            &root.path().join("all_keys.json"),
+            &root.path().join("keys.dpapi"),
+            vec![db.clone(), config_path.clone()],
+        )?;
+        let database_keys =
+            std::collections::HashMap::from([("contact/contact.db".into(), "31".repeat(32))]);
+        let before = store.update(
+            Some(0),
+            &[
+                Update::Account(&[0x17; 32], Verification::Verified),
+                Update::Databases(&database_keys, Verification::Verified),
+            ],
+        )?;
+        let material = crate::attachment::image_key::ImageKeyMaterial {
+            aes_key: *b"syntheticAESkey1",
+            xor_key: 0xa2,
+        };
+        save_image_material(&store, before.revision(), &material)?;
+        let after = store.load()?;
+        assert_eq!(
+            after.image_key(),
+            Some((material.aes_key, material.xor_key))
+        );
+        assert_eq!(after.account_key(), Some([0x17; 32].as_slice()));
+        assert_eq!(after.database_keys(), database_keys);
+        assert_eq!(fs::read(&config_path)?, original);
+        assert!(!fs::read(store.path())?
+            .windows(16)
+            .any(|bytes| bytes == material.aes_key));
+        assert!(!format!("{material:?}").contains("synthetic"));
+        assert!(!format!("{material:?}").contains("162"));
+        assert!(save_image_material(&store, before.revision(), &material).is_err());
+        assert_eq!(store.load()?.revision(), after.revision());
+        Ok(())
+    }
     use clap::Parser;
 
     #[derive(Parser)]

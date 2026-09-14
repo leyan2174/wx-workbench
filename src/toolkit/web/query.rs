@@ -109,7 +109,7 @@ async fn raw(state: &Shared, request: Request, maximum: usize) -> Result<Value> 
         reader.read_line(&mut line).await?;
         ensure!(line.len() <= maximum, "查询响应超过限额");
         let response: Response = serde_json::from_str(&line)?;
-        ensure!(response.ok, "后台查询未完成");
+        response.require_success()?;
         Ok::<_, anyhow::Error>(response.data)
     })
     .await?;

@@ -39,6 +39,7 @@ impl Fixture {
             fs::create_dir_all(p).unwrap();
         }
         let config = Config {
+            key_store: None,
             db_dir: account.join("db"),
             keys_file: account.join("keys.json"),
             decrypted_dir: account.join("decrypted"),
@@ -319,7 +320,7 @@ fn corrupted_prepared_audio_and_media_id_mismatch_never_reach_backend_or_wav() {
 
 #[test]
 fn bound_runtime_identity_cannot_be_switched_before_finish() {
-    for mode in 0..8 {
+    for mode in 0..9 {
         let f = Fixture::new();
         let ctx = CallContext::default();
         let pending = Args::default()
@@ -337,6 +338,7 @@ fn bound_runtime_identity_cannot_be_switched_before_finish() {
             5 => other.config.keys_file.push("other"),
             6 => other.config.decrypted_dir.push("other"),
             7 => other.config.wechat_process.push('B'),
+            8 => other.config.key_store = Some(f.root.path().join("other-store.dpapi")),
             _ => unreachable!(),
         }
         assert!(matches!(

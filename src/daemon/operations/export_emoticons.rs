@@ -76,9 +76,11 @@ pub(super) fn export(
     ] {
         guard.protect_future(path)?;
     }
-    for path in [&runtime.config_path, &runtime.config.keys_file] {
+    guard.pin_input(&runtime.config_path)?;
+    if let Some(path) = &runtime.config.key_store {
         guard.pin_input(path)?;
     }
+    guard.protect(&runtime.config.keys_file)?;
     let options = DownloadOptions::default();
     let mut success = 0;
     let mut failed = 0;

@@ -194,7 +194,7 @@ pub fn verify(account: &Account, mcp: &mut Mcp) {
     }
     crate::safe_failure(
         mcp.call("decode_file_message", args(26, None)),
-        "Query backend unavailable",
+        "Query failed",
     );
     let mut invalid = args(20, None);
     invalid["base"] = json!(account.root());

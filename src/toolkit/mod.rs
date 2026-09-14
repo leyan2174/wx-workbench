@@ -17,7 +17,9 @@ pub(crate) mod private_file;
 pub(crate) mod sns;
 #[path = "web/server.rs"]
 pub(crate) mod web;
-pub(crate) use files::{atomic_output, separate};
+pub(crate) use files::{
+    atomic_output, export_protected, separate, validate_export_target, ExportTarget,
+};
 pub(crate) mod cleanup;
 mod images;
 pub(crate) mod legacy;
@@ -25,7 +27,7 @@ pub(crate) mod monitor;
 pub(crate) mod run_status;
 pub(crate) mod setup;
 
-use anyhow::{ensure, Result};
+use anyhow::Result;
 pub use databases::{decrypt, Mode as DecryptMode};
 pub use images::{batch_images, decode_image, decode_images};
 
@@ -63,11 +65,13 @@ struct Failure {
 impl Report {
     fn finish(&self) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(self)?);
-        ensure!(
-            self.failures.is_empty(),
-            "{} files failed; existing output retained",
-            self.failures.len()
-        );
+        crate::ipc::outcome::BusinessOutcome::from_counts(
+            self.written
+                .saturating_add(self.skipped)
+                .saturating_add(self.planned) as u64,
+            self.failures.len() as u64,
+        )
+        .require_success()?;
         Ok(())
     }
 }
@@ -86,6 +90,37 @@ fn raw_config() -> Result<(PathBuf, Value)> {
 mod tests {
     use super::*;
     use super::{databases::*, files::*, images::*};
+    #[test]
+    fn report_finish_distinguishes_partial_without_counting_missing_keys() {
+        use crate::ipc::outcome::{BusinessFailure, BusinessOutcome};
+        for (written, skipped, planned, failed, expected) in [
+            (1, 0, 0, false, BusinessOutcome::Success),
+            (1, 0, 0, true, BusinessOutcome::Partial),
+            (0, 1, 0, true, BusinessOutcome::Partial),
+            (0, 0, 1, true, BusinessOutcome::Partial),
+            (0, 0, 0, true, BusinessOutcome::Failure),
+            (0, 0, 0, false, BusinessOutcome::Success),
+        ] {
+            let mut report = Report {
+                written,
+                skipped,
+                planned,
+                skipped_no_key: 3,
+                ..Default::default()
+            };
+            if failed {
+                report.failures.push(Failure {
+                    path: "synthetic.db".into(),
+                    error: "synthetic item failure".into(),
+                });
+            }
+            let actual = report.finish().map_or_else(
+                |error| error.downcast_ref::<BusinessFailure>().unwrap().0,
+                |_| BusinessOutcome::Success,
+            );
+            assert_eq!(actual, expected);
+        }
+    }
     struct Temp(PathBuf);
     impl Temp {
         fn new() -> Self {

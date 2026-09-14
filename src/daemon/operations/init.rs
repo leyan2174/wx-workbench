@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use serde_json::json;
 
 use crate::config;
 use crate::scanner;
-use crate::toolkit::setup::{self, ConfigDocument, Snapshot};
+use crate::toolkit::setup::ConfigDocument;
+use zeroize::Zeroize;
 
 pub fn cmd_init(
     force: bool,
@@ -55,8 +55,25 @@ pub fn cmd_init(
     let db_dir = std::path::absolute(db_dir)?;
     let cfg = document.with_db(&db_dir)?;
     let paths = document.validate_targets(&cfg)?;
-    // 自定义 keys_file 的检查与写入使用同一解析结果；--force 也不允许串号覆盖。
-    if !force && document.snapshot.existed() && setup::exists(&paths.keys_file)? {
+    let store_path = cfg
+        .get("key_store")
+        .and_then(|value| value.as_str())
+        .context("Legacy keys require explicit wx migrate-keys before initialization")?;
+    let store_path =
+        crate::toolkit::setup::resolve(document.base(), std::path::Path::new(store_path))?;
+    let mut protected = paths.protected.clone();
+    protected.extend([
+        config_path.clone(),
+        paths.keys_file.clone(),
+        paths.account_key_file.clone(),
+    ]);
+    let store = crate::key_store::Store::new(&db_dir, &paths.keys_file, &store_path, protected)?;
+    let existing = match store.load() {
+        Ok(snapshot) => Some(snapshot),
+        Err(crate::key_store::Error::Missing) => None,
+        Err(error) => return Err(error.into()),
+    };
+    if !force && existing.is_some_and(|snapshot| !snapshot.database_keys().is_empty()) {
         println!("已初始化，数据目录: {}", db_dir.display());
         println!("如需重新扫描密钥，使用 --force");
         return Ok(());
@@ -64,7 +81,6 @@ pub fn cmd_init(
     println!("找到数据目录: {}", db_dir.display());
     let _lock = document.lock()?;
     let db_guard = crate::attachment::local_files::HostOutputGuard::new(&db_dir)?;
-    let keys_snapshot = Snapshot::capture(&paths.keys_file)?;
 
     // Step 2: 扫描密钥
     println!("扫描加密密钥...");
@@ -74,53 +90,56 @@ pub fn cmd_init(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("Weixin.exe");
     let account_key_file = paths.account_key_file.clone();
-    let entries = scanner::scan_with_provider(
+    let mut entries = scanner::scan_with_provider(
         &db_dir,
         process_name,
         provider,
         restart,
         executable.as_deref(),
         timeout,
-        &account_key_file,
+        &store,
     )?;
     if entries.is_empty() {
-        anyhow::bail!(
-            "未验证到任何数据库密钥，已保留现有密钥 JSON；请确认微信已登录且数据目录正确"
-        );
+        anyhow::bail!("未验证到任何数据库密钥，已保留现有密钥存储；请确认微信已登录且数据目录正确");
     }
     db_guard.verify()?;
     document.snapshot.verify()?;
 
     // Step 3: 同卷原子保存配置声明的密钥路径，不回显密钥内容。
-    let mut keys_json = serde_json::Map::new();
-    for entry in &entries {
-        keys_json.insert(
-            entry.db_name.clone(),
-            json!({
-                "enc_key": entry.enc_key,
-            }),
+    let mut keys = std::collections::HashMap::new();
+    for entry in &mut entries {
+        anyhow::ensure!(
+            !keys.contains_key(&entry.db_name),
+            "Duplicate database scan result"
         );
+        keys.insert(entry.db_name.clone(), std::mem::take(&mut entry.enc_key));
     }
-    let mut key_protection = paths.protected.clone();
-    key_protection.extend([config_path.clone(), account_key_file.clone()]);
-    keys_snapshot
-        .write_json(&serde_json::Value::Object(keys_json), &key_protection)
-        .context("原子保存选中账号密钥 JSON 失败")?;
+    let saved = store.update(
+        None,
+        &[crate::key_store::Update::Databases(
+            &keys,
+            crate::key_store::Verification::Verified,
+        )],
+    );
+    keys.values_mut().for_each(Zeroize::zeroize);
+    saved?;
     println!("成功提取 {} 个数据库密钥", entries.len());
-    println!("密钥已保存: {}", paths.keys_file.display());
+    println!("密钥已加密保存");
 
     // Step 4: 使用原始快照保留未知字段，拒绝覆盖扫描期间的其他配置修改。
     let mut config_protection = paths.protected;
-    config_protection.extend([paths.keys_file.clone(), account_key_file]);
-    document
-        .snapshot
-        .write_json(&cfg, &config_protection)
-        .with_context(|| {
-            format!(
-                "密钥已原子保存至 {}，但配置提交失败；未报告初始化成功，请检查配置后重试",
-                paths.keys_file.display()
-            )
-        })?;
+    config_protection.extend([paths.keys_file.clone(), account_key_file, store_path]);
+    if cfg != document.value {
+        document
+            .snapshot
+            .write_json(&cfg, &config_protection)
+            .with_context(|| {
+                format!(
+                    "密钥已原子保存至 {}，但配置提交失败；未报告初始化成功，请检查配置后重试",
+                    store.path().display()
+                )
+            })?;
+    }
     println!("配置已保存: {}", config_path.display());
 
     // The supervising daemon invalidates query state after the worker completes.

@@ -383,7 +383,7 @@ async fn spawn(
     }
     .await;
     if let Err(error) = result {
-        super::tasks::process::reap(child, job).await;
+        super::tasks::process::reap(child, job).await?;
         return Err(error);
     }
     Ok((child, job))
@@ -591,6 +591,7 @@ mod tests {
         let runtime = RuntimeContext::from_config(
             root.path().join("config.json"),
             crate::config::Config {
+                key_store: None,
                 db_dir: root.path().join("db"),
                 keys_file: root.path().join("keys.json"),
                 decrypted_dir: root.path().join("decrypted"),
@@ -629,6 +630,7 @@ mod tests {
         let runtime = RuntimeContext::from_config(
             root.path().join("config.json"),
             crate::config::Config {
+                key_store: None,
                 db_dir: root.path().join("db"),
                 keys_file: root.path().join("keys.json"),
                 decrypted_dir: root.path().join("decrypted"),

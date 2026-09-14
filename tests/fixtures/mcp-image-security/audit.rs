@@ -1,4 +1,4 @@
-use mcp_image_security::{attachment::decoder::V2KeyMaterial, mcp_image, DbCache, Names};
+use mcp_image_security::{attachment::decoder::V2KeyMaterial, decode_with_material, mcp_image, DbCache, Names};
 use rusqlite::Connection;
 use std::{
     collections::BTreeMap,
@@ -38,7 +38,7 @@ async fn guard_directory_swap_must_not_publish_into_previously_protected_root() 
 }
 
 #[tokio::test]
-async fn key_json_type_duplicate_null_and_exact_size_contract() {
+async fn all_legacy_key_json_is_rejected_before_database_access() {
     let rejected = [
         "null",
         "[]",
@@ -79,6 +79,7 @@ async fn key_json_type_duplicate_null_and_exact_size_contract() {
         )
         .await;
         let error = format!("{:#}", result.expect_err(json));
+        assert_eq!(error, "Legacy plaintext image key files are unsupported");
         assert!(!error.contains("SYNTHETIC_SECRET"));
         assert!(f.db.requests.lock().unwrap().is_empty(), "{json}");
         f.empty();
@@ -105,23 +106,28 @@ async fn key_json_type_duplicate_null_and_exact_size_contract() {
             Some(&key),
         )
         .await
-        .unwrap();
-        assert_eq!(result["status"], "published");
+        .unwrap_err();
+        assert_eq!(result.to_string(), "Legacy plaintext image key files are unsupported");
+        assert!(f.db.requests.lock().unwrap().is_empty());
+        f.empty();
         assert_eq!(fs::read(key).unwrap(), bytes);
     }
 }
 
 #[tokio::test]
-async fn guard_locks_survive_query_await_and_release_on_all_exit_paths() {
+async fn material_snapshot_survives_query_await_and_guards_release_on_all_exit_paths() {
     use std::sync::Arc;
     for mode in ["success", "decode-error", "cancel"] {
-        let f = Arc::new(Account::new(b'A'));
+        let mut f = Account::new(b'A');
         let key_dir = f.root.path().join("keys");
         fs::create_dir(&key_dir).unwrap();
-        let key = key_dir.join("explicit.json");
-        fs::write(&key, b"{}").unwrap();
-        let alias = f.root.path().join("key-hardlink.json");
-        fs::hard_link(&key, &alias).unwrap();
+        let key = key_dir.join("synthetic-store.dpapi");
+        // This file is a protected resource sentinel, never a material reader.
+        fs::write(&key, b"synthetic-store-revision-1").unwrap();
+        f.db.2.push(key.clone());
+        let f = Arc::new(f);
+        let current_material = Arc::new(std::sync::Mutex::new(0xa5u8));
+        let captured_xor = *current_material.lock().unwrap();
         if mode == "decode-error" {
             fs::write(&f.dat, b"not an image").unwrap();
         }
@@ -129,37 +135,23 @@ async fn guard_locks_survive_query_await_and_release_on_all_exit_paths() {
         let release = Arc::new(tokio::sync::Notify::new());
         *f.db.1.lock().unwrap() = Some((entered.clone(), release.clone()));
         let task_f = f.clone();
-        let task_key = key.clone();
         let task = tokio::spawn(async move {
-            mcp_image::q_decode_image_with_key_file(
+            decode_with_material(
                 &task_f.db,
                 &task_f.names,
                 CHAT,
                 42,
                 100,
                 &task_f.output,
-                Some(&task_key),
+                V2KeyMaterial { aes_key: None, xor_key: captured_xor },
             )
             .await
         });
         tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
             .await
             .expect("wrapper must reach guarded await");
-        for path in [&key, &alias] {
-            assert!(
-                fs::OpenOptions::new().write(true).open(path).is_err(),
-                "{mode}: key write unlocked"
-            );
-        }
-        assert!(fs::remove_file(&key).is_err(),"{mode}: original key deletion unlocked");
-        let unlink_alias=fs::remove_file(&alias);
-        println!("GUARD {mode}: hardlink alias unlink={unlink_alias:?}; original remains pinned={}",key.exists());
-        assert_eq!(fs::read(&key).unwrap(),b"{}");
-        assert!(fs::rename(&key_dir, f.root.path().join("moved-keys")).is_err());
-        let moved=f.root.path().join("moved-output");
-        let rename=fs::rename(&f.output,&moved);
-        println!("GUARD {mode}: output rename while held={rename:?}");
-        if rename.is_ok() { fs::rename(&moved,&f.output).unwrap(); }
+        *current_material.lock().unwrap() = 0x11;
+        fs::write(&key, b"synthetic-store-revision-2").expect("no long-lived key file lock");
         if mode == "cancel" {
             task.abort();
             assert!(task.await.unwrap_err().is_cancelled());
@@ -168,15 +160,14 @@ async fn guard_locks_survive_query_await_and_release_on_all_exit_paths() {
             let result = task.await.unwrap();
             assert_eq!(result.is_ok(), mode == "success");
         }
-        assert!(
-            fs::OpenOptions::new().write(true).open(&key).is_ok(),
-            "{mode}: leaked key handle"
-        );
+        if mode == "success" {
+            assert_eq!(fs::read(f.destination()).unwrap(), f.plain);
+        } else {
+            f.empty();
+        }
+        assert_eq!(fs::read(&key).unwrap(), b"synthetic-store-revision-2");
         fs::rename(&key_dir, f.root.path().join("released-keys")).unwrap();
         fs::rename(&f.output, f.root.path().join("released-output")).unwrap();
-        println!(
-            "GUARD lifecycle {mode}: key/hardlink/ancestor locked while awaiting, released on exit"
-        );
     }
 }
 
@@ -190,9 +181,8 @@ async fn actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback(
         mcp_image::q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 100, &f.output, None)
             .await
             .unwrap();
-    let wire = mcp_image_security::ipc::Response::ok(value)
-        .to_json_line()
-        .unwrap();
+    let wire = format!("{}\n", serde_json::json!({"version":3,"runtime_id":"synthetic-image",
+        "result":"response","response":mcp_image_security::ipc::Response::ok(value)}));
     println!("ACTUAL IPC serialized size: {}",wire.len());
     assert!(wire.len() > 1024, "use a genuine oversized image response");
     let result = mcp_image_security::ipc_reader::read(wire.as_bytes(), 1024).await;
@@ -223,7 +213,7 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         io::Write,
         process::{Command, Stdio},
     };
-    for mode in ["unconfigured", "configured", "client-path", "secret-error"] {
+    for mode in ["unconfigured", "legacy-key", "configured", "client-path", "secret-error"] {
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("account.json");
         let capture = root.path().join("request.json");
@@ -252,9 +242,10 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         if mode != "unconfigured" {
             command
                 .arg("--media-output-root")
-                .arg(&output_root)
-                .arg("--image-key-file")
-                .arg(&key);
+                .arg(&output_root);
+        }
+        if mode == "legacy-key" {
+            command.arg("--image-key-file").arg(&key);
         }
         if mode == "secret-error" {
             command.env("AUDIT_SECRET_ERROR", "1");
@@ -279,10 +270,13 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         assert!(!stderr.contains("SYNTHETIC_SECRET"));
         let reply: serde_json::Value =
             serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
-        if matches!(mode, "unconfigured" | "client-path") {
+        if matches!(mode, "unconfigured" | "legacy-key" | "client-path") {
             assert!(!capture.exists());
             assert!(!stderr.contains("AUDIT_RUNTIME_REACHED"));
             assert!(reply.get("error").is_some() || reply["result"]["isError"] == true);
+            if mode != "client-path" {
+                assert_eq!(reply["result"]["content"][0]["text"], "Query backend unavailable");
+            }
         } else {
             assert!(
                 capture.exists(),
@@ -293,9 +287,12 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
             assert_eq!(request["cmd"], "decode_image");
             assert_eq!(request["chat"], CHAT);
             assert_eq!(request["output_root"], output_root.to_str().unwrap());
-            assert_eq!(request["image_key_file"], key.to_str().unwrap());
+            assert!(request["image_key_file"].is_null());
             if mode == "secret-error" {
                 assert_eq!(reply["result"]["isError"], true);
+                assert_eq!(reply["result"]["content"][0]["text"], "Query failed");
+            } else {
+                assert_eq!(reply["result"]["isError"], false);
             }
         }
     }
@@ -350,7 +347,7 @@ struct Account {
 }
 
 #[tokio::test]
-async fn v2_explicit_correct_key_only_and_wrong_or_missing_key_never_publishes() {
+async fn v2_correct_material_only_and_wrong_or_missing_material_never_publishes() {
     use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
     for mode in ["missing", "wrong", "correct"] {
         let f = Account::new(b'A');
@@ -364,24 +361,21 @@ async fn v2_explicit_correct_key_only_and_wrong_or_missing_key_never_publishes()
         dat.push(0);
         dat.extend_from_slice(&block);
         fs::write(&f.dat, &dat).unwrap();
-        let key = f.root.path().join("v2-key.json");
-        fs::write(
-            &key,
-            if mode == "correct" {
-                br#"{"aes_key":"1234567890abcdef"}"#.as_slice()
-            } else {
-                br#"{"aes_key":"SYNTHETIC_SECRET_WRONG_KEY"}"#.as_slice()
-            },
-        )
-        .unwrap();
-        let result = mcp_image::q_decode_image_with_key_file(
+        let result = decode_with_material(
             &f.db,
             &f.names,
             CHAT,
             42,
             100,
             &f.output,
-            if mode == "missing" { None } else { Some(&key) },
+            V2KeyMaterial {
+                aes_key: match mode {
+                    "correct" => Some(b"1234567890abcdef"),
+                    "wrong" => Some(b"SYNTHETIC_SECRET"),
+                    _ => None,
+                },
+                xor_key: 0x88,
+            },
         )
         .await;
         if mode == "correct" {
@@ -485,29 +479,31 @@ async fn host_output_cannot_overlap_source_or_decrypted_directories() {
 }
 
 #[tokio::test]
-async fn explicit_key_file_works_and_hardlink_destination_never_overwrites_key() {
+async fn material_publication_never_overwrites_protected_store_hardlink() {
     for existing in [false, true] {
-        let f = Account::new(b'A');
-        let key = f.root.path().join("key.json");
-        let bytes = br#"{"xor_key":"0xa5"}"#;
+        let mut f = Account::new(b'A');
+        let key = f.root.path().join("synthetic-store.dpapi");
+        let bytes = b"synthetic protected account resource";
         fs::write(&key, bytes).unwrap();
+        f.db.2.push(key.clone());
         if existing {
             fs::hard_link(&key, f.destination()).unwrap();
         }
-        let result = mcp_image::q_decode_image_with_key_file(
+        let result = decode_with_material(
             &f.db,
             &f.names,
             CHAT,
             42,
             100,
             &f.output,
-            Some(&key),
+            V2KeyMaterial { aes_key: None, xor_key: 0xa5 },
         )
         .await;
         if existing {
             assert!(result.is_err());
         } else {
             assert_eq!(result.unwrap()["status"], "published");
+            assert_eq!(fs::read(f.destination()).unwrap(), f.plain);
         }
         assert_eq!(fs::read(&key).unwrap(), bytes);
         assert_eq!(fs::read_dir(&f.output).unwrap().count(), 1);

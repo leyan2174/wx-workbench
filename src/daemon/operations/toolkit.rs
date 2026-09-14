@@ -122,16 +122,44 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
                 options.contacts = native::audio::batch::parse_contact_filter(&contacts);
             }
             let report = native::audio::batch::convert_database(&options)?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            anyhow::ensure!(
-                report.failed == 0,
-                "{} 条语音转换失败，其他结果已保留",
-                report.failed
-            );
-            Ok(())
+            finish_voice_batch(&report)
         }
     }
 }
+fn finish_voice_batch(report: &native::audio::batch::BatchReport) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(report)?);
+    crate::ipc::outcome::BusinessOutcome::from_counts(
+        report.converted.saturating_add(report.skipped_existing),
+        report.failed,
+    )
+    .require_success()?;
+    Ok(())
+}
+
+#[test]
+fn voice_batch_report_preserves_partial_classification() {
+    use crate::ipc::outcome::{BusinessFailure, BusinessOutcome};
+    for (converted, skipped_existing, failed, expected) in [
+        (1, 0, 0, BusinessOutcome::Success),
+        (1, 0, 1, BusinessOutcome::Partial),
+        (0, 1, 1, BusinessOutcome::Partial),
+        (0, 0, 1, BusinessOutcome::Failure),
+    ] {
+        let report = native::audio::batch::BatchReport {
+            converted,
+            skipped_existing,
+            failed,
+            filtered: 3,
+            ..Default::default()
+        };
+        let actual = finish_voice_batch(&report).map_or_else(
+            |error| error.downcast_ref::<BusinessFailure>().unwrap().0,
+            |_| BusinessOutcome::Success,
+        );
+        assert_eq!(actual, expected);
+    }
+}
+
 fn cmd_status(json: bool) -> Result<()> {
     let root = toolkit_root();
     let python = toolkit_python();

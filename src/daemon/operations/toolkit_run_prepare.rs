@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer};
 use std::{
     collections::{HashMap, HashSet},
     fmt, fs,
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -38,7 +38,9 @@ fn prepare_with(
         Ok(keys) => keys,
         Err(error) => {
             // 路径歧义不能以自动提取掩盖，必须由用户修复。
-            if error.downcast_ref::<UnsafeKeys>().is_some() {
+            if error.downcast_ref::<crate::key_store::Error>()
+                != Some(&crate::key_store::Error::Missing)
+            {
                 return Err(error);
             }
             eprintln!("已有密钥缺失或失效，正在为配置中的账号提取密钥...");
@@ -59,8 +61,27 @@ fn prepare_with(
 
 /// 离线入口只读加载，保留原始相对路径；不检查进程、不提取或写入密钥。
 pub(super) fn load_saved(runtime: &RuntimeContext) -> Result<HashMap<String, String>> {
-    let bytes = snapshot_keys(&runtime.config.keys_file)?.context("账号密钥文件不存在")?;
-    let raw: RawKeys = serde_json::from_slice(&bytes).context("账号密钥文件格式错误")?;
+    let keys = crate::key_store::Store::for_runtime(runtime)?
+        .load()?
+        .database_keys();
+    validate_paths(runtime, &keys)?;
+    Ok(keys)
+}
+
+/// Only the explicit migration operation may consume legacy plaintext material.
+#[cfg(test)]
+pub(super) fn load_legacy(runtime: &RuntimeContext) -> Result<HashMap<String, String>> {
+    let snapshot = crate::toolkit::setup::Snapshot::capture(&runtime.config.keys_file)?;
+    let keys = decode_legacy(runtime, snapshot.bytes().context("账号密钥文件不存在")?)?;
+    snapshot.verify()?;
+    Ok(keys)
+}
+
+pub(super) fn decode_legacy(
+    runtime: &RuntimeContext,
+    bytes: &[u8],
+) -> Result<HashMap<String, String>> {
+    let raw: RawKeys = serde_json::from_slice(bytes).context("账号密钥文件格式错误")?;
     let mut seen = HashSet::new();
     let mut keys = HashMap::new();
     for (name, value) in raw.0 {
@@ -267,102 +288,23 @@ fn decode_key(value: &str) -> Result<zeroize::Zeroizing<[u8; 32]>> {
 }
 
 pub(super) fn snapshot_keys(path: &Path) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>> {
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("读取账号密钥文件失败"),
-    };
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-    anyhow::ensure!(
-        bytes.len() <= 16 * 1024 * 1024,
-        "账号密钥文件超过 16 MiB 限制"
-    );
-    Ok(Some(bytes))
+    let snapshot = crate::toolkit::setup::Snapshot::capture(path)?;
+    let bytes = snapshot
+        .bytes()
+        .map(|bytes| zeroize::Zeroizing::new(bytes.to_vec()));
+    snapshot.verify()?;
+    Ok(bytes)
 }
 
 pub(super) fn save_keys(runtime: &RuntimeContext, keys: &HashMap<String, String>) -> Result<()> {
-    let target = &runtime.config.keys_file;
-    // 不创建或修改配置，只替换本次配置明确指定的密钥文件。
-    let parent = target.parent().context("密钥文件缺少父目录")?;
-    let guard = crate::attachment::local_files::HostOutputGuard::new(parent)?;
-    guard.verify_replaceable_file(target)?;
-    validate_save_target(runtime)?;
-    let original = snapshot_keys(target)?;
-    let mut document = serde_json::Map::new();
-    document.insert(
-        "_db_dir".into(),
-        serde_json::json!(runtime.config.db_dir.canonicalize()?),
-    );
-    for (name, key) in keys {
-        document.insert(name.clone(), serde_json::json!({"enc_key": key}));
-    }
-    let bytes = zeroize::Zeroizing::new(serde_json::to_vec_pretty(&document)?);
-    use zeroize::Zeroize;
-    for value in document.values_mut() {
-        if let Some(serde_json::Value::String(key)) = value.get_mut("enc_key") {
-            key.zeroize();
-        }
-    }
-    let mut temporary = tempfile::NamedTempFile::new_in(parent).context("无法创建密钥临时文件")?;
-    temporary.write_all(&bytes)?;
-    temporary.as_file().sync_all()?;
-    validate_save_target(runtime)?;
-    guard.verify_replaceable_file(target)?;
-    anyhow::ensure!(
-        snapshot_keys(target)? == original,
-        "密钥文件在保存期间变化，拒绝覆盖并发修改"
-    );
-    temporary
-        .persist(target)
-        .map_err(|error| error.error)
-        .context("原子保存账号密钥失败")?;
-    Ok(())
-}
-
-fn validate_save_target(runtime: &RuntimeContext) -> Result<()> {
-    use std::os::windows::{fs::MetadataExt, io::AsRawHandle};
-    use windows::Win32::{
-        Foundation::HANDLE,
-        Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION},
-    };
-    let target = &runtime.config.keys_file;
-    let parent = target
-        .parent()
-        .context("密钥文件缺少父目录")?
-        .canonicalize()?;
-    let resolved = parent.join(target.file_name().context("密钥文件缺少文件名")?);
-    let db_root = runtime.config.db_dir.canonicalize()?;
-    let config_path = runtime.config_path.canonicalize()?;
-    anyhow::ensure!(
-        !resolved.starts_with(&db_root),
-        "密钥输出不得位于源数据库目录内"
-    );
-    anyhow::ensure!(
-        !resolved
-            .as_os_str()
-            .eq_ignore_ascii_case(config_path.as_os_str()),
-        "密钥输出不得覆盖配置文件"
-    );
-    match fs::symlink_metadata(target) {
-        Ok(metadata) => {
-            // Windows 重解析点包含符号链接；硬链接也不允许作为替换目标。
-            anyhow::ensure!(
-                metadata.is_file() && metadata.file_attributes() & 0x400 == 0,
-                "密钥输出必须是普通文件，不能是链接"
-            );
-            anyhow::ensure!(
-                !same_file::is_same_file(target, &runtime.config_path)?,
-                "密钥输出不得覆盖配置文件别名"
-            );
-            let file = fs::File::open(target)?;
-            let mut info = BY_HANDLE_FILE_INFORMATION::default();
-            unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }?;
-            anyhow::ensure!(info.nNumberOfLinks == 1, "密钥输出不得覆盖硬链接文件");
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
+    validate_keys(runtime, keys)?;
+    crate::key_store::Store::for_runtime(runtime)?.update(
+        None,
+        &[crate::key_store::Update::Databases(
+            keys,
+            crate::key_store::Verification::Verified,
+        )],
+    )?;
     Ok(())
 }
 
@@ -424,6 +366,7 @@ mod tests {
         .unwrap();
         let runtime = RuntimeContext {
             config: Config {
+                key_store: Some(base.join("keys.dpapi")),
                 db_dir: base.join("db"),
                 keys_file: base.join("custom-keys.json"),
                 decrypted_dir: base.join("out"),
@@ -460,11 +403,11 @@ mod tests {
     }
 
     #[test]
-    fn valid_saved_keys_preserve_raw_names_and_do_not_scan() {
+    fn valid_saved_keys_normalize_names_and_do_not_scan() {
         let (_dir, runtime) = fixture();
         let e = entry(&runtime, "emoticon\\emoticon.db");
         save_keys(&runtime, &HashMap::from([(e.db_name.clone(), e.enc_key)])).unwrap();
-        let bytes = fs::read(&runtime.config.keys_file).unwrap();
+        let bytes = fs::read(runtime.config.key_store.as_ref().unwrap()).unwrap();
         let prepared = prepare_with(
             runtime,
             |name| {
@@ -474,8 +417,11 @@ mod tests {
             |_| panic!("不应扫描"),
         )
         .unwrap();
-        assert!(prepared.keys.contains_key(&e.db_name));
-        assert_eq!(fs::read(&prepared.runtime.config.keys_file).unwrap(), bytes);
+        assert!(prepared.keys.contains_key("emoticon/emoticon.db"));
+        assert_eq!(
+            fs::read(prepared.runtime.config.key_store.as_ref().unwrap()).unwrap(),
+            bytes
+        );
     }
 
     #[test]
@@ -483,7 +429,7 @@ mod tests {
         let (_dir, runtime) = fixture();
         let e = entry(&runtime, "emoticon/emoticon.db");
         save_keys(&runtime, &HashMap::from([(e.db_name, e.enc_key)])).unwrap();
-        let path = runtime.config.keys_file.clone();
+        let path = runtime.config.key_store.clone().unwrap();
         let bytes = fs::read(&path).unwrap();
         assert!(
             prepare_with(runtime, |_| anyhow::bail!("未运行"), |_| panic!("不应扫描")).is_err()
@@ -492,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_malformed_empty_and_wrong_account_keys_are_refreshed() {
+    fn only_missing_store_may_use_existing_authorized_scan_path() {
         for old in [
             None,
             Some("not json"),
@@ -502,7 +448,14 @@ mod tests {
             let (dir, runtime) = fixture();
             let e = entry(&runtime, "emoticon/emoticon.db");
             if let Some(old) = old {
-                fs::write(&runtime.config.keys_file, old).unwrap();
+                fs::write(runtime.config.key_store.as_ref().unwrap(), old).unwrap();
+                assert!(prepare_with(
+                    runtime,
+                    |_| Ok(()),
+                    |_| panic!("corrupt store must not trigger scanning")
+                )
+                .is_err());
+                continue;
             }
             fs::write(dir.path().join("unrelated-keys.json"), b"unrelated").unwrap();
             let prepared = prepare_with(
@@ -574,7 +527,7 @@ mod tests {
                 format!("{{{}}}", records.join(",")),
             )
             .unwrap();
-            let result = prepare_with(runtime, |_| Ok(()), |_| panic!("不应扫描"));
+            let result = load_legacy(&runtime);
             assert!(result.err().unwrap().downcast_ref::<UnsafeKeys>().is_some());
         }
     }
@@ -596,14 +549,15 @@ mod tests {
     }
 
     #[test]
-    fn existing_keys_with_missing_unrelated_db_and_empty_metadata_are_reused() {
+    fn legacy_unverified_mapping_cannot_be_silently_reused_by_runtime() {
         for metadata in [
             serde_json::Value::Null,
             serde_json::json!(""),
             serde_json::json!(false),
             serde_json::json!(0),
         ] {
-            let (_dir, runtime) = fixture();
+            let (_dir, mut runtime) = fixture();
+            runtime.config.key_store = None;
             let document = serde_json::json!({
                 "_db_dir": metadata,
                 "unrelated\\missing.db": {"enc_key": "old-unverified-value"}
@@ -613,11 +567,16 @@ mod tests {
                 serde_json::to_vec(&document).unwrap(),
             )
             .unwrap();
-            let prepared =
-                prepare_with(runtime, |_| Ok(()), |_| panic!("已有映射不可触发扫描")).unwrap();
+            let error = prepare_with(
+                runtime,
+                |_| Ok(()),
+                |_| panic!("legacy mapping must not trigger scanning"),
+            )
+            .err()
+            .unwrap();
             assert_eq!(
-                prepared.keys["unrelated\\missing.db"],
-                "old-unverified-value"
+                error.downcast_ref::<crate::key_store::Error>(),
+                Some(&crate::key_store::Error::LegacyMigrationRequired)
             );
         }
     }
@@ -630,7 +589,7 @@ mod tests {
             let source = runtime.config.db_dir.join(&e.db_name);
             let config_before = fs::read(&runtime.config_path).unwrap();
             let source_before = fs::read(&source).unwrap();
-            runtime.config.keys_file = match mode {
+            runtime.config.key_store = Some(match mode {
                 0 => runtime.config_path.clone(),
                 1 => source.clone(),
                 _ => {
@@ -638,7 +597,7 @@ mod tests {
                     fs::hard_link(&source, &alias).unwrap();
                     alias
                 }
-            };
+            });
             assert!(save_keys(&runtime, &HashMap::from([(e.db_name, e.enc_key)])).is_err());
             assert_eq!(fs::read(&runtime.config_path).unwrap(), config_before);
             assert_eq!(fs::read(source).unwrap(), source_before);
