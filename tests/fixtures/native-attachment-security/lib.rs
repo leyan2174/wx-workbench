@@ -13,3 +13,7 @@ mod refs_security;
 
 #[cfg(all(test, windows))]
 mod image_security;
+#[path = "../../support/message_read_adapters.rs"]
+pub mod adapters;
+#[path = "../../support/media_business.rs"]
+pub mod business;

@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone, Timelike};
 use regex::Regex;
-use roxmltree::{Document, Node};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::cache::{CacheMode, DbCache};
@@ -25,10 +24,12 @@ pub(crate) mod encrypted_cache;
 mod export_delta;
 #[cfg(test)]
 mod favorites_source_tests;
-mod history_selection;
+#[cfg(test)]
+mod message_read_tests;
+#[cfg(test)]
+use message_read_tests::{query_messages, search_in_table};
 #[cfg(test)]
 mod message_source_tests;
-use crate::adapters::wechat::structured_message;
 pub use export_delta::q_export_delta_username;
 pub(super) mod mcp_attachments;
 pub(super) mod mcp_audio;
@@ -36,6 +37,7 @@ pub(super) mod mcp_contacts;
 pub(super) mod mcp_image;
 mod mcp_refer;
 pub(super) mod mcp_voice;
+mod message_read;
 mod strict_message;
 pub use mcp_refer::q_decode_refer;
 
@@ -156,6 +158,7 @@ pub struct AttachmentQuery {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
 struct MessageView<'a> {
     username: &'a str,
     is_group: bool,
@@ -378,64 +381,44 @@ pub async fn load_names_with_retry(
 }
 
 /// 会话表的固定投影。可空字段沿用兼容默认值，用户名缺失则报错。
-struct SessionRow {
-    username: String,
-    unread: i64,
-    summary: Vec<u8>,
-    timestamp: i64,
-    msg_type: i64,
-    sender: String,
-    sender_name: String,
-}
+type SessionRow = crate::adapters::wechat::messages::sessions::Record;
 
-fn read_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRow> {
-    Ok(SessionRow {
-        username: row.get(0)?,
-        unread: row.get(1).unwrap_or(0),
-        summary: get_content_bytes(row, 2),
-        timestamp: row.get(3).unwrap_or(0),
-        msg_type: row.get(4).unwrap_or(0),
-        sender: row.get(5).unwrap_or_default(),
-        sender_name: row.get(6).unwrap_or_default(),
-    })
-}
-
-/// 最近会话与未读会话共用展示规则；昵称只在本次查询内缓存。
 async fn session_view(
     db: &DbCache,
     names: &Names,
-    row: SessionRow,
+    record: SessionRow,
     nickname_cache: &mut HashMap<String, HashMap<String, String>>,
 ) -> Value {
+    let row = record.session;
     let chat_type = chat_type_of(&row.username, names);
     let is_group = chat_type == "group";
-    let last_sender = if is_group && !row.sender.is_empty() {
-        if !nickname_cache.contains_key(&row.username) {
-            let nicknames = load_group_nicknames(db, &row.username)
-                .await
-                .unwrap_or_default();
-            nickname_cache.insert(row.username.clone(), nicknames);
+    let last_sender = if is_group {
+        if let Some(sender) = &row.sender {
+            if !nickname_cache.contains_key(&row.username) {
+                nickname_cache.insert(
+                    row.username.clone(),
+                    load_group_nicknames(db, &row.username)
+                        .await
+                        .unwrap_or_default(),
+                );
+            }
+            sender_display(
+                sender,
+                row.sender_display_hint.as_deref().unwrap_or(""),
+                &names.map,
+                &nickname_cache[&row.username],
+            )
+        } else {
+            String::new()
         }
-        sender_display(
-            &row.sender,
-            &row.sender_name,
-            &names.map,
-            &nickname_cache[&row.username],
-        )
     } else {
         String::new()
     };
-    let summary = decompress_or_str(&row.summary);
     json!({
-        "chat": names.display(&row.username),
-        "username": row.username,
-        "is_group": is_group,
-        "chat_type": chat_type,
-        "unread": row.unread,
-        "last_msg_type": fmt_type(row.msg_type),
-        "last_sender": last_sender,
-        "summary": strip_group_prefix(&summary),
-        "timestamp": row.timestamp,
+        "chat": names.display(&row.username), "username": row.username,
+        "is_group": is_group, "chat_type": chat_type, "unread": row.unread,
+        "last_msg_type": record.type_label, "last_sender": last_sender,
+        "summary": row.summary, "timestamp": row.timestamp,
         "time": fmt_time(row.timestamp, "%m-%d %H:%M"),
     })
 }
@@ -495,27 +478,32 @@ mod session_tests {
 
     #[test]
     fn nullable_session_fields_keep_defaults() {
-        let conn = Connection::open_in_memory().unwrap();
-        let row = conn
-            .query_row(
-                "SELECT 'wxid_demo', NULL, NULL, NULL, NULL, NULL, NULL",
-                [],
-                read_session_row,
-            )
-            .unwrap();
+        let record =
+            session_fixture("SELECT 'wxid_demo', NULL, NULL, NULL, NULL, NULL, NULL").unwrap();
+        assert_eq!(record.type_label, fmt_type(0));
+        let row = record.session;
         assert_eq!(row.username, "wxid_demo");
-        assert_eq!((row.unread, row.timestamp, row.msg_type), (0, 0, 0));
+        assert_eq!((row.unread, row.timestamp), (0, 0));
+        assert_eq!(row.last_kind, crate::business::messages::Kind::Unknown);
         assert!(row.summary.is_empty());
-        assert!(row.sender.is_empty());
-        assert!(row.sender_name.is_empty());
+        assert!(row.sender.is_none());
+        assert!(row.sender_display_hint.is_none());
     }
 
     #[test]
     fn missing_username_is_not_silently_discarded() {
-        let conn = Connection::open_in_memory().unwrap();
-        assert!(conn
-            .query_row("SELECT NULL, 0, '', 0, 0, '', ''", [], read_session_row,)
-            .is_err());
+        assert!(session_fixture("SELECT NULL, 0, '', 0, 0, '', ''").is_err());
+    }
+
+    fn session_fixture(select: &str) -> Result<SessionRow> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("session.db");
+        let conn = Connection::open(&path)?;
+        conn.execute_batch(&format!("CREATE TABLE SessionTable(username, unread_count, summary, last_timestamp, last_msg_type, last_msg_sender, last_sender_display_name); INSERT INTO SessionTable {select}"))?;
+        drop(conn);
+        crate::adapters::wechat::messages::sessions::read(&path, &HashMap::new())?
+            .pop()
+            .context("missing synthetic session")
     }
 
     #[tokio::test]
@@ -543,15 +531,10 @@ mod session_tests {
             "demo@chatroom".into(),
             HashMap::from([("wxid_demo".into(), "群昵称".into())]),
         )]);
-        let row = SessionRow {
-            username: "demo@chatroom".into(),
-            unread: 3,
-            summary: b"wxid_demo:\nhello".to_vec(),
-            timestamp: 1_700_000_000,
-            msg_type: 1,
-            sender: "wxid_demo".into(),
-            sender_name: String::new(),
-        };
+        let row = session_fixture(
+            "SELECT 'demo@chatroom', 3, 'wxid_demo:\nhello', 1700000000, 1, 'wxid_demo', ''",
+        )
+        .unwrap();
         let value = session_view(&db, &names, row, &mut nicknames).await;
         assert_eq!(value["chat"], "示例群");
         assert_eq!(value["username"], "demo@chatroom");
@@ -584,36 +567,17 @@ pub async fn q_sessions(
     with_meta: bool,
     debug_source: bool,
 ) -> Result<Value> {
-    let path = db
-        .get("session/session.db")
-        .await?
-        .context("无法解密 session.db")?;
-
-    let path2 = path.clone();
-    let limit_val = limit;
-    let rows: Vec<SessionRow> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path2)?;
-        let mut stmt = conn.prepare(
-            "SELECT username, unread_count, summary, last_timestamp,
-                    last_msg_type, last_msg_sender, last_sender_display_name
-             FROM SessionTable
-             WHERE last_timestamp > 0
-             ORDER BY last_timestamp DESC LIMIT ?",
-        )?;
-        let rows = stmt
-            .query_map([limit_val as i64], read_session_row)?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok::<_, anyhow::Error>(rows)
-    })
-    .await??;
-
-    let mut results = Vec::new();
-    let mut group_nickname_cache: HashMap<String, HashMap<String, String>> = HashMap::new();
-    for row in rows {
-        results.push(session_view(db, names, row, &mut group_nickname_cache).await);
-    }
-    let meta = session_meta(db, names, &results, with_meta || debug_source);
-    Ok(json!({ "sessions": results, "meta": meta }))
+    message_read::sessions(
+        db,
+        names,
+        crate::business::sessions::Query {
+            limit,
+            unread_only: false,
+            kinds: Vec::new(),
+        },
+        with_meta || debug_source,
+    )
+    .await
 }
 
 /// 查询聊天记录
@@ -623,180 +587,7 @@ pub async fn q_history(
     chat: &str,
     options: HistoryQuery<'_>,
 ) -> Result<Value> {
-    let HistoryQuery {
-        page: MessagePage { limit, offset },
-        filter:
-            MessageFilter {
-                since,
-                until,
-                msg_type,
-            },
-        meta: MetaOptions {
-            with_meta,
-            debug_source,
-        },
-        msg_types,
-        oldest_first,
-    } = options;
-    let multiple = msg_types.filter(|types| !types.is_empty());
-    anyhow::ensure!(
-        msg_type.is_none() || multiple.is_none(),
-        "conflicting history msg_type and msg_types"
-    );
-    anyhow::ensure!(
-        msg_types.is_none_or(|types| types.len() <= 100),
-        "too many history types"
-    );
-    let single: Vec<_> = msg_type.into_iter().collect();
-    let validated = history_selection::Selection::new(
-        limit,
-        offset,
-        since,
-        until,
-        multiple.unwrap_or(&single),
-        oldest_first,
-    )?;
-    let selection = if oldest_first || multiple.is_some() {
-        Some(validated)
-    } else {
-        None
-    };
-    let username =
-        resolve_username(chat, names).with_context(|| format!("找不到联系人: {}", chat))?;
-    let display = names.display(&username);
-    let chat_type = chat_type_of(&username, names);
-    let is_group = chat_type == "group";
-
-    let (shards, scanned) = find_msg_shards(db, names, &username).await?;
-    if shards.is_empty() {
-        // 联系人和会话可保留在目录中，但普通消息库未必保存其记录。
-        // 只有完整扫描成功后才能返回空页；缺库不能被解释成没有消息。
-        anyhow::ensure!(
-            scanned > 0
-                && scanned == names.msg_db_keys.len()
-                && current_unknown_shards(db, names).is_empty(),
-            "消息分片未完整读取，无法确认该会话是否有记录"
-        );
-    }
-
-    let mut all_msgs: Vec<Value> = Vec::new();
-    let mut shard_hits = 0usize;
-    let group_nicknames = if is_group {
-        load_group_nicknames(db, &username)
-            .await
-            .unwrap_or_default()
-    } else {
-        HashMap::new()
-    };
-    for shard in &shards {
-        let path = shard.path.clone();
-        let tname = shard.table.clone();
-        let uname = username.clone();
-        let is_group2 = is_group;
-        let names_map = names.map.clone();
-        let group_nicknames2 = group_nicknames.clone();
-        let since2 = since;
-        let until2 = until;
-        let limit2 = limit;
-        let offset2 = offset;
-        let selection2 = selection.clone();
-
-        let mut msgs: Vec<Value> = tokio::task::spawn_blocking(move || {
-            if let Some(selection) = selection2 {
-                let conn = Connection::open(&path)?;
-                let id2u = load_id2u(&conn);
-                let rows = selection.query_shard(&conn, &tname, read_history_row)?;
-                return Ok(render_history_rows(
-                    rows.into_iter().map(|row| row.value),
-                    &uname,
-                    is_group2,
-                    &id2u,
-                    &names_map,
-                    &group_nicknames2,
-                ));
-            }
-            // per-DB 软上限：offset + limit 已足够全局分页，避免大群全量加载
-            let per_db_cap = offset2
-                .checked_add(limit2)
-                .context("history page overflow")?;
-            query_messages(
-                &path,
-                &tname,
-                MessageView {
-                    username: &uname,
-                    is_group: is_group2,
-                    names: &names_map,
-                    group_nicknames: &group_nicknames2,
-                },
-                MessageFilter {
-                    since: since2,
-                    until: until2,
-                    msg_type,
-                },
-                MessagePage {
-                    limit: per_db_cap,
-                    offset: 0,
-                },
-            )
-        })
-        .await??;
-
-        // 保留原始分片身份，供媒体严格匹配；只返回逻辑路径，不暴露解密目录。
-        for message in &mut msgs {
-            message["source"] = Value::String(shard.rel_key.replace('\\', "/"));
-        }
-        if !msgs.is_empty() {
-            shard_hits += 1;
-        }
-        all_msgs.extend(msgs);
-    }
-
-    let paged = if let Some(selection) = selection {
-        selection.page(
-            all_msgs
-                .into_iter()
-                .map(|value| history_selection::Ranked {
-                    timestamp: value["timestamp"].as_i64().unwrap_or(0),
-                    value,
-                })
-                .collect(),
-        )
-    } else {
-        all_msgs.sort_by_key(|m| std::cmp::Reverse(m["timestamp"].as_i64().unwrap_or(0)));
-        let mut paged: Vec<Value> = all_msgs.into_iter().skip(offset).take(limit).collect();
-        paged.sort_by_key(|m| m["timestamp"].as_i64().unwrap_or(0));
-        paged
-    };
-    let windowed = offset > 0
-        || since.is_some()
-        || until.is_some()
-        || msg_type.is_some()
-        || multiple.is_some()
-        || oldest_first;
-    let unknown_shards = current_unknown_shards(db, names);
-    let session_ts = session_last_timestamp(db, &username).await;
-    let meta = meta_for_shards(
-        scanned,
-        &shards,
-        shard_hits,
-        unknown_shards,
-        session_ts,
-        windowed,
-        MetaOptions {
-            with_meta,
-            debug_source,
-        },
-    );
-
-    Ok(json!({
-        "chat": display,
-        "username": username,
-        "is_group": is_group,
-        "chat_type": chat_type,
-        "count": paged.len(),
-        "messages": paged,
-        "meta": meta,
-    }))
+    message_read::history(db, names, chat, options).await
 }
 
 /// 搜索消息
@@ -809,256 +600,7 @@ pub async fn q_search(
     filter: MessageFilter,
     meta: MetaOptions,
 ) -> Result<Value> {
-    let MessageFilter {
-        since,
-        until,
-        msg_type,
-    } = filter;
-    let MetaOptions {
-        with_meta,
-        debug_source,
-    } = meta;
-    let mut targets: Vec<(String, String, String, String, String)> = Vec::new(); // (rel_key, path, table, display, uname)
-    let mut scanned_rel_keys: HashSet<String> = HashSet::new();
-    let mut cache_modes: HashMap<String, String> = HashMap::new();
-    let mut shard_paths: HashMap<String, String> = HashMap::new();
-
-    if let Some(chat_names) = chats {
-        for chat_name in &chat_names {
-            if let Some(uname) = resolve_username(chat_name, names) {
-                let (shards, _) = find_msg_shards(db, names, &uname).await?;
-                for shard in shards {
-                    scanned_rel_keys.insert(shard.rel_key.clone());
-                    cache_modes
-                        .insert(shard.rel_key.clone(), shard.cache_mode.as_str().to_string());
-                    shard_paths.insert(
-                        shard.rel_key.clone(),
-                        shard.path.to_string_lossy().into_owned(),
-                    );
-                    targets.push((
-                        shard.rel_key,
-                        shard.path.to_string_lossy().into_owned(),
-                        shard.table,
-                        names.display(&uname),
-                        uname.clone(),
-                    ));
-                }
-            }
-        }
-    } else {
-        // 全局搜索：遍历所有消息 DB
-        for rel_key in &names.msg_db_keys {
-            let resolved = match db.get_with_mode(rel_key).await? {
-                Some(r) => r,
-                None => continue,
-            };
-            scanned_rel_keys.insert(rel_key.clone());
-            cache_modes.insert(rel_key.clone(), resolved.mode.as_str().to_string());
-            shard_paths.insert(
-                rel_key.clone(),
-                resolved.path.to_string_lossy().into_owned(),
-            );
-            let path2 = resolved.path.clone();
-            let md5_lookup = names.md5_to_uname.clone();
-            let names_map = names.map.clone();
-            let rel_key2 = rel_key.clone();
-
-            let table_targets: Vec<(String, String, String, String, String)> =
-                match tokio::task::spawn_blocking(move || {
-                    let conn = Connection::open(&path2)?;
-                    let mut stmt = conn.prepare(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%'",
-                    )?;
-                    let table_names: Vec<String> = stmt
-                        .query_map([], |row| row.get(0))?
-                        .filter_map(|r| r.ok())
-                        .collect();
-
-                    let re = msg_table_re();
-                    let mut result = Vec::new();
-                    for tname in table_names {
-                        if !re.is_match(&tname) {
-                            continue;
-                        }
-                        let hash = &tname[4..];
-                        let uname = md5_lookup.get(hash).cloned().unwrap_or_default();
-                        let display = if uname.is_empty() {
-                            String::new()
-                        } else {
-                            names_map
-                                .get(&uname)
-                                .cloned()
-                                .unwrap_or_else(|| uname.clone())
-                        };
-                        result.push((
-                            rel_key2.clone(),
-                            path2.to_string_lossy().into_owned(),
-                            tname,
-                            display,
-                            uname,
-                        ));
-                    }
-                    Ok::<_, anyhow::Error>(result)
-                })
-                .await
-                {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => {
-                        eprintln!("[search] skip DB {}: {}", rel_key, e);
-                        continue;
-                    }
-                    Err(e) => {
-                        eprintln!("[search] task error {}: {}", rel_key, e);
-                        continue;
-                    }
-                };
-
-            targets.extend(table_targets);
-        }
-    }
-
-    // 按 db_path 分组
-    let mut by_path: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
-    let mut path_to_rel_key: HashMap<String, String> = HashMap::new();
-    for (rel_key, p, t, d, u) in targets {
-        path_to_rel_key.insert(p.clone(), rel_key);
-        by_path.entry(p).or_default().push((t, d, u));
-    }
-
-    let mut group_usernames = HashSet::new();
-    for table_list in by_path.values() {
-        for (_, _, uname) in table_list {
-            if uname.contains("@chatroom") {
-                group_usernames.insert(uname.clone());
-            }
-        }
-    }
-    let group_nicknames_by_chat = load_group_nickname_maps(db, group_usernames)
-        .await
-        .unwrap_or_default();
-    let group_nicknames_by_chat = Arc::new(group_nicknames_by_chat);
-
-    // 多个 message_*.db 之间没有数据依赖，并发解密 + 查询。每个 DB 内部仍按
-    // table 串行（共享同一 sqlite Connection 不能跨线程移动）。原版本是 N 个 DB
-    // 串行 await，活跃账号上 N 个分片要轮 N 次磁盘 IO；现在 JoinSet 把它们一次
-    // 全部 dispatch 到 blocking pool，整体 latency 退化为单 DB 慢路径。
-    let kw = keyword.to_string();
-    let mut join_set: tokio::task::JoinSet<Result<(String, Vec<Value>)>> =
-        tokio::task::JoinSet::new();
-    for (db_path, table_list) in by_path {
-        let kw2 = kw.clone();
-        let since2 = since;
-        let until2 = until;
-        let limit2 = limit * 3;
-        let names_map2 = names.map.clone();
-        let group_nicknames_by_chat2 = Arc::clone(&group_nicknames_by_chat);
-        let db_path_for_log = db_path.clone();
-
-        join_set.spawn_blocking(move || {
-            let conn = Connection::open(&db_path)?;
-            let mut all = Vec::new();
-            let empty_group_nicknames = HashMap::new();
-            for (tname, display, uname) in &table_list {
-                let is_group = uname.contains("@chatroom");
-                let group_nicknames = group_nicknames_by_chat2
-                    .get(uname)
-                    .unwrap_or(&empty_group_nicknames);
-                match search_in_table(
-                    &conn,
-                    tname,
-                    MessageView {
-                        username: uname,
-                        is_group,
-                        names: &names_map2,
-                        group_nicknames,
-                    },
-                    &kw2,
-                    MessageFilter {
-                        since: since2,
-                        until: until2,
-                        msg_type,
-                    },
-                    limit2,
-                ) {
-                    Ok(rows) => {
-                        for mut row in rows {
-                            if row
-                                .get("chat")
-                                .map(|v| v.as_str().unwrap_or(""))
-                                .unwrap_or("")
-                                .is_empty()
-                            {
-                                if let Some(obj) = row.as_object_mut() {
-                                    obj.insert(
-                                        "chat".into(),
-                                        serde_json::Value::String(if display.is_empty() {
-                                            tname.clone()
-                                        } else {
-                                            display.clone()
-                                        }),
-                                    );
-                                }
-                            }
-                            all.push(row);
-                        }
-                    }
-                    Err(e) => {
-                        anyhow::bail!("搜索消息表失败 {} (db={}): {}", tname, db_path_for_log, e)
-                    }
-                }
-            }
-            Ok((db_path_for_log, all))
-        });
-    }
-
-    let mut results: Vec<Value> = Vec::new();
-    let mut hit_rel_keys: HashSet<String> = HashSet::new();
-    let mut first_error = None;
-    while let Some(joined) = join_set.join_next().await {
-        match joined {
-            Ok(Ok((db_path, rows))) => {
-                if !rows.is_empty() {
-                    if let Some(rel_key) = path_to_rel_key.get(&db_path) {
-                        hit_rel_keys.insert(rel_key.clone());
-                    }
-                }
-                results.extend(rows)
-            }
-            Ok(Err(e)) => {
-                if first_error.is_none() {
-                    first_error = Some(e);
-                }
-            }
-            Err(e) => {
-                if first_error.is_none() {
-                    first_error = Some(e.into());
-                }
-            }
-        }
-    }
-
-    // 等待所有分片任务退出后再报错，不能把部分成功包装成完整搜索结果。
-    if let Some(error) = first_error {
-        return Err(error);
-    }
-    results.sort_by_key(|r| std::cmp::Reverse(r["timestamp"].as_i64().unwrap_or(0)));
-    let paged: Vec<Value> = results.into_iter().take(limit).collect();
-    let unknown_shards = current_unknown_shards(db, names);
-    // 全局搜索 / keyword 过滤天然是窗口化结果，没有稳定的 chat-level latest baseline，
-    // 不参与 stale 推导；这里只保留 unknown_shards 这类 daemon 全局健康信号。
-    let meta = meta_for_global_query(
-        scanned_rel_keys.len(),
-        hit_rel_keys.len(),
-        unknown_shards,
-        true,
-        MetaOptions {
-            with_meta,
-            debug_source,
-        },
-        Some(cache_modes),
-        Some(shard_paths),
-    );
-    Ok(json!({ "keyword": keyword, "count": paged.len(), "results": paged, "meta": meta }))
+    message_read::search(db, names, keyword, chats, limit, filter, meta).await
 }
 
 /// 查询联系人
@@ -1140,344 +682,13 @@ async fn find_msg_shards(
     names: &Names,
     username: &str,
 ) -> Result<(Vec<MessageShard>, usize)> {
-    let table_name = format!("Msg_{:x}", md5::compute(username.as_bytes()));
-    if !msg_table_re().is_match(&table_name) {
-        return Ok((Vec::new(), 0));
-    }
-
-    let mut scanned = 0usize;
-    let mut results: Vec<MessageShard> = Vec::new();
-    for rel_key in &names.msg_db_keys {
-        let resolved = match db.get_with_mode(rel_key).await? {
-            Some(r) => r,
-            None => continue,
-        };
-        scanned += 1;
-        let tname = table_name.clone();
-        let path2 = resolved.path.clone();
-        let max_ts: Option<i64> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&path2)?;
-            let table_exists: Option<i64> = conn
-                .query_row(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-                    [&tname],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if table_exists.is_none() {
-                return Ok::<_, anyhow::Error>(None);
-            }
-            let ts: Option<i64> = conn.query_row(
-                &format!("SELECT MAX(create_time) FROM [{}]", tname),
-                [],
-                |row| row.get(0),
-            )?;
-            Ok(ts)
-        })
-        .await??;
-
-        if let Some(ts) = max_ts {
-            results.push(MessageShard {
-                rel_key: rel_key.clone(),
-                path: resolved.path.clone(),
-                table: table_name.clone(),
-                max_ts: ts,
-                cache_mode: resolved.mode,
-            });
-        }
-    }
-
-    // 按最大时间戳降序排列（最新的优先）
-    results.sort_by_key(|s| std::cmp::Reverse(s.max_ts));
-    Ok((results, scanned))
+    message_read::find_shards(db, names, username).await
 }
 
-fn query_messages(
-    db_path: &std::path::Path,
-    table: &str,
-    view: MessageView<'_>,
-    filter: MessageFilter,
-    page: MessagePage,
-) -> Result<Vec<Value>> {
-    let MessageFilter {
-        since,
-        until,
-        msg_type,
-    } = filter;
-    let MessagePage { limit, offset } = page;
-    let conn = Connection::open(db_path)?;
-    let id2u = load_id2u(&conn);
-
-    let mut clauses: Vec<String> = Vec::new();
-    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    if let Some(s) = since {
-        clauses.push("create_time >= ?".into());
-        params.push(Box::new(s));
-    }
-    if let Some(u) = until {
-        clauses.push("create_time <= ?".into());
-        params.push(Box::new(u));
-    }
-    if let Some(t) = msg_type {
-        push_msg_type_filter(&mut clauses, &mut params, t);
-    }
-    let where_clause = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", clauses.join(" AND "))
-    };
-
-    let sql = format!(
-        "SELECT local_id, local_type, create_time, real_sender_id,
-                message_content, WCDB_CT_message_content
-         FROM [{}] {} ORDER BY create_time DESC LIMIT ? OFFSET ?",
-        table, where_clause
-    );
-
-    params.push(Box::new(limit as i64));
-    params.push(Box::new(offset as i64));
-
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt
-        .query_map(params_ref.as_slice(), read_history_row)?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    Ok(render_history_rows(
-        rows,
-        view.username,
-        view.is_group,
-        &id2u,
-        view.names,
-        view.group_nicknames,
-    ))
-}
-
-type HistoryRow = (i64, i64, i64, i64, Vec<u8>, i64);
-
-fn read_history_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryRow> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        get_content_bytes(row, 4),
-        row.get::<_, i64>(5).unwrap_or(0),
-    ))
-}
-
-// 两种历史选行路径共用映射，保持正文、群昵称、发送者身份和 URL 字段一致。
-fn render_history_rows(
-    rows: impl IntoIterator<Item = HistoryRow>,
-    chat_username: &str,
-    is_group: bool,
-    id2u: &HashMap<i64, String>,
-    names_map: &HashMap<String, String>,
-    group_nicknames: &HashMap<String, String>,
-) -> Vec<Value> {
-    let mut result = Vec::new();
-    for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
-        let content = decompress_message(&content_bytes, ct);
-        let sender_username =
-            sender_username(real_sender_id, &content, is_group, chat_username, id2u);
-        let sender = sender_label(
-            real_sender_id,
-            &content,
-            is_group,
-            chat_username,
-            id2u,
-            names_map,
-            group_nicknames,
-        );
-        let text = fmt_content(local_id, local_type, &content, is_group);
-        let url = appmsg_url_for_message(local_type, &content);
-
-        let mut msg = json!({
-            "timestamp": ts,
-            "time": fmt_time(ts, "%Y-%m-%d %H:%M"),
-            "sender": sender,
-            "content": text,
-            "type": fmt_type(local_type),
-            "local_id": local_id,
-        });
-        if let Ok(rich) = structured_message::decode(local_type, &content, is_group) {
-            msg["rich"] = serde_json::to_value(rich)
-                .expect("structured message fields are JSON serializable");
-        }
-        add_sender_identity(
-            &mut msg,
-            is_group,
-            &sender_username,
-            names_map,
-            group_nicknames,
-        );
-        if let Some(u) = url {
-            msg["url"] = serde_json::Value::String(u);
-        }
-        result.push(msg);
-    }
-    result
-}
-
-fn search_in_table(
-    conn: &Connection,
-    table: &str,
-    view: MessageView<'_>,
-    keyword: &str,
-    filter: MessageFilter,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let MessageView {
-        username: chat_username,
-        is_group,
-        names: names_map,
-        group_nicknames,
-    } = view;
-    let MessageFilter {
-        since,
-        until,
-        msg_type,
-    } = filter;
-    let id2u = load_id2u(conn);
-    // 转义 LIKE 通配符，使用 '\' 作为 ESCAPE 字符
-    let escaped_kw = keyword
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let search_decoded_content = msg_type == Some(49);
-    let keyword_lower = keyword.to_lowercase();
-    let mut clauses: Vec<String> = Vec::new();
-    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-    if !search_decoded_content {
-        clauses.push("message_content LIKE ? ESCAPE '\\'".to_string());
-        params.push(Box::new(format!("%{}%", escaped_kw)));
-    }
-    if let Some(s) = since {
-        clauses.push("create_time >= ?".into());
-        params.push(Box::new(s));
-    }
-    if let Some(u) = until {
-        clauses.push("create_time <= ?".into());
-        params.push(Box::new(u));
-    }
-    if let Some(t) = msg_type {
-        push_msg_type_filter(&mut clauses, &mut params, t);
-    }
-    let where_clause = if clauses.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", clauses.join(" AND "))
-    };
-    let limit_clause = if search_decoded_content {
-        ""
-    } else {
-        " LIMIT ?"
-    };
-    let sql = format!(
-        "SELECT local_id, local_type, create_time, real_sender_id,
-                message_content, WCDB_CT_message_content
-         FROM [{}] {} ORDER BY create_time DESC{}",
-        table, where_clause, limit_clause
-    );
-    if !search_decoded_content {
-        params.push(Box::new(limit as i64));
-    }
-
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt
-        .query_map(params_ref.as_slice(), |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, i64>(3)?,
-                get_content_bytes(row, 4),
-                row.get::<_, i64>(5).unwrap_or(0),
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-
-    let mut result = Vec::new();
-    for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
-        let content = decompress_message(&content_bytes, ct);
-        let sender_username =
-            sender_username(real_sender_id, &content, is_group, chat_username, &id2u);
-        let sender = sender_label(
-            real_sender_id,
-            &content,
-            is_group,
-            chat_username,
-            &id2u,
-            names_map,
-            group_nicknames,
-        );
-        let text = fmt_content(local_id, local_type, &content, is_group);
-        if search_decoded_content && !matches_search_text(&content, &text, keyword, &keyword_lower)
-        {
-            continue;
-        }
-        let url = appmsg_url_for_message(local_type, &content);
-
-        let mut msg = json!({
-            "timestamp": ts,
-            "time": fmt_time(ts, "%Y-%m-%d %H:%M"),
-            "chat": "",
-            "sender": sender,
-            "content": text,
-            "type": fmt_type(local_type),
-        });
-        add_sender_identity(
-            &mut msg,
-            is_group,
-            &sender_username,
-            names_map,
-            group_nicknames,
-        );
-        if let Some(u) = url {
-            msg["url"] = serde_json::Value::String(u);
-        }
-        result.push(msg);
-        if search_decoded_content && result.len() >= limit {
-            break;
-        }
-    }
-    Ok(result)
-}
-
-fn push_msg_type_filter(
-    clauses: &mut Vec<String>,
-    params: &mut Vec<Box<dyn rusqlite::types::ToSql>>,
-    msg_type: i64,
-) {
-    clauses.push("(local_type & 4294967295) = ?".into());
-    params.push(Box::new(msg_type));
-}
-
-fn matches_search_text(raw: &str, formatted: &str, keyword: &str, keyword_lower: &str) -> bool {
-    contains_search_text(raw, keyword, keyword_lower)
-        || contains_search_text(formatted, keyword, keyword_lower)
-}
-
-fn contains_search_text(haystack: &str, keyword: &str, keyword_lower: &str) -> bool {
-    haystack.contains(keyword)
-        || (!keyword_lower.is_empty() && haystack.to_lowercase().contains(keyword_lower))
-}
-
-fn load_id2u(conn: &Connection) -> HashMap<i64, String> {
-    let mut map = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT rowid, user_name FROM Name2Id") {
-        let _ = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })
-            .map(|rows| {
-                for r in rows.flatten() {
-                    map.insert(r.0, r.1);
-                }
-            });
-    }
-    map
+fn load_id2u(conn: &Connection) -> Result<HashMap<i64, String>> {
+    Ok(crate::adapters::wechat::messages::read::read_senders(conn)?
+        .into_iter()
+        .collect())
 }
 
 async fn load_group_nicknames(
@@ -1671,40 +882,11 @@ fn decompress_message(data: &[u8], ct: i64) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
 
-fn decompress_or_str(data: &[u8]) -> String {
-    if data.is_empty() {
-        return String::new();
-    }
-    // 尝试 zstd 解压
-    if let Ok(dec) = zstd::decode_all(data) {
-        if let Ok(s) = String::from_utf8(dec) {
-            return s;
-        }
-    }
-    String::from_utf8_lossy(data).into_owned()
-}
-
 fn strip_group_prefix(s: &str) -> String {
     crate::message::split_group_content(s).1.to_owned()
 }
 
-pub fn fmt_type(t: i64) -> String {
-    let base = (t as u64 & 0xFFFFFFFF) as i64;
-    match base {
-        1 => "文本".into(),
-        3 => "图片".into(),
-        34 => "语音".into(),
-        42 => "名片".into(),
-        43 => "视频".into(),
-        47 => "表情".into(),
-        48 => "位置".into(),
-        49 => "链接/文件".into(),
-        50 => "通话".into(),
-        10000 => "系统".into(),
-        10002 => "撤回".into(),
-        _ => format!("type={}", base),
-    }
-}
+pub(crate) use crate::adapters::wechat::messages::legacy::*;
 
 #[cfg(test)]
 mod summary_regression_tests {
@@ -1827,359 +1009,10 @@ mod summary_regression_tests {
     }
 }
 
-fn fmt_content(local_id: i64, local_type: i64, content: &str, is_group: bool) -> String {
-    let base = (local_type as u64 & 0xFFFFFFFF) as i64;
-    match base {
-        3 => return format!("[图片] local_id={}", local_id),
-        47 => return "[表情]".into(),
-        10000 => return parse_sysmsg(content).unwrap_or_else(|| "[系统消息]".into()),
-        10002 => return parse_revoke(content).unwrap_or_else(|| "[撤回了一条消息]".into()),
-        _ => {}
-    }
-
-    let text = if is_group {
-        crate::message::split_group_content(content).1
-    } else {
-        content
-    };
-
-    match base {
-        34 => return crate::message::summary::voice(text),
-        43 => return crate::message::summary::video(text),
-        50 => return crate::message::summary::voip(text).unwrap_or_else(|| "[通话]".into()),
-        42 => return crate::message::summary::namecard(text).unwrap_or_else(|| "[名片]".into()),
-        48 => return crate::message::summary::location(text).unwrap_or_else(|| "[位置]".into()),
-        _ => {}
-    }
-
-    if base == 49 && text.contains("<appmsg") {
-        if let Some(parsed) = parse_appmsg(text) {
-            return parsed;
-        }
-    }
-    text.to_string()
-}
-
-/// 解析撤回消息 XML，提取被撤回的内容摘要
-/// `<sysmsg type="revokemsg"><revokemsg><content>...</content></revokemsg></sysmsg>`
-fn parse_revoke(xml: &str) -> Option<String> {
-    let inner = extract_xml_text(xml, "content")?;
-    // 有时 content 是 "xxx recalled a message" 英文，有时是中文
-    if inner.is_empty() {
-        return Some("[撤回了一条消息]".into());
-    }
-    // 尝试简化：如果是 XML 格式的撤回内容，直接显示摘要
-    Some(format!(
-        "[撤回] {}",
-        inner.chars().take(30).collect::<String>()
-    ))
-}
-
-/// 解析系统消息 XML（群通知等）
-fn parse_sysmsg(xml: &str) -> Option<String> {
-    // 常见格式：<sysmsg type="...">...</sysmsg>
-    // 尝试提取 content 标签
-    if let Some(s) = extract_xml_text(xml, "content") {
-        if !s.is_empty() {
-            return Some(format!("[系统] {}", s.chars().take(50).collect::<String>()));
-        }
-    }
-    // 纯文本系统消息（无 XML）
-    if !xml.starts_with('<') {
-        return Some(format!(
-            "[系统] {}",
-            xml.chars().take(50).collect::<String>()
-        ));
-    }
-    Some("[系统消息]".into())
-}
-
-fn parse_appmsg(text: &str) -> Option<String> {
-    if let Some(parsed) = parse_appmsg_dom(text) {
-        return Some(parsed);
-    }
-    parse_appmsg_legacy(text)
-}
-
-fn parse_appmsg_dom(text: &str) -> Option<String> {
-    let doc = Document::parse(text).ok()?;
-    let appmsg = doc.descendants().find(|node| node.has_tag_name("appmsg"))?;
-    let title = xml_text(xml_child(appmsg, "title")).unwrap_or_default();
-    let atype = xml_text(xml_child(appmsg, "type")).unwrap_or_default();
-    match atype.as_str() {
-        "2000" => Some(crate::message::transfer::summary(appmsg, &title)),
-        "6" => Some(format_file_appmsg(appmsg, &title)),
-        "19" => Some(format_record_appmsg(appmsg, &title)),
-        _ => None,
-    }
-}
-
-fn parse_appmsg_legacy(text: &str) -> Option<String> {
-    let title = extract_xml_text(text, "title")?;
-    let atype = extract_xml_text(text, "type").unwrap_or_default();
-    match atype.as_str() {
-        "6" => Some(if !title.is_empty() {
-            format!("[文件] {}", title)
-        } else {
-            "[文件]".into()
-        }),
-        "57" => {
-            let ref_content = quote_refermsg_content(text)
-                .or_else(|| {
-                    extract_xml_text(text, "content").and_then(|s| quote_content_text(&s, 40))
-                })
-                .unwrap_or_default();
-            let quote = if !title.is_empty() {
-                format!("[引用] {}", title)
-            } else {
-                "[引用]".into()
-            };
-            if !ref_content.is_empty() {
-                Some(format!("{}\n  \u{21b3} {}", quote, ref_content))
-            } else {
-                Some(quote)
-            }
-        }
-        "33" | "36" | "44" => Some(if !title.is_empty() {
-            format!("[小程序] {}", title)
-        } else {
-            "[小程序]".into()
-        }),
-        _ => Some(if !title.is_empty() {
-            format!("[链接] {}", title)
-        } else {
-            "[链接/文件]".into()
-        }),
-    }
-}
-
-fn format_file_appmsg<'a, 'input>(appmsg: Node<'a, 'input>, title: &str) -> String {
-    let mut meta = Vec::new();
-    if let Some(size) = xml_child(appmsg, "appattach")
-        .and_then(|attach| xml_text(xml_child(attach, "totallen")))
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|size| *size > 0)
-    {
-        meta.push(format_byte_size(size));
-    }
-    if let Some(ext) = xml_child(appmsg, "appattach")
-        .and_then(|attach| xml_text(xml_child(attach, "fileext")))
-        .filter(|ext| !ext.is_empty())
-    {
-        meta.push(ext);
-    }
-
-    let base = if !title.is_empty() {
-        format!("[文件] {}", title)
-    } else {
-        "[文件]".into()
-    };
-    if meta.is_empty() {
-        base
-    } else {
-        format!("{} ({})", base, meta.join(", "))
-    }
-}
-
-fn format_record_appmsg<'a, 'input>(appmsg: Node<'a, 'input>, title: &str) -> String {
-    let items = record_item_lines(appmsg);
-    let mut header = if !title.is_empty() {
-        format!("[合并聊天记录] {}", title)
-    } else {
-        "[合并聊天记录]".into()
-    };
-    if !items.is_empty() {
-        header.push_str(&format!(" ({}条)", items.len()));
-    }
-
-    let mut lines = vec![header];
-    if items.is_empty() {
-        if let Some(desc) = xml_text(xml_child(appmsg, "des")).filter(|desc| !desc.is_empty()) {
-            lines.push(format!("  {}", collapse_text(&desc, 120)));
-        }
-    } else {
-        for item in items.iter().take(10) {
-            lines.push(format!("  - {}", item));
-        }
-        if items.len() > 10 {
-            lines.push(format!("  - ... 还有{}条", items.len() - 10));
-        }
-    }
-    lines.join("\n")
-}
-
-fn record_item_lines<'a, 'input>(appmsg: Node<'a, 'input>) -> Vec<String> {
-    let mut lines = record_item_lines_from_node(appmsg);
-    if !lines.is_empty() {
-        return lines;
-    }
-
-    let Some(record_xml) =
-        xml_text(xml_child(appmsg, "recorditem")).filter(|value| !value.is_empty())
-    else {
-        return Vec::new();
-    };
-    let unescaped = unescape_html(&record_xml);
-    for candidate in [&record_xml, &unescaped] {
-        if let Ok(doc) = Document::parse(candidate) {
-            lines = record_item_lines_from_node(doc.root_element());
-            if !lines.is_empty() {
-                break;
-            }
-        }
-    }
-    lines
-}
-
-fn record_item_lines_from_node<'a, 'input>(node: Node<'a, 'input>) -> Vec<String> {
-    node.descendants()
-        .filter(|child| child.has_tag_name("dataitem"))
-        .filter_map(format_record_item)
-        .collect()
-}
-
-fn format_record_item<'a, 'input>(item: Node<'a, 'input>) -> Option<String> {
-    let name = first_child_text(item, &["sourcename", "datasrcname", "sourceusername"]);
-    let desc = first_child_text(item, &["datadesc", "datatitle", "datafmt"]).or_else(|| {
-        item.attribute("datatype")
-            .and_then(record_datatype_label)
-            .map(str::to_string)
-    })?;
-    let desc = collapse_text(&desc, 100);
-    if let Some(name) = name.filter(|value| !value.is_empty()) {
-        Some(format!("{}: {}", name, desc))
-    } else {
-        Some(desc)
-    }
-}
-
-fn first_child_text<'a, 'input>(node: Node<'a, 'input>, tags: &[&str]) -> Option<String> {
-    tags.iter()
-        .find_map(|tag| xml_text(xml_child(node, tag)))
-        .filter(|value| !value.is_empty())
-}
-
-fn record_datatype_label(datatype: &str) -> Option<&'static str> {
-    match datatype {
-        "1" => Some("[文本]"),
-        "2" => Some("[图片]"),
-        "3" => Some("[语音]"),
-        "4" => Some("[视频]"),
-        "6" => Some("[文件]"),
-        "17" => Some("[链接]"),
-        _ => None,
-    }
-}
-
-fn quote_refermsg_content(text: &str) -> Option<String> {
-    let refer = extract_xml_text(text, "refermsg")?;
-    let content = extract_xml_text(&refer, "content")
-        .and_then(|s| quote_content_text(&s, 80))
-        .or_else(|| {
-            extract_xml_text(&refer, "type")
-                .and_then(|t| quote_refermsg_type_label(&t).map(str::to_string))
-        })?;
-    match extract_xml_text(&refer, "displayname") {
-        Some(name) if !name.is_empty() => Some(format!("{}: {}", name, content)),
-        _ => Some(content),
-    }
-}
-
-fn quote_content_text(raw: &str, max_chars: usize) -> Option<String> {
-    let unescaped = unescape_html(raw);
-    if unescaped.contains("<appmsg") {
-        if let Some(parsed) = parse_appmsg(&unescaped) {
-            return Some(parsed);
-        }
-    }
-    let collapsed = collapse_text(&unescaped, max_chars);
-    if collapsed.is_empty() {
-        None
-    } else {
-        Some(collapsed)
-    }
-}
-
-fn quote_refermsg_type_label(t: &str) -> Option<&'static str> {
-    match t {
-        "1" => None,
-        "3" => Some("[图片]"),
-        "34" => Some("[语音]"),
-        "43" => Some("[视频]"),
-        "47" => Some("[表情]"),
-        "49" => Some("[链接/文件]"),
-        _ => None,
-    }
-}
-
-fn collapse_text(text: &str, max_chars: usize) -> String {
-    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.chars().count() > max_chars {
-        format!(
-            "{}...",
-            collapsed.chars().take(max_chars).collect::<String>()
-        )
-    } else {
-        collapsed
-    }
-}
-
-fn format_byte_size(bytes: u64) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-    const GB: f64 = MB * 1024.0;
-    let bytes_f = bytes as f64;
-    if bytes_f >= GB {
-        format_decimal_unit(bytes_f / GB, "GB")
-    } else if bytes_f >= MB {
-        format_decimal_unit(bytes_f / MB, "MB")
-    } else if bytes_f >= KB {
-        format_decimal_unit(bytes_f / KB, "KB")
-    } else {
-        format!("{} B", bytes)
-    }
-}
-
-fn format_decimal_unit(value: f64, unit: &str) -> String {
-    let mut s = format!("{:.1}", value);
-    if s.ends_with(".0") {
-        s.truncate(s.len() - 2);
-    }
-    format!("{} {}", s, unit)
-}
-
-use crate::adapters::wechat::legacy_text::{
-    element_text as extract_xml_text, strip_cdata as strip_xml_cdata,
-    unescape_entities as unescape_html,
-};
-
-fn appmsg_url_for_message(local_type: i64, content: &str) -> Option<String> {
-    if (local_type as u64 & 0xFFFFFFFF) != 49 {
-        return None;
-    }
-    extract_appmsg_url(content)
-}
-
 #[cfg(test)]
 use crate::adapters::wechat::favorites::extract_url as extract_favorite_url;
 
 /// 从 appmsg XML 中提取链接 URL（优先取 <url>，fallback 到 <url1>）
-fn extract_appmsg_url(text: &str) -> Option<String> {
-    let xml = strip_group_prefix(text);
-    if !xml.contains("<appmsg") {
-        return None;
-    }
-    if extract_xml_text(&xml, "type").as_deref() == Some("57") {
-        return None;
-    }
-    let url = extract_xml_text(&xml, "url")
-        .or_else(|| extract_xml_text(&xml, "url1"))
-        .map(|s| unescape_html(strip_xml_cdata(&s)))?;
-    if url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://")) {
-        return None;
-    }
-    Some(url)
-}
 
 #[cfg(test)]
 mod appmsg_tests {
@@ -2655,86 +1488,32 @@ pub async fn q_unread(
     with_meta: bool,
     debug_source: bool,
 ) -> Result<Value> {
-    let path = db
-        .get("session/session.db")
-        .await?
-        .context("无法解密 session.db")?;
-
-    // 归一化 filter：小写 + 去除别名。返回 None 代表"不过滤"。
-    let filter_set: Option<std::collections::HashSet<&'static str>> = filter.and_then(|v| {
-        let mut set = std::collections::HashSet::new();
-        for raw in v {
-            match raw.trim().to_lowercase().as_str() {
-                "" | "all" => return None,
-                "private" => {
-                    set.insert("private");
-                }
-                "group" => {
-                    set.insert("group");
-                }
-                "official" | "official_account" => {
-                    set.insert("official_account");
-                }
-                "folded" | "fold" => {
-                    set.insert("folded");
-                }
-                _ => {} // 未知值忽略，避免拼错导致什么都不返回
+    use crate::business::contacts::ContactKind;
+    let mut kinds = Vec::new();
+    for value in filter.unwrap_or_default() {
+        match value.trim().to_lowercase().as_str() {
+            "" | "all" => {
+                kinds.clear();
+                break;
             }
+            "private" => kinds.push(ContactKind::Person),
+            "group" => kinds.push(ContactKind::Group),
+            "official" | "official_account" => kinds.push(ContactKind::Official),
+            "folded" | "fold" => kinds.push(ContactKind::Folded),
+            _ => {}
         }
-        if set.is_empty() {
-            None
-        } else {
-            Some(set)
-        }
-    });
-
-    // 有 filter 时必须全表扫：SQL LIMIT 会把想要的公众号先筛掉。
-    // 无 filter 时保留 LIMIT，避免重度用户的大量未读会话拖慢默认路径。
-    let has_filter = filter_set.is_some();
-    let limit_val = limit;
-    let rows: Vec<SessionRow> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path)?;
-        let sql = if has_filter {
-            "SELECT username, unread_count, summary, last_timestamp,
-                    last_msg_type, last_msg_sender, last_sender_display_name
-             FROM SessionTable WHERE unread_count > 0
-             ORDER BY last_timestamp DESC"
-        } else {
-            "SELECT username, unread_count, summary, last_timestamp,
-                    last_msg_type, last_msg_sender, last_sender_display_name
-             FROM SessionTable WHERE unread_count > 0
-             ORDER BY last_timestamp DESC LIMIT ?"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = if has_filter {
-            stmt.query_map([], read_session_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        } else {
-            stmt.query_map([limit_val as i64], read_session_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        Ok::<_, anyhow::Error>(rows)
-    })
-    .await??;
-
-    let mut results = Vec::new();
-    let mut group_nickname_cache: HashMap<String, HashMap<String, String>> = HashMap::new();
-    for row in rows {
-        let chat_type = chat_type_of(&row.username, names);
-        if let Some(ref set) = filter_set {
-            if !set.contains(chat_type) {
-                continue;
-            }
-        }
-        if results.len() >= limit {
-            break;
-        }
-
-        results.push(session_view(db, names, row, &mut group_nickname_cache).await);
     }
-    let total = results.len();
-    let meta = session_meta(db, names, &results, with_meta || debug_source);
-    Ok(json!({ "sessions": results, "total": total, "meta": meta }))
+    message_read::sessions(
+        db,
+        names,
+        crate::business::sessions::Query {
+            limit,
+            unread_only: true,
+            kinds,
+        },
+        with_meta || debug_source,
+    )
+    .await
 }
 
 /// 查询群成员：优先从 contact.db 的 chatroom_member/chat_room 表获取完整列表，
@@ -2797,276 +1576,17 @@ pub async fn q_new_messages(
     with_meta: bool,
     debug_source: bool,
 ) -> Result<Value> {
-    // 首次运行（state=None）或未见过的会话，用 24h 前作为起点，
-    // 避免第一次运行时把全量历史消息涌入
-    let fallback_ts = chrono::Utc::now().timestamp() - 86400;
-
-    // 1. 从 session.db 读取所有会话的当前 last_timestamp
-    let session_path = db
-        .get("session/session.db")
-        .await?
-        .context("无法解密 session.db")?;
-
-    let all_sessions: Vec<(String, i64)> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&session_path)?;
-        let mut stmt = conn.prepare(
-            "SELECT username, last_timestamp FROM SessionTable WHERE last_timestamp > 0",
-        )?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1).unwrap_or(0)))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok::<_, anyhow::Error>(rows)
-    })
-    .await??;
-
-    // 2. 记录 session.db 的当前快照（用于构建 new_state 基础）
-    let session_ts_map: HashMap<String, i64> = all_sessions
-        .iter()
-        .map(|(u, ts)| (u.clone(), *ts))
-        .collect();
-
-    // 3. 找出有新消息的会话
-    // 不在 state 中的会话（首次运行或新会话）以 fallback_ts 为基准
-    let changed: Vec<(String, i64)> = all_sessions
-        .into_iter()
-        .filter(|(uname, ts)| {
-            let last_known = state
-                .as_ref()
-                .and_then(|m| m.get(uname))
-                .copied()
-                .unwrap_or(fallback_ts);
-            *ts > last_known
-        })
-        .collect();
-
-    let unknown_shards = current_unknown_shards(db, names);
-
-    if changed.is_empty() {
-        let meta = meta_for_global_query(
-            0,
-            0,
-            unknown_shards,
-            true,
-            MetaOptions {
-                with_meta,
-                debug_source,
-            },
-            Some(HashMap::new()),
-            Some(HashMap::new()),
-        );
-        return Ok(json!({
-            "count": 0,
-            "messages": [],
-            "new_state": session_ts_map,
-            "meta": meta,
-        }));
-    }
-
-    // 4. 只查询有新消息的会话的消息表
-    // per_table_limit 取 limit*5 防止单表截断，最终由全局 truncate 收尾
-    let per_table_limit = limit.saturating_mul(5).max(200);
-    let mut all_msgs: Vec<Value> = Vec::new();
-    let mut scanned_rel_keys: HashSet<String> = HashSet::new();
-    let mut hit_rel_keys: HashSet<String> = HashSet::new();
-    let mut cache_modes: HashMap<String, String> = HashMap::new();
-    let mut shard_paths: HashMap<String, String> = HashMap::new();
-
-    for (uname, _) in &changed {
-        let since_ts = state
-            .as_ref()
-            .and_then(|m| m.get(uname))
-            .copied()
-            .unwrap_or(fallback_ts);
-        let (shards, _) = find_msg_shards(db, names, uname).await?;
-        if shards.is_empty() {
-            continue;
-        }
-        for shard in &shards {
-            scanned_rel_keys.insert(shard.rel_key.clone());
-            cache_modes.insert(shard.rel_key.clone(), shard.cache_mode.as_str().to_string());
-            shard_paths.insert(
-                shard.rel_key.clone(),
-                shard.path.to_string_lossy().into_owned(),
-            );
-        }
-
-        let display = names.display(uname);
-        let chat_type = chat_type_of(uname, names);
-        let is_group = chat_type == "group";
-        let group_nicknames = if is_group {
-            load_group_nicknames(db, uname).await.unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-
-        for shard in &shards {
-            let path = shard.path.clone();
-            let tname = shard.table.clone();
-            let uname2 = uname.clone();
-            let display2 = display.clone();
-            let names_map = names.map.clone();
-            let group_nicknames2 = group_nicknames.clone();
-            let tname_for_log = tname.clone();
-            let rel_key_for_hit = shard.rel_key.clone();
-            let message_source = shard.rel_key.replace('\\', "/");
-
-            let msgs: Vec<Value> = match tokio::task::spawn_blocking(move || {
-                let conn = Connection::open(&path)?;
-                let id2u = load_id2u(&conn);
-
-                let sql = format!(
-                    "SELECT local_id, local_type, create_time, real_sender_id,
-                            message_content, WCDB_CT_message_content
-                     FROM [{}] WHERE create_time > ? ORDER BY create_time ASC LIMIT ?",
-                    tname
-                );
-                let rows: Vec<_> = conn
-                    .prepare(&sql)
-                    .and_then(|mut stmt| {
-                        stmt.query_map(rusqlite::params![since_ts, per_table_limit as i64], |row| {
-                            Ok((
-                                row.get::<_, i64>(0)?,
-                                row.get::<_, i64>(1)?,
-                                row.get::<_, i64>(2)?,
-                                row.get::<_, i64>(3)?,
-                                get_content_bytes(row, 4),
-                                row.get::<_, i64>(5).unwrap_or(0),
-                            ))
-                        })
-                        .map(|it| it.filter_map(|r| r.ok()).collect())
-                    })
-                    .unwrap_or_default();
-
-                let mut result = Vec::new();
-                for (local_id, local_type, ts, real_sender_id, content_bytes, ct) in rows {
-                    let content = decompress_message(&content_bytes, ct);
-                    let sender_username =
-                        sender_username(real_sender_id, &content, is_group, &uname2, &id2u);
-                    let sender = sender_label(
-                        real_sender_id,
-                        &content,
-                        is_group,
-                        &uname2,
-                        &id2u,
-                        &names_map,
-                        &group_nicknames2,
-                    );
-                    let text = fmt_content(local_id, local_type, &content, is_group);
-                    let url = appmsg_url_for_message(local_type, &content);
-                    let mut msg = json!({
-                        "chat": display2,
-                        "username": uname2,
-                        "local_id": local_id,
-                        "source": message_source,
-                        "is_group": is_group,
-                        "chat_type": chat_type,
-                        "timestamp": ts,
-                        "time": fmt_time(ts, "%Y-%m-%d %H:%M"),
-                        "sender": sender,
-                        "content": text,
-                        "type": fmt_type(local_type),
-                    });
-                    if let Ok(rich) = structured_message::decode(local_type, &content, is_group) {
-                        msg["rich"] = serde_json::to_value(rich)
-                            .expect("structured message fields are JSON serializable");
-                    }
-                    add_sender_identity(
-                        &mut msg,
-                        is_group,
-                        &sender_username,
-                        &names_map,
-                        &group_nicknames2,
-                    );
-                    if let Some(u) = url {
-                        msg["url"] = serde_json::Value::String(u);
-                    }
-                    result.push(msg);
-                }
-                Ok::<_, anyhow::Error>(result)
-            })
-            .await
-            {
-                Ok(Ok(v)) => v,
-                Ok(Err(e)) => {
-                    eprintln!("[new-messages] skip {}: {}", tname_for_log, e);
-                    continue;
-                }
-                Err(e) => {
-                    eprintln!("[new-messages] task error: {}", e);
-                    continue;
-                }
-            };
-
-            if !msgs.is_empty() {
-                hit_rel_keys.insert(rel_key_for_hit);
-            }
-            all_msgs.extend(msgs);
-        }
-    }
-
-    all_msgs.sort_by_key(|m| m["timestamp"].as_i64().unwrap_or(0));
-    all_msgs.truncate(limit);
-
-    // 5. 重建 new_state，防止全局 limit 截断导致消息永久丢失：
-    //    - 未变化的会话：沿用 session.db 的 last_timestamp（即 session_ts_map）
-    //    - 变化但全被截断（无消息在最终结果中）：
-    //        * 后续调用 (state=Some)：保留旧 since_ts，下次重试拿这部分消息
-    //        * 首次调用 (state=None)：advance 到 session_ts，避免 since_ts 锁死在
-    //          fallback_ts 导致后续每次都回扫 24h。窗口会随调用次数 + 时间累积扩大，
-    //          性能持续衰退。代价：首次 + 被截断会话的老消息看不到，需走 `wx history`。
-    //    - 变化且有消息返回：advance 到该会话在结果中的最大 timestamp（增量 fetch 标准语义）
-    let returned_max_ts: HashMap<String, i64> = {
-        let mut m: HashMap<String, i64> = HashMap::new();
-        for msg in &all_msgs {
-            if let (Some(u), Some(ts)) = (msg["username"].as_str(), msg["timestamp"].as_i64()) {
-                let e = m.entry(u.to_string()).or_insert(0);
-                if ts > *e {
-                    *e = ts;
-                }
-            }
-        }
-        m
-    };
-    let mut new_state = session_ts_map;
-    for (uname, _) in &changed {
-        let in_results = returned_max_ts.contains_key(uname);
-        let prev = state.as_ref().and_then(|m| m.get(uname)).copied();
-        let next_ts = match (in_results, prev) {
-            (true, _) => {
-                // 有消息返回：advance 到 returned_max；返回的最大 ts 通常 ≤ session_ts，
-                // 这样下次查 `since > returned_max` 仍能拿到 returned_max..session_ts 的截断尾巴。
-                returned_max_ts[uname]
-            }
-            (false, Some(prev)) => prev, // 后续 + 截断：保持旧 since
-            (false, None) => {
-                // 首次 + 截断：advance 到 session_ts 兜底，避免 since_ts 锁死。
-                new_state.get(uname).copied().unwrap_or(fallback_ts)
-            }
-        };
-        new_state.insert(uname.clone(), next_ts);
-    }
-
-    let meta = meta_for_global_query(
-        scanned_rel_keys.len(),
-        hit_rel_keys.len(),
-        unknown_shards,
-        true,
+    message_read::new_messages(
+        db,
+        names,
+        state,
+        limit,
         MetaOptions {
             with_meta,
             debug_source,
         },
-        Some(cache_modes),
-        Some(shard_paths),
-    );
-
-    Ok(json!({
-        "count": all_msgs.len(),
-        "messages": all_msgs,
-        "new_state": new_state,
-        "meta": meta,
-    }))
+    )
+    .await
 }
 
 /// Project the shared account-scoped favorite query into the legacy wire shape.
@@ -3174,7 +1694,7 @@ pub async fn q_stats(
         let result: (i64, HashMap<String, i64>, HashMap<String, i64>, [i64; 24]) =
             tokio::task::spawn_blocking(move || {
                 let conn = Connection::open(&path)?;
-                let id2u = load_id2u(&conn);
+                let id2u = load_id2u(&conn)?;
 
                 let mut clauses = Vec::new();
                 let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -3383,18 +1903,6 @@ pub async fn q_sns_notifications(
 
 use crate::adapters::wechat::moments::query_xml::ParsedPost;
 
-fn xml_child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'input>> {
-    node.children()
-        .find(|child| child.is_element() && child.has_tag_name(tag))
-}
-
-fn xml_text<'a, 'input>(node: Option<Node<'a, 'input>>) -> Option<String> {
-    node.and_then(|n| n.text())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-}
-
 fn post_to_value(p: ParsedPost, names: &Names) -> Value {
     let author = if p.author_username.is_empty() {
         String::new()
@@ -3588,102 +2096,7 @@ mod sns_business_projection_tests {
 
 // ─── 公众号文章查询 ───────────────────────────────────────────────────────────
 
-/// 一条公众号文章的解析产物
-#[derive(Debug)]
-struct BizArticle {
-    /// 接收该推送的时间戳（即消息的 create_time）
-    recv_time: i64,
-    /// 公众号 username
-    account_username: String,
-    /// 文章标题
-    title: String,
-    /// 文章链接
-    url: String,
-    /// 摘要
-    digest: String,
-    /// 封面图
-    cover: String,
-    /// 文章发布时间（pub_time，单位秒）
-    pub_time: i64,
-}
-
-/// 从 biz_message 表的单条 XML 解析出全部 article items
-fn parse_biz_xml_items(recv_time: i64, account_username: &str, xml: &str) -> Vec<BizArticle> {
-    let mut items = Vec::new();
-    let mut search_from = 0;
-    while let Some(item_start) = xml[search_from..].find("<item>") {
-        let abs_start = search_from + item_start;
-        let Some(item_end) = xml[abs_start..].find("</item>") else {
-            break;
-        };
-        let abs_end = abs_start + item_end + 7;
-        let item_xml = &xml[abs_start..abs_end];
-
-        let title = extract_cdata(item_xml, "title").unwrap_or_default();
-        let url = extract_cdata(item_xml, "url").unwrap_or_default();
-        // Skip items with no URL or empty title (e.g. payment entries)
-        if url.is_empty() || title.is_empty() {
-            search_from = abs_end;
-            continue;
-        }
-        let digest = extract_cdata(item_xml, "digest").unwrap_or_default();
-        let cover = extract_cdata(item_xml, "cover").unwrap_or_default();
-        let pub_time = extract_xml_text(item_xml, "pub_time")
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(recv_time);
-
-        items.push(BizArticle {
-            recv_time,
-            account_username: account_username.to_string(),
-            title,
-            url,
-            digest,
-            cover,
-            pub_time,
-        });
-        search_from = abs_end;
-    }
-    items
-}
-
-/// 提取 CDATA 或普通文本内容： `<tag><![CDATA[...]]></tag>` 或 `<tag>...</tag>`
-///
-/// 注意: 内容匹配到 `</tag>` 之前的内容。CDATA 块中的 "]]"已在 "]]\x3e" 之前，
-/// 所以 inner 为 `<![CDATA[content]]>` 或 `<![CDATA[content]]` （如果 ">" 被 close tag 吸掉）
-fn extract_cdata(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}>", tag);
-    let close = format!("</{}>", tag);
-    let start = xml.find(&open)? + open.len();
-    let end = xml[start..].find(&close)?;
-    let inner = xml[start..start + end].trim();
-    if let Some(body) = inner.strip_prefix("<![CDATA[") {
-        // inner = `<![CDATA[content]]>` → strip 9-char `<![CDATA[` prefix + 3-char `]]>` suffix
-        // Strip `]]>` (normal) or `]]` (edge case)
-        let cdata_end = b"]]>";
-        let cdata_end2 = b"]]";
-        let content: &str = if body.as_bytes().ends_with(cdata_end) {
-            &body[..body.len() - 3]
-        } else if body.as_bytes().ends_with(cdata_end2) {
-            &body[..body.len() - 2]
-        } else {
-            body
-        };
-        let content = content.trim();
-        if content.is_empty() {
-            None
-        } else {
-            Some(content.to_string())
-        }
-    } else if inner.is_empty() {
-        None
-    } else {
-        Some(unescape_html(inner))
-    }
-}
-
-/// 查询公众号文章推送（biz_message_*.db 分片）
-///
-/// 每条消息可能包含多篇文章（多图文推送）。返回所有文章展开就的平底列表。
+/// Query local official-account pushes through the shared message snapshot.
 pub async fn q_biz_articles(
     db: &DbCache,
     names: &Names,
@@ -3693,236 +2106,71 @@ pub async fn q_biz_articles(
     until: Option<i64>,
     unread: bool,
 ) -> Result<Value> {
-    let mut biz_paths = Vec::new();
-    for rel_key in &names.biz_msg_db_keys {
-        if let Some(path) = db.get(rel_key).await? {
-            biz_paths.push(path);
-        }
-    }
-    if biz_paths.is_empty() {
-        return Err(anyhow::anyhow!(
-            "无法解密任何 biz_message_*.db，请确认 all_keys.json 包含对应密钥"
-        ));
-    }
-
-    // 开启 --unread：从 session.db 拿“公众号 + unread_count>0”的 username 子集，
-    // 作为合集过滤（与 --account 取交集），后续结果按 account_username 去重取顶 1 篇。
-    let unread_usernames: Option<std::collections::HashSet<String>> = if unread {
-        let session_path = db
+    use crate::{
+        adapters::wechat::{articles as adapter, messages::Snapshot},
+        business::{articles, messages::SourceKind},
+    };
+    let prepared = message_read::prepare(db, names, SourceKind::OfficialPush).await?;
+    let unread_publishers = if unread {
+        let path = db
             .get("session/session.db")
             .await?
-            .context("无法解密 session.db")?;
-        let session_path2 = session_path.clone();
-        let unread_rows: Vec<String> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&session_path2)?;
-            let mut stmt =
-                conn.prepare("SELECT username FROM SessionTable WHERE unread_count > 0")?;
-            let rows: Vec<String> = stmt
-                .query_map([], |row| row.get::<_, String>(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-            Ok::<_, anyhow::Error>(rows)
+            .context("unread article source unavailable")?;
+        let values = tokio::task::spawn_blocking(move || {
+            let connection =
+                Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            crate::adapters::wechat::messages::sessions::unread_publishers(&connection)
         })
         .await??;
-        // 仅保留公众号类型的未读会话
-        let set: std::collections::HashSet<String> = unread_rows
-            .into_iter()
-            .filter(|u| chat_type_of(u, names) == "official_account")
-            .collect();
-        if set.is_empty() {
-            // 没有未读公众号 → 直接空返回，避免打 biz 表扫描
-            return Ok(json!({ "count": 0, "articles": [] }));
-        }
-        Some(set)
+        Some(
+            values
+                .into_iter()
+                .filter(|username| chat_type_of(username, names) == "official_account")
+                .collect(),
+        )
     } else {
         None
     };
-
-    // 1. 从全部 biz shard 的 Name2Id 表收集 username，再推导 md5 -> username
-    let biz_paths2 = biz_paths.clone();
-    let biz_usernames: HashSet<String> = tokio::task::spawn_blocking(move || {
-        let mut usernames = HashSet::new();
-        for biz_path in biz_paths2 {
-            let conn = Connection::open(&biz_path)?;
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT user_name FROM Name2Id \
-                 WHERE user_name IS NOT NULL AND user_name != ''",
-            )?;
-            let rows: Vec<String> = stmt
-                .query_map([], |row| row.get::<_, String>(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-            usernames.extend(rows);
-        }
-        Ok::<_, anyhow::Error>(usernames)
-    })
-    .await??;
-
-    // 构建 md5(username) -> username 映射
-    let md5_to_uname: HashMap<String, String> = biz_usernames
-        .iter()
-        .map(|u| (format!("{:x}", md5::compute(u.as_bytes())), u.clone()))
-        .collect();
-
-    // 2. 如果 指定了 --account，找到匹配的 username 列表
-    let account_low = account.as_deref().map(|s| s.to_lowercase());
-    let mut target_usernames: Option<Vec<String>> = account_low.as_ref().map(|low| {
-        biz_usernames
-            .iter()
-            .filter(|u| {
-                let display = names.display(u);
-                display.to_lowercase().contains(low.as_str())
-                    || u.to_lowercase().contains(low.as_str())
-            })
-            .cloned()
-            .collect()
-    });
-
-    // --unread 与 --account 取交集（进一步缩小范围）
-    if let Some(ref unread_set) = unread_usernames {
-        target_usernames = Some(match target_usernames.take() {
-            Some(acc_list) => acc_list
-                .into_iter()
-                .filter(|u| unread_set.contains(u))
-                .collect(),
-            None => unread_set.iter().cloned().collect(),
-        });
-        // 交集为空 → 提前返回
-        if target_usernames
-            .as_ref()
-            .map(|v| v.is_empty())
-            .unwrap_or(false)
-        {
-            return Ok(json!({ "count": 0, "articles": [] }));
-        }
-    }
-
-    // 3. 进行数据库查询
-    let biz_paths3 = biz_paths;
-    let since2 = since;
-    let until2 = until;
-    let target_hashes: Option<Vec<String>> = target_usernames.as_ref().map(|unames| {
-        unames
-            .iter()
-            .map(|u| format!("{:x}", md5::compute(u.as_bytes())))
-            .collect()
-    });
-
-    let rows: Vec<(String, i64, i64, Vec<u8>, i64)> = tokio::task::spawn_blocking(move || {
-        let re = regex::Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap();
-        let mut all_rows: Vec<(String, i64, i64, Vec<u8>, i64)> = Vec::new();
-
-        for biz_path in biz_paths3 {
-            let conn = Connection::open(&biz_path)?;
-            let mut stmt = conn.prepare(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'Msg_%'",
-            )?;
-            let table_names: Vec<String> = stmt
-                .query_map([], |row| row.get(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            for tname in &table_names {
-                if !re.is_match(tname) {
-                    continue;
-                }
-                let hash = &tname[4..];
-
-                // account 过滤
-                if let Some(ref hashes) = target_hashes {
-                    if !hashes.iter().any(|h| h == hash) {
-                        continue;
-                    }
-                }
-
-                let username = md5_to_uname.get(hash).cloned().unwrap_or_default();
-
-                // 构建过滤条件
-                let mut clauses: Vec<String> = Vec::new();
-                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-                // local_type & 0xFFFFFFFF = 49 是 appmsg（公众号文章）
-                clauses.push("(local_type & 4294967295) = 49".to_string());
-                if let Some(s) = since2 {
-                    clauses.push("create_time >= ?".to_string());
-                    params.push(Box::new(s));
-                }
-                if let Some(u) = until2 {
-                    clauses.push("create_time <= ?".to_string());
-                    params.push(Box::new(u));
-                }
-                let where_clause = format!("WHERE {}", clauses.join(" AND "));
-
-                let sql = format!(
-                    "SELECT create_time, WCDB_CT_message_content, message_content \
-                     FROM [{}] {} ORDER BY create_time DESC",
-                    tname, where_clause
-                );
-
-                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                    params.iter().map(|p| p.as_ref()).collect();
-                if let Ok(mut inner_stmt) = conn.prepare(&sql) {
-                    let msg_rows: Vec<_> = inner_stmt
-                        .query_map(params_ref.as_slice(), |row| {
-                            Ok((
-                                username.clone(),
-                                row.get::<_, i64>(0)?,
-                                row.get::<_, i64>(1).unwrap_or(0),
-                                get_content_bytes(row, 2),
-                                0i64,
-                            ))
-                        })
-                        .map(|it| it.filter_map(|r| r.ok()).collect())
-                        .unwrap_or_default();
-                    all_rows.extend(msg_rows);
-                }
-            }
-        }
-        Ok::<_, anyhow::Error>(all_rows)
-    })
-    .await??;
-
-    // 4. 解压并解析 XML
-    let mut articles: Vec<BizArticle> = Vec::new();
-    for (username, recv_time, ct, content_bytes, _) in rows {
-        let content = decompress_message(&content_bytes, ct);
-        if content.is_empty() {
-            continue;
-        }
-        let items = parse_biz_xml_items(recv_time, &username, &content);
-        articles.extend(items);
-    }
-
-    // 5. 按 pub_time DESC 排序
-    articles.sort_by_key(|a| std::cmp::Reverse(a.pub_time));
-
-    // --unread 语义 A：每个公众号只保留最新 1 篇（已按 pub_time 排序，取首条即可）
-    if unread {
-        let mut seen = std::collections::HashSet::<String>::new();
-        articles.retain(|a| seen.insert(a.account_username.clone()));
-    }
-
-    articles.truncate(limit);
-
-    let results: Vec<Value> = articles
-        .into_iter()
-        .map(|a| {
-            let account_display = names.display(&a.account_username);
-            json!({
-                "time": fmt_time(a.pub_time, "%Y-%m-%d %H:%M"),
-                "timestamp": a.pub_time,
-                "recv_time": a.recv_time,
-                "recv_time_str": fmt_time(a.recv_time, "%Y-%m-%d %H:%M"),
-                "account": account_display,
-                "account_username": a.account_username,
-                "title": a.title,
-                "url": a.url,
-                "digest": a.digest,
-                "cover_url": a.cover,
-            })
-        })
-        .collect();
-
-    Ok(json!({ "count": results.len(), "articles": results }))
+    let query = articles::Query {
+        limit,
+        publisher: account,
+        received_since: since,
+        received_until: until,
+        unread_publishers,
+    };
+    let display_names = names.map.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let snapshot = Snapshot::open(prepared.files, display_names.keys().cloned())
+            .map_err(|error| adapter::source_error(&error))?;
+        let mut source = adapter::Source::new(&snapshot, &display_names);
+        let page = articles::list(&mut source, &query)?;
+        let partial = page.source_unfinished || !page.issues.is_empty();
+        let issues: Vec<&str> = page.issues.iter().map(|issue| match issue.kind {
+            articles::IssueKind::UnknownPublisher => "unknown_publisher",
+            articles::IssueKind::InvalidContent => "invalid_content",
+            articles::IssueKind::UnavailableSource => "unavailable_source",
+            articles::IssueKind::UnsupportedSource => "unsupported_source",
+            articles::IssueKind::AmbiguousIdentity => "ambiguous_identity",
+        }).collect();
+        let values: Vec<Value> = page.articles.into_iter().map(|article| json!({
+            "time": fmt_time(article.published_at, "%Y-%m-%d %H:%M"),
+            "timestamp": article.published_at,
+            "recv_time": article.received_at,
+            "recv_time_str": fmt_time(article.received_at, "%Y-%m-%d %H:%M"),
+            "account": article.publisher_name,
+            "account_username": article.publisher,
+            "title": article.title,
+            "url": article.url,
+            "digest": article.digest,
+            "cover_url": article.cover_url,
+        })).collect();
+        Ok::<_, anyhow::Error>(json!({
+            "count": values.len(), "articles": values, "partial": partial,
+            "has_more": page.has_more, "source_unfinished": page.source_unfinished, "issues": issues,
+        }))
+    }).await?;
+    message_read::check_inventory(db, names, SourceKind::OfficialPush)?;
+    result
 }
 
 /// 附件消息的内部行；分片下标只用于精确身份核验，不暴露为文件路径。
@@ -4019,7 +2267,7 @@ async fn q_attachments_impl(
             .context("attachment pagination overflow")?;
         let rows: Vec<AttachmentRow> = tokio::task::spawn_blocking(move || {
             let conn = Connection::open(&path)?;
-            let id2u = load_id2u(&conn);
+            let id2u = load_id2u(&conn)?;
 
             // local_type 在 DB 里可能带高位 flag，过滤要 mask 低 32 bit
             let placeholders = lo32_types2
@@ -4427,101 +2675,6 @@ fn parse_attachment_kinds(
         }
     }
     Ok(out)
-}
-
-#[cfg(test)]
-mod biz_tests {
-    use super::*;
-
-    #[test]
-    fn extract_cdata_normal() {
-        let xml = "<title><![CDATA[TencentResearch]]></title>";
-        assert_eq!(extract_cdata(xml, "title"), Some("TencentResearch".into()));
-    }
-
-    #[test]
-    fn extract_cdata_empty() {
-        let xml = "<cover><![CDATA[]]></cover>";
-        assert_eq!(extract_cdata(xml, "cover"), None);
-    }
-
-    #[test]
-    fn extract_cdata_url() {
-        let xml = "<url><![CDATA[http://mp.weixin.qq.com/s?__biz=abc&mid=123]]></url>";
-        let result = extract_cdata(xml, "url");
-        assert!(result.is_some());
-        let url = result.unwrap();
-        assert!(url.starts_with("http://mp.weixin.qq.com"));
-        assert!(!url.contains("CDATA"));
-    }
-
-    #[test]
-    fn extract_cdata_no_cdata_wrapper() {
-        let xml = "<pub_time>1700000000</pub_time>";
-        assert_eq!(extract_cdata(xml, "pub_time"), Some("1700000000".into()));
-    }
-
-    #[test]
-    fn parse_biz_xml_items_single_article() {
-        let xml = r#"<msg><appmsg><mmreader><category><item>
-            <title><![CDATA[Test Article Title]]></title>
-            <url><![CDATA[http://mp.weixin.qq.com/s?test=1]]></url>
-            <digest><![CDATA[Test Digest]]></digest>
-            <cover><![CDATA[https://example.com/cover.jpg]]></cover>
-            <pub_time>1700000000</pub_time>
-        </item></category></mmreader></appmsg></msg>"#;
-
-        let items = parse_biz_xml_items(1699999999, "gh_test123", xml);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].title, "Test Article Title");
-        assert_eq!(items[0].url, "http://mp.weixin.qq.com/s?test=1");
-        assert_eq!(items[0].digest, "Test Digest");
-        assert_eq!(items[0].pub_time, 1700000000);
-        assert_eq!(items[0].account_username, "gh_test123");
-    }
-
-    #[test]
-    fn parse_biz_xml_items_skips_no_url() {
-        let xml = r#"<msg><mmreader><category><item>
-            <title><![CDATA[Has Title No URL]]></title>
-            <url><![CDATA[]]></url>
-            <pub_time>1700000001</pub_time>
-        </item></category></mmreader></msg>"#;
-        let items = parse_biz_xml_items(1700000001, "gh_test", xml);
-        assert_eq!(items.len(), 0);
-    }
-
-    #[test]
-    fn parse_biz_xml_items_multi_article() {
-        let xml = r#"<msg><mmreader><category>
-        <item>
-            <title><![CDATA[Article 1]]></title>
-            <url><![CDATA[http://mp.weixin.qq.com/s?a=1]]></url>
-            <pub_time>1700000010</pub_time>
-        </item>
-        <item>
-            <title><![CDATA[Article 2]]></title>
-            <url><![CDATA[http://mp.weixin.qq.com/s?a=2]]></url>
-            <pub_time>1700000020</pub_time>
-        </item>
-        </category></mmreader></msg>"#;
-        let items = parse_biz_xml_items(1700000000, "gh_multi", xml);
-        assert_eq!(items.len(), 2);
-        assert_eq!(items[0].title, "Article 1");
-        assert_eq!(items[1].title, "Article 2");
-    }
-
-    #[test]
-    fn parse_biz_xml_items_pub_time_fallback() {
-        // When pub_time is missing, should fall back to recv_time
-        let xml = r#"<item>
-            <title><![CDATA[No PubTime]]></title>
-            <url><![CDATA[http://mp.weixin.qq.com/s?x=1]]></url>
-        </item>"#;
-        let items = parse_biz_xml_items(1700000099, "gh_fallback", xml);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].pub_time, 1700000099); // falls back to recv_time
-    }
 }
 
 #[cfg(test)]

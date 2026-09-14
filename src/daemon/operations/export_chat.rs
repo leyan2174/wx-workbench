@@ -7,7 +7,8 @@ pub fn cmd_export(chat: String, output: PathBuf) -> Result<()> {
     let output = std::path::absolute(output)?;
     validate_output_for(&runtime, &output)?;
     let target = crate::toolkit::ExportTarget::capture(&runtime, &output)?;
-    let response = super::transport::send_for(&runtime, crate::ipc::Request::ExportChat { chat })?;
+    let response =
+        crate::service::query_client::send_for(&runtime, crate::ipc::Request::ExportChat { chat })?;
     target.write_json(&response.data)?;
     println!(
         "已导出 {} 条消息至 {}",

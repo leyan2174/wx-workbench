@@ -1,8 +1,6 @@
 //! 固定账号的原生相册入口；仅以选定账号的 Feed 和缓存作为来源。
-use super::{
-    history::{parse_time, parse_time_end},
-    transport,
-};
+use super::history::{parse_time, parse_time_end};
+use crate::service::query_client as transport;
 use crate::{
     ipc::Request,
     runtime::RuntimeContext,

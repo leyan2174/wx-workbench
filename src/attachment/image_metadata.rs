@@ -1,10 +1,8 @@
 //! Exact resource metadata and encrypted DAT length; never reads DAT contents.
 
 use super::local_files::{safe_name, Pin, Scan};
-use super::native_image::{
-    no_sidecars, scan_candidates, MessageIdentity, ResourceLookup, ResourceReader,
-    MAX_RESOURCE_BYTES,
-};
+use super::native_image::{no_sidecars, scan_candidates, MessageIdentity, MAX_RESOURCE_BYTES};
+use crate::adapters::wechat::media::resource::{ResourceLookup, ResourceReader};
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 use std::collections::HashSet;

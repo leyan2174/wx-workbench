@@ -1,4 +1,6 @@
-#[path = "../../../src/daemon/query/history_selection.rs"]
+// This reference implementation only checks the historical oracle itself.
+// Current production queries are exercised by the runtime target and root MCP tests.
+#[path = "legacy_selection.rs"]
 pub mod history_selection;
 
 #[cfg(test)]

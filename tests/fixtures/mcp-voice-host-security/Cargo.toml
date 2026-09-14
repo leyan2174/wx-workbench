@@ -17,6 +17,7 @@ path = "fake.rs"
 name = "audit"
 path = "audit.rs"
 [dependencies]
+zstd = "0.13"
 mcp-voice-host = { path = "../mcp-voice-host" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

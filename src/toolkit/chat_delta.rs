@@ -1,6 +1,5 @@
 //! 已解析聊天的 delta 导出；不读取数据库、密钥或已有完整导出。
 use std::fs;
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -375,25 +374,46 @@ pub struct DeltaRunWriter {
     run: PathBuf,
     window: DeltaWindow,
     results: Vec<Value>,
+    protected: Vec<PathBuf>,
 }
 
 impl DeltaRunWriter {
+    #[cfg(test)]
     pub fn create(root: &Path, window: DeltaWindow) -> Result<Self> {
+        Self::create_protected(root, window, &[])
+    }
+
+    pub(crate) fn create_protected(
+        root: &Path,
+        window: DeltaWindow,
+        protected: &[PathBuf],
+    ) -> Result<Self> {
         window.validate()?;
         validate_root_path(root)?;
+        super::files::validate_export_paths(root, protected)?;
         check_directory_ancestors(root.parent().context("root requires parent")?)?;
         fs::create_dir(root).context("delta root must be new and exclusive")?;
         check_directory_ancestors(root)?;
         fs::create_dir(root.join("deltas"))?;
-        Self::create_exclusive_run(root, window)
+        Self::create_exclusive_run(root, window, protected)
     }
 
     /// 在已有普通导出 root 下追加全新批次；只允许复用 root 和 deltas 目录。
     /// 同名 run 即使为空或尚无 manifest 也拒绝，不恢复或覆盖旧批次。
     /// 调用方必须先排除源数据库、密钥与缓存路径；本层无法判断目录业务用途。
+    #[cfg(test)]
     pub fn create_run_in_existing_root(root: &Path, window: DeltaWindow) -> Result<Self> {
+        Self::append_protected(root, window, &[])
+    }
+
+    pub(crate) fn append_protected(
+        root: &Path,
+        window: DeltaWindow,
+        protected: &[PathBuf],
+    ) -> Result<Self> {
         window.validate()?;
         validate_root_path(root)?;
+        super::files::validate_export_paths(root, protected)?;
         check_directory_ancestors(root)?;
         let deltas = root.join("deltas");
         match fs::create_dir(&deltas) {
@@ -401,10 +421,14 @@ impl DeltaRunWriter {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error).context("cannot create delta directory"),
         }
-        Self::create_exclusive_run(root, window)
+        Self::create_exclusive_run(root, window, protected)
     }
 
-    fn create_exclusive_run(root: &Path, window: DeltaWindow) -> Result<Self> {
+    fn create_exclusive_run(
+        root: &Path,
+        window: DeltaWindow,
+        protected: &[PathBuf],
+    ) -> Result<Self> {
         let deltas = root.join("deltas");
         check_directory_ancestors(&deltas)?;
         let run = deltas.join(&window.run_id);
@@ -417,21 +441,15 @@ impl DeltaRunWriter {
             run,
             window,
             results: Vec::new(),
+            protected: protected.to_vec(),
         })
     }
 
     fn publish(&self, parent: &Path, filename: &str, value: &Value) -> Result<()> {
         safe_component(filename)?;
         check_directory_ancestors(parent)?;
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-        serde_json::to_writer_pretty(&mut temporary, value)?;
-        temporary.flush()?;
-        temporary.as_file().sync_all()?;
-        check_directory_ancestors(parent)?;
-        temporary
-            .persist_noclobber(parent.join(filename))
-            .map_err(|e| e.error)?;
-        Ok(())
+        super::files::ExportTarget::new_file(&parent.join(filename), &self.protected)?
+            .write_json(value)
     }
 
     /// 单个聊天失败不阻止其它聊天；每次调用恰好追加一个 manifest 结果。

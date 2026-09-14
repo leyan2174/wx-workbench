@@ -1,11 +1,11 @@
 # History Selection 兼容边界
 
-q_history 和 query_messages 共用行读取与渲染 helper，IPC、CLI 和 MCP 协议调用同一查询实现。
+当前 IPC、CLI 和 MCP 复用 daemon 中装配的新消息适配器与业务分页。下文保留上一阶段选择器的兼容核对记录，其中“新助手”和 `Selection` 已成为本目录的冻结参考实现，不再用于生产。当前实现的身份、完整性和读取预算见 [消息业务边界](../../../docs/business-messages.md)。
 
 
 补充的消息身份与富字段组合回归已注册在 `src/daemon/query/message_source_tests.rs`，从仓库根运行 `cargo test --bin wx daemon::query::message_source_tests -- --nocapture`。它调用真实 history/new-messages 查询并使用临时合成加密库。
 
-## 已核对的差异
+## 历史核对记录
 
 - 旧 get_chat_history 接受 msg_types 多名称和 oldest_first。名称由旧 _resolve_msg_types 映射，file=app=49；空列表不筛选。
 - 旧 _query_messages 在每分片应用闭区间和类型过滤，取 offset+limit 个候选；_page_ranked_entries 跨分片选页后按时间升序展示。最早页不是反转最新页。
@@ -13,7 +13,7 @@ q_history 和 query_messages 共用行读取与渲染 helper，IPC、CLI 和 MCP
 - 旧 Python 的 local_type IN 是完整值精确匹配，不包含高位变体。新助手保留 Rust base 类型能力：0..=u32::MAX 匹配低 32 位，范围外完整类型精确匹配；这是明确扩展，不声称旧实现已有。
 - 同时间条目使用稳定排序，保留调用方分片顺序和 SQLite 返回顺序，不按 local_id 去重。SQLite 仅按时间排序，旧实现没有跨快照唯一游标保证。
 
-## 查询行为
+## 参考实现语义
 
 q_history 前十个参数不变，末尾增加 `msg_types: Option<&[i64]>`、`oldest_first: bool`。调用方使用 `msg_types.as_deref(), oldest_first`；默认使用 `None, false`。
 
@@ -28,7 +28,7 @@ q_history 前十个参数不变，末尾增加 `msg_types: Option<&[i64]>`、`ol
 
 `python tests/fixtures/mcp-history-compat/generate_oracle.py` 仅 AST 抽取旧纯函数，不导入旧服务、不读账号。生成 288 组真实 SQLite 选行与旧分页结果，oracle 内记录旧源码 SHA256。
 
-`cargo test --manifest-path tests/fixtures/mcp-history-compat/Cargo.toml -- --nocapture` 编译真实新助手，核对 oracle、高位及有符号类型、原始 sender/content/压缩字段、分页溢出、标识符和错误传播。
+`cargo test --manifest-path tests/fixtures/mcp-history-compat/Cargo.toml -- --nocapture` 只核对测试目录中的旧选择器参考实现与 oracle，包括高位及有符号类型、原始字段和分页规则；它不再是生产查询的验收。当前生产读取由 `adapters::wechat::messages` 和业务分页执行，须以以下真进程测试、根工程 `mcp_readonly_runtime` 以及 `daemon::query::message_source_tests` 验证，不能把旧参考实现通过当成新通道通过。
 
 真进程验证：先 `cargo build --bin wx`，将环境变量 `CARGO_BIN_EXE_wx` 设置为该绝对可执行路径，再运行 `cargo test --manifest-path tests/fixtures/mcp-history-compat/Cargo.toml --features runtime --test runtime -- --nocapture`。
 

@@ -115,7 +115,7 @@ pub(crate) fn validate_export_target(
     validate_export_paths(path, &export_protected(runtime))
 }
 
-fn validate_export_paths(path: &Path, protected: &[PathBuf]) -> Result<()> {
+pub(crate) fn validate_export_paths(path: &Path, protected: &[PathBuf]) -> Result<()> {
     for input in protected {
         separate(input, path)?;
         separate(path, input)?;
@@ -136,6 +136,18 @@ pub(crate) struct ExportTarget {
 }
 
 impl ExportTarget {
+    /// New artifacts never replace an existing output, including an empty file.
+    pub(crate) fn new_file(path: &Path, protected: &[PathBuf]) -> Result<Self> {
+        let path = std::path::absolute(path)?;
+        validate_export_paths(&path, protected)?;
+        ensure!(fingerprint(&path)?.is_none(), "Output already exists");
+        Ok(Self {
+            path,
+            protected: protected.to_vec(),
+            before: None,
+        })
+    }
+
     pub(crate) fn capture(runtime: &crate::runtime::RuntimeContext, path: &Path) -> Result<Self> {
         let path = std::path::absolute(path)?;
         let protected = export_protected(runtime);

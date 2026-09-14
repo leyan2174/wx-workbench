@@ -1,7 +1,7 @@
 use super::history::{parse_time, parse_time_end};
 use super::output::{emit_warnings, warning_block_markdown, warning_block_text, OutputOpts};
-use super::transport;
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub fn cmd_export(

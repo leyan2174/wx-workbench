@@ -80,3 +80,12 @@ mod adapter_tests {
         );
     }
 }
+#[path = "../../../src/adapters/wechat/media/voice_catalog.rs"]
+pub mod voice_catalog;
+pub mod adapters {
+    pub mod wechat {
+        pub mod media {
+            pub use crate::voice_catalog;
+        }
+    }
+}

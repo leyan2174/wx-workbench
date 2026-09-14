@@ -2,31 +2,22 @@
 //! 不查询消息库、不获取密钥、不调用网络或外部转换器。仅支持 Windows 本机静态源。
 
 use anyhow::{ensure, Context, Result};
-use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use super::decoder;
 pub(crate) use super::local_files::HostOutputGuard;
 use super::local_files::{safe_name, Pin, Scan};
-use super::{decoder, resolver};
+pub(crate) use crate::adapters::wechat::media::resource::no_sidecars;
+pub use crate::adapters::wechat::media::resource::MessageIdentity;
+use crate::adapters::wechat::media::resource::{ResourceLookup, ResourceReader};
 
 pub const MAX_DAT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_RESOURCE_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_PACKED_BYTES: i64 = 1024 * 1024;
 const MAX_CANDIDATES: usize = 128;
-
-/// 此结构不是认证凭证。source 为调用者已核验的逻辑消息分片名，不用于打开文件。
-#[derive(Debug, Clone, Serialize)]
-pub struct MessageIdentity {
-    pub username: String,
-    pub source: String,
-    pub local_id: i64,
-    pub create_time: i64,
-    pub local_type: i64,
-}
 
 pub struct ImageRequest<'a> {
     pub message: &'a MessageIdentity,
@@ -61,112 +52,6 @@ pub struct ImageOutput {
     pub candidates: Vec<Candidate>,
     /// 资源 packed_info 扫描和文件名只提供关联证据，不证明明文 MD5 或消息真实性。
     pub binding: &'static str,
-}
-
-pub(super) fn no_sidecars(path: &Path) -> Result<()> {
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let mut name = path.as_os_str().to_os_string();
-        name.push(suffix);
-        ensure!(
-            matches!(fs::symlink_metadata(Path::new(&name)), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
-            "static resource snapshot required: sidecar present or unreadable"
-        );
-    }
-    Ok(())
-}
-
-fn real_rowid_table(conn: &Connection, table: &str) -> Result<()> {
-    let (kind, wr): (String, i64) = conn.query_row(
-        "SELECT type, wr FROM pragma_table_list WHERE schema='main' AND name=?1 COLLATE NOCASE",
-        [table],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    ensure!(
-        kind == "table" && wr == 0,
-        "unsupported resource table schema"
-    );
-    let shadows: i64 = conn.query_row(
-        "SELECT count(*) FROM pragma_table_xinfo(?1) WHERE lower(name) IN ('rowid','_rowid_','oid')",
-        [table], |r| r.get(0))?;
-    ensure!(shadows == 0, "shadowed resource rowid");
-    Ok(())
-}
-
-pub(super) enum ResourceLookup {
-    Found(i64, String),
-    Missing,
-    Ambiguous,
-    Md5Missing,
-}
-
-pub(super) struct ResourceReader(Connection);
-
-impl ResourceReader {
-    pub(super) fn open(path: &Path) -> Result<Self> {
-        no_sidecars(path)?;
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        conn.execute_batch("PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; BEGIN;")?;
-        real_rowid_table(&conn, "ChatName2Id")?;
-        real_rowid_table(&conn, "MessageResourceInfo")?;
-        Ok(Self(conn))
-    }
-
-    pub(super) fn lookup(&self, identity: &MessageIdentity) -> Result<ResourceLookup> {
-        let conn = &self.0;
-        let mut statement = conn
-            .prepare("SELECT rowid FROM ChatName2Id WHERE user_name=?1 COLLATE BINARY LIMIT 2")?;
-        let ids = statement
-            .query_map([&identity.username], |r| r.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if ids.is_empty() {
-            return Ok(ResourceLookup::Missing);
-        }
-        if ids.len() != 1 {
-            return Ok(ResourceLookup::Ambiguous);
-        }
-        // 不使用最新时间回退，也不将不同高位类型标志视为同一消息。
-        let mut statement = conn.prepare("SELECT rowid, length(packed_info), typeof(packed_info),
-        typeof(chat_id), typeof(message_local_id), typeof(message_local_type), typeof(message_create_time)
-        FROM MessageResourceInfo WHERE chat_id=?1 AND message_local_id=?2
-        AND message_local_type=?3 AND message_create_time=?4 LIMIT 2")?;
-        let mut rows = statement.query(params![
-            ids[0],
-            identity.local_id,
-            identity.local_type,
-            identity.create_time
-        ])?;
-        let Some(row) = rows.next()? else {
-            return Ok(ResourceLookup::Missing);
-        };
-        let rowid: i64 = row.get(0)?;
-        let size: i64 = row.get(1)?;
-        ensure!(
-            (1..=MAX_PACKED_BYTES).contains(&size),
-            "packed_info size limit exceeded"
-        );
-        ensure!(
-            row.get::<_, String>(2)? == "blob",
-            "packed_info must be BLOB"
-        );
-        for i in 3..7 {
-            ensure!(
-                row.get::<_, String>(i)? == "integer",
-                "resource identity must use INTEGER values"
-            );
-        }
-        if rows.next()?.is_some() {
-            return Ok(ResourceLookup::Ambiguous);
-        }
-        let blob: Vec<u8> = conn.query_row(
-            "SELECT packed_info FROM MessageResourceInfo WHERE rowid=?1",
-            [rowid],
-            |r| r.get(0),
-        )?;
-        Ok(match resolver::extract_md5_from_packed_info(&blob) {
-            Some(md5) => ResourceLookup::Found(rowid, md5),
-            None => ResourceLookup::Md5Missing,
-        })
-    }
 }
 
 fn resource(path: &Path, identity: &MessageIdentity) -> Result<(i64, String)> {
@@ -229,7 +114,7 @@ pub(super) fn scan_candidates(
 
 /// 只读取显式源，复用现有 decoder，并以 persist_noclobber 发布完整文件。
 pub fn export_image(request: ImageRequest<'_>) -> Result<ImageOutput> {
-    export_image_impl(request, None)
+    export_image_impl(request, None, None, || Ok(()))
 }
 
 /// 保留宿主最初批准的路径身份，跨异步账号查询一直复核到最终发布前。
@@ -242,12 +127,28 @@ pub(crate) fn export_image_with_guard(
         "host output root mismatch"
     );
     guard.verify()?;
-    export_image_impl(request, Some(guard))
+    export_image_impl(request, Some(guard), None, || Ok(()))
+}
+
+pub(crate) fn export_image_with_proof(
+    request: ImageRequest<'_>,
+    guard: &HostOutputGuard,
+    resource_proof: (i64, &str),
+    before_publish: impl FnOnce() -> Result<()>,
+) -> Result<ImageOutput> {
+    ensure!(
+        request.output_root == guard.output_root(),
+        "host output root mismatch"
+    );
+    guard.verify()?;
+    export_image_impl(request, Some(guard), Some(resource_proof), before_publish)
 }
 
 fn export_image_impl(
     request: ImageRequest<'_>,
     host_guard: Option<&HostOutputGuard>,
+    resource_proof: Option<(i64, &str)>,
+    before_publish: impl FnOnce() -> Result<()>,
 ) -> Result<ImageOutput> {
     let identity = request.message;
     ensure!(
@@ -300,6 +201,12 @@ fn export_image_impl(
         "output must be separate from resource directory"
     );
     let (resource_rowid, resource_md5) = resource(request.resource_db, identity)?;
+    if let Some((rowid, digest)) = resource_proof {
+        ensure!(
+            rowid == resource_rowid && digest == resource_md5,
+            "image resource evidence changed"
+        );
+    }
     let chat = request
         .attach_root
         .join(format!("{:x}", md5::compute(identity.username.as_bytes())));
@@ -344,6 +251,7 @@ fn export_image_impl(
         guard.verify()?;
     }
     // 发布前全部核验；已存在的文件、硬链接、符号链接或目录都不能被覆盖。
+    before_publish()?;
     temp.persist_noclobber(&path)
         .map_err(|e| e.error)
         .context("output already exists or publication failed")?;

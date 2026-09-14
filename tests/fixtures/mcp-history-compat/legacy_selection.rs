@@ -1,4 +1,4 @@
-//! 历史查询的 SQL 选行与跨分片分页；账号、连接、发送者及正文渲染仍由调用方负责。
+//! Frozen legacy selection oracle for tests, not a production query implementation.
 use anyhow::{ensure, Context, Result};
 use rusqlite::{params_from_iter, Connection, Row};
 

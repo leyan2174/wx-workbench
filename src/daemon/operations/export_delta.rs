@@ -1,9 +1,9 @@
 //! delta 命令编排；账号查询经现有 IPC，文件发布只处理原始增量模型。
+use crate::business::archive::{self, DeltaPublisher, DeltaSource, Failure, Publication, Stage};
 use crate::toolkit::chat_delta::{ContactMetadata, DeltaChat, DeltaRunWriter, DeltaWindow};
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
-use std::collections::HashSet;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 pub use crate::service::operation_requests::export_delta::Args;
 
@@ -44,7 +44,8 @@ pub fn cmd(args: Args) -> Result<()> {
         .users
         .unwrap_or_else(|| std::env::var("WECHAT_EXPORT_USERS").unwrap_or_default());
     let users: Vec<String> = if filter.trim().is_empty() {
-        let response = super::transport::send_for(&runtime, crate::ipc::Request::ExportChatList)?;
+        let response =
+            crate::service::query_client::send_for(&runtime, crate::ipc::Request::ExportChatList)?;
         let targets: Vec<crate::message::export::Target> =
             serde_json::from_value(response.data["chats"].clone())?;
         targets.into_iter().map(|target| target.username).collect()
@@ -57,7 +58,7 @@ pub fn cmd(args: Args) -> Result<()> {
             .collect()
     };
     let dispatch = |query: DeltaQuery| {
-        Ok(super::transport::send_for(
+        Ok(crate::service::query_client::send_for(
             &runtime,
             crate::ipc::Request::ExportDelta {
                 username: query.username,
@@ -67,11 +68,14 @@ pub fn cmd(args: Args) -> Result<()> {
         )?
         .data)
     };
-    let report = if args.append_run {
-        export_delta_with_mode(&output, &users, window, true, dispatch)?
-    } else {
-        cmd_export_delta(&output, &users, window, dispatch)?
-    };
+    let report = export_delta_with_mode(
+        &output,
+        &users,
+        window,
+        args.append_run,
+        &crate::toolkit::export_protected(&runtime),
+        dispatch,
+    )?;
     println!("{}", serde_json::to_string_pretty(&report)?);
     let results = report["results"]
         .as_array()
@@ -95,6 +99,7 @@ pub struct DeltaQuery {
 
 /// 请求响应必须是完整 DeltaChat JSON；summary/history 响应会明确失败。
 /// 返回 success=false 仍有已落盘的失败 manifest；调用者据此设置非零退出码。
+#[cfg(test)]
 pub fn cmd_export_delta<F>(
     output_root: &Path,
     usernames: &[String],
@@ -104,7 +109,7 @@ pub fn cmd_export_delta<F>(
 where
     F: FnMut(DeltaQuery) -> Result<Value>,
 {
-    export_delta_with_mode(output_root, usernames, window, false, dispatch)
+    export_delta_with_mode(output_root, usernames, window, false, &[], dispatch)
 }
 
 pub(super) fn export_delta_with_mode<F>(
@@ -112,69 +117,142 @@ pub(super) fn export_delta_with_mode<F>(
     usernames: &[String],
     window: DeltaWindow,
     append_run: bool,
-    mut dispatch: F,
+    protected: &[PathBuf],
+    dispatch: F,
 ) -> Result<Value>
 where
     F: FnMut(DeltaQuery) -> Result<Value>,
 {
     window.validate()?;
-    ensure!(
-        !usernames.is_empty(),
-        "delta export requires explicit usernames"
-    );
-    ensure!(usernames.iter().all(|s| !s.is_empty()), "username 不能为空");
-    let start = window.start.context("delta export requires start_ts")?;
-    let end = window.end;
-    let mut writer = if append_run {
-        DeltaRunWriter::create_run_in_existing_root(output_root, window)?
+    let plan = archive::DeltaPlan::new(
+        usernames,
+        archive::Range {
+            start: window.start.context("delta export requires start_ts")?,
+            end: window.end,
+        },
+    )?;
+    let writer = if append_run {
+        DeltaRunWriter::append_protected(output_root, window, protected)?
     } else {
-        DeltaRunWriter::create(output_root, window)?
+        DeltaRunWriter::create_protected(output_root, window, protected)?
     };
-    let mut seen = HashSet::new();
-    let mut results = Vec::new();
-    for username in usernames {
-        if !seen.insert(username) {
-            continue;
-        }
-        let response = (|| -> Result<(DeltaChat, Option<Value>)> {
-            let value = dispatch(DeltaQuery {
-                username: username.clone(),
-                start,
-                end,
+    let completed = archive::export_delta(
+        plan,
+        QuerySource(dispatch),
+        Output {
+            writer,
+            results: Vec::new(),
+        },
+    )?;
+    Ok(json!({
+        "success": completed.success(),
+        "manifest_path": completed.manifest.0,
+        "chats_checked": completed.targets.len(),
+        "messages_exported": completed.messages(),
+        "results": completed.manifest.1,
+    }))
+}
+
+// The legacy raw-export document is intentionally confined to the IPC/format boundary.
+struct RawDelta {
+    chat: DeltaChat,
+    warnings: Option<Value>,
+}
+
+struct QuerySource<F>(F);
+impl<F: FnMut(DeltaQuery) -> Result<Value>> DeltaSource for QuerySource<F> {
+    type Document = RawDelta;
+
+    fn read(
+        &mut self,
+        username: &str,
+        range: archive::Range,
+    ) -> std::result::Result<archive::RawArchive<RawDelta>, Failure> {
+        let read = (|| -> Result<_> {
+            let value = (self.0)(DeltaQuery {
+                username: username.into(),
+                start: range.start,
+                end: range.end,
             })?;
             let warnings = value.get("metadata_warnings").cloned();
             let chat: DeltaChat = serde_json::from_value(value)
                 .context("delta IPC response must contain raw DeltaChat fields")?;
-            ensure!(chat.username == *username, "delta IPC username mismatch");
-            Ok((chat, warnings))
+            Ok(archive::RawArchive {
+                username: chat.username.clone(),
+                document: RawDelta { chat, warnings },
+            })
         })();
-        let (chat, warnings) = response.unwrap_or_else(|error| {
-            (
-                DeltaChat {
-                    username: username.clone(),
-                    display_name: username.clone(),
-                    is_group: username.ends_with("@chatroom"),
-                    contact: ContactMetadata::default(),
-                    messages: Vec::new(),
-                    source_error: Some(format!("delta query error: {error:#}")),
-                },
-                None,
-            )
+        read.map_err(|error| Failure {
+            stage: Stage::Read,
+            detail: format!("delta query error: {error:#}"),
+        })
+    }
+}
+
+struct Output {
+    writer: DeltaRunWriter,
+    results: Vec<Value>,
+}
+
+impl DeltaPublisher<RawDelta> for Output {
+    type Manifest = (PathBuf, Vec<Value>);
+
+    fn record(
+        &mut self,
+        username: &str,
+        document: std::result::Result<RawDelta, Failure>,
+    ) -> Publication {
+        let raw = document.unwrap_or_else(|failure| RawDelta {
+            chat: DeltaChat {
+                username: username.into(),
+                display_name: username.into(),
+                is_group: username.ends_with("@chatroom"),
+                contact: ContactMetadata::default(),
+                messages: Vec::new(),
+                source_error: Some(failure.detail),
+            },
+            warnings: None,
         });
-        let mut result = writer.write_chat(&chat);
-        if let Some(warnings) = warnings {
+        let source_error = raw.chat.source_error.is_some();
+        let mut result = self.writer.write_chat(&raw.chat);
+        if let Some(warnings) = raw.warnings {
             result["metadata_warnings"] = warnings;
         }
-        results.push(result);
+        let publication = if result["success"] != true {
+            Publication::Failed(Failure {
+                stage: if source_error {
+                    Stage::Read
+                } else {
+                    Stage::Publish
+                },
+                detail: result["reason"]
+                    .as_str()
+                    .unwrap_or("invalid delta publication result")
+                    .into(),
+            })
+        } else if result["skipped"] == true {
+            Publication::Skipped
+        } else if let Some(messages) = result["message_count"].as_u64() {
+            Publication::Written { messages }
+        } else {
+            Publication::Failed(Failure {
+                stage: Stage::Publish,
+                detail: "missing delta message count".into(),
+            })
+        };
+        self.results.push(result);
+        publication
     }
-    let manifest = writer.finish()?;
-    Ok(json!({
-        "success": results.iter().all(|result| result["success"] == true),
-        "manifest_path": manifest,
-        "chats_checked": results.len(),
-        "messages_exported": results.iter().filter_map(|result| result["message_count"].as_u64()).sum::<u64>(),
-        "results": results,
-    }))
+
+    fn finish(self) -> std::result::Result<Self::Manifest, Failure> {
+        self.writer
+            .finish()
+            .map(|path| (path, self.results))
+            .map_err(|error| Failure {
+                stage: Stage::Manifest,
+                detail: format!("{error:#}"),
+            })
+    }
 }
 
 #[cfg(test)]

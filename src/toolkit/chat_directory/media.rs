@@ -176,6 +176,38 @@ fn marker(kind: &str, status: &str, detail: impl Into<String>) -> Media {
     }
 }
 
+fn failure_marker(kind: &str, error: &anyhow::Error) -> Media {
+    use crate::business::media::{Error, Failure, Stage};
+    let classified = error
+        .downcast_ref::<Error>()
+        .copied()
+        .or_else(|| {
+            error
+                .downcast_ref::<asr::database_media::DatabaseMediaError>()
+                .map(asr::database_media::DatabaseMediaError::media_error)
+        })
+        .unwrap_or_else(|| Error::new(Stage::Discovery, Failure::Unavailable));
+    marker(kind, "unavailable", classified.to_string())
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+    use crate::business::media::{Error, Failure, Stage};
+
+    #[test]
+    fn report_keeps_the_stage_without_source_error_chains() {
+        let error = anyhow::Error::new(Error::new(Stage::Revalidation, Failure::StaleEvidence))
+            .context("SYNTHETIC_PRIVATE_PATH_AND_KEY");
+        let report = failure_marker("voice", &error);
+        assert_eq!(report.status, "unavailable");
+        assert_eq!(report.detail, "Media Revalidation: StaleEvidence");
+        let unknown = failure_marker("file", &anyhow::anyhow!("SYNTHETIC_PRIVATE_PATH_AND_KEY"));
+        assert!(!unknown.detail.contains("SYNTHETIC_PRIVATE_PATH_AND_KEY"));
+        assert!(unknown.path.is_none());
+    }
+}
+
 /// 同一聊天的所有媒体共用预算和暂存清单；只有最终发布步骤写入目标目录。
 pub(super) struct MediaOutput<'a> {
     pub stage: &'a Path,
@@ -242,11 +274,7 @@ pub(super) fn prepare(
                 let prepared = reference(inputs, &meta, output);
                 out.push(match prepared {
                     Ok(m) => m,
-                    Err(e) => marker(
-                        media_kind,
-                        "unavailable",
-                        format!("记录项 {:?}: {e:#}", meta.item_index),
-                    ),
+                    Err(e) => failure_marker(media_kind, &e),
                 });
             }
             return Ok(out);
@@ -263,7 +291,7 @@ pub(super) fn prepare(
         };
         Ok(vec![media])
     })();
-    result.unwrap_or_else(|error| vec![marker(kind, "unavailable", format!("{error:#}"))])
+    result.unwrap_or_else(|error| vec![failure_marker(kind, &error)])
 }
 
 fn app_type(row: &Row) -> Option<i64> {
@@ -626,7 +654,12 @@ fn voice(
         audio.silk.len() as u64 <= output.options.max_media_bytes.min(*output.budget),
         "语音超过预算"
     );
-    let wav = asr::prepare_wav_bytes(&audio.silk)?;
+    let wav = asr::prepare_wav_bytes(&audio.silk).map_err(|_| {
+        crate::business::media::Error::new(
+            crate::business::media::Stage::Decode,
+            crate::business::media::Failure::InvalidMaterial,
+        )
+    })?;
     store(
         output,
         "voice",

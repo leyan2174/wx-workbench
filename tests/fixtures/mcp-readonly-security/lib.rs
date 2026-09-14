@@ -104,3 +104,23 @@ fn msg_table_re() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
 }
+#[path = "../../support/message_read_adapters.rs"]
+mod message_read_adapters;
+#[path = "../../support/media_business.rs"]
+mod media_business;
+#[path = "../../../src/business/contacts.rs"]
+pub mod contact_business;
+#[path = "../../../src/adapters/wechat/contacts/mod.rs"]
+pub mod contact_adapter;
+
+pub mod adapters {
+    pub use crate::message_read_adapters::messages;
+    pub mod wechat {
+        pub use crate::contact_adapter as contacts;
+        pub use crate::message_read_adapters::wechat::*;
+    }
+}
+pub mod business {
+    pub use crate::contact_business as contacts;
+    pub use crate::media_business::*;
+}

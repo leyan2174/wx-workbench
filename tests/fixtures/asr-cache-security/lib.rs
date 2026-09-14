@@ -21,8 +21,8 @@ pub mod attachment {
 mod files;
 pub mod toolkit {
     pub use super::asr_runtime::legacy;
-    pub(crate) use super::files::separate;
-    pub use super::{asr, audio};
+    pub(crate) use super::files::{separate, validate_export_target};
+    pub use super::{asr, audio, setup, private_file};
 }
 pub use asr::{cache, cached, local, openai, transcribe_audio_bytes, Backend, Transcription};
 #[path = "../../../src/daemon/operations/asr.rs"]
@@ -41,3 +41,20 @@ pub mod asr_contracts;
 pub mod service {
     pub use super::asr_contracts as operation_requests;
 }
+
+#[path = "../../support/media_business.rs"]
+pub mod business;
+#[path = "../../support/voice_media_adapters.rs"]
+pub mod adapters;
+
+#[path = "../../support/managed_process.rs"]
+pub mod windows_process;
+#[path = "../../../src/key_store/mod.rs"]
+pub mod key_store;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
+#[path = "../../../src/toolkit/private_file.rs"]
+pub mod private_file;
+
+#[path = "../../../src/ipc.rs"]
+pub mod ipc;

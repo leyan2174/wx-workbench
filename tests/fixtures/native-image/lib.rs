@@ -12,3 +12,5 @@ pub mod native_image;
 pub mod image_metadata;
 #[path = "../../../src/attachment/resolver.rs"]
 pub mod resolver;
+#[path = "../../support/resource_media_adapters.rs"]
+pub mod adapters;

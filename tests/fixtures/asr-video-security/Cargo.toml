@@ -11,6 +11,8 @@ name = "asr_video_security"
 path = "../../asr_video_security.rs"
 
 [dependencies]
+regex = "1"
+zstd = "0.13"
 anyhow = "1"
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
@@ -28,8 +30,8 @@ wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
 sha2 = "0.10"
 zeroize = "1"
 chrono = "0.4"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 md5 = "0.7"
 same-file = "1"
 silk-codec = { version = "=0.3.1", default-features = false }
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_JobObjects", "Win32_Security"] }
+windows = { version = "0.58", features = ["Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_Security_Cryptography", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_JobObjects", "Win32_Security"] }

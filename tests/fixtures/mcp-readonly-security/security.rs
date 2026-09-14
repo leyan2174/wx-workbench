@@ -1,4 +1,5 @@
 use mcp_readonly_security_harness::{contacts, refer, DbCache, Names};
+use mcp_readonly_security_harness::business::contacts as contact_domain;
 use rusqlite::{params, types::Value as SqlValue, Connection};
 use serde_json::Value;
 use std::{
@@ -315,6 +316,18 @@ fn labels(ids: &str) -> Vec<u8> {
     buffer
 }
 
+fn load_tags(path: &Path, names: &HashMap<String, String>) -> contact_domain::Result<Vec<contact_domain::Tag>> {
+    use contact_domain::ContactSource;
+    let mut source = mcp_readonly_security_harness::adapters::wechat::contacts::SqliteContacts::new(path.to_owned());
+    source.display_names = names.clone();
+    source.tags()
+}
+
+fn select_tag<'a>(tags: &'a [contact_domain::Tag], query: &str) -> contact_domain::Result<&'a contact_domain::Tag> {
+    let index = contact_domain::select_name(tags.iter().map(|tag| tag.name.as_str()), query)?;
+    Ok(&tags[index])
+}
+
 #[test]
 fn tags_numeric_ids_and_duplicate_associations_preserve_declared_contract() {
     let (_temp, path) = contact_db();
@@ -341,7 +354,7 @@ fn tags_numeric_ids_and_duplicate_associations_preserve_declared_contract() {
     }
     drop(c);
     let before = fs::read(&path).unwrap();
-    let tags = contacts::contact_tags_from_path(
+    let tags = load_tags(
         &path,
         &HashMap::from([
             ("alice".into(), "Same".into()),
@@ -349,27 +362,27 @@ fn tags_numeric_ids_and_duplicate_associations_preserve_declared_contract() {
         ]),
     )
     .unwrap();
-    assert_eq!(tags.total_tags, 4);
-    assert_eq!(tags.total_associations, 12);
+    assert_eq!(tags.len(), 4);
+    assert_eq!(tags.iter().map(|tag| tag.members.len()).sum::<usize>(), 12);
     assert_eq!(
-        contacts::select_tag(&tags, "numeric").unwrap().member_count,
+        select_tag(&tags, "numeric").unwrap().members.len(),
         6
     );
-    assert_eq!(contacts::select_tag(&tags, "text").unwrap().member_count, 0);
+    assert_eq!(select_tag(&tags, "text").unwrap().members.len(), 0);
     assert_eq!(
-        contacts::select_tag(&tags, "large-int")
+        select_tag(&tags, "large-int")
             .unwrap()
-            .member_count,
+            .members.len(),
         3
     );
     assert_eq!(
-        contacts::select_tag(&tags, "large-real")
+        select_tag(&tags, "large-real")
             .unwrap()
-            .member_count,
+            .members.len(),
         3
     );
-    let members = &contacts::select_tag(&tags, "numeric").unwrap().members;
-    assert_eq!(members.iter().filter(|m| m.username == "bob").count(), 2);
+    let members = &select_tag(&tags, "numeric").unwrap().members;
+    assert_eq!(members.iter().filter(|m| m.id.0 == "bob").count(), 2);
     assert_eq!(before, fs::read(&path).unwrap());
 }
 
@@ -377,15 +390,15 @@ fn tags_numeric_ids_and_duplicate_associations_preserve_declared_contract() {
 fn tags_exact_and_fuzzy_ambiguity_reject_without_selecting_a_member() {
     let (_temp, path) = contact_db();
     Connection::open(&path).unwrap().execute_batch("INSERT INTO contact_label VALUES(1,'Shared North',1),(2,'shared north',2),(3,'Shared South',3),(4,'',4)").unwrap();
-    let tags = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap();
+    let tags = load_tags(&path, &HashMap::new()).unwrap();
     for name in ["SHARED NORTH", "shared"] {
-        assert!(contacts::select_tag(&tags, name)
+        assert!(select_tag(&tags, name)
             .unwrap_err()
             .to_string()
             .contains("ambiguous"));
     }
-    assert_eq!(contacts::select_tag(&tags, "").unwrap().name, "");
-    assert!(contacts::select_tag(&tags, "absent").is_err());
+    assert_eq!(select_tag(&tags, "").unwrap().name, "");
+    assert!(select_tag(&tags, "absent").is_err());
 }
 
 #[test]
@@ -400,7 +413,7 @@ fn tags_bad_late_row_rejects_prior_partial_associations_without_secret_echo() {
         .unwrap();
     drop(c);
     let before = fs::read(&path).unwrap();
-    let err = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
+    let err = load_tags(&path, &HashMap::new()).unwrap_err();
     assert!(!format!("{err:#}").contains(SECRET));
     assert_eq!(before, fs::read(&path).unwrap());
 }
@@ -424,16 +437,16 @@ fn tags_large_buffer_and_duplicate_fanout_are_rejected_by_latest_budgets() {
     .unwrap();
     drop(c);
     let before = fs::read(&path).unwrap();
-    let error = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
-    assert!(format!("{error:#}").contains("buffer byte limit"));
+    let error = load_tags(&path, &HashMap::new()).unwrap_err();
+    assert_eq!(error, contact_domain::Error::Limit);
     assert_eq!(before, fs::read(&path).unwrap());
     Connection::open(&path)
         .unwrap()
         .execute("DELETE FROM contact WHERE username='alice'", [])
         .unwrap();
     let before = fs::read(&path).unwrap();
-    let error = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
-    assert!(format!("{error:#}").contains("result text byte limit"));
+    let error = load_tags(&path, &HashMap::new()).unwrap_err();
+    assert_eq!(error, contact_domain::Error::Limit);
     assert_eq!(before, fs::read(&path).unwrap());
     println!("GUARD: 2MiB BLOB and 20KB duplicate-field fanout are independently rejected by latest byte budgets");
 }
@@ -449,8 +462,8 @@ async fn tags_oversized_query_precedes_cache_access_and_count_caps_are_explicit(
     assert!(db.requests.lock().unwrap().is_empty());
     let c = Connection::open(&path).unwrap();
     c.execute_batch("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10001) INSERT INTO contact_label SELECT 1,'duplicate',x FROM n").unwrap();
-    let error = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
-    assert!(format!("{error:#}").contains("label limit"));
+    let error = load_tags(&path, &HashMap::new()).unwrap_err();
+    assert_eq!(error, contact_domain::Error::Limit);
     c.execute_batch("DELETE FROM contact_label; INSERT INTO contact_label VALUES(1,'one',1)")
         .unwrap();
     c.execute(
@@ -460,8 +473,8 @@ async fn tags_oversized_query_precedes_cache_access_and_count_caps_are_explicit(
     .unwrap();
     drop(c);
     let before = fs::read(&path).unwrap();
-    let error = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
-    assert!(format!("{error:#}").contains("association limit"));
+    let error = load_tags(&path, &HashMap::new()).unwrap_err();
+    assert_eq!(error, contact_domain::Error::Limit);
     assert_eq!(before, fs::read(&path).unwrap());
 }
 
@@ -484,15 +497,15 @@ fn tags_buffer_limit_is_inclusive_and_large_integer_ids_are_not_float_aliased() 
     c.execute("INSERT INTO contact VALUES('alice',?1)", [&buffer])
         .unwrap();
     let before = fs::read(&path).unwrap();
-    let tags = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap();
+    let tags = load_tags(&path, &HashMap::new()).unwrap();
     assert_eq!(
-        contacts::select_tag(&tags, "max-int").unwrap().member_count,
+        select_tag(&tags, "max-int").unwrap().members.len(),
         1
     );
     assert_eq!(
-        contacts::select_tag(&tags, "too-large-real")
+        select_tag(&tags, "too-large-real")
             .unwrap()
-            .member_count,
+            .members.len(),
         0
     );
     assert_eq!(before, fs::read(&path).unwrap());
@@ -501,7 +514,7 @@ fn tags_buffer_limit_is_inclusive_and_large_integer_ids_are_not_float_aliased() 
         .unwrap();
     drop(c);
     let before = fs::read(&path).unwrap();
-    let error = contacts::contact_tags_from_path(&path, &HashMap::new()).unwrap_err();
-    assert!(format!("{error:#}").contains("buffer byte limit"));
+    let error = load_tags(&path, &HashMap::new()).unwrap_err();
+    assert_eq!(error, contact_domain::Error::Limit);
     assert_eq!(before, fs::read(&path).unwrap());
 }

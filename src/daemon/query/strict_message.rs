@@ -1,17 +1,20 @@
 //! 引用与附件查询共享的严格消息定位，仅使用显式账号缓存。
-use super::{ensure_complete_message_inventory, msg_table_re, DbCache, Names};
-use anyhow::{ensure, Context, Result};
-use rusqlite::{types::ValueRef, Connection, OpenFlags, OptionalExtension};
-use std::{io::Read, path::PathBuf};
+use super::{ensure_complete_message_inventory, DbCache, Names};
+use crate::{
+    adapters::wechat::messages::{DetachedContent, RawMessage, Snapshot, SourceFile},
+    business::messages::{Error, MessageSelector, SourceKind},
+};
+use anyhow::{Context, Result};
+use std::path::PathBuf;
 
-pub(super) const MAX_STORED_BYTES: usize = 1_048_576;
+pub(super) const MAX_STORED_BYTES: usize = crate::adapters::wechat::messages::MAX_STORED_BYTES;
 
-pub(super) enum Resolution {
+pub(super) enum Resolution<T = StrictMessage> {
     ChatNotFound,
     AmbiguousChat,
     MessageNotFound,
     AmbiguousMessage,
-    Found(StrictMessage),
+    Found(T),
 }
 
 pub(super) struct StrictMessage {
@@ -20,35 +23,12 @@ pub(super) struct StrictMessage {
     pub(super) local_id: i64,
     pub(super) create_time: i64,
     pub(super) kind: i64,
-    compression: Option<i64>,
-    content: Option<(bool, Vec<u8>)>,
+    evidence: DetachedContent,
 }
 
 impl StrictMessage {
-    /// 对压缩和未压缩消息体统一限制解码字节数。
-    /// 独立的存储字节上限固定为 1 MiB，不随调用方限制调整。
     pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
-        let (blob, bytes) = self.content.as_ref().context("empty message content")?;
-        if *blob && self.compression == Some(4) {
-            let read_limit = u64::try_from(limit)?
-                .checked_add(1)
-                .context("decoded byte limit overflow")?;
-            let mut decoded = Vec::new();
-            zstd::stream::read::Decoder::new(bytes.as_slice())?
-                .take(read_limit)
-                .read_to_end(&mut decoded)?;
-            ensure!(
-                decoded.len() <= limit,
-                "message body exceeds decoded byte limit"
-            );
-            Ok(decoded)
-        } else {
-            ensure!(
-                bytes.len() <= limit,
-                "message body exceeds decoded byte limit"
-            );
-            Ok(bytes.clone())
-        }
+        self.evidence.bounded_decode(limit)
     }
 }
 
@@ -62,6 +42,77 @@ pub(super) async fn locate(
     local_id: i64,
     create_time: i64,
 ) -> Result<Resolution> {
+    with_resolved(
+        db,
+        names,
+        chat,
+        local_id,
+        create_time,
+        |snapshot, evidence| {
+            let username = match snapshot.conversation(&evidence.reference)? {
+                crate::business::messages::Conversation::Known(username) => username.clone(),
+                _ => anyhow::bail!(Error::InvalidData),
+            };
+            Ok(StrictMessage {
+                username,
+                source: evidence.logical_source.clone(),
+                local_id: evidence
+                    .local_id
+                    .context("message local identity unavailable")?,
+                create_time: evidence.timestamp,
+                kind: evidence.local_type,
+                evidence: evidence.detached_content(),
+            })
+        },
+    )
+    .await
+}
+
+/// The synchronous callback runs before the read snapshot closes. Return only detached
+/// values or existing serializable proofs; references cannot be carried into another read.
+pub(super) async fn with_resolved<T, F>(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    local_id: i64,
+    create_time: i64,
+    read: F,
+) -> Result<Resolution<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
+{
+    with_projection(db, names, chat, local_id, create_time, true, read).await
+}
+
+pub(super) async fn with_resolved_metadata<T, F>(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    local_id: i64,
+    create_time: i64,
+    read: F,
+) -> Result<Resolution<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
+{
+    with_projection(db, names, chat, local_id, create_time, false, read).await
+}
+
+async fn with_projection<T, F>(
+    db: &DbCache,
+    names: &Names,
+    chat: &str,
+    local_id: i64,
+    create_time: i64,
+    with_content: bool,
+    read: F,
+) -> Result<Resolution<T>>
+where
+    T: Send + 'static,
+    F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
+{
     let username = match resolve_unique_username(chat, names) {
         ChatResolution::Unique(username) => username,
         ChatResolution::NotFound => return Ok(Resolution::ChatNotFound),
@@ -79,10 +130,17 @@ pub(super) async fn locate(
             .with_context(|| format!("unavailable message shard: {key}"))?;
         shards.push((key, path));
     }
-    let result =
-        tokio::task::spawn_blocking(move || lookup(&shards, &username, local_id, create_time))
-            .await?;
-    // 读取期间可能出现新分片；交付结果前再次检查，不能把旧快照误报为唯一命中。
+    let result = tokio::task::spawn_blocking(move || {
+        lookup_with(
+            &shards,
+            &username,
+            local_id,
+            create_time,
+            with_content,
+            read,
+        )
+    })
+    .await?;
     ensure_complete_message_inventory(db, names)?;
     result
 }
@@ -91,6 +149,14 @@ enum ChatResolution {
     NotFound,
     Unique(String),
     Ambiguous,
+}
+
+pub(super) fn username(chat: &str, names: &Names) -> Result<String> {
+    match resolve_unique_username(chat, names) {
+        ChatResolution::Unique(value) => Ok(value),
+        ChatResolution::NotFound => Err(Error::NotFound).context("chat not found"),
+        ChatResolution::Ambiguous => Err(Error::Ambiguous).context("ambiguous chat"),
+    }
 }
 
 fn resolve_unique_username(chat: &str, names: &Names) -> ChatResolution {
@@ -122,75 +188,80 @@ fn resolve_unique_username(chat: &str, names: &Names) -> ChatResolution {
     ChatResolution::NotFound
 }
 
-fn lookup(
+fn lookup_with<T, F>(
     shards: &[(String, PathBuf)],
     username: &str,
     local_id: i64,
     create_time: i64,
-) -> Result<Resolution> {
-    let table = format!("Msg_{:x}", md5::compute(username.as_bytes()));
-    ensure!(msg_table_re().is_match(&table), "invalid message table");
-    let mut matched = None;
-    let mut ambiguous = false;
-    for (source, path) in shards {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .with_context(|| format!("cannot read message shard: {source}"))?;
-        let conn = conn.unchecked_transaction()?;
-        let schema: Option<(String, i64)> = conn.query_row(
-            "SELECT type, wr FROM pragma_table_list WHERE schema='main' AND name=?1 COLLATE NOCASE",
-            [&table],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).optional()?;
-        // 只允许跳过确实不存在的目标；不支持的同名对象不能隐藏潜在重复消息。
-        let Some((kind, without_rowid)) = schema else {
-            continue;
-        };
-        ensure!(
-            kind == "table" && without_rowid == 0,
-            "unsupported message table schema"
-        );
-        let mut statement = conn.prepare(&format!(
-            "SELECT local_type,create_time,WCDB_CT_message_content,length(CAST(message_content AS BLOB)),message_content FROM [{table}] WHERE local_id=?1 AND (?2=0 OR create_time=?2) LIMIT 2"
-        ))?;
-        let mut rows = statement.query([local_id, create_time])?;
-        while let Some(row) = rows.next()? {
-            if matched.is_some() {
-                ambiguous = true;
-                continue;
+    with_content: bool,
+    read: F,
+) -> Result<Resolution<T>>
+where
+    F: FnOnce(&Snapshot, &RawMessage) -> Result<T>,
+{
+    let files = shards
+        .iter()
+        .map(|(key, path)| SourceFile {
+            logical_name: key.clone(),
+            path: path.clone(),
+            kind: SourceKind::Ordinary,
+        })
+        .collect();
+    let snapshot = Snapshot::open(files, [username.to_owned()])?;
+    if with_content {
+        snapshot.require_target_content(username, SourceKind::Ordinary)?;
+    }
+    let reference = match snapshot.resolve(
+        &MessageSelector {
+            username,
+            local_id,
+            timestamp: (create_time != 0).then_some(create_time),
+        },
+        SourceKind::Ordinary,
+    ) {
+        Ok(reference) => reference,
+        Err(error) => {
+            return match error.downcast_ref::<Error>() {
+                Some(Error::NotFound) => Ok(Resolution::MessageNotFound),
+                Some(Error::Ambiguous) => Ok(Resolution::AmbiguousMessage),
+                _ => Err(error),
             }
-            let kind: i64 = row.get(0)?;
-            let timestamp: i64 = row.get(1)?;
-            let compression: Option<i64> = row.get(2)?;
-            let length: Option<i64> = row.get(3)?;
-            ensure!(
-                length.unwrap_or(0) <= MAX_STORED_BYTES as i64,
-                "message body exceeds stored byte limit"
-            );
-            let content = match row.get_ref(4)? {
-                ValueRef::Text(bytes) => {
-                    std::str::from_utf8(bytes).context("SQLite TEXT is not valid UTF-8")?;
-                    Some((false, bytes.to_vec()))
-                }
-                ValueRef::Blob(bytes) => Some((true, bytes.to_vec())),
-                ValueRef::Null => None,
-                _ => anyhow::bail!("message body must be SQLite TEXT, BLOB or NULL"),
-            };
-            matched = Some((source.clone(), kind, timestamp, compression, content));
         }
-    }
-    if ambiguous {
-        return Ok(Resolution::AmbiguousMessage);
-    }
-    let Some((source, kind, timestamp, compression, content)) = matched else {
-        return Ok(Resolution::MessageNotFound);
     };
-    Ok(Resolution::Found(StrictMessage {
-        username: username.to_owned(),
-        source,
-        local_id,
-        create_time: timestamp,
-        kind,
-        compression,
-        content,
-    }))
+    let evidence = if with_content {
+        snapshot.read_evidence(reference.evidence())?
+    } else {
+        snapshot.read_metadata(reference.evidence())?
+    };
+    snapshot.revalidate(&reference)?;
+    let value = read(&snapshot, &evidence)?;
+    snapshot.revalidate(&reference)?;
+    Ok(Resolution::Found(value))
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    #[test]
+    fn metadata_callback_runs_with_live_reference_and_no_body_requirement() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("metadata.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let table = format!("Msg_{:x}", md5::compute("wxid_scope"));
+        conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type INTEGER,create_time INTEGER,server_id INTEGER); INSERT INTO [{table}] VALUES(7,34,100,42)")).unwrap();
+        drop(conn);
+        let sources = vec![("message/message_0.db".into(), path)];
+        let result = lookup_with(&sources, "wxid_scope", 7, 100, false, |snapshot, raw| {
+            snapshot.revalidate(&raw.reference)?;
+            assert!(!raw.reference.evidence().is_expired());
+            assert_eq!(raw.checked_server_id()?, Some(42));
+            Ok(raw.reference.clone())
+        })
+        .unwrap();
+        let Resolution::Found(reference) = result else {
+            panic!("expected metadata callback")
+        };
+        assert!(reference.evidence().is_expired());
+        assert!(lookup_with(&sources, "wxid_scope", 7, 100, true, |_, _| Ok(())).is_err());
+    }
 }

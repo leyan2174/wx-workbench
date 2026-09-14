@@ -5,11 +5,11 @@ mod bootstrap;
 #[allow(dead_code)] // harness 仅审查安全边界，不调用每个生产入口。
 mod production;
 use bootstrap::BootstrapCleanup;
-use production::{asr, video};
 pub use production::{
-    attachment, cli, config, crypto, daemon, ipc, key_store, runtime, service, toolkit,
-    windows_process,
+    adapters, attachment, business, cli, config, crypto, daemon, ipc, key_store, runtime, service,
+    toolkit, windows_process,
 };
+use production::{asr, video};
 use std::{
     collections::BTreeMap,
     fs,

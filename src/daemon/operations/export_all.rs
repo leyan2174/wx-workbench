@@ -123,7 +123,7 @@ pub(super) fn export_for(runtime: &RuntimeContext, args: Args) -> Result<Value> 
 }
 
 fn selected(runtime: &RuntimeContext, args: &Args) -> Result<Vec<Target>> {
-    let response = super::transport::send_for(runtime, Request::ExportChatList)?;
+    let response = crate::service::query_client::send_for(runtime, Request::ExportChatList)?;
     let mut targets: Vec<Target> = serde_json::from_value(response.data["chats"].clone())?;
     let filter = args
         .users
@@ -280,8 +280,9 @@ fn export_delta(runtime: &RuntimeContext, args: Args, output: &Path) -> Result<V
         &users,
         window,
         output.try_exists()?,
+        &crate::toolkit::export_protected(runtime),
         |query| {
-            let mut value = super::transport::send_for(
+            let mut value = crate::service::query_client::send_for(
                 runtime,
                 Request::ExportDelta {
                     username: query.username,

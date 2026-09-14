@@ -7,3 +7,5 @@ pub mod resolver;
 
 #[cfg(test)]
 mod probes;
+#[path = "../../support/resource_media_adapters.rs"]
+pub mod adapters;

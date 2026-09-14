@@ -106,6 +106,41 @@ fn validation_precedes_dispatch_and_preserves_existing_outputs() {
 }
 
 #[test]
+fn protected_runtime_paths_reject_before_query_and_manifest_failure_is_not_success() {
+    let g = golden();
+    let window: DeltaWindow = serde_json::from_value(g["window"].clone()).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let private = root.path().join("account-private");
+    fs::create_dir(&private).unwrap();
+    let denied = private.join("archive");
+    assert!(export_delta_with_mode(
+        &denied,
+        &["wxid_peer".into()],
+        window.clone(),
+        false,
+        &[private],
+        |_| panic!("protected request must not dispatch")
+    )
+    .is_err());
+    assert!(!denied.exists());
+
+    let output = root.path().join("public-output");
+    let manifest = output
+        .join("deltas")
+        .join(&window.run_id)
+        .join("manifest.json");
+    let result = cmd_export_delta(&output, &["wxid_peer".into()], window, |_| {
+        fs::write(&manifest, b"synthetic competing manifest")?;
+        Ok(g["cases"][0]["model"].clone())
+    });
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(&manifest).unwrap(),
+        b"synthetic competing manifest"
+    );
+}
+
+#[test]
 fn rejects_history_or_wrong_identity_and_preserves_metadata_warnings() {
     let g = golden();
     let window: DeltaWindow = serde_json::from_value(g["window"].clone()).unwrap();

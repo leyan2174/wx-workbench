@@ -14,7 +14,6 @@
 
 use anyhow::{anyhow, Context, Result};
 use chrono::TimeZone;
-use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 use super::AttachmentId;
@@ -31,121 +30,16 @@ pub struct ResolvedAttachment {
     pub size: u64,
 }
 
-/// 仅 schema lookup（不去找本地 .dat）。
-/// 用于 `wx attachments` 列表时填 `md5` 字段——文件可能根本不在本地。
-#[derive(Debug, Clone)]
-pub struct AttachmentMetadata {
-    pub md5: String,
-}
-
-/// 用 `(chat, local_id)` 查 message_resource.db 拿 file md5。
-///
-/// 调用方传已经解密好的 `message_resource.db` 路径（由 daemon 的 `DBCache` 准备）。
-/// 同步函数 — caller 在 `spawn_blocking` 里跑。
-pub fn lookup_md5_blocking(
-    resource_db_path: &Path,
-    chat: &str,
-    local_id: i64,
-    create_time: i64,
-    msg_local_type_lo32: i64,
-) -> Result<Option<AttachmentMetadata>> {
-    let conn = Connection::open_with_flags(
-        resource_db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
-    )
-    .with_context(|| format!("打开 message_resource.db {:?}", resource_db_path))?;
-
-    // 1) ChatName2Id: user_name -> rowid
-    let chat_id: Option<i64> = conn
-        .query_row(
-            "SELECT rowid FROM ChatName2Id WHERE user_name = ?1",
-            [chat],
-            |row| row.get(0),
-        )
-        .ok();
-    let Some(chat_id) = chat_id else {
-        return Ok(None);
-    };
-
-    // 2) MessageResourceInfo:
-    //    同 chat 内 local_id 会复用，所以先用 create_time 精确命中；
-    //    若资源库里的时间戳跟 message_N.db 不完全对齐，再 fallback 到“同 local_id/type 取最新”
-    //    message_local_type 高 32 bit 是版本/会话 flag，低 32 bit 才是真实类型
-    let packed_exact: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT packed_info FROM MessageResourceInfo
-             WHERE chat_id = ?1
-               AND message_local_id = ?2
-               AND (message_local_type = ?3 OR message_local_type % 4294967296 = ?3)
-               AND message_create_time = ?4
-             ORDER BY rowid DESC
-             LIMIT 1",
-            rusqlite::params![chat_id, local_id, msg_local_type_lo32, create_time],
-            |row| row.get(0),
-        )
-        .ok();
-
-    let packed: Option<Vec<u8>> = packed_exact.or_else(|| {
-        conn.query_row(
-            "SELECT packed_info FROM MessageResourceInfo
-             WHERE chat_id = ?1
-               AND message_local_id = ?2
-               AND (message_local_type = ?3 OR message_local_type % 4294967296 = ?3)
-             ORDER BY message_create_time DESC
-             LIMIT 1",
-            rusqlite::params![chat_id, local_id, msg_local_type_lo32],
-            |row| row.get(0),
-        )
-        .ok()
-    });
-
-    let Some(blob) = packed else {
-        return Ok(None);
-    };
-    Ok(extract_md5_from_packed_info(&blob).map(|md5| AttachmentMetadata { md5 }))
-}
+pub use crate::adapters::wechat::media::resource::{
+    legacy_lookup_md5 as lookup_md5_blocking, AttachmentMetadata,
+};
 
 /// 从 `MessageResourceInfo.packed_info` (protobuf) 提取 32 字节 ASCII hex md5。
 ///
 /// 主路径：搜 4 字节 marker `12 22 0a 20`（field=2 LEN, length=34, sub field=1 LEN, length=32），
 /// 紧跟 32 字节 ASCII hex。
 /// Fallback：扫整个 blob 找连续 32 字节合法 hex 字符。
-pub fn extract_md5_from_packed_info(blob: &[u8]) -> Option<String> {
-    const MARKER: &[u8; 4] = &[0x12, 0x22, 0x0A, 0x20];
-
-    // 主路径
-    if let Some(pos) = find_subslice(blob, MARKER) {
-        let start = pos + MARKER.len();
-        if start + 32 <= blob.len() {
-            if let Ok(s) = std::str::from_utf8(&blob[start..start + 32]) {
-                if s.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return Some(s.to_ascii_lowercase());
-                }
-            }
-        }
-    }
-
-    // Fallback：连续 32 字节合法 hex
-    if blob.len() >= 32 {
-        for start in 0..=blob.len() - 32 {
-            let chunk = &blob[start..start + 32];
-            if let Ok(s) = std::str::from_utf8(chunk) {
-                if s.chars().all(|c| c.is_ascii_hexdigit()) {
-                    return Some(s.to_ascii_lowercase());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// 简单的子串扫描（避免拉 memchr/memmem 依赖；blob 通常 < 1KB）
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || needle.len() > haystack.len() {
-        return None;
-    }
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
+pub use crate::adapters::wechat::media::resource::extract_md5_from_packed_info;
 
 /// 在 `<attach_root>/<md5(chat)>/<YYYY-MM>/Img/<md5>[_t|_h].dat` 下找文件。
 ///
@@ -288,6 +182,7 @@ pub fn resolve_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
 
     #[test]
     fn extract_md5_main_path() {

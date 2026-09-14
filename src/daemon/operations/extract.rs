@@ -1,8 +1,6 @@
-use super::{
-    output::{print_value, resolve},
-    transport,
-};
+use super::output::{print_value, resolve};
 use crate::ipc::Request;
+use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub(super) fn execute(

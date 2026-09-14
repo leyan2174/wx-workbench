@@ -1074,6 +1074,7 @@ dependencies = [
  "wasmi",
  "windows",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]

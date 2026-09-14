@@ -12,8 +12,9 @@ pub mod audio;
 pub mod local_files;
 
 pub mod toolkit {
+    pub(crate) use super::files::{separate, validate_export_target};
     pub use super::asr_runtime::legacy;
-    pub use super::{asr, audio};
+    pub use super::{asr, audio, setup, private_file};
 }
 pub mod attachment {
     pub use super::local_files;
@@ -21,3 +22,19 @@ pub mod attachment {
 
 mod cases;
 pub use cases::run_suite;
+#[path = "../../support/media_business.rs"]
+pub mod business;
+#[path = "../../support/voice_media_adapters.rs"]
+pub mod adapters;
+
+#[path = "../../support/managed_process.rs"]
+pub mod windows_process;
+#[path = "../../../src/key_store/mod.rs"]
+pub mod key_store;
+#[path = "../../../src/toolkit/setup.rs"]
+pub mod setup;
+#[path = "../../../src/toolkit/private_file.rs"]
+pub mod private_file;
+
+#[path = "../../../src/toolkit/files.rs"]
+mod files;

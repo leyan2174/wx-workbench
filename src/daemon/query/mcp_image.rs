@@ -15,6 +15,50 @@ use std::{
 const RESOURCE_KEY: &str = "message/message_resource.db";
 const MAX_INVENTORY_ENTRIES: usize = 20_000;
 
+fn resource_discovery_error(error: crate::business::media::Error) -> anyhow::Error {
+    use crate::business::media::{Failure, Stage};
+    let context = match (error.stage, error.failure) {
+        (Stage::Association, Failure::NotFound) => Some("exact image resource not found"),
+        (Stage::Association, Failure::Ambiguous) => {
+            Some("ambiguous exact image resource; chat mapping must be unique")
+        }
+        (Stage::Association, Failure::ConflictingEvidence) => Some("resource MD5 missing"),
+        _ => None,
+    };
+    let error = anyhow::Error::new(error);
+    match context {
+        Some(context) => error.context(context),
+        None => error,
+    }
+}
+
+#[cfg(test)]
+mod resource_error_tests {
+    use super::resource_discovery_error;
+    use crate::business::media::{Error, Failure, Stage};
+
+    #[test]
+    fn legacy_context_preserves_typed_resource_failure() {
+        for (failure, text) in [
+            (Failure::NotFound, "exact image resource not found"),
+            (Failure::Ambiguous, "ambiguous exact image resource"),
+        ] {
+            let error = resource_discovery_error(Error::new(Stage::Association, failure));
+            assert!(error.to_string().contains(text));
+            let typed = error.downcast_ref::<Error>().unwrap();
+            assert_eq!(typed.stage, Stage::Association);
+            assert_eq!(typed.failure, failure);
+        }
+        let error =
+            resource_discovery_error(Error::new(Stage::Revalidation, Failure::StaleEvidence));
+        assert!(!error.to_string().contains("not found"));
+        assert_eq!(
+            error.downcast_ref::<Error>().unwrap().failure,
+            Failure::StaleEvidence
+        );
+    }
+}
+
 /// MCP 宿主入口：输出目录必须由宿主显式提供，不从配置或消息推断路径与密钥。
 pub async fn q_decode_image_with_key_file(
     db: &DbCache,
@@ -159,6 +203,54 @@ async fn q_decode_image_guarded(
         .get(raw_key)
         .await?
         .context("current account resource database unavailable")?;
+    // Snapshot-bound references never escape this callback; only the old resource proof does.
+    let discovery_db = resource_db.clone();
+    let expected = identity.clone();
+    let proof = strict_message::with_resolved(
+        db,
+        names,
+        chat,
+        local_id,
+        create_time,
+        move |messages, raw| {
+            use crate::business::media::{Error, Failure, Kind, Source, Stage};
+            ensure!(
+                raw.logical_source == expected.source
+                    && raw.local_id == Some(expected.local_id)
+                    && raw.timestamp == expected.create_time
+                    && raw.local_type == expected.local_type,
+                Error::new(Stage::Revalidation, Failure::StaleEvidence)
+            );
+            let resource = crate::daemon::cache::ResourceSnapshot::new(&discovery_db)?;
+            let mut source = crate::adapters::wechat::media::ImageSource::from_reference(
+                messages,
+                &raw.reference,
+                &resource.path(),
+            )?;
+            let discovered = source
+                .discover(&raw.reference, Kind::Image)
+                .map_err(resource_discovery_error)?;
+            let item = discovered.first().context("image reference unavailable")?;
+            let (rowid, digest) = source.resource_evidence(&item.reference)?;
+            Ok((rowid, digest.to_owned()))
+        },
+    )
+    .await?;
+    let proof = match proof {
+        Resolution::Found(proof) => proof,
+        Resolution::AmbiguousChat | Resolution::AmbiguousMessage => {
+            anyhow::bail!(crate::business::media::Error::new(
+                crate::business::media::Stage::Revalidation,
+                crate::business::media::Failure::Ambiguous
+            ))
+        }
+        Resolution::ChatNotFound | Resolution::MessageNotFound => {
+            anyhow::bail!(crate::business::media::Error::new(
+                crate::business::media::Stage::Revalidation,
+                crate::business::media::Failure::StaleEvidence
+            ))
+        }
+    };
     let output_root = guard.output_root().to_path_buf();
     let message_keys = names.msg_db_keys.clone();
     let raw_key = raw_key.clone();
@@ -168,7 +260,7 @@ async fn q_decode_image_guarded(
     tokio::task::spawn_blocking(move || -> Result<Value> {
         before.verify(&db_dir, &message_keys, &raw_key)?;
         let snapshot = crate::daemon::cache::ResourceSnapshot::new(&resource_db)?;
-        let result = native_image::export_image_with_guard(
+        let result = native_image::export_image_with_proof(
             ImageRequest {
                 message: &identity,
                 resource_db: &snapshot.path(),
@@ -180,6 +272,8 @@ async fn q_decode_image_guarded(
                 },
             },
             &guard,
+            (proof.0, &proof.1),
+            || before.verify(&db_dir, &message_keys, &raw_key),
         )?;
         // 成功发布后不再做清单检查、路径打开或其他可预见的失败操作。
         // 路径编码已由导出核心校验，以下字段均可直接序列化。

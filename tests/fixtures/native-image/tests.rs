@@ -1,6 +1,7 @@
 use super::super::local_files::read_entries;
 use super::*;
 use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+use rusqlite::Connection;
 use std::fs::OpenOptions;
 
 const HASH: &str = "0123456789abcdef0123456789abcdef";

@@ -68,7 +68,7 @@ struct Failure {
 
 pub fn cmd_export(args: Args) -> Result<()> {
     let has_plan = args.from_plan_csv.is_some();
-    let summary = export_with(None, args, None, super::transport::send_for)?;
+    let summary = export_with(None, args, None, crate::service::query_client::send_for)?;
     // 保留空计划的紧凑输出，其他结果仍采用原有缩进格式。
     if has_plan && summary.get("total") == Some(&serde_json::json!(0)) {
         println!("{summary}");
@@ -94,7 +94,12 @@ pub fn export_for(
     args: Args,
     processor: Option<&mut DocumentProcessor<'_>>,
 ) -> Result<serde_json::Value> {
-    export_with(Some(runtime), args, processor, super::transport::send_for)
+    export_with(
+        Some(runtime),
+        args,
+        processor,
+        crate::service::query_client::send_for,
+    )
 }
 
 // 仅注入请求边界，测试仍执行真实选择、合并、回调与原子文件发布。

@@ -190,3 +190,7 @@ pub mod transport {
 }
 #[path = "../../../src/daemon/query/strict_message.rs"]
 mod strict_message;
+#[path = "../../support/image_media_adapters.rs"]
+pub mod adapters;
+#[path = "../../support/media_business.rs"]
+pub mod business;

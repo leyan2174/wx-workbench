@@ -33,3 +33,7 @@ pub mod mcp_voice;
 
 #[cfg(test)]
 mod security_tests;
+#[path = "../../support/media_business.rs"]
+pub mod business;
+#[path = "../../support/voice_media_adapters.rs"]
+pub mod adapters;

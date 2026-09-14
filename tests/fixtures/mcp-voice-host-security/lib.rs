@@ -90,3 +90,8 @@ pub mod asr_contracts;
 pub mod mcp_contract;
 #[path = "../../support/mcp_argument_parsers.rs"]
 pub mod operation_args;
+
+#[path = "../../support/media_business.rs"]
+pub mod business;
+#[path = "../../support/voice_media_adapters.rs"]
+pub mod adapters;

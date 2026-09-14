@@ -140,6 +140,40 @@ fn manifest_collision_returns_error_without_overwrite() {
 }
 
 #[test]
+fn protected_delta_roots_are_rejected_before_creating_any_batch() {
+    let parent = tempfile::tempdir().unwrap();
+    let (window, _) = setup();
+    let private = parent.path().join("synthetic-private");
+    let root = private.join("output");
+    fs::create_dir(&private).unwrap();
+    assert!(DeltaRunWriter::create_protected(&root, window.clone(), &[private.clone()]).is_err());
+    assert!(!root.exists());
+    fs::create_dir(&root).unwrap();
+    assert!(DeltaRunWriter::append_protected(&root, window, &[private]).is_err());
+    assert!(!root.join("deltas").exists());
+}
+
+#[test]
+fn delta_files_use_shared_private_publication_and_preserve_collisions() {
+    let parent = tempfile::tempdir().unwrap();
+    let (window, chat) = setup();
+    let root = parent.path().join("published");
+    let mut writer = DeltaRunWriter::create_protected(&root, window.clone(), &[]).unwrap();
+    let first = writer.write_chat(&chat);
+    assert_eq!(first["success"], true);
+    let path = root
+        .join("deltas")
+        .join(&window.run_id)
+        .join(first["path"].as_str().unwrap());
+    let bytes = fs::read(&path).unwrap();
+    assert_eq!(writer.write_chat(&chat)["success"], false);
+    assert_eq!(fs::read(path).unwrap(), bytes);
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(writer.finish().unwrap()).unwrap()).unwrap();
+    assert_eq!(manifest["errors"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn published_run_matches_python_oracle() {
     let g = golden();
     let window: DeltaWindow = serde_json::from_value(g["window"].clone()).unwrap();

@@ -168,7 +168,8 @@ fn export_with_sources(
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
         .collect();
-    let response = super::transport::send_for(runtime, Request::ExportDirectoryCatalog)?;
+    let response =
+        crate::service::query_client::send_for(runtime, Request::ExportDirectoryCatalog)?;
     ensure!(
         response.data["catalog"] == "message_tables",
         "后台未返回完整消息表目录"
@@ -227,7 +228,7 @@ fn export_with_sources(
     for entry in targets {
         let target = entry.target;
         let result = (|| -> Result<_> {
-            let response = super::transport::send_for(
+            let response = crate::service::query_client::send_for(
                 runtime,
                 Request::ExportDirectoryByUsername {
                     username: target.username.clone(),

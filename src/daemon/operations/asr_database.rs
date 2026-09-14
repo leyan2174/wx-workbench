@@ -309,7 +309,14 @@ mod tests {
     }
 
     fn compile_engine(engine: &Path) {
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/asr-local/fake.rs");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .find(|path| {
+                path.join("src/daemon/operations/asr_database.rs").is_file()
+                    && path.join("tests/fixtures/asr-local/fake.rs").is_file()
+            })
+            .expect("repository containing the real ASR helper fixture");
+        let source = root.join("tests/fixtures/asr-local/fake.rs");
         let mut command = std::process::Command::new("rustc");
         command
             .arg("--edition=2021")

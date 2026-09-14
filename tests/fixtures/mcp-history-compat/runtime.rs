@@ -5,7 +5,7 @@
 mod support;
 use serde_json::{json, Value};
 
-fn safe_failure(reply: Value, expected: &str) {
+pub(crate) fn safe_failure(reply: Value, expected: &str) {
     assert_eq!(
         reply["result"],
         json!({"isError":true,"content":[{"type":"text","text":expected}]})

@@ -30,7 +30,7 @@ pub mod runtime;
 pub mod setup;
 #[path = "../../../src/toolkit/sns/video_runtime.rs"]
 pub mod video;
-#[path = "../../../src/windows_process.rs"]
+#[path = "../../support/managed_process.rs"]
 pub mod windows_process;
 
 pub mod daemon {
@@ -55,3 +55,8 @@ pub mod asr_contracts;
 pub mod service {
     pub use super::asr_contracts as operation_requests;
 }
+
+#[path = "../../support/voice_media_adapters.rs"]
+pub mod adapters;
+#[path = "../../support/media_business.rs"]
+pub mod business;

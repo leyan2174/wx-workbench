@@ -394,6 +394,7 @@ dependencies = [
  "native-image-fixture",
  "regex",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

@@ -231,7 +231,7 @@ fn stamp(meta: &Metadata) -> Result<Stamp> {
     Ok(Stamp(meta.is_dir(), meta.len(), meta.modified()?))
 }
 
-pub(super) struct Pin {
+pub(crate) struct Pin {
     pub(super) path: PathBuf,
     pub(super) file: File,
     pub(super) id: same_file::Handle,
@@ -239,7 +239,7 @@ pub(super) struct Pin {
 }
 
 impl Pin {
-    pub(super) fn open(path: &Path, directory: bool) -> Result<Self> {
+    pub(crate) fn open(path: &Path, directory: bool) -> Result<Self> {
         let before = stamp(&fs::symlink_metadata(path)?)?;
         ensure!(before.0 == directory, "unexpected path type");
         let mut options = OpenOptions::new();
@@ -270,7 +270,7 @@ impl Pin {
         Ok(pin)
     }
 
-    pub(super) fn verify(&self) -> Result<()> {
+    pub(crate) fn verify(&self) -> Result<()> {
         let current = stamp(&fs::symlink_metadata(&self.path)?)?;
         ensure!(
             self.id == same_file::Handle::from_path(&self.path)?,
