@@ -152,7 +152,7 @@ pub(crate) fn reuse_existing_video(name: &str, guard: &HostOutputGuard) -> Resul
         return Ok(None);
     };
     let bytes = file.metadata().map_err(|_| VideoError::Source)?.len();
-    if bytes < 12 || bytes > MAX_VIDEO_BYTES {
+    if !(12..=MAX_VIDEO_BYTES).contains(&bytes) {
         return Ok(None);
     }
     let mut header = [0; 12];

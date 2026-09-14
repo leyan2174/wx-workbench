@@ -1,9 +1,0 @@
-flowchart TB
-    ENTRY["wx / wx-toolbox：共享原生入口"] --> CLI["CLI、配置与账号运行上下文"]
-    CLI --> QUERY["固定账号 IPC、daemon 与查询服务"]
-    CLI --> TASK["tasks 与 Web：类型化任务客户端"]
-    QUERY --> DETAIL["历史、联系人、附件及消息语义"]
-    TASK --> OWNER["daemon/tasks：队列、历史与进程生命周期"]
-    OWNER --> MEDIA["聊天/SNS 导出、语音与媒体"]
-    DETAIL --> BOUND["共享边界：身份、限额、路径与发布规则"]
-    MEDIA --> BOUND

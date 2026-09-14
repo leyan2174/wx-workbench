@@ -3,7 +3,7 @@ name = "wx-mcp-cli-harness"
 version = "0.0.0"
 edition = "2021"
 publish = false
-build = "../asr-cache-security/build.rs"
+build = "build.rs"
 
 [workspace]
 
@@ -19,6 +19,7 @@ name = "cli-process"
 path = "cli_process.rs"
 
 [dependencies]
+mcp-voice-host = { path = "../mcp-voice-host" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
 anyhow = "1"
@@ -38,4 +39,9 @@ tokio = { version = "1", features = ["full"] }
 interprocess = { version = "2", features = ["tokio"] }
 windows = { version = "0.58", features = [
     "Win32_Foundation", "Win32_System_Threading", "Win32_System_Com", "Win32_UI_Shell", "Win32_Storage_FileSystem",
+    "Win32_Security", "Win32_Security_Cryptography",
 ] }
+
+[build-dependencies]
+syn = { version = "2", features = ["full"] }
+prettyplease = "0.2"

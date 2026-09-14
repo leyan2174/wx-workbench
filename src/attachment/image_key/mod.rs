@@ -333,7 +333,7 @@ pub(crate) fn verify_aes_key(aes_key: &[u8; 16], templates: &[[u8; 16]]) -> bool
             .all(|template| decrypt_template_block(aes_key, template).is_some())
 }
 
-pub(crate) fn ascii_alnum_candidates<'a>(buf: &'a [u8], len: usize) -> Vec<&'a [u8]> {
+pub(crate) fn ascii_alnum_candidates(buf: &[u8], len: usize) -> Vec<&[u8]> {
     ascii_alnum_matches(buf, len)
         .map(|range| &buf[range])
         .collect()

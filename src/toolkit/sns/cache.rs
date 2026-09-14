@@ -455,9 +455,10 @@ fn add_video(index: &mut CacheIndex, path: PathBuf) -> Result<()> {
     match result {
         Ok(entry) => {
             // 忠实保留旧 OR 规则：较大的非 mp4 候选也可能替代较小的 mp4。
-            let replace = index.videos.get(&key).map_or(true, |prev| {
-                entry.complete || entry.source_size > prev.source_size
-            });
+            let replace = index
+                .videos
+                .get(&key)
+                .is_none_or(|prev| entry.complete || entry.source_size > prev.source_size);
             if replace {
                 index.videos.insert(key, entry);
             }

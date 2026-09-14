@@ -20,6 +20,8 @@ struct Report {
     total: usize,
     written: usize,
     skipped: usize,
+    skipped_no_key: usize,
+    formats: std::collections::BTreeMap<String, usize>,
     failures: Vec<Failure>,
 }
 struct Failure {

@@ -19,9 +19,10 @@
 复跑命令（仓库根目录）：
 
 ```powershell
-$env:LIBCLANG_PATH = 'C:/CodexLocal/build-tools/libclang/clang/native'
 cargo test --offline --test mcp_image_runtime --test mcp_readonly_runtime --test mcp_runtime -- --nocapture
 ```
 
 该夹具不覆盖 V2 密钥探测或在线下载。运行结果以测试进程退出码为准；
 编译失败不代表测试通过。
+
+运行依赖见[测试说明](../../README.md)。

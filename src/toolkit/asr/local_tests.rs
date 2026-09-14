@@ -12,13 +12,13 @@ fn executable() -> &'static Path {
     static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
     &FIXTURE
         .get_or_init(|| {
-            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let source = if root.join("fake.rs").is_file() {
-                root.join("fake.rs")
-            } else {
-                root.join("tests/fixtures/asr-local/fake.rs")
-            };
             let dir = tempfile::tempdir().unwrap();
+            let source = dir.path().join("fake.rs");
+            fs::write(
+                &source,
+                include_str!("../../../tests/fixtures/asr-local/fake.rs"),
+            )
+            .unwrap();
             let exe = dir.path().join(if cfg!(windows) {
                 "fake whisper.exe"
             } else {

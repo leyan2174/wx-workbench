@@ -99,8 +99,9 @@ def test_rust():
         if not re.search(r"\bmod\s+mcp_refer\s*;", query.read_text(encoding="utf-8")):
             with query.open("a", encoding="utf-8") as file:
                 file.write('\n#[path = "query/mcp_refer.rs"]\nmod mcp_refer;\n')
-        env = dict(os.environ, LIBCLANG_PATH=r"C:\CodexLocal\build-tools\libclang\clang\native")
-        logs = Path(r"C:\CodexLocal\日志")
+        env = os.environ.copy()
+        logs = REPO / "target" / "test-logs"
+        logs.mkdir(parents=True, exist_ok=True)
         for mode in ["check", "test"]:
             command = ["cargo", mode, "--manifest-path", str(root / "Cargo.toml"), "--target", "x86_64-pc-windows-msvc",
                        "--target-dir", str(REPO / "target"), "--offline", "--bin", "wx"]

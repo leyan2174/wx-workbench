@@ -1,13 +1,7 @@
+use crate::service::operations::{Operation, ToolkitOperation};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use serde::Serialize;
 use std::path::PathBuf;
-
-use super::output::{print_value, resolve};
-use crate::toolkit as native;
-
-use crate::toolkit::legacy::{python_available, toolkit_python, toolkit_root};
-
 #[derive(Subcommand)]
 pub enum ToolkitCommands {
     /// 原生配置向导与只读环境检查；默认预览，不扫描进程或下载模型
@@ -36,53 +30,8 @@ pub enum ToolkitCommands {
         #[arg(long)]
         wasm: Option<PathBuf>,
     },
-    /// 查询或导出企业微信已解密离线快照，不自动发现账号
-    Enterprise {
-        /// 包含 message.db，可选 user.db / session.db 的离线目录
-        snapshot: PathBuf,
-        /// 本人企业账号数字 ID；不指定时不推断“我”
-        #[arg(long)]
-        self_id: Option<i64>,
-        #[command(subcommand)]
-        command: super::enterprise::QueryCommand,
-    },
     /// 原生朋友圈预览：JSON / HTML，默认离线，可显式恢复缓存或下载媒体
-    ExportSnsNative {
-        /// 已解密 SNS SQLite 数据库
-        sns_db: PathBuf,
-        /// 新输出目录，须位于源数据库目录之外
-        output_dir: PathBuf,
-        /// 已解密联系人数据库
-        #[arg(long)]
-        contact_db: Option<PathBuf>,
-        /// 按 user_name 筛选，逗号分隔；默认读取 WECHAT_EXPORT_CONTACTS
-        #[arg(long)]
-        contacts: Option<String>,
-        /// 可选固定时区偏移，例如 +08:00；默认本机时区
-        #[arg(long, allow_hyphen_values = true)]
-        utc_offset: Option<String>,
-        /// 显式授权下载未从本地缓存恢复的媒体；默认不联网
-        #[arg(long)]
-        download_media: bool,
-        /// 创建或更新绑定同一数据库来源的时间线；默认仍为 fresh 整目录发布
-        #[arg(long)]
-        update: bool,
-        /// 显式认领无来源绑定的旧时间线；已知来源冲突仍拒绝
-        #[arg(long, requires = "update")]
-        adopt_existing: bool,
-        #[command(flatten)]
-        local_cache: super::export_sns::LocalCacheArgs,
-    },
-    /// 解密企业微信离线主库：4096 字节页；拒绝 WAL/日志和已有输出
-    DecryptEnterprise {
-        /// 输入数据库文件
-        input: PathBuf,
-        /// 输出明文数据库文件
-        output: PathBuf,
-        /// UTF-8 文本文件，包含 32 位十六进制原始密钥；不通过命令行传密钥
-        #[arg(long)]
-        key_file: PathBuf,
-    },
+    ExportSnsNative(super::export_sns::Args),
     /// 原生批量导出：日期、增量 JSON 与计划 CSV 选择；不串联语音转录
     ExportChatsNative(super::export_chats::Args),
     /// 使用已保存的账号密钥导出表情（Rust；不要求微信运行）
@@ -129,8 +78,6 @@ pub enum ToolkitCommands {
     ExportSns(super::sns_timeline::Args),
     /// 个人聊天 CSV/HTML/JSON 与媒体目录导出
     ExportMessages(super::export_messages::Args),
-    /// 企业微信授权取钥、批量主库解密及多会话多格式导出
-    EnterpriseBatch(super::enterprise_batch::Args),
     /// 归档选中账号的全部朋友圈缓存图片，不要求存在对应帖子
     #[command(name = "decrypt-sns")]
     SnsArchive(super::sns_archive::Args),
@@ -203,176 +150,127 @@ pub enum ToolkitCommands {
     Gui(super::web_native::Args),
 }
 
-#[derive(Serialize)]
-struct ToolkitStatus {
-    native_commands: Vec<&'static str>,
-    wechat_decrypt_dir: String,
-    wechat_decrypt_dir_exists: bool,
-    python: String,
-    python_exists: bool,
-    config_json: String,
-    config_json_exists: bool,
-    scripts: Vec<ScriptStatus>,
-    env_overrides: EnvOverrides,
-}
-
-#[derive(Serialize)]
-struct ScriptStatus {
-    name: &'static str,
-    path: String,
-    exists: bool,
-}
-
-#[derive(Serialize)]
-struct EnvOverrides {
-    wx_wechat_decrypt_dir: Option<String>,
-    wx_wechat_decrypt_python: Option<String>,
-}
-
 pub fn cmd_toolkit(cmd: ToolkitCommands) -> Result<()> {
-    match cmd {
-        ToolkitCommands::Setup(args) => super::setup_native::cmd(args),
-        ToolkitCommands::Cleanup(args) => super::cleanup_native::cmd(args),
+    let operation = match cmd {
+        ToolkitCommands::Setup(args) => return super::setup_native::cmd(args),
+        ToolkitCommands::Cleanup(args) => return super::cleanup_native::cmd(args),
         ToolkitCommands::TranscribeDatabaseNative(args) => {
-            super::asr_database::cmd_transcribe_database_native(args)
+            return super::asr_database::cmd_transcribe_database_native(args)
         }
-        ToolkitCommands::ExportDeltaNative(args) => super::export_delta::cmd(args),
-        ToolkitCommands::ChatPlanNative(args) => super::chat_plan::cmd(args),
+        ToolkitCommands::ExportDeltaNative(args) => return super::export_delta::cmd(args),
+        ToolkitCommands::ChatPlanNative(args) => return super::chat_plan::cmd(args),
         ToolkitCommands::TranscribeAudioNative(args) => {
-            super::asr::cmd_transcribe_audio_native(args)
+            return super::asr::cmd_transcribe_audio_native(args)
         }
-        ToolkitCommands::TranscribeChatNative(args) => super::asr::cmd_transcribe_chat_native(args),
+        ToolkitCommands::TranscribeChatNative(args) => {
+            return super::asr::cmd_transcribe_chat_native(args)
+        }
         ToolkitCommands::DecodeSnsVideo {
             input,
             output,
             key_file,
             wasm,
-        } => super::sns_video::cmd_decode(input, output, key_file, wasm),
-        ToolkitCommands::Enterprise {
-            snapshot,
-            self_id,
-            command,
-        } => super::enterprise::cmd_query(snapshot, self_id, command),
-        ToolkitCommands::ExportSnsNative {
-            sns_db,
-            output_dir,
-            contact_db,
-            contacts,
-            utc_offset,
-            download_media,
-            update,
-            adopt_existing,
-            local_cache,
-        } => super::export_sns::cmd_export(
-            sns_db,
-            contact_db,
-            output_dir,
-            contacts,
-            utc_offset,
-            local_cache,
-            download_media,
-            update,
-            adopt_existing,
-        ),
-        ToolkitCommands::DecryptEnterprise {
+        } => ToolkitOperation::DecodeSnsVideo {
             input,
             output,
             key_file,
-        } => super::enterprise::cmd_decrypt(input, output, key_file),
-        ToolkitCommands::ExportChatsNative(args) => super::export_chats::cmd_export(args),
-        ToolkitCommands::ExportEmoticons(args) => {
-            let runtime = crate::runtime::RuntimeContext::load()?;
-            let keys = super::toolkit_run_prepare::load_saved(&runtime)?;
-            super::export_emoticons::export(runtime, keys, args)
-        }
-        ToolkitCommands::Status { json } => cmd_status(json),
-        ToolkitCommands::Run { command, args } => cmd_run(command, args),
+            wasm,
+        },
+        ToolkitCommands::ExportSnsNative(super::export_sns::Args {
+            sns_db,
+            output_dir,
+            contact_db,
+            contacts,
+            utc_offset,
+            download_media,
+            update,
+            adopt_existing,
+            local_cache,
+        }) => ToolkitOperation::ExportSnsNative {
+            sns_db,
+            output_dir,
+            contact_db,
+            contacts,
+            utc_offset,
+            download_media,
+            update,
+            adopt_existing,
+            local_cache,
+        },
+        ToolkitCommands::ExportChatsNative(args) => return super::export_chats::cmd_export(args),
+        ToolkitCommands::ExportEmoticons(args) => ToolkitOperation::ExportEmoticons(args),
+        ToolkitCommands::Status { json } => ToolkitOperation::Status { json },
+        ToolkitCommands::Run { command, args } => return cmd_run(command, args),
         ToolkitCommands::Decrypt {
             incremental,
             dry_run,
             args,
         } => {
             anyhow::ensure!(args.is_empty(), "decrypt 不支持额外参数，请使用 --help");
-            let runtime = crate::runtime::RuntimeContext::load()?;
-            let keys = super::toolkit_run_prepare::load_saved(&runtime)?;
-            native::decrypt(
-                &runtime,
-                &keys,
+            ToolkitOperation::Decrypt {
                 incremental,
                 dry_run,
-                native::DecryptMode::Strict,
-            )
+            }
         }
         ToolkitCommands::ExportChats {
             output_dir,
             with_transcriptions,
             args,
-        } => super::export_all::cmd(output_dir, with_transcriptions, args),
-        ToolkitCommands::ExportSns(args) => super::sns_timeline::cmd(args),
-        ToolkitCommands::ExportMessages(args) => super::export_messages::cmd(args),
-        ToolkitCommands::EnterpriseBatch(args) => super::enterprise_batch::cmd(args),
-        ToolkitCommands::SnsArchive(args) => super::sns_archive::cmd(args),
-        ToolkitCommands::FindImageKey(args) => super::image_keys::cmd(args),
-        ToolkitCommands::FindDatabaseKeys(args) => super::database_keys::cmd(args),
-        ToolkitCommands::FindImageKeyMonitor(args) => super::image_keys::cmd_monitor(args),
-        ToolkitCommands::Monitor(args) => super::monitor_native::cmd_monitor(args),
-        ToolkitCommands::Latency(args) => super::monitor_native::cmd_latency(args),
+        } => return export_chats(output_dir, with_transcriptions, args),
+        ToolkitCommands::ExportSns(args) => return super::sns_timeline::cmd(args),
+        ToolkitCommands::ExportMessages(args) => return super::export_messages::cmd(args),
+        ToolkitCommands::SnsArchive(args) => return super::sns_archive::cmd(args),
+        ToolkitCommands::FindImageKey(args) => return super::image_keys::cmd(args),
+        ToolkitCommands::FindDatabaseKeys(args) => return super::database_keys::cmd(args),
+        ToolkitCommands::FindImageKeyMonitor(args) => return super::image_keys::cmd_monitor(args),
+        ToolkitCommands::Monitor(args) => return super::monitor_native::cmd_monitor(args),
+        ToolkitCommands::Latency(args) => return super::monitor_native::cmd_latency(args),
         ToolkitCommands::DecodeImages {
             attach_dir,
             decoded_dir,
             aes_key,
             xor_key,
             force,
-        } => native::decode_images(attach_dir, decoded_dir, aes_key, xor_key, force),
+        } => ToolkitOperation::DecodeImages {
+            attach_dir,
+            decoded_dir,
+            aes_key,
+            xor_key,
+            force,
+        },
         ToolkitCommands::DecodeImage {
             dat_file,
             output_file,
-        } => native::decode_image(dat_file, output_file),
+        } => ToolkitOperation::DecodeImage {
+            dat_file,
+            output_file,
+        },
         ToolkitCommands::BatchDecryptImages {
             input_dir,
             output_dir,
-        } => native::batch_images(input_dir, output_dir),
-        ToolkitCommands::VoiceToMp3 { input, output } => {
-            let output = output.unwrap_or_else(|| {
-                let mut path = PathBuf::from(&input);
-                path.set_extension("mp3");
-                path.to_string_lossy().into_owned()
-            });
-            let result = native::audio::convert_silk_to_mp3(
-                std::path::Path::new(&input),
-                std::path::Path::new(&output),
-            )?;
-            println!("{}", serde_json::to_string(&result)?);
-            Ok(())
-        }
+        } => ToolkitOperation::BatchDecryptImages {
+            input_dir,
+            output_dir,
+        },
         ToolkitCommands::VoiceBatch {
             config,
             output_dir,
             contacts,
-        } => {
-            let mut options = native::audio::batch::BatchOptions::from_config_file(&config)?;
-            if let Some(output) = output_dir {
-                options.output_dir = output;
-            }
-            if let Some(contacts) = contacts {
-                options.contacts = native::audio::batch::parse_contact_filter(&contacts);
-            }
-            let report = native::audio::batch::convert_database(&options)?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            anyhow::ensure!(
-                report.failed == 0,
-                "{} 条语音转换失败，其他结果已保留",
-                report.failed
-            );
-            Ok(())
+        } => ToolkitOperation::VoiceBatch {
+            config,
+            output_dir,
+            contacts,
+        },
+        ToolkitCommands::VoiceToMp3 { input, output } => {
+            ToolkitOperation::VoiceToMp3 { input, output }
         }
-        ToolkitCommands::TranscribeChat(args) => super::asr_batch::cmd(args),
-        ToolkitCommands::Web(args) => super::web_native::cmd_web(args),
-        ToolkitCommands::Gui(args) => super::web_native::cmd_gui(args),
-    }
+        ToolkitCommands::TranscribeChat(args) => return super::asr_batch::cmd(args),
+        ToolkitCommands::Web(args) => return super::web_native::cmd_web(args),
+        ToolkitCommands::Gui(args) => return super::web_native::cmd_gui(args),
+    };
+    crate::service::operation_client::run(Operation::Toolkit { operation })
 }
 
-// 复用直接命令的参数定义，防止兼容入口与原生入口逐渐出现差异。
 #[derive(Parser)]
 struct NativeInvocation {
     #[command(subcommand)]
@@ -380,45 +278,18 @@ struct NativeInvocation {
 }
 
 fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
-    if command == "export-all" {
-        let parsed = super::export_all::Args::try_parse_from(
-            ["wx toolkit run export-all".to_owned()]
-                .into_iter()
-                .chain(args),
-        )
-        .unwrap_or_else(|error| error.exit());
-        parsed.validate()?;
-        return super::export_all::emit(super::export_all::export_for(
-            &crate::runtime::RuntimeContext::load()?,
-            parsed,
-        )?);
-    }
-    if matches!(command.as_str(), "export" | "all") {
+    if matches!(command.as_str(), "export-all" | "export" | "all") {
         let parsed = super::export_all::Args::try_parse_from(
             [format!("wx toolkit run {command}")]
                 .into_iter()
                 .chain(args),
         )
         .unwrap_or_else(|error| error.exit());
-        parsed.validate()?;
-        if parsed.dry_run {
-            let runtime = crate::runtime::RuntimeContext::load()?;
-            return super::export_all::emit(super::export_all::export_for(&runtime, parsed)?);
-        }
-        let prepared = super::toolkit_run_prepare::prepare()?;
-        native::decrypt(
-            &prepared.runtime,
-            &prepared.keys,
-            false,
-            false,
-            native::DecryptMode::Legacy,
-        )?;
-        let transcribed = parsed.with_transcriptions;
-        super::export_all::emit(super::export_all::export_for(&prepared.runtime, parsed)?)?;
-        if command == "all" && !transcribed {
-            eprintln!("全量导出完成；语音转录需显式指定 --with-transcriptions 及后端配置。");
-        }
-        return Ok(());
+        return crate::service::operation_client::run(Operation::ExportAll {
+            args: parsed,
+            prepare: command != "export-all",
+            announce: command == "all",
+        });
     }
     if matches!(command.as_str(), "emoticons" | "decrypt") {
         let invocation = NativeInvocation::try_parse_from(
@@ -438,22 +309,18 @@ fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
         if let ToolkitCommands::Decrypt { args, .. } = &invocation.command {
             anyhow::ensure!(args.is_empty(), "decrypt 不支持额外参数，请使用 --help");
         }
-        let prepared = super::toolkit_run_prepare::prepare()?;
         return match invocation.command {
             ToolkitCommands::ExportEmoticons(args) => {
-                super::export_emoticons::export(prepared.runtime, prepared.keys, args)
+                crate::service::operation_client::run(Operation::PreparedEmoticons { args })
             }
             ToolkitCommands::Decrypt {
                 incremental,
                 dry_run,
                 ..
-            } => native::decrypt(
-                &prepared.runtime,
-                &prepared.keys,
+            } => crate::service::operation_client::run(Operation::PreparedDecrypt {
                 incremental,
                 dry_run,
-                native::DecryptMode::Legacy,
-            ),
+            }),
             _ => unreachable!(),
         };
     }
@@ -462,16 +329,10 @@ fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
             ["wx toolkit run status".to_owned()].into_iter().chain(args),
         )
         .unwrap_or_else(|error| error.exit());
-        let status = native::run_status::inspect(
-            &crate::config::find_config_file()?,
-            parsed.exported_dir.as_deref(),
-        )?;
-        if parsed.json {
-            println!("{}", serde_json::to_string_pretty(&status)?);
-        } else {
-            print!("{}", status.render());
-        }
-        return Ok(());
+        return crate::service::operation_client::run(Operation::RunStatus {
+            exported_dir: parsed.exported_dir,
+            json: parsed.json,
+        });
     }
     if matches!(
         command.as_str(),
@@ -485,7 +346,6 @@ fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
             | "setup"
             | "cleanup"
             | "export-messages"
-            | "enterprise-batch"
             | "export-sns"
             | "transcribe-chat"
             | "export-emoticons"
@@ -517,72 +377,19 @@ struct RunStatusArgs {
     json: bool,
 }
 
-fn cmd_status(json: bool) -> Result<()> {
-    let root = toolkit_root();
-    let python = toolkit_python();
-    let scripts = [
-        "main.py",
-        "decrypt_db.py",
-        "export_all_chats.py",
-        "export_sns.py",
-        "export_sns_album.py",
-        "sns_media_wasm/wasm_video_decode.js",
-        "sns_media_wasm/wasm_video_decode.wasm",
-        "sns_media_wasm/weflow_wasm_keystream.js",
-        "decode_image.py",
-        "batch_decrypt_images.py",
-        "voice_to_mp3.py",
-        "transcribe_chat.py",
-        "monitor_web.py",
-        "app_gui.py",
-    ]
-    .into_iter()
-    .map(|name| {
-        let path = root.join(name);
-        ScriptStatus {
-            name,
-            path: path.to_string_lossy().into_owned(),
-            exists: path.exists(),
-        }
+fn export_chats(output: Option<String>, transcribe: bool, extra: Vec<String>) -> Result<()> {
+    let mut argv = vec!["wx toolkit export-chats".to_owned()];
+    if let Some(output) = output {
+        argv.push(output);
+    }
+    if transcribe {
+        argv.push("--with-transcriptions".into());
+    }
+    argv.extend(extra);
+    let args = super::export_all::Args::try_parse_from(argv).unwrap_or_else(|error| error.exit());
+    crate::service::operation_client::run(Operation::ExportAll {
+        args,
+        prepare: false,
+        announce: false,
     })
-    .collect();
-
-    let config = root.join("config.json");
-    let status = ToolkitStatus {
-        native_commands: vec![
-            "run status",
-            "run decrypt",
-            "run emoticons",
-            "run decode-images",
-            "export-emoticons",
-            "transcribe-database-native",
-            "export-delta-native",
-            "chat-plan-native",
-            "transcribe-audio-native",
-            "transcribe-chat-native",
-            "decode-sns-video",
-            "decrypt",
-            "decode-image",
-            "decode-images",
-            "batch-decrypt-images",
-            "voice-to-mp3",
-            "voice-batch",
-            "export-chats-native",
-            "decrypt-enterprise",
-            "enterprise",
-            "export-sns-native",
-        ],
-        wechat_decrypt_dir: root.to_string_lossy().into_owned(),
-        wechat_decrypt_dir_exists: root.is_dir(),
-        python: python.to_string_lossy().into_owned(),
-        python_exists: python_available(&python),
-        config_json: config.to_string_lossy().into_owned(),
-        config_json_exists: config.is_file(),
-        scripts,
-        env_overrides: EnvOverrides {
-            wx_wechat_decrypt_dir: std::env::var("WX_WECHAT_DECRYPT_DIR").ok(),
-            wx_wechat_decrypt_python: std::env::var("WX_WECHAT_DECRYPT_PYTHON").ok(),
-        },
-    };
-    print_value(&serde_json::to_value(status)?, &resolve(json))
 }

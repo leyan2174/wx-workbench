@@ -1,13 +1,12 @@
 //! Production HTTP and named-pipe composition against an isolated synthetic account.
 #![cfg(windows)]
 
-use super::server_types::{Records, Settings, Shared};
+use super::server_types::{Records, Shared};
 use crate::{
     attachment::{decoder, AttachmentId, AttachmentKind},
     ipc::{Request, Response},
 };
 use anyhow::{ensure, Context, Result};
-use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced, ListenerOptions};
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -16,10 +15,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    sync::{broadcast, watch, Semaphore},
-};
+use tokio::sync::{broadcast, watch, Semaphore};
 
 const CHAT: &str = "wxid_automatic_image_fixture";
 const LOCAL_ID: i64 = 71;
@@ -70,33 +66,36 @@ async fn run_case(wrong_source: bool) -> Result<()> {
         config,
         root.path().join("runtime"),
     )?;
-    let pipe = runtime.pipe_name();
-    let ipc_listener = ListenerOptions::new()
-        .name(pipe.to_ns_name::<GenericNamespaced>()?)
-        .create_tokio()?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
     let address = listener.local_addr()?;
     let (events, _) = broadcast::channel(8);
     let (shutdown, mut stop) = watch::channel(false);
     let state = Arc::new(Shared {
         runtime,
-        settings: Settings::default(),
         token: "synthetic-image-runtime-token".into(),
         authority: address.to_string(),
         origin: format!("http://{address}"),
         records: Mutex::new(Records {
             tasks: Default::default(),
-            messages: Default::default(),
-            message_bytes: 0,
+            monitor_session: None,
             journal_ok: false,
-            enterprise_snapshot: None,
         }),
         events,
         shutdown,
         queries: Arc::new(Semaphore::new(2)),
+        query_waiters: Arc::new(Semaphore::new(8)),
         streams: Arc::new(Semaphore::new(1)),
         task_requests: Arc::new(Semaphore::new(4)),
     });
+    let daemon = crate::daemon::web_service::WebService::new(
+        state.runtime.clone(),
+        Arc::new(crate::daemon::query_state::QueryState::new(
+            state.runtime.clone(),
+        )),
+    );
+    let (query_tx, mut query_rx) = tokio::sync::mpsc::channel(1);
+    *daemon.query_fixture.lock().unwrap() = Some(query_tx);
+    let (backend_stop, mut backend) = start_service(&state.runtime, daemon.clone()).await?;
     let id = AttachmentId {
         v: 1,
         chat: CHAT.into(),
@@ -119,23 +118,18 @@ async fn run_case(wrong_source: bool) -> Result<()> {
     let published = Arc::new(Mutex::new(None::<PublishedPaths>));
     let capture = published.clone();
     let account_fixture = root.path().canonicalize()?;
-    let mut ipc = tokio::spawn(async move {
-        let stream = ipc_listener.accept().await?;
-        let mut reader = BufReader::new(stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).await?;
-        let wire: Value = serde_json::from_str(&line)?;
-        ensure!(
-            wire["cmd"] == "decode_image" && wire.as_object().is_some_and(|map| map.len() == 6),
-            "unexpected IPC command or fields"
-        );
+    let mut database = tokio::spawn(async move {
+        let (request, reply_sender) = query_rx
+            .recv()
+            .await
+            .context("missing daemon image query")?;
         let Request::DecodeImage {
             chat,
             local_id,
             create_time,
             output_root,
             image_key_file,
-        } = serde_json::from_str::<Request>(&line)?
+        } = request
         else {
             anyhow::bail!("expected actual DecodeImage request");
         };
@@ -210,7 +204,9 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             flattened["ok"] == true && flattened.get("data").is_none(),
             "IPC must be flat"
         );
-        reader.get_mut().write_all(frame.as_bytes()).await?;
+        reply_sender
+            .send(reply)
+            .map_err(|_| anyhow::anyhow!("daemon dropped image query"))?;
         Ok::<_, anyhow::Error>(())
     });
     // Router only: no production serve lifecycle, worker, monitor, daemon or browser.
@@ -261,9 +257,7 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             "sniff header"
         );
         let body = response.bytes().await?;
-        tokio::time::timeout(Duration::from_secs(3), &mut ipc)
-            .await
-            .context("synthetic IPC did not finish")???;
+        tokio::time::timeout(Duration::from_secs(3), &mut database).await???;
         if wrong_source {
             ensure!(
                 status == reqwest::StatusCode::SERVICE_UNAVAILABLE,
@@ -313,8 +307,8 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             "account data changed"
         );
         ensure!(
-            !state.runtime.root.exists(),
-            "unexpected daemon/runtime work"
+            !state.runtime.cache_dir().exists(),
+            "unexpected query cache work"
         );
         ensure!(
             !state.runtime.config.decrypted_dir.exists(),
@@ -324,22 +318,30 @@ async fn run_case(wrong_source: bool) -> Result<()> {
     })
     .await;
     // Always reap IPC/HTTP tasks before propagating a failed check or dropping pinned files.
-    if !ipc.is_finished() {
-        ipc.abort();
-        let _ = ipc.await;
-    }
     let _ = state.shutdown.send(true);
     let served = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
     if served.is_err() {
         server.abort();
         let _ = server.await;
     }
-    let drained = super::automatic_image::drain().await;
+    if !database.is_finished() {
+        database.abort();
+        let _ = database.await;
+    }
+    let drained = daemon.shutdown().await;
+    backend_stop.send_replace(true);
+    let backend_result = tokio::time::timeout(Duration::from_secs(3), &mut backend).await;
+    if backend_result.is_err() {
+        backend.abort();
+        let _ = backend.await;
+    }
+    drop(daemon);
     drop(state);
     let closed = root.close();
     checked.context("automatic image HTTP checks timed out")??;
     served.context("automatic image HTTP server did not stop")???;
-    ensure!(drained, "automatic image cleanup did not drain");
+    drained?;
+    backend_result.context("fixture service failed to drain")???;
     closed?;
     Ok(())
 }
@@ -352,4 +354,89 @@ async fn production_http_decode_consumes_private_key_publishes_png_and_cleans_up
 #[tokio::test]
 async fn production_http_decode_rejects_wrong_report_source_and_cleans_up() -> Result<()> {
     run_case(true).await
+}
+
+async fn start_service(
+    runtime: &crate::runtime::RuntimeContext,
+    business: Arc<crate::daemon::web_service::WebService>,
+) -> Result<(watch::Sender<bool>, tokio::task::JoinHandle<Result<()>>)> {
+    use crate::service::protocol::{Call, ServiceError};
+    use windows::Win32::{
+        Foundation::FILETIME,
+        System::Threading::{GetCurrentProcess, GetProcessTimes},
+    };
+    let (mut birth, mut exit, mut kernel, mut user) = (
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+    );
+    unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut birth,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )?;
+    }
+    fs::create_dir_all(&runtime.directory)?;
+    fs::write(
+        runtime.pid_path(),
+        serde_json::to_vec(&json!({
+            "pid": std::process::id(), "exe": std::env::current_exe()?,
+            "created": (u64::from(birth.dwHighDateTime) << 32) | u64::from(birth.dwLowDateTime),
+            "runtime_id": runtime.id,
+        }))?,
+    )?;
+    let handler = Arc::new(move |call| {
+        let business = business.clone();
+        async move {
+            match call {
+                Call::Info {} => Ok(json!({})),
+                Call::Web { request } => {
+                    ensure_web_call(&request).map_err(|_| {
+                        ServiceError::new("invalid_request", "invalid fixture request")
+                    })?;
+                    business.handle(*request).await
+                }
+                _ => Err(ServiceError::new(
+                    "invalid_request",
+                    "unexpected fixture call",
+                )),
+            }
+        }
+    });
+    let (shutdown, stop) = watch::channel(false);
+    let mut handle = tokio::spawn(crate::service::transport::serve(
+        runtime.clone(),
+        handler,
+        stop,
+    ));
+    let ready = crate::service::client::wait_ready(runtime).await;
+    if let Err(error) = ready {
+        shutdown.send_replace(true);
+        if tokio::time::timeout(Duration::from_secs(3), &mut handle)
+            .await
+            .is_err()
+        {
+            handle.abort();
+            let _ = handle.await;
+        }
+        return Err(error);
+    }
+    Ok((shutdown, handle))
+}
+
+fn ensure_web_call(call: &crate::service::web::Call) -> Result<()> {
+    ensure!(
+        matches!(call, crate::service::web::Call::DecodeImage { .. }),
+        "unexpected Web operation"
+    );
+    let wire = serde_json::to_string(call)?;
+    ensure!(
+        !wire.contains("image_key_file") && !wire.contains("output_root"),
+        "Web supplied business paths"
+    );
+    Ok(())
 }

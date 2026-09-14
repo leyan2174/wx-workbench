@@ -358,6 +358,10 @@ impl Fixture {
         )
         .unwrap();
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "测试辅助函数逐列构造两张关联表，保留原始数据库字段以检验身份冲突"
+    )]
     fn media(
         &self,
         file: &str,

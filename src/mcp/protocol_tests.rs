@@ -876,6 +876,7 @@ fn errors_never_echo_backend_message_keys_or_decode_failure_text() {
     for response in [
         Response::err("message=PRIVATE keys=SECRET"),
         Response::ok(json!({"exit_code":2,"text":"message=PRIVATE keys=SECRET"})),
+        Response::ok(json!({"exit_code":3,"status":"error","message":"PRIVATE keys=SECRET"})),
         Response::ok(json!({"error":"SECRET","message":"PRIVATE"})),
     ] {
         let mut p = Protocol::new(move |_| Ok(response.clone()));

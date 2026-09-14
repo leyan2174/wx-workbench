@@ -12,20 +12,18 @@ pub(crate) mod chat_plan_selection;
 pub(crate) mod contact_metadata;
 mod databases;
 pub(crate) mod emoticons;
-pub(crate) mod enterprise;
-pub(crate) mod enterprise_batch;
 mod files;
 pub(crate) mod private_file;
 pub(crate) mod sns;
 #[path = "web/server.rs"]
 pub(crate) mod web;
 pub(crate) use files::{atomic_output, separate};
+pub(crate) mod cleanup;
 mod images;
 pub(crate) mod legacy;
 pub(crate) mod monitor;
 pub(crate) mod run_status;
 pub(crate) mod setup;
-pub(crate) mod cleanup;
 
 use anyhow::{ensure, Result};
 pub use databases::{decrypt, Mode as DecryptMode};

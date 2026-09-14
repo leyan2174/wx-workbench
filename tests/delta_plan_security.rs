@@ -1,5 +1,7 @@
 //! delta/plan 过程级安全边界；全部资料现场合成，不发现真实账号。
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha256, Sha512};
@@ -149,6 +151,7 @@ impl Drop for Fixture {
         if self.account {
             let _ = self.run(&["daemon", "stop"]);
         }
+        drop(bootstrap::BootstrapCleanup(self.path("runtime")));
     }
 }
 
@@ -200,6 +203,23 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         ]));
         assert!(!output.exists());
     }
+    failed(f.run(&[
+        "toolkit",
+        "export-delta-native",
+        arg(&output),
+        "--users",
+        USER,
+        "--start",
+        "101",
+        "--end",
+        "100",
+        "--run-id",
+        "safe",
+    ]));
+    assert!(
+        !f.path("runtime").exists(),
+        "pure argument validation started a daemon"
+    );
     for path in [
         f.path("profile/db_storage/new"),
         f.path("profile/all_keys.json"),
@@ -218,23 +238,10 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
             "safe",
         ]));
     }
-    failed(f.run(&[
-        "toolkit",
-        "export-delta-native",
-        arg(&output),
-        "--users",
-        USER,
-        "--start",
-        "101",
-        "--end",
-        "100",
-        "--run-id",
-        "safe",
-    ]));
     assert!(!output.exists());
     assert!(!f.path("profile/db_storage/new").exists());
     assert!(!f.path("profile/db_storage/escape").exists());
-    assert!(!f.path("runtime").exists(), "输入校验不得触发账号后台");
+    assert!(!f.path("profile/decrypted").exists());
     f.unchanged();
 }
 
@@ -292,7 +299,11 @@ fn plan_rejects_identity_pollution_and_database_traversal_without_output() {
         assert!(!output.exists());
     }
     assert_eq!(fs::read_dir(&cache).unwrap().count(), 1);
-    assert!(!f.path("runtime").exists());
+    bootstrap::assert_only_bootstrap(&f.path("runtime"));
+    assert_eq!(
+        fs::read(f.path("profile/config.json")).unwrap(),
+        b"INVALID_AMBIENT_CONFIG"
+    );
     f.unchanged();
 }
 
@@ -330,7 +341,7 @@ fn plan_refuses_source_and_existing_targets_without_exposing_body() {
     );
     assert!(!cache.join("new.csv").exists());
     assert!(!f.path("escape.csv").exists());
-    assert!(!f.path("runtime").exists());
+    bootstrap::assert_only_bootstrap(&f.path("runtime"));
     f.unchanged();
 }
 

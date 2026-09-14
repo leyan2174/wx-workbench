@@ -11,7 +11,6 @@ pub mod crypto;
 #[path = "../../../src/attachment/native_image.rs"]
 pub mod native_image;
 pub mod publish_probe;
-pub mod mcp_voice;
 #[path = "../../../src/daemon/cache.rs"]
 pub mod real_cache;
 pub mod real_cache_query;
@@ -20,6 +19,7 @@ pub mod instrumented_image {
     include!(concat!(env!("OUT_DIR"), "/instrumented_image.rs"));
 }
 pub mod daemon {
+    pub use crate::real_cache as cache;
     pub use mcp_readonly_security_harness::meta;
 }
 pub use mcp_readonly_security_harness::Names;
@@ -112,8 +112,7 @@ pub mod protocol;
 pub mod mcp {
     pub use crate::protocol;
 }
-#[path = "../../../src/cli/mcp.rs"]
-pub mod host;
+pub use wx_mcp_cli_harness::cli_mcp as host;
 
 // Explicit test doubles: no real account discovery, provider or pipe process.
 pub mod runtime {

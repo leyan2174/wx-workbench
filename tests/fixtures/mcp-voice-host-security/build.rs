@@ -1,16 +1,27 @@
 use std::{env, fs, path::PathBuf};
+#[path = "../mcp-auth/build_support.rs"]
+mod support;
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for (name, target, tag) in [
-        ("mcp", "open_config_read_lock", "account-open"),
-        ("mcp_voice", "host_path", "host-path"),
-        ("asr", "build", "backend-build"),
+    support::authenticated_transport(&root, &out);
+    for (name, relative, target, tag) in [
+        ("mcp_service", "daemon/mcp_service.rs", "open_config_read_lock", "account-open"),
+        ("mcp_voice", "daemon/mcp_service/voice.rs", "host_path", "host-path"),
+        ("asr", "daemon/operations/asr.rs", "build", "backend-build"),
     ] {
-        let source = root.join(format!("../../../src/cli/{name}.rs"));
+        let source = root.join("../../../src").join(relative);
         println!("cargo:rerun-if-changed={}", source.display());
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
         ast.attrs.retain(|a| !a.path().is_ident("doc"));
+        ast.items.retain(|item| !matches!(item, syn::Item::Mod(value) if value.ident == "tests" || value.ident == "configured_local_tests"));
+        if name == "mcp_service" {
+            for item in &mut ast.items {
+                if matches!(item, syn::Item::Mod(value) if value.ident == "voice") {
+                    *item = syn::parse_quote!(pub use crate::mcp_voice as voice;);
+                }
+            }
+        }
         let stmt: syn::Stmt = syn::parse_quote! { eprintln!("AUDIT_EVENT:{}", #tag); };
         let mut count = 0;
         for item in &mut ast.items {

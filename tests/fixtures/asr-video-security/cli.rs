@@ -1,4 +1,4 @@
-#[path = "../../../src/cli/asr.rs"]
+#[path = "../../../src/daemon/operations/asr.rs"]
 pub mod asr;
-#[path = "../../../src/cli/asr_database.rs"]
+#[path = "../../../src/daemon/operations/asr_database.rs"]
 pub mod asr_database;

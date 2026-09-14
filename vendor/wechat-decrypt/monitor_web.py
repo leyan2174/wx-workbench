@@ -1768,13 +1768,12 @@ a.msg-link{text-decoration:none;color:inherit}
 <h1>WeChat Monitor</h1>
 <div class="status ok" id="st">SSE 实时</div>
 <div class="stats"><span id="cnt">0 消息</span><span id="perf"></span></div>
-<button class="tools-btn" onclick="toggleTools()" title="工具箱 (解密 / 导出 / 企业微信)"><svg class="i"><use href="#i-wrench"/></svg> 工具</button>
+<button class="tools-btn" onclick="toggleTools()" title="工具箱 (解密 / 导出)"><svg class="i"><use href="#i-wrench"/></svg> 工具</button>
 <button class="settings-btn" onclick="toggleSettings()" title="通知设置"><svg class="i"><use href="#i-settings"/></svg></button>
 </div>
 <div id="toolsPanel">
   <div class="tool-tabs">
     <button class="tool-tab active" data-pane="wechat"><svg class="i"><use href="#i-chat"/></svg> 个人微信</button>
-    <button class="tool-tab" data-pane="wxwork"><svg class="i"><use href="#i-briefcase"/></svg> 企业微信</button>
     <button class="tool-tab" data-pane="misc"><svg class="i"><use href="#i-sliders"/></svg> 工具</button>
     <span id="toolStatus" class="tool-status" style="display:none;margin-left:auto;align-self:center;margin-right:24px"></span>
   </div>
@@ -1799,25 +1798,8 @@ a.msg-link{text-decoration:none;color:inherit}
     <div class="tool-log-wrap" id="toolLog_wechat"></div>
   </div>
 
-  <div class="tool-pane" data-pane="wxwork">
-    <div class="tool-prereq"><svg class="i i-sm"><use href="#i-alert"/></svg> 前置：企业微信 PC 版正在运行且已登录（独立于个人微信）</div>
-    <div class="tool-step">
-      <div class="tool-step-label">Step 1 — 解密</div>
-      <div class="tools-row">
-        <button class="tool-task-btn primary" data-task="wxwork_decrypt">① 提取密钥 + 解密数据库</button>
-      </div>
-    </div>
-    <div class="tool-step">
-      <div class="tool-step-label">Step 2 — 导出</div>
-      <div class="tools-row">
-        <button class="tool-task-btn" data-task="wxwork_export">② 导出聊天 (CSV/HTML/JSON)</button>
-      </div>
-    </div>
-    <div class="tool-log-wrap" id="toolLog_wxwork"></div>
-  </div>
-
   <div class="tool-pane" data-pane="misc">
-    <div class="tool-prereq info"><svg class="i i-sm"><use href="#i-info"/></svg> 跟微信/企微进程无关，只读已解密产物</div>
+    <div class="tool-prereq info"><svg class="i i-sm"><use href="#i-info"/></svg> 跟微信进程无关，只读已解密产物</div>
     <div class="tool-step">
       <div class="tool-step-label">语音 / 转码</div>
       <div class="tools-row">
@@ -2015,13 +1997,13 @@ async function cancelTool(){
 window.__exportCtx = { source: null, task: null, btn: null, sessions: [] };
 
 async function openExportModal(modalKind, task, btn){
-  const source = modalKind === 'export_wxwork' ? 'wxwork' : 'wechat';
+  const source = 'wechat';
   window.__exportCtx = { source, task, btn, sessions: [] };
   document.getElementById('exportModalTitle').textContent =
-    source === 'wxwork' ? '导出企业微信聊天' : '导出个人微信聊天';
+    '导出个人微信聊天';
   document.getElementById('exportSearch').value = '';
-  // 企微脚本支持 --formats, 个人微信脚本目前只 JSON; 隐藏个人微信的格式选项
-  document.getElementById('exportFmtSection').style.display = source === 'wxwork' ? 'block' : 'none';
+  // 旧个人微信脚本只输出 JSON。
+  document.getElementById('exportFmtSection').style.display = 'none';
   document.getElementById('exportConfirmBtn').disabled = true;
   document.getElementById('exportSelCount').textContent = '已选 0 个';
   document.getElementById('exportSessionList').innerHTML = '<div class="modal-loading">加载会话列表...</div>';
@@ -2095,7 +2077,7 @@ function confirmExport(){
   runToolWithArgs(task, btn, { users, formats });
 }
 // 需要弹模态框先筛选会话的任务
-const NEEDS_MODAL = { 'export_all': 'export_wechat', 'wxwork_export': 'export_wxwork' };
+const NEEDS_MODAL = { 'export_all': 'export_wechat' };
 
 async function runTool(task, btn){
   // 取消已运行任务
@@ -2360,20 +2342,10 @@ def _build_export_steps(users, formats):
     return [cmd]
 
 
-def _build_wxwork_export_steps(users, formats):
-    """根据用户选择拼 export_wxwork_messages.py argv (--conversation 可重复)"""
-    cmd = [sys.executable, "export_wxwork_messages.py"]
-    for u in (users or []):
-        cmd += ["--conversation", u]
-    if formats:
-        cmd += ["--formats", ",".join(formats)]
-    return [cmd]
-
-
 # task 配置:
 #   steps         — 固定 cmd 列表 (无参任务)
 #   build_steps   — fn(args)->[cmd, ...] 动态构造 (需要用户选会话/格式的导出任务)
-#   needs_modal   — 前端点这个 task 时要弹模态框 ('export_wechat' | 'export_wxwork')
+#   needs_modal   — 前端点这个 task 时要弹模态框 ('export_wechat')
 TOOL_TASKS = {
     # —— 个人微信 ——
     "wechat_decrypt": {
@@ -2401,19 +2373,6 @@ TOOL_TASKS = {
             [sys.executable, "export_sns.py"],
         ],
     },
-    # —— 企业微信 ——
-    "wxwork_decrypt": {
-        "name": "⑥ 企业微信解密",
-        "steps": [
-            [sys.executable, "find_wxwork_keys.py"],
-            [sys.executable, "decrypt_wxwork_db.py"],
-        ],
-    },
-    "wxwork_export": {
-        "name": "⑦ 企业微信导出",
-        "build_steps": _build_wxwork_export_steps,
-        "needs_modal": "export_wxwork",
-    },
     # —— 工具 ——
     "voice_mp3": {
         "name": "⑧ 语音转 MP3",
@@ -2431,7 +2390,6 @@ def _list_sessions(source):
 
     source:
       wechat — 个人微信, 从 decrypted/session/session.db 读 SessionTable
-      wxwork — 企业微信, 从 wxwork_decrypted/session.db 读 conversation_table
     """
     out = []
     if source == "wechat":
@@ -2457,38 +2415,6 @@ def _list_sessions(source):
                         "type": type_label,
                         "last_ts": ts or 0,
                         "summary": (summary or "")[:60],
-                    })
-        except Exception:
-            pass
-    elif source == "wxwork":
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(script_dir, "wxwork_decrypted", "session.db")
-        if not os.path.exists(path):
-            return []
-        try:
-            with closing(sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)) as conn:
-                conn.text_factory = lambda b: b.decode("utf-8", errors="replace") if isinstance(b, bytes) else b
-                for r in conn.execute(
-                    "SELECT id, name, last_message_time FROM conversation_table "
-                    "WHERE id IS NOT NULL AND id != '' "
-                    "ORDER BY last_message_time DESC"
-                ):
-                    cid, name, ts = r
-                    # id 前缀: R=群 / S=单聊 / E=外部/系统 / Y=其他
-                    if cid.startswith("R:"):
-                        type_label = "群"
-                    elif cid.startswith("S:"):
-                        type_label = "单聊"
-                    elif cid.startswith("E:"):
-                        type_label = "外部"
-                    else:
-                        type_label = "其他"
-                    out.append({
-                        "username": cid,
-                        "name": name or cid,
-                        "type": type_label,
-                        "last_ts": ts or 0,
-                        "summary": "",
                     })
         except Exception:
             pass

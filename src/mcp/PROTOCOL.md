@@ -1,11 +1,19 @@
-# 原生 MCP：17 个工具已接线，部分旧契约兼容
+# MCP 协议与宿主契约
 
 ## 边界与 SDK
 
-`src/mcp/protocol.rs` 负责协议；`src/cli/mcp.rs` 通过 `wx mcp` 提供 stdio 入口，固定显式 `WX_CLI_CONFIG` 的账号后复用现有 IPC。初始化和工具列表不读取账号。首次查询保持配置文件读锁，编辑或切换账号前须退出 MCP 会话。
-17 个工具均已注册并有源码执行链，不等于旧 17 个工具全部语义迁移。14 项只读，`decode_image`、`decode_voice` 与 `transcribe_voice` 标记非只读；只有 `transcribe_voice` 的 openWorldHint 为 true，宿主可显式授权云端上传，配置式 Python 命名模型也可能按需下载权重。初始化与列表不读取凭证、模型或账号，不创建目录。
+`src/mcp/protocol.rs` 负责协议；`src/cli/mcp.rs` 通过 `wx mcp` 提供 stdio、参数封送与认证 RPC 适配。首次业务调用根据显式 `WX_CLI_CONFIG` 固定路由。原有查询与同步媒体工具发送 `service::protocol::Call::Mcp`；其账号读锁、宿主授权、路径守卫、缓存、ASR 与媒体发布均由 `daemon/mcp_service` 持有和执行。可选任务工具经 `cli/mcp_tasks` 调用现有任务 RPC，不经过查询会话，不在 MCP 内执行任务。初始化和工具列表不读取账号。编辑或切换账号前须退出 MCP 会话。
+默认 17 个工具均已注册并有源码执行链，不等于旧 17 个工具全部语义迁移。默认列表中 14 项只读，`decode_image`、`decode_voice` 与 `transcribe_voice` 标记非只读；只有 `transcribe_voice` 的 openWorldHint 为 true，宿主可显式授权云端上传，配置式 Python 命名模型也可能按需下载权重。初始化与列表不读取凭证、模型或账号，不创建目录。任务工具的增量发现与授权见下文。
 
-此前评估过[官方rmcp](https://github.com/modelcontextprotocol/rust-sdk)：完整异步 transport/取消应优先考虑 SDK。目前沿用同步 serde 核心，协议层仅使用已有 serde/serde_json/chrono；尚未验证 rmcp 的 MSVC 编译或依赖兼容性，不把 SDK 迁入视为已完成。本次文档同步未联网复核外部规范或 SDK。
+### daemon 授权与会话
+
+认证服务检查运行身份、私有令牌和本机服务进程身份。宿主启动配置经内部 `HostSettings` 传送，不成为 MCP 工具参数；`Call`、`HostSettings`、语音参数及预算均拒绝未知字段，daemon 只允许 MCP 业务请求，不允许借此调用管理操作。路径转绝对值属于入口封送，文件读取、授权判定与提交守卫仍在 daemon。令牌持有者属于可信本机宿主，此边界不是针对同用户恶意进程或管理员的沙箱。
+
+原有查询/同步媒体会话首次建立时绑定账号、配置读锁、宿主设置及拥有者进程句柄；后续调用不得重新授权或更换账号。EOF 尽力发送关闭，拥有者进程退出后 daemon 定期回收读锁。daemon 重启后旧查询会话拒绝继续，须重新启动 MCP；不把旧会话自动重建为新的授权会话。daemon 停机先取消并排空在途执行，再释放会话锁；已运行的有界 ASR 仍须退出，不能直接 abort 排空任务。持久任务不采用这套会话租期，重启后只恢复历史，不自动续跑。
+
+内部请求携带原始请求 ID、响应预算和绝对截止时间，daemon 只收紧剩余期限。查询走 daemon 内部回调，不向自身发起 MCP/query IPC。stdio 仍同步处理，尚不支持读取后续通知来取消当前阻塞调用；超时或连接断开不回滚已发布文件，也不保证恰好一次执行。
+
+协议实现使用同步 serde 核心，依赖已有 serde、serde_json 和 chrono。同步传输的取消限制见下文。
 
 ## 宿主启动参数
 
@@ -21,10 +29,22 @@
 | `--allow-upload`、`--openai-base-url`、`--openai-model`、`--api-key-file` | 云端必须全部显式给出；不读默认 key/环境凭据，不自动回退。本地与云参数不可混用 |
 | `--configured-local-python` | 默认 false；必须由宿主显式启用，且固定配置必须明确为 `transcription_backend="local"`。`local_whisper_model` 缺失默认 `base`；拒绝 cpp 路径、云参数和用户 temp-root，仅允许 local 后端 |
 | `--voice-cache-file` | 可选显式 JSON 缓存路径，省略不持久化；父目录可信、存在且通过输出守卫，账号取固定 RuntimeContext.id |
+| `--tasks`、`--task-kind` | 默认关闭；前者授权管理当前账号任务，后者为可重复/逗号分隔的提交类型白名单 |
+| `--task-allow-media-write`、`--task-allow-memory-scan` | 默认 false；分别授权固定任务目录媒体写入、取钥任务扫描；扫描还须逐次确认 |
+| `--task-allow-transcription`、`--task-allow-upload`、`--task-allow-media-download` | 默认 false；后台转写、云上传和 SNS 下载分别授权，不借用同步语音授权 |
+| `--task-image-cache-dir` | 可选宿主路径，经共享 Configure 绑定；模型不能设置或覆盖 |
 
 CLI 帮助还继承全局 `--with-meta` 和 `--help`；它们不是 MCP 工具 schema 属性，工具请求不能借此增加未公布参数。
 
 **与兼容批处理区别：** `wx toolkit transcribe-chat` 等入口在用户请求转录后按固定配置选择引擎，配置缺少 `transcription_backend` 时默认 `local`（Python Whisper），缺模型时默认 `base`。这是兼容默认选择，不是失败回退；MCP 不沿用这个缺省后端规则，必须满足上表开关与显式配置双重条件。详情见 [本地 ASR](../toolkit/asr/LOCAL.md) 与 [云端授权](../toolkit/asr/OPENAI.md)。
+
+## 后台任务工具
+
+`--tasks` 增加 `list_tasks`、`get_task`、`cancel_task`、`get_task_events`；只有共享 daemon 能力与宿主授权的交集非空时才增加 `submit_task`。提交工具的 `kind` 枚举和选项仅展示允许的能力，执行仍使用共享类型、参数校验、配置绑定与幂等记录；模型不能通过布尔值获得宿主未给的授权。新增工具不会改变原查询路由和同步语音执行方式。
+
+`submit_task` 接收 `{idempotency_key, kind, options?}`，立即返回 daemon 接受的任务记录，不等待执行完成。`get_task`、`cancel_task` 接收 `{id}`，列表为 `{}`；事件为 `{after?, limit?, wait_ms?}`。任务结果保留在 `structuredContent` 及 JSON 文本 content；业务失败为 `isError` 与 `structuredContent.error.code`，形状错误为 `-32602`。取消/超时的工具上下文不等于后台取消；响应丢失后先按原键查询或用原键、原参数重试。
+
+账号和配置指纹与查询入口共用固定 `RuntimeContext`；后台 Configure 返回的绑定指纹也必须匹配。MCP 不维护任务数据库、队列、worker 或历史。完整启动示例、工具请求、授权矩阵、事件游标和 `interrupted` 语义见 [daemon 任务契约](../../docs/daemon-tasks.md#mcp-任务工具)。
 
 ## API
 
@@ -33,7 +53,8 @@ CLI 帮助还继承全局 `--with-meta` 和 `--help`；它们不是 MCP 工具 s
 - `handle_with_context(bytes, &CallContext)` 允许宿主注入当前请求的取消/截止时间。
 - `CallContext::new(CancellationToken, Duration)`、`check()`、`remaining()`、`cancellation()`、`check_text_result(text)`；默认30秒。最后一项使用当前真实请求 ID、JSON 转义、content/isError 包装和 serve 的实际响应预算，不是固定开销估算。Duration 溢出按立即超时处理。
 - `CancellationToken` 可克隆，可从外部线程 `cancel()`；无全局账户/取消状态。
-- `tools()` 给出 17 项白名单/schema；`route(name,args)`只生成真实单条 Request，不包含后处理；图片由 CLI 注入宿主路径，语音由 `cli/mcp_voice` 执行 prepare/bind/finish。
+- `tools()` 给出 17 项白名单/schema；`route(name,args)` 生成单条 Request，不包含后处理；宿主参数经 CLI 封送，图片路径检查和语音 prepare/bind/finish 由 `daemon/mcp_service` 执行。
+- `Dispatcher::task_tools()` 默认空；任务适配器补充宿主允许的工具，`dispatch_task()` 返回任务 RPC 转换的 MCP 结果，不经过 `route` 或查询执行器。
 - **route不是完整工具执行**：搜索offset扩大候选limit，需要Protocol裁剪；轮询状态和图片字段投影也由Protocol完成。
 
 接线示意（query_adapter由宿主实现，并非本仓库现有公共API）：
@@ -48,11 +69,13 @@ let context = CallContext::new(token.clone(), Duration::from_secs(10));
 let reply = protocol.handle_with_context(frame, &context);
 ```
 
-CLI 已注册协议模块并注入固定账号查询器。`transport::send_with_limits` 使用当前调用剩余期限，扣除后台启动耗时后限制 IPC；读取响应时先执行字节上限，再解析 JSON。后台启动本身仍受原有独立启动期限约束，不要嵌套 Tokio block_on。
+CLI 将固定账号与调用预算封装为认证 `Call::Mcp`，在发送前检查剩余期限，并通过 `request_with_timeout` 限制服务请求。后台就绪检查与调用预算分别约束；等待后仍需检查期限，不能把等待时间换成新的完整预算。读取响应先执行字节上限，再解析 JSON。
 同步serve在callback运行期间不能读取后续notifications/cancelled；外部并发transport须按在途id关联token。没有实现异步stdio，不强杀不合作callback，不打断阻塞reader。
 调用前后check，迟到成功结果被丢弃；协作callback可在等待/分批查询时check。callback panic不捕获，stdout不得写日志；宿主须自行保证stderr不泄漏私有数据。
 
-## 旧名、参数、返回对照
+## 工具参数与返回
+
+本节 `get_new_messages` 返回会话摘要，使用每个 `Protocol` 自己的游标。它不接收完整 `NewMessages` 状态，也不暴露 monitor 的认证分块上传接口；两者不能互换。monitor 的帧限额、完整状态查询及回收语义见[监控入口](../../docs/daemon-entrypoints.md#监控与增量状态)。
 
 | 已注册旧工具 | 参数与真实Request | 返回差异 |
 | --- | --- | --- |
@@ -76,6 +99,8 @@ CLI 已注册协议模块并注入固定账号查询器。`transport::send_with_
 - 新多类型/最早页路径中的数字 base 类型匹配低 32 位，完整高位类型精确匹配；前者保留 Rust 的扩展行为，旧 Python 多类型 SQL 使用完整值精确匹配。默认单类型路径仍保留原 Rust 过滤规则。同时间行沿用稳定排序，不声称 SQLite 的同时间行次序跨快照恒定。
 - 字符串最大4096字符、数组100项、limit 1..500，offset通常0..1000000，搜索offset+limit不超过10000。旧History允许更大limit，本实现故意保留安全上限。
 - 未知属性拒绝；null仅在公布的旧参数分支允许；history/decode/images的chat_name不得空白。
+
+`get_chat_history` 不要求每个合法联系人都有普通消息表。只有全部已知消息分片成功扫描且未发现未知消息库时，才允许对没有对应表的会话返回空结果；没有可扫描的消息库、缺失分片或 SQL 错误仍返回错误。首次读取较大冷库可能超过调用期限；暖缓存成功不能证明冷启动在同一期限内可用，超时也不代表缓存文件与索引已同步完成。
 
 工具整数边界不能混为一谈：transfer/location/refer 的 local_id/create_time schema 允许 i64，create_time 默认 0；file/record 的 local_id 必须为正，create_time 允许 i64 且默认 0，record 的 item_index 为 0..i64::MAX；image 的 local_id 为正且 create_time 为 0..i64::MAX；两个语音执行工具仅接受正媒体 local_id，不接受 create_time。业务层仍会校验实际消息身份。
 
@@ -105,7 +130,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 
 ## 图片解码：宿主受控写出
 
-`decode_image` 已注册并接线，调用关系为 `route → cli/mcp::prepare_request → transport::send_with_limits → daemon/server → mcp_image::q_decode_image_with_key_file → native_image::export_image`。合成真实进程测试与主线回归可验证执行链，但不等于真实账号端到端或图片内容验收。
+`decode_image` 的调用关系为 `route → cli/mcp → authenticated Call::Mcp → daemon/mcp_service::HostSettings::prepare_request → daemon 内部查询回调 → mcp_image::q_decode_image_with_key_file → native_image`。合成进程测试验证执行链，不代替真实账号或图片内容验收。
 
 | 边界 | 当前契约 |
 | --- | --- |
@@ -126,7 +151,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 | 结果阶段 | 调用方应如何解释 |
 | --- | --- |
 | 参数或宿主预检拒绝 | 未进入图片导出；未知参数为协议参数错误，宿主配置错误使用固定安全工具错误 |
-| 消息缺失、歧义、解码或发布失败 | 图片业务失败映射为 `Query failed`；server 捕获 Err 时使用传输成功外壳和 `{exit_code:1,status:"error",message:"Image export failed"}`，协议按非零 exit_code 判定工具错误，不误报后端不可用；不暴露底层错误链，不覆盖已有目标 |
+| 消息缺失、歧义、解码或发布失败 | 图片业务失败映射为 `Query failed`；server 捕获 Err 时使用传输成功外壳和 `{exit_code:3,status:"error",message:"Image export failed"}`，与明确的消息缺失码 1、身份歧义码 2 区分；协议仍按非零 exit_code 判定工具错误，不误报后端不可用；不暴露底层错误链，不覆盖已有目标。未分类的资源缺失也可能进入码 3，不能据此断言本地媒体存在 |
 | 发布完成且响应送达 | 返回 `status:"published"` 与本地文件证据 |
 | 发布完成但 IPC/MCP 超时、响应超限或传输失败 | 调用可失败或 stdio 退出，文件仍保留；不能据此声称没有副作用，也不会回滚已发布文件 |
 
@@ -141,7 +166,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 | decode_voice(chat_name,local_id) | `DecodeVoice {chat,local_id}`；local_id 为正数媒体 ID，不是 message_local_id。host 要求预存 `--media-output-root`，原生 SILK 解码为 24kHz 单声道 PCM16 WAV，守卫复核后不覆盖发布 |
 | transcribe_voice(chat_name,local_id) | `TranscribeVoice {chat,local_id}`；host 默认显式 whisper.cpp；也支持上表的宿主配置式 Python；云端须 explicit-open-ai + allow-upload + 显式端点/模型/凭证，均不自动失败回退 |
 
-执行链：`cli/mcp → Args::prepare → 固定账号 → Pending::bind → IPC → daemon/server → mcp_audio::q_prepare_voice → 内部 prepared_audio → Pending::finish`。后台只准备 SILK 和证据，不解码、不识别、不读取 ASR 凭证、不发布 WAV。原始音频上限 16 MiB；内部语音 IPC 上限 24 MiB（服务端为外壳预留 1024 字节），其他 IPC 与公开 MCP 预算不因此扩大。host 有界反序列化，验证版本、尺寸、SHA-256、SILK 和关联证据，并核对请求的 media_local_id；prepared_audio 不对工具调用方公开。
+执行链：`cli/mcp → authenticated Call::Mcp → daemon/mcp_service → voice::Args::prepare → 固定账号 → Pending::bind → 内部查询回调 → mcp_audio::q_prepare_voice → prepared_audio → Pending::finish`。准备音频、解码、识别、读取显式 ASR 凭证与 WAV 发布均在 daemon 中完成；下文 host 指 daemon 内的宿主策略执行器，不再指 stdio 进程。原始音频上限 16 MiB，内部准备结果上限 24 MiB，公开 MCP 帧预算不因此扩大。执行器验证版本、尺寸、SHA-256、SILK 和关联证据，并核对请求的 media_local_id；prepared_audio 不经过 stdio，也不对工具调用方公开。
 
 host 路径先拒绝原始 `..` 再转绝对路径；共享 `local_files::HostOutputGuard` 隔离源库、解密/运行缓存、配置、密钥和后端输入。未显式设置本地 temp-root 时，在 prepare 创建独占子目录，由 Pending 持有 TempDir，先释放守卫再清理目录。初始化与列表不执行 prepare。默认不写永久 WAV；本地转录可使用受控临时 WAV。
 
@@ -153,17 +178,19 @@ host 路径先拒绝原始 `..` 再转绝对路径；共享 `local_files::HostOu
 
 缓存提交边界：host 已调用 `cached::transcribe_cached_with_receipt_checked`，识别后以完整成功模板预检；checked 缓存发布在暂存、sync 和快照复核后、实际 persist 前再次回调。host 核验真实请求 ID 的 `check_text_result`、原始路径守卫、context 和账号 before_commit。预算超限、取消或账号/守卫拒绝时，不发布本次缓存，保留原 DispatchError；普通 CLI 缓存 I/O 失败仍为独立状态，不丢弃成功识别。receipt 命中是只读，不新增缓存条目。
 
-持久命中：绑定账号后，host `try_cached → receipt::lookup_success` 可在语音 IPC 前，按精确 username + media_id 查询可信成功 receipt。匹配账号、后端配置、历史证据及记录摘要后，复核守卫、context、账号与完整响应预算，直接返回历史成功文本；不读取已删除的源语音、不再次识别、不修改缓存。whisper.cpp 仍需读取程序/模型计算身份；Python 身份可能启动解释器并导入依赖，但不需要加载模型执行识别，不能笼统称为“不启动进程”。精确 username 可在 daemon 已停止时命中；显示名不读取历史别名，必要时仍经 ResolveChat，再按解析后的 username 查询。Miss/Conflict/Unavailable 不冒充成功，继续受控源查询。**无源弱缓存不能自动补造身份；源仍存在时，已有强身份成功缓存可在真实 identity/evidence 核验通过后补写 receipt 索引**，不必重新识别。receipt 不是签名，不证明当前源消息仍存在或同路径账号数据未被替换。
+持久命中：绑定账号后，daemon 内 host `try_cached → receipt::lookup_success` 可在读取语音来源前，按精确 username + media_id 查询可信成功 receipt。匹配账号、后端配置、历史证据及记录摘要后，复核守卫、context、账号与完整响应预算，直接返回历史成功文本；不读取已删除的源语音、不再次识别、不修改缓存。whisper.cpp 仍需读取程序/模型计算身份；Python 身份可能启动解释器并导入依赖，但不需要加载模型执行识别，不能笼统称为“不启动进程”。缓存命中也要求 daemon 可用；daemon 重启后，旧 MCP 会话拒绝，新 MCP 会话重新授权后可以命中保留的成功 receipt。显示名不读取历史别名，必要时仍经内部 ResolveChat，再按解析后的 username 查询。Miss/Conflict/Unavailable 不冒充成功，继续受控源查询。**无源弱缓存不能自动补造身份；源仍存在时，已有强身份成功缓存可在真实 identity/evidence 核验通过后补写 receipt 索引**，不必重新识别。receipt 不是签名，不证明当前源消息仍存在或同路径账号数据未被替换。
 
-限制：本次文档同步未验证真实模型质量、用户私有账号、GPU 或云服务；合成进程测试和主线回归不等于完整旧语义或发布验收。WAV 与缓存提交前检查只拦截该提交点可知的拒绝，不保证之后的取消、IPC/stdout 断开可回滚。图片发布后响应失败仍非事务；均不承诺恰好一次、自动重试成功或 ACK 回滚。
+限制：真实模型质量、账号完整性、GPU、云服务和安装部署须单独验证。WAV 与缓存提交前检查只拦截该提交点可知的拒绝，不保证之后的取消、IPC/stdout 断开可回滚。图片发布后响应失败仍非事务；均不承诺恰好一次、自动重试成功或 ACK 回滚。
 
 History 多类型与最早页已接入 IPC、MCP 和 CLI；CLI 保留 --type，并有 --types 与 --oldest-first。Contacts 昵称/备注与旧范围查询已接入；Search offset 仍由协议扩大候选并裁剪，原生 Request::Search 没有 offset/cursor。旧 Python 渲染失败后补取候选的语义没有完整逐字兼容保证，不将选行兼容等同内容格式逐字兼容。
 
 ## 安全与协议
 
+本节的媒体/云端参数限制指原有同步工具。可选后台任务的 `allow_upload` 等布尔值只是逐任务确认，仍须对应的宿主 `--task-allow-*` 授权及共享配置校验，不能给同步工具新增权限。
+
 错误仅固定公开类别Unavailable/Internal/Cancelled/TimedOut/QueryFailed/InvalidResponse/ResultLimit。
 Response.ok=false、Response.error存在、data.exit_code非零或类型不合法、data.error非null统一返回Query failed，不复制message/text/keys/路径/SQL/错误链。
-成功查询内容是用户请求的数据，不做通用机密扫描；宿主不得把凭据混入成功 payload。`get_chat_images` 白名单包含 md5/size，资源状态可为 found/missing/ambiguous/md5_missing/unavailable/message_ambiguous，大小状态为 available/missing/ambiguous/not_requested/unavailable。`size_kind=encrypted_dat_metadata`、`binding=exact_resource_standard_filename_metadata` 明确其资源/标准文件名元数据语义，不升级为明文哈希认证；不合法字段组合拒绝。`decode_image` 通过宿主授权 IPC 写盘。语音 IPC 不携带凭证或上传指令；仅 host 显式云端后端可在授权后上传。不公布工具级后端或密钥参数。
+成功查询内容是用户请求的数据，不做通用机密扫描；宿主不得把凭据混入成功 payload。`get_chat_images` 白名单包含 md5/size，资源状态可为 found/missing/ambiguous/md5_missing/unavailable/message_ambiguous，大小状态为 available/missing/ambiguous/not_requested/unavailable。`size_kind=encrypted_dat_metadata`、`binding=exact_resource_standard_filename_metadata` 明确其资源/标准文件名元数据语义，不升级为明文哈希认证；不合法字段组合拒绝。`decode_image` 由 daemon 按宿主授权写盘。认证 `Call::Mcp` 携带宿主显式后端、凭证文件路径与上传许可，凭证内容由 daemon 有界读取；内部音频查询只提供音频与证据。仅 daemon 内 host 的显式云端后端可在授权后上传，不公布工具级后端、许可或密钥参数。
 
 基准：[MCP 2025-06-18基础](https://modelcontextprotocol.io/specification/2025-06-18/basic)、[生命周期](https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle)、[stdio](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)、[工具](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)。
 
@@ -176,38 +203,8 @@ Response.ok=false、Response.error存在、data.exit_code非零或类型不合�
 - serde_json默认递归限制、重复字段后值覆盖；有限schema不是通用JSON Schema验证器。
 - handle及handle_with_context只接已分帧数据，外部transport预限长；回调分配Response内存和阻塞时限由宿主负责。
 
-## 当前验证与历史证据
+## 测试
 
-2026-09-07 文档同步期间集中重跑 check/test 均通过：check 有 9 条 warnings；全量测试退出 0，20 组 1325 passed / 0 failed / 11 ignored，日志 `C:/CodexLocal/wx-cli-doc-sync-tests.log`。18 项实际 exe `--help` 全部通过，日志 `C:/CodexLocal/wx-cli-doc-help-check.log`。UI 61 / 0 和额外 8 个原忽略项显式通过为已有验证结果，本轮未重跑；默认忽略项不计为通过。真实账号、模型质量、GPU、云端及发布验收尚未完成。
+协议、守卫、查询和真实子进程分别验证，单个夹具通过不代表整条业务已验收。统一命令和可选依赖见[测试说明](../../tests/README.md)。协议测试覆盖握手、schema、帧预算、日期、轮询游标和安全错误；进程测试覆盖账号隔离、EOF、取消、停机及媒体发布。
 
-以下命令、路径和表格均为早期合成验证历史，包含旧结果和当时的警告数量；本次没有重跑或复核旧日志，不能作为当前未接线状态、最新回归或真实账号/模型/GPU/云验收。
-
-harness 直接 path 引用真实 ipc.rs/协议；协议夹具中的 synthetic-mcp 不是 wx。17 工具源码注册、宿主语音执行、后台准备与真实进程握手由不同夹具分别验证，不将某一层通过当成完整迁移或真实模型质量证据。
-
-```powershell
-cargo check --offline --manifest-path tests/fixtures/mcp-protocol/Cargo.toml --target x86_64-pc-windows-msvc --target-dir tests/fixtures/mcp-protocol/target
-cargo test --offline --manifest-path tests/fixtures/mcp-protocol/Cargo.toml --target x86_64-pc-windows-msvc --target-dir tests/fixtures/mcp-protocol/target
-```
-
-完整 check.log/test.log 及只读核对日志位于 fixture（忽略提交），target 也忽略。根 wx 构建、真实账户和模型质量不由单一协议 harness 证明。
-
-历史 all-targets 记录：14 组共 962 次通过、0 失败、9 忽略，日志为 `C:/CodexLocal/wx-cli-metadata-receipt-final-tests.log`，各组通过数为 626/174/7/7/8/97/2/1/7/4/7/6/12/4。当时 MSVC 检查通过，日志为 `C:/CodexLocal/wx-cli-metadata-receipt-final-check.log`，记录两条未使用代码警告；包含图片真实进程 2 项和语音真实进程 7 项。此 962 不是当前总数。
-
-| 验证范围 | 结果与证据 |
-| --- | --- |
-| 宿主语音真实源码夹具 | 8 passed、0 failed、0 ignored、无警告；`C:/CodexLocal/mcp-voice-host-tests.log`。实际 SILK/WAV、禁止覆盖、错误分类、提交拒绝、相对路径、默认私有临时目录、受控本地进程、缓存命中与 IPC 后剩余 deadline；不是实际模型识别 |
-| MCP CLI 最终独立夹具 | Poincare 回报 179 lib passed、2 原 ffmpeg ignored，4 process passed、无失败和警告；`C:/CodexLocal/mcp-cli-voice-deadline-final.log`。真实生产模块；独占锁凭证/模型情况下 initialize/tools/list 成功，无网络连接或目录创建 |
-| 后台语音准备 | main 确认独立 97 passed；仅准备和身份边界，不证明 host 发布或模型质量 |
-| ASR 共享回归 | 日志已复核 106 passed、0 ignored、无 warning；`C:/CodexLocal/wx-cli-voice17-asr-tests.log` |
-| 图片目录替换回归 | main 确认独立 20 passed、2 ignored；原目录替换红测已修复，不改变图片发布与响应非事务语义 |
-| receipt 接线前主工程 all-targets | 909 passed、0 failed、9 ignored、1 条兼容 API warning；`C:/CodexLocal/wx-cli-cache-preflight-tests.log`；14 组通过数为 593/156/7/7/8/97/1/1/7/4/6/6/12/4；不是最新 receipt/图片元数据全量证据 |
-| MSVC check | main 确认增强后通过，1 条 unused store_success 兼容 API warning；此前无警告 check 日志仅为增强前快照 |
-| 历史语音真实进程 | `C:/CodexLocal/wx-cli-cache-receipt-host-tests.log` 当时复核 7 passed、0 failed/ignored；两条 warning：receipt 字段未使用、旧 transcribe_cached_checked 未使用。包括 stop daemon + 移走合成消息来源后，原 MCP 与重启 MCP 返回相同文本、缓存字节不变、后端仅执行一次；不是模型质量测试 |
-| 独立缓存夹具 | 157 passed、3 ignored；14 条 lib warnings + 5 条 test warnings（含 3 duplicates）；`C:/CodexLocal/wx-cli-voice17-cache-security-recheck.log` |
-| 独立协议夹具 | 34 passed，5 条 lint warnings；`C:/CodexLocal/wx-cli-voice17-protocol-recheck.log` |
-| 历史宿主独立审计 | 当时复核 `C:/CodexLocal/wx-cli-receipt-host-security-recheck.log`：13 lib + 19 audit passed、0 failed、1 ignored；4 lib warnings + 3 test warnings（2 duplicates）；不把忽略项算通过 |
-| 历史图片真实进程 | main 当时回报 2 项通过，覆盖真实 MD5、encrypted size、offset、多 DAT、缺 DAT，且无输出策略；不是用户图片验收 |
-| 图片元数据新接线 | 已核对协议启用内部 image_metadata 并投影 md5/size 与状态；最终主线日志含图片真实进程 2 项通过，main 回报生产图片夹具 75 项及冷查询/缓存刷新回归通过；不是明文图片摘要/大小，也不是完整旧语义验收 |
-| 当前未由这些证据证明 | 真实模型质量、GPU、云端、用户私有账号和发布验收；同步 stdio 在途取消仍未实现 |
-
-以上区分静态源码核对、主线回报和历史测试，不是持续全绿或发布认证。项目范围与最新迁移状态参见 [架构](../../docs/architecture.md)、[Rust 迁移](../../docs/rust-migration.md)；[旧工作流缺口审计](../../docs/legacy-workflow-gap-audit.md) 中早期未接线结论属于历史，不再用旧 G01–G12 状态概括当前功能。企业微信已不在本次移植要求内；本契约描述个人微信 MCP，仍保留明确的旧语义差异。
+模型质量、GPU、真实云服务、私人账号完整性和安装部署须另行核验。架构与前置条件见[架构说明](../../docs/architecture.md)及[工作流与前置条件](../../docs/legacy-workflow-gap-audit.md)。

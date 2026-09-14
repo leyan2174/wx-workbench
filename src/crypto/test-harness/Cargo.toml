@@ -1,0 +1,22 @@
+[package]
+name = "wx-crypto-safety"
+version = "0.3.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../mod.rs"
+
+[dependencies]
+aes = "0.8"
+anyhow = "1"
+cbc = { version = "0.1", features = ["alloc"] }
+hmac = "0.12"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+tempfile = "3"
+same-file = "1"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

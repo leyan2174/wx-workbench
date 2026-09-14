@@ -1,49 +1,23 @@
-# MCP Voice Host Regression
+# MCP 语音宿主回归
 
-> Documentation check, 2026-09-07: production host and receipt wiring already
-> exist. Counts and pending items below describe the recorded delivery stage,
-> not the current full-suite status. This update did not run tests.
+夹具复用生产宿主、音频编解码、发布、ASR、缓存、路径守卫、运行身份和协议模块。本地后端是受控程序，不是识别模型。
 
-This fixture links production host, codec, publisher, ASR, cache, path guards,
-runtime and protocol modules. The local probe is a controlled executable, not a
-speech-recognition model. Tests do not measure recognition accuracy.
+## 预算与提交
 
-## Timeout And Cache Compatibility
+宿主在凭证读取、内部查询及执行前检查后，按真实剩余期限收紧后端超时。执行预算不参与成功缓存身份，不能因一次请求剩余时间不同而重复识别；其他影响结果的配置仍参与身份。
 
-The host clamps backend execution time to the call's remaining budget after IPC,
-credential loading and pre-execution checks. Local execution uses the smaller
-timeout; explicit cloud execution uses the existing client's tightening API.
-No fallback backend is selected.
+checked 缓存接口在识别后及暂存、快照复核后的提交前检查完整文本预算、原始守卫、context 和账号。宿主拒绝阻止该次持久化；普通缓存 I/O 失败独立报告，不抹掉成功识别结果。WAV 也在发布前检查实际响应。
 
-Local successful-transcription cache identity no longer includes execution
-timeout. Different remaining budgets can reuse the same successful result.
-This changes the configuration digest: older entries whose digest included
-timeout will not immediately match new requests. They are retained, not deleted.
-Other recognition identity fields remain unchanged.
+receipt 快速路径核对精确 username、媒体 ID、账号、后端身份和记录摘要。成功命中可不读取已删除的源语音，但 MCP 仍需有效 daemon 会话；显示名必要时通过内部查询解析。命中不修改缓存，也不证明源消息当前存在。
 
-The host uses transcribe_cached_with_receipt_checked: preflight validates the complete text,
-original guards, context and account. store_success_checked repeats this callback
-after staging and snapshot checks, immediately before persist. Host rejection
-prevents this cache publication; ordinary cache I/O failure remains recoverable.
-Publication is not a transaction with MCP delivery: later channel failure cannot
-roll back a committed result. WAV checks the exact response before committing.
+daemon 内的宿主执行器持有会话授权和业务状态，CLI 只负责 stdio 与认证请求。daemon 重启后旧会话不得自动重建授权。发布后的连接断开不回滚文件或缓存。
 
-The newer receipt fast path checks exact username/media ID, bound account, backend
-identity and record digest before voice IPC. A valid hit can survive source removal
-and a stopped daemon; display-name resolution may still require the daemon. Lookup
-is read-only and does not authenticate current source existence. The separate host
-process log reports 7 passing tests with 2 unused warnings; full regression and image
-metadata output verification for those changes were pending at that delivery.
+## 运行
 
-## Run
-
-From the repository root, the retained standalone harness is:
+按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-$env:LIBCLANG_PATH = 'C:/CodexLocal/build-tools/libclang/clang/native'
 cargo test --offline --manifest-path tests/fixtures/mcp-voice-host/Cargo.toml -- --nocapture
 ```
 
-Save new output separately. Receipt core entry points and the retired orphan
-target are documented in [voice-cache-receipt](../voice-cache-receipt/README.md);
-neither that cleanup nor this command implies a new passing result.
+共享音频测试需要的夹具应由本夹具构建配置正确定位，不修改生产逻辑来掩盖测试路径错误。receipt 核心入口见[索引回归](../voice-cache-receipt/README.md)，完整链路见[MCP 契约](../../../src/mcp/PROTOCOL.md)。

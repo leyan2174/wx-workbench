@@ -137,7 +137,7 @@ fn python_or_empty(value: ValueRef<'_>) -> rusqlite::Result<Value> {
                 })?
                 .into(),
         ),
-        ValueRef::Blob(bytes) if bytes.is_empty() => Value::String(String::new()),
+        ValueRef::Blob([]) => Value::String(String::new()),
         ValueRef::Blob(_) => {
             return Err(rusqlite::Error::InvalidColumnType(
                 0,
@@ -177,7 +177,7 @@ fn contact_tags(conn: &Connection, username: &str) -> rusqlite::Result<Vec<Value
         let raw = row.get_ref(1)?;
         let buffer = match raw {
             ValueRef::Blob(bytes) => bytes,
-            ValueRef::Text(bytes) if bytes.is_empty() => continue,
+            ValueRef::Text([]) => continue,
             ValueRef::Integer(0) | ValueRef::Real(0.0) => continue,
             _ => {
                 return Err(rusqlite::Error::InvalidColumnType(
@@ -207,7 +207,7 @@ fn contact_tags(conn: &Connection, username: &str) -> rusqlite::Result<Vec<Value
     let mut tags = Vec::new();
     for (_, name, count) in labels {
         if name != Value::String(String::new()) {
-            tags.extend(std::iter::repeat(name).take(count));
+            tags.extend(std::iter::repeat_n(name, count));
         }
     }
     Ok(tags)

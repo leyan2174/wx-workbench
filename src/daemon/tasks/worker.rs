@@ -116,11 +116,6 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
             Some(&state.runtime.config.db_dir),
             Some(&state.runtime.config.decrypted_dir),
             Some(&state.runtime.directory),
-            work.settings.enterprise_snapshot.as_ref(),
-            work.settings.enterprise_data_dir.as_ref(),
-            work.settings.enterprise_input.as_ref(),
-            work.settings.enterprise_key_file.as_ref(),
-            work.settings.enterprise_keys_file.as_ref(),
             work.settings.image_cache_dir.as_ref(),
         ]
         .into_iter()
@@ -207,34 +202,13 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         false
     };
     if matches!(work.request.kind, Kind::WechatKeys | Kind::ImageKey) {
-        match Redactor::new(&state.runtime) {
-            Ok(redactor) => *state.redactor.lock().unwrap() = redactor,
-            Err(_) => state.request_shutdown(),
-        }
-        state.query.invalidate().await;
+        state.refresh_configuration().await;
     }
     if config_error {
         state.log(&work.id, "system", "配置身份复核失败，后台停止接受任务");
         state.request_shutdown();
     }
     let cancelled = *work.cancel.borrow() || *shutdown.borrow();
-    if !cancelled
-        && matches!(result, Ok(Some(0)))
-        && matches!(work.request.kind, Kind::WxworkDecrypt | Kind::WxworkRun)
-    {
-        if let Some(data) = &work.settings.enterprise_data_dir {
-            if let Ok(account) = crate::toolkit::enterprise_batch::Account::open(data) {
-                let snapshot = task
-                    .output_dir
-                    .join("enterprise-snapshot")
-                    .join(account.account_id)
-                    .join("decrypted");
-                if snapshot.is_dir() {
-                    state.records.lock().unwrap().enterprise_snapshot = Some(snapshot);
-                }
-            }
-        }
-    }
     state.update(&work.id, |task| {
         task.finished_at = Some(now());
         match result {

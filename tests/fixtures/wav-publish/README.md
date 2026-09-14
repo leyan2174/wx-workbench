@@ -13,14 +13,15 @@
 ## 验证
 
 ```powershell
-$env:LIBCLANG_PATH = 'C:\CodexLocal\build-tools\libclang\clang\native'
 cargo test --manifest-path tests/fixtures/wav-publish/Cargo.toml --test publisher -- --nocapture
 ```
 
-单个 integration test 执行完整场景组并逐组报告：完整字节/摘要名、提交前响应借用、重复拒绝、附加和填充 chunk、16kHz 元数据、真实 SILK 转换、回调拒绝、已有文件/目录/硬链接、回调抢占目标、暂存内容改变、坏格式/重复 data/超限、共享保护输入及输出目录替换。符号链接创建权限不足时明确输出 `UNVERIFIED`，不将其算作已验证。日志为 `C:\CodexLocal\wav-publish-fixture.log`。
+单个 integration test 执行完整场景组并逐组报告：完整字节/摘要名、提交前响应借用、重复拒绝、附加和填充 chunk、16kHz 元数据、真实 SILK 转换、回调拒绝、已有文件/目录/硬链接、回调抢占目标、暂存内容改变、坏格式/重复 data/超限、共享保护输入及输出目录替换。符号链接创建权限不足时明确输出 `UNVERIFIED`，不将其算作已验证。
 
 ## 边界
 
 输出目录必须是宿主信任的现有本地目录。`protect` 负责路径隔离；需要固定的静态源由宿主 `pin_input`。Windows 下持有目录句柄不保证阻止全部重命名，路径复核与按路径提交之间仍有 TOCTOU 窗口，本实现不声称抵抗同权限恶意进程的所有竞争。目录被外部移走时，按原路径清理临时文件也可能留下被移动的暂存文件；不会将其报告为已发布 WAV。
 
-提交后响应传输仍可失败，已发布文件不自动回滚；重试不得覆盖已有文件。本 fixture 不代替 main 的完整构建、原 ASR 单元测试和真实 MCP 宿主验证。
+提交后响应传输仍可失败，已发布文件不自动回滚；重试不得覆盖已有文件。本 fixture 不代替完整构建、原 ASR 单元测试和真实 MCP 宿主验证。
+
+依赖及跳过规则见[测试说明](../../README.md)。

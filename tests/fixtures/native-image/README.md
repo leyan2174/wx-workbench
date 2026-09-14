@@ -32,20 +32,22 @@ Windows 只读句柄锁定源与祖先，拒绝 reparse/symlink、UNC/设备/ADS
 
 ## 验证
 
-fixture 直接引用生产源码及现有 decoder/resolver/attachment_id，不替换实现。自己的 Cargo.toml/Cargo.lock 仅用于隔离编译；没有修改根 Cargo、公共模块或 query。
+fixture 直接引用生产源码及现有 decoder/resolver/attachment_id，不替换实现。自己的 Cargo.toml/Cargo.lock 仅用于隔离编译。
 
 ```powershell
-cargo test --offline --manifest-path tests/fixtures/native-image/Cargo.toml --target x86_64-pc-windows-msvc --target-dir C:/CodexLocal/build/native-image -- --nocapture
+cargo test --offline --manifest-path tests/fixtures/native-image/Cargo.toml --target x86_64-pc-windows-msvc -- --nocapture
 ```
 
 全部数据为临时目录中的合成 SQLite/DAT；测试包括 legacy XOR、V1/V2 AES、缺错密钥、精确元组、重复映射/记录、异常 schema、资源/候选限制、冲突候选、junction、只读锁、源与硬链接不变及无覆盖发布。虚拟表测试构造外部构建的 sqlite_schema，不声称执行了 FTS 引擎。fixture 唯一子进程是测试用 mklink /J；生产模块不运行子进程。
 
 ## 限制
 
-宿主支持层新增 HostOutputGuard，复用核心 Scan/Pin，不复制路径安全实现。用于输出目录隔离和显式 key 文件的 4 KiB 有界只读读取，敏感缓冲区使用 Zeroizing。允许 Windows 本机 VerbatimDisk 规范路径，仍拒绝 UNC/设备路径。相关保护测试已在主程序副本的 `image` 定向回归中执行。
+宿主支持层使用 HostOutputGuard，复用核心 Scan/Pin，不复制路径安全实现。用于输出目录隔离和显式 key 文件的 4 KiB 有界只读读取，敏感缓冲区使用 Zeroizing。允许 Windows 本机 VerbatimDisk 规范路径，仍拒绝 UNC/设备路径。相关保护另由图片宿主测试覆盖。
 
-- 初次独立核心验收未接公共模块；后续 main 已注册图片查询入口，独立 fixture 结果仍不等同整仓集成验收。
+- daemon 通过 `ResourceSnapshot` 为本核心准备私有静态资源副本；这不放宽底层对 WAL/SHM/journal 的拒绝，也不把合成夹具当作完整账号验证。
 - 当前只支持 Windows 本机静态源。路径父目录和输出目录必须可信；不承诺对抗具有管理员权限或恶意并发控制输出目录的进程，不提供断电持久性保证。
 - 消息真实性、账号、资源库与附件根关联由调用者核验；此模块不能认证随意构造的 MessageIdentity。
 - 资源 MD5 是现有 marker/hex 扫描器的关联证据，并非严格 protobuf 语义解析或明文完整性认证；它可能与解码后 MD5 不同。返回 binding 明确标记为 heuristic。
 - 复用 decoder 的格式魔数判定，不做完整图片格式验证。wxgf 以 decoder 的 hevc 扩展原样输出，不转码；无 ffmpeg、网络、自动 provider 或真实账号/密钥测试。
+
+运行环境见[测试说明](../../README.md)。

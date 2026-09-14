@@ -1,7 +1,14 @@
+mod atomic;
+mod auth;
 pub mod wal;
 
+#[cfg(test)]
+mod safety_tests;
+#[cfg(test)]
+pub(crate) mod test_support;
+
 use aes::Aes256;
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 use cbc::cipher::{BlockDecryptMut, KeyIvInit};
 use cbc::Decryptor;
 use std::io::{Read, Write};
@@ -17,23 +24,10 @@ pub const RESERVE_SZ: usize = 80; // IV(16) + HMAC(64)
 pub const SQLITE_HDR: &[u8] = b"SQLite format 3\x00";
 
 pub fn verify_page1(enc_key: &[u8; 32], page: &[u8]) -> bool {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha512;
     if page.len() < PAGE_SZ {
         return false;
     }
-    let mut salt = [0; 16];
-    for (dst, src) in salt.iter_mut().zip(&page[..16]) {
-        *dst = src ^ 0x3a;
-    }
-    let mut mac_key = zeroize::Zeroizing::new([0u8; 32]);
-    pbkdf2::pbkdf2_hmac::<Sha512>(enc_key, &salt, 2, &mut *mac_key);
-    let Ok(mut mac) = Hmac::<Sha512>::new_from_slice(&*mac_key) else {
-        return false;
-    };
-    mac.update(&page[16..4032]);
-    mac.update(&1u32.to_le_bytes());
-    mac.verify_slice(&page[4032..PAGE_SZ]).is_ok()
+    auth::PageAuth::from_page1(enc_key, &page[..PAGE_SZ]).is_ok()
 }
 
 type Aes256CbcDec = Decryptor<Aes256>;
@@ -46,6 +40,11 @@ type Aes256CbcDec = Decryptor<Aes256>;
 ///
 /// 返回解密后的完整页面（PAGE_SZ 字节）
 pub fn decrypt_page(enc_key: &[u8; 32], page_data: &[u8], pgno: u32) -> Result<Vec<u8>> {
+    decrypt_layout(enc_key, page_data, pgno == 1)
+}
+
+// 布局与认证页号分开：WAL 首页沿用完整密文布局，但 HMAC 必须绑定真实页号 1。
+fn decrypt_layout(enc_key: &[u8; 32], page_data: &[u8], salt_header: bool) -> Result<Vec<u8>> {
     if page_data.len() < PAGE_SZ {
         bail!("页面数据不足 {} 字节", PAGE_SZ);
     }
@@ -58,7 +57,7 @@ pub fn decrypt_page(enc_key: &[u8; 32], page_data: &[u8], pgno: u32) -> Result<V
 
     let mut result = vec![0u8; PAGE_SZ];
 
-    if pgno == 1 {
+    if salt_header {
         // 第一页：跳过 salt(16字节)，解密 [SALT_SZ..PAGE_SZ-RESERVE_SZ]
         let enc = &page_data[SALT_SZ..PAGE_SZ - RESERVE_SZ];
         let dec = aes_cbc_decrypt(enc_key, iv, enc)?;
@@ -81,7 +80,7 @@ pub fn decrypt_page(enc_key: &[u8; 32], page_data: &[u8], pgno: u32) -> Result<V
 
 /// AES-256-CBC 解密（不去除 padding，SQLCipher 不使用 PKCS#7 padding）
 fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], data: &[u8]) -> Result<Vec<u8>> {
-    if data.is_empty() || data.len() % 16 != 0 {
+    if data.is_empty() || !data.len().is_multiple_of(16) {
         bail!("密文长度不是 AES 块大小的倍数: {}", data.len());
     }
     // 将 &[u8] 复制为 Block 数组，避免 unsafe from_raw_parts_mut
@@ -94,29 +93,67 @@ fn aes_cbc_decrypt(key: &[u8; 32], iv: &[u8; 16], data: &[u8]) -> Result<Vec<u8>
 ///
 /// 读取 `db_path`，按 PAGE_SZ 分页解密，写入 `out_path`
 pub fn full_decrypt(db_path: &Path, out_path: &Path, enc_key: &[u8; 32]) -> Result<()> {
-    if let Some(parent) = out_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    let mut input = std::fs::File::open(db_path)?;
-    let file_size = input.metadata()?.len() as usize;
-    if file_size == 0 {
-        bail!("数据库文件为空: {}", db_path.display());
-    }
-
-    let mut output = std::fs::File::create(out_path)?;
-    let total_pages = (file_size + PAGE_SZ - 1) / PAGE_SZ;
+    let mut input = atomic::open_source(db_path)?;
+    let before = input.metadata()?;
+    let file_size = before.len();
+    ensure!(
+        file_size > 0 && file_size % PAGE_SZ as u64 == 0,
+        "加密数据库为空或存在不完整页面"
+    );
+    let total_pages = file_size / PAGE_SZ as u64;
+    ensure!(total_pages < u32::MAX as u64, "数据库页数超限");
     let mut page_buf = vec![0u8; PAGE_SZ];
-
+    read_page(&mut input, &mut page_buf, PAGE_SZ)?;
+    let auth = auth::PageAuth::from_page1(enc_key, &page_buf)?;
+    let mut output = atomic::Output::new(out_path, &[&input])?;
+    // 必须使用同一输入句柄认证每个实际读到的页面。仅在调用前验证首页，
+    // 无法发现后续页面损坏，也不能保证调用期间账号独立换钥后不发布垃圾。
     for pgno in 1..=total_pages {
-        let page_start = (pgno - 1) * PAGE_SZ;
-        let bytes_remaining = file_size.saturating_sub(page_start);
-        read_page(&mut input, &mut page_buf, bytes_remaining)?;
+        if pgno != 1 {
+            read_page(&mut input, &mut page_buf, PAGE_SZ)?;
+            auth.verify(&page_buf, pgno as u32, false)?;
+        }
         let dec = decrypt_page(enc_key, &page_buf, pgno as u32)?;
-        output.write_all(&dec)?;
+        output.file().write_all(&dec)?;
     }
+    let after = input.metadata()?;
+    ensure!(
+        before.len() == after.len() && before.modified()? == after.modified()?,
+        "解密期间源数据库发生变化，未发布结果"
+    );
+    output.publish()
+}
 
-    Ok(())
+/// 将多个已认证步骤组合成一次发布；回调只能写传入的暂存路径。
+/// 源路径由固定账号上下文提供，拒绝覆盖源及其硬链接，不推断其他账号文件。
+pub fn with_staged_output<T>(
+    out_path: &Path,
+    sources: &[&Path],
+    write: impl FnOnce(&Path) -> Result<T>,
+) -> Result<T> {
+    let inputs = sources
+        .iter()
+        .map(|path| atomic::open_source(path))
+        .collect::<Result<Vec<_>>>()?;
+    let before = inputs
+        .iter()
+        .map(std::fs::File::metadata)
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let refs = inputs.iter().collect::<Vec<_>>();
+    let output = atomic::Output::new(out_path, &refs)?;
+    output.transform(|temporary| {
+        let value = write(temporary)?;
+        // 单个步骤成功不等于组合成功：DB 解密后如果 WAL 认证失败，或组合期间
+        // 源文件变化，正式缓存与其索引都不得提前更新。
+        for (file, before) in inputs.iter().zip(&before) {
+            let after = file.metadata()?;
+            ensure!(
+                before.len() == after.len() && before.modified()? == after.modified()?,
+                "组合解密期间源文件发生变化，未发布缓存"
+            );
+        }
+        Ok(value)
+    })
 }
 
 fn read_page(

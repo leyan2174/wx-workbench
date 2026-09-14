@@ -162,9 +162,9 @@ async fn legacy_identical_ids_remain_separate_across_contacts_and_accounts() {
 
 #[tokio::test]
 async fn legacy_complete_inventory_rejects_missing_unknown_and_corrupt_sources() {
-    for index in 0..5 {
+    for source in SOURCES {
         let f = Fixture::new(false).await;
-        fs::write(&f.paths[index], b"synthetic corrupt DB").unwrap();
+        fs::write(f.db.db_dir().join(source), b"synthetic corrupt DB").unwrap();
         let before = f.snapshot();
         assert!(legacy(&f, 700).await.is_err());
         assert_eq!(before, f.snapshot());

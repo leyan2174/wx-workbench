@@ -53,11 +53,9 @@ fn immutable(bytes: &[u8]) -> Result<Value> {
     let mut value: Value = serde_json::from_slice(bytes)?;
     let fields = value.as_object_mut().context("配置必须为对象")?;
     // 删除前清零原材料，比较结果中不保留图片密钥。
-    if let Some(mut secret) = fields.remove("image_aes_key") {
-        if let Value::String(s) = &mut secret {
-            use zeroize::Zeroize;
-            s.zeroize();
-        }
+    if let Some(Value::String(mut secret)) = fields.remove("image_aes_key") {
+        use zeroize::Zeroize;
+        secret.zeroize();
     }
     fields.remove("image_xor_key");
     Ok(value)

@@ -1,9 +1,16 @@
 pub mod cache;
+pub(crate) mod mcp_rpc;
+pub(crate) mod mcp_service;
 pub mod meta;
+pub(crate) mod monitor_service;
+pub(crate) mod operation_service;
+pub(crate) mod operation_worker;
+pub(crate) mod operations;
 pub mod query;
 pub mod query_state;
 pub mod server;
 pub(crate) mod tasks;
+pub(crate) mod web_service;
 
 use anyhow::Result;
 use std::collections::HashMap;
@@ -49,7 +56,11 @@ pub fn run() {
 }
 
 async fn async_run() -> Result<()> {
-    let runtime = RuntimeContext::load()?;
+    let runtime = if std::env::var("WX_DAEMON_BOOTSTRAP").as_deref() == Ok("1") {
+        RuntimeContext::bootstrap()?
+    } else {
+        RuntimeContext::load()?
+    };
     if let Ok(expected) = std::env::var("WX_CLI_EXPECTED_RUNTIME") {
         anyhow::ensure!(
             expected == runtime.id,
@@ -69,29 +80,133 @@ async fn async_run() -> Result<()> {
     eprintln!("[daemon] DB_DIR: {}", cfg.db_dir.display());
 
     let query = Arc::new(query_state::QueryState::new(runtime.clone()));
-    let (tasks, receiver) = tasks::Service::new(runtime.clone(), query.clone())?;
-    let worker = tokio::spawn(tasks.clone().run_worker(receiver));
+    let bootstrap = runtime.is_bootstrap();
+    let web = web_service::WebService::new(runtime.clone(), query.clone());
+    let monitor = monitor_service::Service::new();
+    let (shutdown, _) = tokio::sync::watch::channel(false);
+    let (tasks, worker) = if bootstrap {
+        (None, None)
+    } else {
+        let (tasks, receiver) = tasks::Service::new(runtime.clone(), query.clone())?;
+        let worker = tokio::spawn(tasks.clone().run_worker(receiver));
+        (Some(tasks), Some(worker))
+    };
+    let operations = operation_service::Service::new(runtime.clone(), tasks.clone());
     let handler_state = tasks.clone();
+    let handler_operations = operations.clone();
+    let handler_shutdown = shutdown.clone();
+    let handler_web = web.clone();
+    let handler_runtime = runtime.clone();
+    let handler_query = query.clone();
+    let handler_monitor = monitor.clone();
     let handler = Arc::new(move |call| {
         let state = handler_state.clone();
-        async move { state.dispatch(call).await }
+        let operations = handler_operations.clone();
+        let shutdown = handler_shutdown.clone();
+        let web = handler_web.clone();
+        let runtime = handler_runtime.clone();
+        let query = handler_query.clone();
+        let monitor = handler_monitor.clone();
+        async move {
+            use crate::service::protocol::{Call, ServiceError, VERSION};
+            if operation_service::Service::handles(&call) {
+                return operations.dispatch(call).await;
+            }
+            if !bootstrap {
+                match call {
+                    Call::Monitor { request } => {
+                        return monitor
+                            .handle(request, |request| async move {
+                                server::dispatch_state(request, &query).await
+                            })
+                            .await;
+                    }
+                    Call::Web { request } => return web.handle(*request).await,
+                    Call::Mcp { request } => {
+                        return mcp_rpc::dispatch(*request, runtime, query).await
+                    }
+                    _ => (),
+                }
+            }
+            if let Some(state) = state {
+                let info = matches!(&call, Call::Info {});
+                let mut response = state.dispatch(call).await?;
+                if info {
+                    response["operation_api"] = serde_json::json!(1);
+                }
+                return Ok(response);
+            }
+            match call {
+                Call::Info {} => {
+                    Ok(serde_json::json!({"version":VERSION,"bootstrap":true,"operation_api":1}))
+                }
+                Call::Shutdown {} => {
+                    shutdown.send_replace(true);
+                    Ok(serde_json::json!({"stopping":true}))
+                }
+                _ => Err(ServiceError::new(
+                    "account_required",
+                    "Account service is unavailable during bootstrap",
+                )),
+            }
+        }
     });
     let mut task_server = tokio::spawn(crate::service::transport::serve(
-        runtime.clone(), handler, tasks.subscribe_shutdown(),
+        runtime.clone(),
+        handler,
+        shutdown.subscribe(),
     ));
-    let mut query_server = tokio::spawn(async move { server::serve(query, &runtime.pipe_name()).await });
-    let mut stop = tasks.subscribe_shutdown();
+    let server_query = query.clone();
+    let mut query_server =
+        tokio::spawn(async move { server::serve(server_query, &runtime.pipe_name()).await });
+    let mut stop = tasks
+        .as_ref()
+        .map(|tasks| tasks.subscribe_shutdown())
+        .unwrap_or_else(|| shutdown.subscribe());
+    let monitor_reaper = tokio::spawn(monitor.clone().reap(shutdown.subscribe()));
+    let idle_operations = operations.clone();
+    let bootstrap_idle = async move {
+        if !bootstrap {
+            std::future::pending::<()>().await;
+        }
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if idle_operations.idle() {
+                break;
+            }
+        }
+    };
     let result = tokio::select! {
         result = &mut task_server => result.map_err(anyhow::Error::from).and_then(|result| result),
         result = &mut query_server => result.map_err(anyhow::Error::from).and_then(|result| result),
         _ = stop.changed() => Ok(()),
+        _ = bootstrap_idle => Ok(()),
     };
-    tasks.request_shutdown();
+    shutdown.send_replace(true);
+    monitor.clear();
+    let _ = monitor_reaper.await;
+    if let Some(tasks) = tasks {
+        tasks.request_shutdown();
+    }
+    operations.shutdown().await;
+    if let Err(error) = web.shutdown().await {
+        eprintln!("[daemon] Web service shutdown failed: {error}");
+    }
+    if let Err(error) = mcp_service::shutdown().await {
+        eprintln!("[daemon] MCP service shutdown failed: {error}");
+    }
     // Workers first reap their process trees and persist terminal states.
-    let _ = worker.await;
+    if let Some(worker) = worker {
+        let _ = worker.await;
+    }
     query_server.abort();
-    if !query_server.is_finished() { let _ = query_server.await; }
-    if !task_server.is_finished() { let _ = task_server.await; }
+    if !query_server.is_finished() {
+        let _ = query_server.await;
+    }
+    if !task_server.is_finished() {
+        let _ = task_server.await;
+    }
+    query.shutdown().await;
     result
 }
 

@@ -21,6 +21,7 @@ path = "host_probe.rs"
 test = false
 
 [dependencies]
+wx-mcp-cli-harness = { path = "../mcp-cli" }
 native-image-fixture = { path = "../native-image" }
 mcp-readonly-security-harness = { path = "../mcp-readonly-security" }
 anyhow = "1"
@@ -30,7 +31,7 @@ hmac = "0.12"
 sha2 = "0.10"
 pbkdf2 = "0.12"
 serde_json = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 regex = "1"
 md5 = "0.7"
 same-file = "1"

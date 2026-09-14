@@ -2,7 +2,7 @@
 
 ## 接入边界
 
-`openai.rs` 负责原生 HTTP multipart 转录；模块自身不读取环境变量、配置文件、音频文件、聊天或密钥文件，不执行 SILK 解码或缓存回写。它已通过 `asr/mod.rs` 接入 CLI、固定账号批处理和 MCP 宿主；daemon 只准备语音，不访问云凭证。构造客户端不会上传；只有调用 `transcribe_wav(audio, true)` 才可能发送请求。
+`openai.rs` 负责原生 HTTP multipart 转录；模块自身不读取环境变量、配置文件、音频文件、聊天或密钥文件，不执行 SILK 解码或缓存回写。它已通过 `asr/mod.rs` 接入 CLI、固定账号批处理和 MCP 宿主；daemon 内的宿主策略执行器在授权后读取显式凭证并调用此模块。构造客户端不会上传；只有调用 `transcribe_wav(audio, true)` 才可能发送请求。
 
 后端一旦选定，缺 key、配置错误或调用失败均不自动回退 local。不能从配置、模型或缓存推断上传授权；`--allow-upload` 明确许可本次文件或整个批次将解码 WAV 发往所选服务端。
 
@@ -46,19 +46,8 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 
 版本以当前 Cargo.toml/Cargo.lock 为准，不需要 reqwest 的 json feature。模块内部通过 `#[path = "openai_tests.rs"]` 注册测试，不要重复注册。这是 blocking API，Tokio 异步调用方须通过 `spawn_blocking` 或专用同步线程完成客户端创建、调用和销毁，不能直接在异步运行时线程内使用。
 
-## 验证与历史证据
+## 测试与兼容性
 
-2026-09-07 文档同步期间集中重跑 check/test 均通过：check 有 9 条 warnings；全量测试退出 0，20 组 1325 passed / 0 failed / 11 ignored，日志 `C:/CodexLocal/wx-cli-doc-sync-tests.log`。18 项实际 exe `--help` 全部通过，日志 `C:/CodexLocal/wx-cli-doc-help-check.log`。UI 61 / 0 和额外 8 个原忽略项显式通过为已有验证结果，本轮未重跑；默认忽略项不计为通过。真实账号、模型质量、GPU、云端及发布验收尚未完成。
+`openai_tests.rs` 使用本机回环服务和合成音频、凭证，覆盖 multipart 字段与原始字节、语言省略、路径前缀、预检零连接、尺寸限制、HTTP 错误、禁止重定向、响应超时和凭据不回显。按[测试说明](../../../tests/README.md)运行 `cargo test --bin wx toolkit::asr::openai`。
 
-以下为早期独立 harness 的历史命令和结果，不是当前待注册状态，本次未重跑：
-
-仓库外 harness：`C:/CodexLocal/openai-worker-harness/Cargo.toml`，其 lib path 直接引用生产 `openai.rs`，不复制模块。所有请求只发送至本地 `TcpListener`，音频和 key 均为合成数据。覆盖 multipart 原始二进制、auth、字段、语言省略、兼容路径及 model、预检零连接、尺寸边界、JSON 成功/错误、401/429/500/302、无凭证回显、响应头/正文超时及响应大小限制。
-
-```powershell
-cargo check --manifest-path C:\CodexLocal\openai-worker-harness\Cargo.toml --target x86_64-pc-windows-msvc
-cargo test --manifest-path C:\CodexLocal\openai-worker-harness\Cargo.toml --target x86_64-pc-windows-msvc
-```
-
-整仓注册与共享依赖已接入，后续 check/test 仍由主线程统一执行。不声称所有兼容服务都支持 verbose_json；不支持的服务将返回有类型的 HTTP 错误。本模块不落盘；已接入的 `cached/receipt` 上层负责成功缓存，非秘密端点/模型/语言/音频上限参与身份，凭据不参与，缓存命中仍先检查上传授权。
-
-历史结果：Windows `x86_64-pc-windows-msvc` 独立 harness `cargo check` 通过，`cargo test` 11 passed / 0 failed（0.31 秒）。当时日志：`C:/CodexLocal/日志/openai-worker-check.log`、`C:/CodexLocal/日志/openai-worker-test.log`。仅本机回环合成数据；不将当时独立模块验证当成真实云端验收。
+兼容服务必须支持 `verbose_json`；不支持时返回有类型的 HTTP 错误，不尝试其他协议。此模块不落盘，成功缓存由 `cached/receipt` 管理。端点、模型、语言和音频上限参与缓存身份，凭据不参与；缓存命中前仍检查上传授权。回环测试不代替真实云服务或模型质量验证。

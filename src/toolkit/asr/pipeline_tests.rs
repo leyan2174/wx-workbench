@@ -205,7 +205,12 @@ fn chat_unknown_source_saved_as_failure_not_guessed() {
 fn local_pipeline_and_chat_writeback_end_to_end() {
     let dir = tempfile::tempdir().unwrap();
     let exe = dir.path().join("fake whisper.exe");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/asr-local/fake.rs");
+    let source = dir.path().join("fake.rs");
+    fs::write(
+        &source,
+        include_str!("../../../tests/fixtures/asr-local/fake.rs"),
+    )
+    .unwrap();
     let mut command = std::process::Command::new("rustc");
     command
         .arg("--edition=2021")

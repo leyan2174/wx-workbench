@@ -19,6 +19,40 @@ pub struct RuntimeContext {
 }
 
 impl RuntimeContext {
+    /// Missing or malformed account configuration still permits service-side setup/offline work.
+    pub(crate) fn for_operation() -> Result<Self> {
+        Self::load().or_else(|_| Self::bootstrap())
+    }
+
+    pub(crate) fn bootstrap() -> Result<Self> {
+        let config_path = normalized_path(&config::find_config_file()?)?;
+        let root = normalized_path(&config::cli_dir())?;
+        let mut digest = Sha256::new();
+        digest.update(b"wx-cli-bootstrap-v1\0");
+        for path in [&config_path, &root] {
+            digest.update(path.to_string_lossy().to_lowercase().as_bytes());
+            digest.update([0]);
+        }
+        let id = format!("{:x}", digest.finalize());
+        let directory = root.join("bootstrap").join(&id);
+        Ok(Self {
+            config: Config {
+                db_dir: directory.join("no-account"),
+                keys_file: directory.join("no-keys"),
+                decrypted_dir: directory.join("no-cache"),
+                wechat_process: String::new(),
+            },
+            config_path,
+            root,
+            id,
+            directory,
+        })
+    }
+
+    pub(crate) fn is_bootstrap(&self) -> bool {
+        self.directory == self.root.join("bootstrap").join(&self.id)
+    }
+
     pub fn load() -> Result<Self> {
         let config_path = config::find_config_file()?;
         let config = config::load_config_at(&config_path)?;

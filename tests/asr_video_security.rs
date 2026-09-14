@@ -1,10 +1,14 @@
 //! 仅运行 security_ 前缀测试；所有音频、凭据和网络响应均为本机合成数据。
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 #[path = "fixtures/asr-video-security/modules.rs"]
 #[allow(dead_code)] // harness 仅审查安全边界，不调用每个生产入口。
 mod production;
+use bootstrap::BootstrapCleanup;
 use production::{asr, video};
 pub use production::{attachment, cli, config, crypto, daemon, runtime, toolkit};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -183,6 +187,7 @@ fn security_cloud_error_body_is_redacted_and_unframed_response_is_bounded() {
 #[test]
 fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
     let dir = tempfile::tempdir().unwrap();
+    let _bootstrap = BootstrapCleanup(dir.path().join("runtime"));
     let key = dir.path().join("key.txt");
     let audio = dir.path().join("audio.wav");
     fs::write(&audio, asr::pcm24k_to_wav(&[0; 8]).unwrap()).unwrap();
@@ -204,6 +209,7 @@ fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
     // key 尚不存在；授权错误必须优先于凭据或音频读取错误。
     let error = process_failure(run_wx(dir.path(), &base));
     assert!(error.contains("allow-upload"));
+    assert!(!dir.path().join("runtime").exists());
     fs::write(&key, SECRET.repeat(600)).unwrap();
     let mut authorized = base.to_vec();
     authorized.push("--allow-upload");
@@ -233,6 +239,7 @@ fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
 }
 
 fn run_wx(root: &Path, args: &[&str]) -> std::process::Output {
+    let before = protected_snapshot(root);
     // 正常集成测试由 Cargo 指定二进制；独立 harness 必须显式指定已构建二进制。
     let exe = option_env!("CARGO_BIN_EXE_wx")
         .map(PathBuf::from)
@@ -249,8 +256,36 @@ fn run_wx(root: &Path, args: &[&str]) -> std::process::Output {
         .env("PATH", "")
         .output()
         .unwrap();
-    assert!(!root.join("runtime").exists());
+    bootstrap::assert_only_bootstrap(&root.join("runtime"));
+    assert!(
+        before == protected_snapshot(root),
+        "CLI changed protected fixture data"
+    );
     output
+}
+
+fn protected_snapshot(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+    fn visit(root: &Path, directory: &Path, result: &mut BTreeMap<PathBuf, Option<Vec<u8>>>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path == root.join("runtime") {
+                continue;
+            }
+            let kind = entry.file_type().unwrap();
+            assert!(!kind.is_symlink(), "unexpected fixture link");
+            let relative = path.strip_prefix(root).unwrap().to_owned();
+            if kind.is_dir() {
+                result.insert(relative, None);
+                visit(root, &path, result);
+            } else {
+                result.insert(relative, Some(fs::read(path).unwrap()));
+            }
+        }
+    }
+    let mut result = BTreeMap::new();
+    visit(root, root, &mut result);
+    result
 }
 
 fn process_failure(output: std::process::Output) -> String {
@@ -267,6 +302,7 @@ fn process_failure(output: std::process::Output) -> String {
 #[test]
 fn security_cli_video_failure_never_publishes_or_overwrites() {
     let dir = tempfile::tempdir().unwrap();
+    let _bootstrap = BootstrapCleanup(dir.path().join("runtime"));
     let input = dir.path().join("input.bin");
     let key = dir.path().join("key.txt");
     let wasm = dir.path().join("invalid.wasm");

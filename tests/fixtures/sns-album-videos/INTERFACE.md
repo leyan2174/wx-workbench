@@ -1,10 +1,8 @@
-# 相册视频媒体层交接
+# 相册视频媒体接口
 
-仅 Windows x64 MSVC。生产 `album_videos` 已由 `sns/mod.rs` 注册，并由 `sns/album.rs` 调用。初次独立交付未修改其他模块；该历史范围不表示当前仍未接线，也不等同于完整相册工作流验收。
+仅支持 Windows x64 MSVC。生产 `album_videos` 由 `sns/mod.rs` 注册，`sns/album.rs` 调用。
 
-2026-09-07 文档核对：本目录只清理生成的 `album-videos-tests.exe` / `album-videos-tests.pdb`，`harness.rs`、`run.ps1` 和日志仍保留。本次没有执行测试，下面的测试数量和日志属于原独立验收。
-
-## Main 接口
+## 接口
 
 ```rust
 reuse_existing_video(name: &str, guard: &HostOutputGuard)
@@ -18,9 +16,9 @@ download_video<'a>(url: &str, key: &str, name: &str, guard: &HostOutputGuard,
 
 上述函数为 pub(crate)。Outcome 的 filename 是直属文件名（统一换为 .mp4），source 为 VideoSource，可 as_str() 得到 existing/cache/remote；complete 为 bool，bytes 为 u64。加密下载亦沿用旧 remote 来源值。
 
-Main 负责创建 videos 输出目录、建立守卫并保护显式账号数据库、缓存、配置、密钥及其他源目录。函数不读取任何默认账号目录或密钥文件。惰性 engine 初始化错误应映射为 VideoError::EngineUnavailable，不附加底层路径/密钥错误链。
+调用方 负责创建 videos 输出目录、建立守卫并保护显式账号数据库、缓存、配置、密钥及其他源目录。函数不读取任何默认账号目录或密钥文件。惰性 engine 初始化错误应映射为 VideoError::EngineUnavailable，不附加底层路径/密钥错误链。
 
-复用、缓存、远程的优先级和 JSON/统计由 main 决定；download_video 本身不先执行复用，成功下载可原子替换旧目标。Main 使用已有 cache::build_cache_index 和 cache::find_cached_video，传 entry.path 给复制函数；不需要新增扫描器或修改 helper 可见性。复制函数在调用时重新固定并校验源文件，不承诺验证索引时刻快照。complete 沿用源扩展名（忽略大小写 .mp4 为完整）；其他扩展名需 allow_partial=true。已有 MP4 复用沿用旧 complete=true 语义，不能从此前部分缓存的改名结果恢复历史标记，main 可自行保留该元数据。
+复用、缓存、远程的优先级和 JSON/统计由 编排层 决定；download_video 本身不先执行复用，成功下载可原子替换旧目标。调用方 使用已有 cache::build_cache_index 和 cache::find_cached_video，传 entry.path 给复制函数；不需要新增扫描器或修改 helper 可见性。复制函数在调用时重新固定并校验源文件，不承诺验证索引时刻快照。complete 沿用源扩展名（忽略大小写 .mp4 为完整）；其他扩展名需 allow_partial=true。已有 MP4 复用沿用旧 complete=true 语义，不能从此前部分缓存的改名结果恢复历史标记，编排层 可自行保留该元数据。
 
 ## 行为和加强边界
 
@@ -41,12 +39,13 @@ Main 负责创建 videos 输出目录、建立守卫并保护显式账号数据�
 cargo test --bin wx toolkit::sns::album_videos::tests -- --nocapture --test-threads=1
 ```
 
-run.ps1 用现有依赖直接 rustc --target x86_64-pc-windows-msvc --test 编译真实生产模块、HostOutputGuard 和 VideoRuntime；只运行 album_videos::tests，其他模块测试仅被编译不执行。
+run.ps1 委托 tests/run-module.ps1，使用根 Cargo.toml、Windows MSVC 和 wx 测试目标，筛选 album_videos::tests，单线程执行。
 
-该脚本是保留的独立入口，依赖匹配的已构建 rlib 和本机原生库路径；生成物清理后会重新生成 exe/pdb。它使用固定日志名，保留旧证据时优先使用上述主仓命令并另存新输出，不覆盖下列历史日志。
+运行器可显式指定 TargetDir，不手工查找 rlib 或复制生产源码。
 
-所有媒体字节和路径来自临时目录及 loopback；不读真实微信、账号钥匙或稳定安装。14 项测试覆盖前缀短读、WASM 合成 oracle、超过 25 MiB 视频、缓存完整/部分/源不变、硬链接/别名、句柄锁定、HTTP 错误/长度/超限/chunked 截断/超时、惰性引擎、URL 和重定向边界。
+所有媒体字节和路径来自临时目录及 loopback；不读真实微信、账号钥匙或稳定安装。测试覆盖前缀短读、WASM 合成 oracle、超过 25 MiB 视频、缓存完整/部分/源不变、硬链接/别名、句柄锁定、HTTP 错误/长度/超限/chunked 截断/超时、惰性引擎、URL 和重定向边界。
 
 2 GiB 边界通过实际常量、声明长度、稀疏文件长度和流式计数器精准验证；不在测试中下载 2 GiB。超限流式控制通过相同私有实现注入较小限额测试。
 
-完整日志：run.log（编译命令及测试输出）、compile.log、tests.log、cargo-check.log、cargo-runtime-tests.log。run.ps1 会在本目录生成测试 exe/pdb，仅测试产物，不属于稳定安装。
+
+环境与输出约定见[测试说明](../../README.md)。

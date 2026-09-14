@@ -1,11 +1,13 @@
 //! 真实查询的消息身份回归；全部数据库都在独立临时目录内合成。
-use super::{q_history, q_new_messages, DbCache, Names};
+use super::{
+    q_history, q_new_messages, DbCache, HistoryQuery, MessageFilter, MessagePage, MetaOptions,
+    Names,
+};
 use rusqlite::params;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 
-#[path = "../../../tests/fixtures/mcp-readonly-runtime/encrypted_sqlite.rs"]
-mod encrypted_sqlite;
+use super::encrypted_cache::encrypted_sqlite;
 
 const PEER: &str = "wxid_source_fixture";
 const BASE: i64 = 1_700_000_000;
@@ -103,6 +105,65 @@ async fn fixture_with_extra(extra: Option<(i64, i64, i64, &str)>) -> Fixture {
     }
 }
 
+async fn first_page(f: &Fixture, chat: &str) -> anyhow::Result<Value> {
+    q_history(
+        &f.db,
+        &f.names,
+        chat,
+        HistoryQuery {
+            page: MessagePage {
+                limit: 10,
+                offset: 0,
+            },
+            filter: MessageFilter::default(),
+            meta: MetaOptions::default(),
+            msg_types: None,
+            oldest_first: false,
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn known_contact_without_message_table_has_an_empty_history() {
+    let mut f = fixture().await;
+    let chat = "gh_synthetic_empty";
+    f.names.map.insert(chat.into(), "合成空会话".into());
+    let result = first_page(&f, chat).await.unwrap();
+    assert_eq!(result["username"], chat);
+    assert_eq!(result["chat_type"], "official_account");
+    assert_eq!(result["count"], 0);
+    assert_eq!(result["messages"], serde_json::json!([]));
+    assert!(first_page(&f, "nonexistent_synthetic_contact")
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn missing_shard_cannot_be_reported_as_empty_history() {
+    let mut f = fixture().await;
+    let chat = "gh_synthetic_empty";
+    f.names.map.insert(chat.into(), "合成空会话".into());
+    fs::remove_file(f.db.db_dir().join(SOURCE_1)).unwrap();
+    let error = first_page(&f, chat).await.unwrap_err();
+    assert!(error.to_string().contains("消息分片未完整读取"));
+}
+
+#[tokio::test]
+async fn broken_message_schema_is_not_hidden_as_an_absent_table() {
+    let f = fixture().await;
+    let path = f.db.get(SOURCE_1).await.unwrap().unwrap();
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let table = format!("Msg_{:x}", md5::compute(PEER.as_bytes()));
+    conn.execute_batch(&format!(
+        "ALTER TABLE [{table}] RENAME COLUMN create_time TO broken_time"
+    ))
+    .unwrap();
+    drop(conn);
+    let error = first_page(&f, PEER).await.unwrap_err();
+    assert!(error.to_string().contains("create_time"));
+}
+
 fn assert_identities(response: &Value, expected: &[(i64, i64, &str)]) {
     let rows = response["messages"].as_array().expect("query messages");
     assert_eq!(response["count"].as_u64(), Some(expected.len() as u64));
@@ -138,7 +199,19 @@ fn assert_identities(response: &Value, expected: &[(i64, i64, &str)]) {
 async fn history_ordinary_preserves_source_and_duplicate_local_ids() {
     let f = fixture().await;
     let result = q_history(
-        &f.db, &f.names, PEER, 10, 0, None, None, None, false, false, None, false,
+        &f.db,
+        &f.names,
+        PEER,
+        HistoryQuery {
+            page: MessagePage {
+                limit: 10,
+                offset: 0,
+            },
+            filter: MessageFilter::default(),
+            meta: MetaOptions::default(),
+            msg_types: None,
+            oldest_first: false,
+        },
     )
     .await
     .unwrap();
@@ -162,15 +235,16 @@ async fn history_multitype_preserves_source_after_global_paging() {
         &f.db,
         &f.names,
         PEER,
-        3,
-        1,
-        None,
-        None,
-        None,
-        false,
-        false,
-        Some(&[1, 3]),
-        false,
+        HistoryQuery {
+            page: MessagePage {
+                limit: 3,
+                offset: 1,
+            },
+            filter: MessageFilter::default(),
+            meta: MetaOptions::default(),
+            msg_types: Some(&[1, 3]),
+            oldest_first: false,
+        },
     )
     .await
     .unwrap();
@@ -184,7 +258,19 @@ async fn history_multitype_preserves_source_after_global_paging() {
 async fn history_oldest_preserves_source_and_duplicate_local_ids() {
     let f = fixture().await;
     let result = q_history(
-        &f.db, &f.names, PEER, 3, 0, None, None, None, false, false, None, true,
+        &f.db,
+        &f.names,
+        PEER,
+        HistoryQuery {
+            page: MessagePage {
+                limit: 3,
+                offset: 0,
+            },
+            filter: MessageFilter::default(),
+            meta: MetaOptions::default(),
+            msg_types: None,
+            oldest_first: true,
+        },
     )
     .await
     .unwrap();
@@ -242,15 +328,16 @@ async fn history_and_new_messages_preserve_rich_link_and_original_fields() {
         &f.db,
         &f.names,
         PEER,
-        10,
-        0,
-        None,
-        None,
-        None,
-        false,
-        false,
-        Some(&[49]),
-        false,
+        HistoryQuery {
+            page: MessagePage {
+                limit: 10,
+                offset: 0,
+            },
+            filter: MessageFilter::default(),
+            meta: MetaOptions::default(),
+            msg_types: Some(&[49]),
+            oldest_first: false,
+        },
     )
     .await
     .unwrap();

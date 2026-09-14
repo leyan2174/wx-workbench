@@ -173,7 +173,7 @@ impl Inputs {
     }
     fn key(&self) -> decoder::V2KeyMaterial<'_> {
         decoder::V2KeyMaterial {
-            aes_key: self.aes.as_ref().map(|key| &**key),
+            aes_key: self.aes.as_deref(),
             xor_key: self.xor,
         }
     }
@@ -189,14 +189,19 @@ fn marker(kind: &str, status: &str, detail: impl Into<String>) -> Media {
     }
 }
 
+/// 同一聊天的所有媒体共用预算和暂存清单；只有最终发布步骤写入目标目录。
+pub(super) struct MediaOutput<'a> {
+    pub stage: &'a Path,
+    pub options: &'a Options,
+    pub budget: &'a mut u64,
+    pub files: &'a mut BTreeMap<PathBuf, PathBuf>,
+}
+
 pub(super) fn prepare(
     inputs: &Inputs,
     target: &Target,
     row: &Row,
-    stage: &Path,
-    options: &Options,
-    budget: &mut u64,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
     images: &ImageCatalog,
 ) -> Vec<Media> {
     let base = row.local_type & 0xffff_ffff;
@@ -212,7 +217,7 @@ pub(super) fn prepare(
     if base == 49 && !matches!(subtype, Some(6 | 19)) {
         return Vec::new();
     }
-    if !options.media_enabled {
+    if !output.options.media_enabled {
         return vec![marker(kind, "disabled", "媒体导出已显式禁用")];
     }
     let result = (|| -> Result<Vec<Media>> {
@@ -247,7 +252,7 @@ pub(super) fn prepare(
                     refs::Kind::Video => "video",
                     _ => "file",
                 };
-                let prepared = reference(inputs, &meta, stage, options, budget, files);
+                let prepared = reference(inputs, &meta, output);
                 out.push(match prepared {
                     Ok(m) => m,
                     Err(e) => marker(
@@ -265,8 +270,8 @@ pub(super) fn prepare(
                 .get(&(row.source.clone(), row.local_id))
                 .cloned()
                 .unwrap_or_else(|| marker("image", "unavailable", "图片资源关联缺失")),
-            34 => voice(inputs, target, row, stage, options, budget, files)?,
-            43 | 47 => named_media(inputs, target, row, stage, options, budget, files)?,
+            34 => voice(inputs, target, row, output)?,
+            43 | 47 => named_media(inputs, target, row, output)?,
             _ => unreachable!(),
         };
         Ok(vec![media])
@@ -390,12 +395,9 @@ pub(super) fn image_catalog(
     inputs: &Inputs,
     target: &Target,
     rows: &[Row],
-    stage: &Path,
-    options: &Options,
-    budget: &mut u64,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
 ) -> Result<ImageCatalog> {
-    if !options.media_enabled {
+    if !output.options.media_enabled {
         return Ok(ImageCatalog::default());
     }
     let username_hash = format!("{:x}", md5::compute(target.username.as_bytes()));
@@ -452,23 +454,17 @@ pub(super) fn image_catalog(
             );
             let bytes = bounded_read(
                 &chosen.1,
-                stage,
-                options
+                output.stage,
+                output
+                    .options
                     .max_media_bytes
-                    .min(*budget)
+                    .min(*output.budget)
                     .min(crate::attachment::native_image::MAX_DAT_BYTES),
             )?;
             let decoded = decoder::dispatch(&bytes, inputs.key())?;
             ensure!(decoded.format != "bin", "图片解码后格式未知");
             let rel = format!("image/{}/{}.{}", chosen.2, hash, decoded.format);
-            save(
-                stage,
-                files,
-                PathBuf::from(&rel),
-                &decoded.data,
-                options,
-                budget,
-            )?;
+            save(output, PathBuf::from(&rel), &decoded.data)?;
             Ok(Media {
                 kind: if matches!(decoded.format, "jpg" | "png" | "gif" | "webp") {
                     "image"
@@ -562,40 +558,31 @@ pub(super) fn image_catalog(
     Ok(catalog)
 }
 
-fn save(
-    stage: &Path,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
-    relative: PathBuf,
-    bytes: &[u8],
-    options: &Options,
-    budget: &mut u64,
-) -> Result<()> {
+fn save(output: &mut MediaOutput<'_>, relative: PathBuf, bytes: &[u8]) -> Result<()> {
     ensure!(
-        bytes.len() as u64 <= options.max_media_bytes,
+        bytes.len() as u64 <= output.options.max_media_bytes,
         "解码产物超过单附件限制"
     );
-    if let Some(existing) = files.get(&relative) {
+    if let Some(existing) = output.files.get(&relative) {
         ensure!(
             super::hash_file(existing)? == super::digest(bytes),
             "同名媒体内容冲突"
         );
         return Ok(());
     }
-    *budget = budget
+    *output.budget = output
+        .budget
         .checked_sub(bytes.len() as u64)
         .context("聊天累计媒体预算耗尽")?;
-    super::stage(stage, files, relative, bytes)
+    super::stage(output.stage, output.files, relative, bytes)
 }
 fn store(
-    stage: &Path,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
     kind: &str,
     extension: &str,
     bytes: &[u8],
     detail: String,
     binding: String,
-    options: &Options,
-    budget: &mut u64,
 ) -> Result<Media> {
     let extension = if extension.is_empty() {
         "bin"
@@ -611,14 +598,7 @@ fn store(
         super::digest(bytes),
         extension.to_ascii_lowercase()
     );
-    save(
-        stage,
-        files,
-        PathBuf::from(&relative),
-        bytes,
-        options,
-        budget,
-    )?;
+    save(output, PathBuf::from(&relative), bytes)?;
     Ok(Media {
         kind: kind.into(),
         status: "available".into(),
@@ -631,10 +611,7 @@ fn voice(
     inputs: &Inputs,
     target: &Target,
     row: &Row,
-    stage: &Path,
-    options: &Options,
-    budget: &mut u64,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
 ) -> Result<Media> {
     let identity = asr::database_media::MessageIdentity {
         username: &target.username,
@@ -659,40 +636,34 @@ fn voice(
         "语音关联 server_id 与导出消息不符"
     );
     ensure!(
-        audio.silk.len() as u64 <= options.max_media_bytes.min(*budget),
+        audio.silk.len() as u64 <= output.options.max_media_bytes.min(*output.budget),
         "语音超过预算"
     );
     let wav = asr::prepare_wav_bytes(&audio.silk)?;
     store(
-        stage,
-        files,
+        output,
         "voice",
         "wav",
         &wav,
         "语音".into(),
         "exact_message_media_join".into(),
-        options,
-        budget,
     )
 }
 
 fn reference(
     inputs: &Inputs,
     meta: &refs::AttachmentMetadata,
-    stage: &Path,
-    options: &Options,
-    budget: &mut u64,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
 ) -> Result<Media> {
     let reference = refs::find_reference(&inputs.account, meta)?.context("本地附件缺失")?;
     ensure!(
-        reference.size <= options.max_media_bytes.min(*budget),
+        reference.size <= output.options.max_media_bytes.min(*output.budget),
         "附件超过预算"
     );
     let mut file = reference.file().try_clone()?;
     file.rewind()?;
     let mut bytes = Vec::new();
-    file.take(options.max_media_bytes.min(*budget) + 1)
+    file.take(output.options.max_media_bytes.min(*output.budget) + 1)
         .read_to_end(&mut bytes)?;
     ensure!(
         bytes.len() as u64 == reference.size
@@ -713,9 +684,7 @@ fn reference(
                 } else {
                     "file"
                 };
-                store(
-                    stage, files, kind, plain, &bytes, title, binding, options, budget,
-                )
+                store(output, kind, plain, &bytes, title, binding)
             } else {
                 let decoded = decoder::dispatch(&bytes, inputs.key())?;
                 let kind = if matches!(decoded.format, "jpg" | "png" | "gif" | "webp") {
@@ -723,39 +692,23 @@ fn reference(
                 } else {
                     "file"
                 };
-                store(
-                    stage,
-                    files,
-                    kind,
-                    decoded.format,
-                    &decoded.data,
-                    title,
-                    binding,
-                    options,
-                    budget,
-                )
+                store(output, kind, decoded.format, &decoded.data, title, binding)
             }
         }
         refs::Kind::Voice => {
             let wav = asr::prepare_wav_bytes(&bytes)?;
-            store(
-                stage, files, "voice", "wav", &wav, title, binding, options, budget,
-            )
+            store(output, "voice", "wav", &wav, title, binding)
         }
         refs::Kind::Video => {
             ensure!(is_mp4(&bytes), "本地视频不是受支持的 MP4");
-            store(
-                stage, files, "video", "mp4", &bytes, title, binding, options, budget,
-            )
+            store(output, "video", "mp4", &bytes, title, binding)
         }
         _ => {
             let ext = Path::new(&meta.title)
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("bin");
-            store(
-                stage, files, "file", ext, &bytes, title, binding, options, budget,
-            )
+            store(output, "file", ext, &bytes, title, binding)
         }
     }
 }
@@ -767,10 +720,7 @@ fn named_media(
     inputs: &Inputs,
     target: &Target,
     row: &Row,
-    stage: &Path,
-    options: &Options,
-    budget: &mut u64,
-    files: &mut BTreeMap<PathBuf, PathBuf>,
+    output: &mut MediaOutput<'_>,
 ) -> Result<Media> {
     let sticker = row.local_type & 0xffff_ffff == 47;
     let body = crate::message::split_group_content(row.content.as_str().unwrap_or("")).1;
@@ -812,12 +762,16 @@ fn named_media(
     }
     ensure!(!candidates.is_empty(), "本地媒体缺失");
     let mut selected = None;
-    let mut read_budget = options.max_total_media_bytes.min(500 * 1024 * 1024);
+    let mut read_budget = output.options.max_total_media_bytes.min(500 * 1024 * 1024);
     for candidate in candidates {
         let bytes = bounded_read(
             &candidate,
-            stage,
-            options.max_media_bytes.min(read_budget).min(*budget),
+            output.stage,
+            output
+                .options
+                .max_media_bytes
+                .min(read_budget)
+                .min(*output.budget),
         )?;
         read_budget = read_budget
             .checked_sub(bytes.len() as u64)
@@ -836,28 +790,22 @@ fn named_media(
             "表情不是可展示的本地图片"
         );
         store(
-            stage,
-            files,
+            output,
             "sticker",
             ext,
             &bytes,
             "表情包".into(),
             "message_md5".into(),
-            options,
-            budget,
         )
     } else {
         ensure!(is_mp4(&bytes), "本地视频不是受支持的 MP4");
         store(
-            stage,
-            files,
+            output,
             "video",
             "mp4",
             &bytes,
             "视频".into(),
             "message_md5".into(),
-            options,
-            budget,
         )
     }
 }

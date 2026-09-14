@@ -1,5 +1,7 @@
 //! 原生迁移安全回归：仅合成 SQLite，禁止依赖真实账号、Python 或 ffmpeg。
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -42,8 +44,14 @@ impl Fixture {
             fs::read(self.path("ambient.json")).unwrap(),
             b"invalid ambient account config"
         );
-        assert!(!self.path("runtime").exists(), "离线入口不得启动账号运行时");
+        bootstrap::assert_only_bootstrap(&self.path("runtime"));
         output
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(bootstrap::BootstrapCleanup(self.path("runtime")));
     }
 }
 
@@ -70,149 +78,6 @@ fn failure(output: Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
-}
-
-fn enterprise(f: &Fixture) -> PathBuf {
-    let root = f.path("snapshot");
-    fs::create_dir(&root).unwrap();
-    let db = Connection::open(root.join("message.db")).unwrap();
-    db.execute_batch("CREATE TABLE message_table(message_id INTEGER,server_id INTEGER,sequence INTEGER,sender_id INTEGER,conversation_id TEXT,content_type INTEGER,send_time INTEGER,flag INTEGER,content TEXT,extra_content TEXT,local_extra_content TEXT);").unwrap();
-    for (id, cid, text) in [
-        (
-            1,
-            "../outside' OR 1=1 --",
-            "=HYPERLINK(\"https://invalid.example\",\"x\")\r\n<script>&\"'",
-        ),
-        (2, "other-account", "PRIVATE_OTHER_CONVERSATION"),
-    ] {
-        db.execute(
-            "INSERT INTO message_table VALUES (?1,?1,?1,7,?2,0,100,0,?3,'','')",
-            params![id, cid, text],
-        )
-        .unwrap();
-    }
-    root
-}
-
-#[test]
-fn enterprise_injection_is_literal_and_exports_escape_untrusted_cells() {
-    let f = Fixture::new();
-    let root = enterprise(&f);
-    let original = fs::read(root.join("message.db")).unwrap();
-    let cid = "../outside' OR 1=1 --";
-    let contacts = success(f.run(&["toolkit", "enterprise", arg(&root), "contacts"]));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&contacts).unwrap(),
-        serde_json::json!([])
-    );
-    let conversations = success(f.run(&["toolkit", "enterprise", arg(&root), "conversations"]));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&conversations)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    let selected = success(f.run(&[
-        "toolkit",
-        "enterprise",
-        arg(&root),
-        "messages",
-        "--conversations",
-        cid,
-    ]));
-    let selected: serde_json::Value = serde_json::from_str(&selected).unwrap();
-    assert_eq!(selected.as_array().unwrap().len(), 1);
-    assert_eq!(selected[0]["conversation_id"], cid);
-    let text = selected[0]["content"].as_str().unwrap();
-    let missing = success(f.run(&[
-        "toolkit",
-        "enterprise",
-        arg(&root),
-        "messages",
-        "--conversations",
-        "' OR 1=1 --",
-    ]));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&missing).unwrap(),
-        serde_json::json!([])
-    );
-    for format in ["csv", "html"] {
-        let output = f.path(&format!("export.{format}"));
-        success(f.run(&[
-            "toolkit",
-            "enterprise",
-            arg(&root),
-            "export",
-            cid,
-            arg(&output),
-            "--format",
-            format,
-        ]));
-        let rendered = fs::read_to_string(&output).unwrap();
-        assert!(!rendered.contains("PRIVATE_OTHER_CONVERSATION"));
-        if format == "csv" {
-            // 用 CSV 解析器验证逗号、引号和换行仍属于同一字段。
-            let mut reader =
-                csv::Reader::from_reader(rendered.trim_start_matches('\u{feff}').as_bytes());
-            let rows = reader.records().collect::<Result<Vec<_>, _>>().unwrap();
-            assert_eq!(rows.len(), 1);
-            assert_eq!(&rows[0][6], format!("'{text}"));
-        } else {
-            assert!(!rendered.contains("<script>"));
-            assert!(rendered.contains("&lt;script&gt;&amp;&quot;&#x27;"));
-            assert!(rendered.contains("Content-Security-Policy"));
-        }
-    }
-    assert_eq!(fs::read(root.join("message.db")).unwrap(), original);
-    assert!(!root.join("user.db").exists());
-    assert!(!root.join("session.db").exists());
-    assert!(!f.path("outside").exists());
-}
-
-#[test]
-fn enterprise_rejects_source_aliases_existing_targets_and_missing_databases() {
-    let f = Fixture::new();
-    let root = enterprise(&f);
-    let db = root.join("message.db");
-    let before = fs::read(&db).unwrap();
-    let occupied = f.path("occupied.json");
-    fs::write(&occupied, b"KEEP").unwrap();
-    for target in [
-        db.clone(),
-        root.join("new.json"),
-        root.join("../snapshot/alias.json"),
-        occupied.clone(),
-    ] {
-        failure(f.run(&[
-            "toolkit",
-            "enterprise",
-            arg(&root),
-            "export",
-            "other-account",
-            arg(&target),
-        ]));
-    }
-    let unknown = f.path("unknown.json");
-    failure(f.run(&[
-        "toolkit",
-        "enterprise",
-        arg(&root),
-        "export",
-        "unknown",
-        arg(&unknown),
-    ]));
-    assert!(!unknown.exists());
-    assert_eq!(fs::read(&occupied).unwrap(), b"KEEP");
-    assert_eq!(fs::read(&db).unwrap(), before);
-    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
-    let empty = f.path("empty-snapshot");
-    fs::create_dir(&empty).unwrap();
-    for operation in ["contacts", "conversations", "messages"] {
-        failure(f.run(&["toolkit", "enterprise", arg(&empty), operation]));
-    }
-    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
 }
 
 #[test]
@@ -258,7 +123,8 @@ fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools(
     assert_eq!(report["skipped_existing"], 1);
     assert_eq!(report["converted"], 0);
     assert_eq!(report["failed"], 0);
-    for target in [config_dir.join("decrypted/new")] {
+    {
+        let target = config_dir.join("decrypted/new");
         failure(f.run(&[
             "toolkit",
             "voice-batch",

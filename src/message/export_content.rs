@@ -28,7 +28,7 @@ pub struct ExportContent {
     pub extras: Map<String, Value>,
 }
 
-// 保留已交付的 Result 接口；当前已确认的旧 app 分支不再返回此错误。
+// 正文提取接口的错误类型，用于表示不支持的 appmsg 子类型。
 #[derive(Debug, PartialEq, Eq)]
 pub struct UnsupportedAppType(pub u32);
 

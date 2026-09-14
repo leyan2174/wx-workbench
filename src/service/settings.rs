@@ -12,28 +12,12 @@ use std::{
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct SettingsInput {
-    pub enterprise_snapshot: Option<PathBuf>,
-    pub enterprise_data_dir: Option<PathBuf>,
-    pub enterprise_discovery_root: Option<PathBuf>,
-    pub enterprise_input: Option<PathBuf>,
-    pub enterprise_key_file: Option<PathBuf>,
-    pub enterprise_keys_file: Option<PathBuf>,
-    pub enterprise_self_id: Option<i64>,
-    pub enterprise_pid: Vec<u32>,
     pub image_cache_dir: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    pub enterprise_snapshot: Option<PathBuf>,
-    pub enterprise_data_dir: Option<PathBuf>,
-    pub enterprise_discovery_root: Option<PathBuf>,
-    pub enterprise_input: Option<PathBuf>,
-    pub enterprise_key_file: Option<PathBuf>,
-    pub enterprise_keys_file: Option<PathBuf>,
-    pub enterprise_self_id: Option<i64>,
-    pub enterprise_pids: Vec<u32>,
     pub image_cache_dir: Option<PathBuf>,
     pub transcription_backend: String,
 }
@@ -51,46 +35,17 @@ fn check_path(path: &Path) -> Result<()> {
     );
     Ok(())
 }
-fn check_pids(pids: &[u32]) -> Result<()> {
-    ensure!(
-        pids.len() <= 16 && pids.iter().all(|p| *p > 0),
-        "Invalid enterprise PIDs"
-    );
-    ensure!(
-        pids.iter().collect::<std::collections::HashSet<_>>().len() == pids.len(),
-        "Duplicate enterprise PID"
-    );
-    Ok(())
-}
 impl SettingsInput {
     pub fn validate_serialized(&self) -> Result<()> {
-        check_pids(&self.enterprise_pid)?;
-        for path in [
-            &self.enterprise_snapshot,
-            &self.enterprise_data_dir,
-            &self.enterprise_discovery_root,
-            &self.enterprise_input,
-            &self.enterprise_key_file,
-            &self.enterprise_keys_file,
-            &self.image_cache_dir,
-        ]
-        .into_iter()
-        .flatten()
-        {
+        if let Some(path) = &self.image_cache_dir {
             check_path(path)?;
         }
-        ensure!(
-            self.enterprise_input.is_none()
-                || (self.enterprise_data_dir.is_none() && self.enterprise_keys_file.is_none()),
-            "Conflicting enterprise input modes"
-        );
         Ok(())
     }
 }
 impl Settings {
     /// Recheck private serialized settings before use. This does not authorize new paths.
     pub fn validate_serialized(&self) -> Result<()> {
-        check_pids(&self.enterprise_pids)?;
         ensure!(
             [
                 "",
@@ -103,18 +58,7 @@ impl Settings {
             .contains(&self.transcription_backend.as_str()),
             "Invalid transcription backend"
         );
-        for path in [
-            &self.enterprise_snapshot,
-            &self.enterprise_data_dir,
-            &self.enterprise_discovery_root,
-            &self.enterprise_input,
-            &self.enterprise_key_file,
-            &self.enterprise_keys_file,
-            &self.image_cache_dir,
-        ]
-        .into_iter()
-        .flatten()
-        {
+        if let Some(path) = &self.image_cache_dir {
             check_path(path)?;
             ensure!(path.is_absolute(), "Serialized path must be absolute");
             ensure!(
@@ -122,38 +66,8 @@ impl Settings {
                 "Serialized path is not canonical"
             );
         }
-        ensure!(
-            !(self.enterprise_input.is_some() && self.enterprise_data_dir.is_some()),
-            "企业微信单库输入和 Data 目录不能混用"
-        );
-        ensure!(
-            !(self.enterprise_input.is_some() && self.enterprise_keys_file.is_some()),
-            "企业微信单库输入不能使用逐库密钥清单"
-        );
-        ensure!(
-            self.enterprise_input.is_none() || self.enterprise_key_file.is_some(),
-            "企业微信单库输入需要 key-file"
-        );
-        for directory in [
-            &self.enterprise_snapshot,
-            &self.enterprise_data_dir,
-            &self.enterprise_discovery_root,
-            &self.image_cache_dir,
-        ]
-        .into_iter()
-        .flatten()
-        {
+        if let Some(directory) = &self.image_cache_dir {
             ensure!(directory.is_dir(), "Web 目录配置指向的不是目录");
-        }
-        for file in [
-            &self.enterprise_input,
-            &self.enterprise_key_file,
-            &self.enterprise_keys_file,
-        ]
-        .into_iter()
-        .flatten()
-        {
-            ensure!(file.is_file(), "Web 文件配置指向的不是文件");
         }
 
         Ok(())
@@ -194,38 +108,7 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
             .transpose()
             .map_err(|_| anyhow::anyhow!("Web 配置目录或文件不可用"))
     };
-    let enterprise_self_id = match args.enterprise_self_id {
-        Some(id) => Some(id),
-        None => match raw.get("enterprise_self_id") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(value.as_i64().context("enterprise_self_id 必须为整数")?),
-        },
-    };
-    let enterprise_pids = if args.enterprise_pid.is_empty() {
-        match raw.get("enterprise_pids") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(value) => serde_json::from_value::<Vec<u32>>(value.clone())
-                .map_err(|_| anyhow::anyhow!("enterprise_pids 必须是 PID 数组"))?,
-        }
-    } else {
-        args.enterprise_pid.clone()
-    };
-    ensure!(
-        enterprise_pids.len() <= 16 && enterprise_pids.iter().all(|p| *p > 0),
-        "企业微信 PID 范围无效"
-    );
     let settings = Settings {
-        enterprise_snapshot: path(&args.enterprise_snapshot, "enterprise_snapshot")?,
-        enterprise_data_dir: path(&args.enterprise_data_dir, "enterprise_data_dir")?,
-        enterprise_discovery_root: path(
-            &args.enterprise_discovery_root,
-            "enterprise_discovery_root",
-        )?,
-        enterprise_input: path(&args.enterprise_input, "enterprise_input")?,
-        enterprise_key_file: path(&args.enterprise_key_file, "enterprise_key_file")?,
-        enterprise_keys_file: path(&args.enterprise_keys_file, "enterprise_keys_file")?,
-        enterprise_self_id,
-        enterprise_pids,
         image_cache_dir: path(&args.image_cache_dir, "image_cache_dir")?,
         transcription_backend: match raw.get("transcription_backend") {
             None => "unconfigured".into(),
@@ -253,18 +136,9 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<SettingsInput>(value).is_err());
         }
-        for pids in [vec![0], vec![1, 1], vec![1; 17]] {
-            assert!(SettingsInput {
-                enterprise_pid: pids,
-                ..Default::default()
-            }
-            .validate_serialized()
-            .is_err());
-        }
         for path in ["", "bad\u{0000}path", "bad\npath"] {
             assert!(SettingsInput {
                 image_cache_dir: Some(path.into()),
-                ..Default::default()
             }
             .validate_serialized()
             .is_err());
@@ -285,12 +159,6 @@ mod tests {
         .validate_serialized()
         .is_err());
         assert!(Settings {
-            enterprise_key_file: Some(fs::canonicalize(root.path())?),
-            ..Default::default()
-        }
-        .validate_serialized()
-        .is_err());
-        assert!(Settings {
             image_cache_dir: Some(fs::canonicalize(root.path())?),
             ..Default::default()
         }
@@ -300,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_batch_key_combination_preserves_single_database_boundary() -> Result<()> {
+    fn configured_image_cache_is_canonical_without_account_writes() -> Result<()> {
         let root = tempfile::tempdir()?;
         let config_path = root.path().join("config.json");
         let config = crate::config::Config {
@@ -310,39 +178,20 @@ mod tests {
             wechat_process: "SyntheticNeverLaunched.exe".into(),
         };
         fs::create_dir_all(&config.db_dir)?;
-        fs::create_dir(root.path().join("enterprise"))?;
-        fs::write(root.path().join("global.key"), b"SYNTHETIC")?;
-        fs::write(root.path().join("per-database.json"), b"{}")?;
-        fs::write(root.path().join("single.db"), b"SYNTHETIC")?;
+        fs::create_dir(root.path().join("images"))?;
         let mut raw = serde_json::to_value(&config)?;
-        raw["enterprise_data_dir"] = json!("enterprise");
-        raw["enterprise_key_file"] = json!("global.key");
-        raw["enterprise_keys_file"] = json!("per-database.json");
+        raw["image_cache_dir"] = json!("images");
+        // Obsolete config must not open or validate paths for removed features.
+        raw["enterprise_snapshot"] = json!("missing-obsolete-snapshot");
         fs::write(&config_path, serde_json::to_vec(&raw)?)?;
         let runtime =
             RuntimeContext::from_config(config_path.clone(), config, root.path().join("runtime"))?;
         let settings = load(&runtime, &SettingsInput::default())?;
         assert_eq!(
-            settings.enterprise_key_file,
-            Some(fs::canonicalize(root.path().join("global.key"))?)
-        );
-        assert_eq!(
-            settings.enterprise_keys_file,
-            Some(fs::canonicalize(root.path().join("per-database.json"))?)
+            settings.image_cache_dir,
+            Some(fs::canonicalize(root.path().join("images"))?)
         );
 
-        raw["enterprise_data_dir"] = Value::Null;
-        raw["enterprise_input"] = json!("single.db");
-        fs::write(&config_path, serde_json::to_vec(&raw)?)?;
-        let error = load(&runtime, &SettingsInput::default())
-            .err()
-            .context("单库混用应被拒绝")?;
-        assert!(error.to_string().contains("单库输入不能使用逐库密钥清单"));
-        raw["enterprise_keys_file"] = Value::Null;
-        fs::write(&config_path, serde_json::to_vec(&raw)?)?;
-        assert!(load(&runtime, &SettingsInput::default())?
-            .enterprise_input
-            .is_some());
         assert!(!runtime.root.exists());
         assert!(!runtime.config.decrypted_dir.exists());
         Ok(())

@@ -1,4 +1,6 @@
-//! 真实 CLI 的静态合成 SQLite 契约；不启动 daemon，不依赖 Python。
+//! 真实 CLI 的静态合成 SQLite 契约；daemon 执行业务，不依赖 Python。
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -23,6 +25,12 @@ const STAMP: i64 = 1710000000;
 
 struct Fixture {
     root: tempfile::TempDir,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(bootstrap::RuntimeCleanup(self.root.path().join("runtime")));
+    }
 }
 
 impl Fixture {
@@ -130,12 +138,18 @@ impl Fixture {
         assert_eq!(tree(&account.join("decrypted")), source, "源数据库树被修改");
         assert_eq!(tree(&account.join("cache")), cache, "缓存源被修改");
         assert_eq!(fs::read(account.join("config.json")).unwrap(), config);
-        assert!(
-            !tree(&self.root.path().join("runtime")).keys().any(|p| p
-                .file_name()
-                .is_some_and(|s| s == "daemon.pid" || s == "daemon.log")),
-            "静态快照不得启动 daemon"
-        );
+        let accounts = self.root.path().join("runtime/accounts");
+        if accounts.exists() {
+            for runtime in fs::read_dir(accounts).unwrap() {
+                assert_eq!(
+                    fs::read_dir(runtime.unwrap().path().join("cache"))
+                        .unwrap()
+                        .count(),
+                    0,
+                    "static snapshot loaded account query databases"
+                );
+            }
+        }
         result
     }
 

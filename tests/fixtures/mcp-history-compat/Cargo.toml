@@ -23,6 +23,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 serde_json = "1"
 
 [dev-dependencies]
+chrono = "0.4"
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
 hmac = "0.12"
@@ -32,3 +33,6 @@ tempfile = "3"
 md5 = "0.7"
 interprocess = { version = "2", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_Storage_FileSystem"] }

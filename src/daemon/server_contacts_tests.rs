@@ -1,15 +1,14 @@
 use super::*;
-use rusqlite::Connection;
+use crate::daemon::query::encrypted_cache;
 use serde_json::json;
-use std::{collections::HashMap, fs, path::Path, time::UNIX_EPOCH};
+use std::{collections::HashMap, fs, path::Path};
 
 async fn seeded(root: &Path, key: &str, marker: &str) -> (DbCache, std::path::PathBuf) {
     let source = root.join("db_storage/contact/contact.db");
     fs::create_dir_all(source.parent().unwrap()).unwrap();
-    fs::write(&source, b"synthetic encrypted source").unwrap();
     let cached = root.join("cache/contact.db");
     fs::create_dir_all(cached.parent().unwrap()).unwrap();
-    let conn = Connection::open(&cached).unwrap();
+    let conn = encrypted_cache::sqlite(&cached);
     conn.execute_batch("CREATE TABLE contact(username TEXT,nick_name TEXT,remark TEXT,alias TEXT,description TEXT,phone TEXT,local_type INTEGER);
         INSERT INTO contact VALUES('wxid_1','HiddenNick','VisibleRemark','alias','memo','123',1),
         ('group@chatroom','Group','','','','',1),('gh_public','Public','','','','',1),
@@ -17,13 +16,7 @@ async fn seeded(root: &Path, key: &str, marker: &str) -> (DbCache, std::path::Pa
     conn.execute("INSERT INTO contact VALUES(?1,'','','','','',1)", [marker])
         .unwrap();
     drop(conn);
-    let mt = fs::metadata(&source)
-        .unwrap()
-        .modified()
-        .unwrap()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+    let mt = encrypted_cache::seed(&cached, &source);
     let mtime = root.join("cache/mtimes.json");
     fs::write(
         &mtime,
@@ -53,6 +46,35 @@ fn names() -> tokio::sync::RwLock<Arc<Names>> {
         biz_msg_db_keys: vec![],
         verify_flags: HashMap::new(),
     }))
+}
+
+#[tokio::test]
+async fn decode_image_dispatch_uses_distinct_redacted_export_failure_code() {
+    let root = tempfile::tempdir().unwrap();
+    let (db, cached) = seeded(root.path(), "contact/contact.db", "synthetic").await;
+    let before = fs::read(&cached).unwrap();
+    let output = root.path().join("output");
+    fs::create_dir(&output).unwrap();
+    let response = dispatch(
+        Request::DecodeImage {
+            chat: "PRIVATE_PEER".into(),
+            local_id: 7,
+            create_time: 123,
+            output_root: output.to_str().unwrap().into(),
+            image_key_file: Some(root.path().join("SECRET_KEY.json").to_str().unwrap().into()),
+        },
+        &db,
+        &names(),
+    )
+    .await;
+    assert!(response.ok);
+    assert!(response.error.is_none());
+    assert_eq!(
+        response.data,
+        json!({"exit_code":3,"status":"error","message":"Image export failed"})
+    );
+    assert_eq!(fs::read_dir(output).unwrap().count(), 0);
+    assert_eq!(fs::read(cached).unwrap(), before);
 }
 
 #[tokio::test]

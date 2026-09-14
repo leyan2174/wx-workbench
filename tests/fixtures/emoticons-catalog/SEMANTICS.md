@@ -1,67 +1,30 @@
-# Catalog migration verification
+# 表情目录映射契约
 
-Reference: `vendor/wechat-decrypt/emoticons.py::build_emoji_lookup`.
-`oracle.py` extracts and runs the original mapping AST against synthetic,
-read-only SQLite fixtures. Production does not invoke Python.
+参考来源是 vendor/wechat-decrypt/emoticons.py 的 build_emoji_lookup。oracle.py 通过 AST 提取映射逻辑，只运行合成只读 SQLite 输入；生产实现不调用 Python。
 
-## Preserved mapping behavior
+## 映射规则
 
-- NonStore first insertion order, last duplicate value, NULL/empty fields.
-- Template collection includes rows without MD5; last nonempty template wins.
-- Store skips empty and existing MD5; package matching is case-sensitive.
-- Store requires an ampersand, but does not require a regex match.
-- Lowercase hex regex retains partial, non-parameter and multiple matches.
-- Replacement strings interpret Python escapes, octal bytes and whole-match
-  references; invalid escapes/references fail even when nothing matches.
-- Captions only use language `default`; last duplicate wins; NULL becomes
-  an empty caption, distinct from an absent caption.
-- Counts reflect distinct NonStore MD5 and newly inserted Store MD5.
+- NonStore 保留首次插入顺序，重复值由最后一行覆盖，允许 NULL 和空字段。
+- 模板收集包含没有 MD5 的行，最后一个非空模板生效。
+- Store 跳过空或已存在 MD5，包名区分大小写；要求包含 &，不要求正则一定匹配。
+- 小写十六进制正则保留部分、非参数及多次匹配；替换字符串按参考实现解释转义、八进制和整段匹配引用，非法引用即使没有匹配也报错。
+- 标题只选 default 语言，重复项后值覆盖；NULL 转为空标题，与缺失标题区分。
+- 计数以不同 NonStore MD5 和新增 Store MD5 为准。
 
-## Corrections in this pass
+## 边界
 
-- Replaced literal substitution with the legacy replacement-string semantics.
-- Removed underlying SQLite/cache errors from public error chains: schema
-  names may contain sensitive values. Display, alternate Display and Debug
-  are tested against a synthetic secret-bearing view.
-- Mapping assertion failures no longer dump the complete URL/key mapping.
+固定账号 DbCache 负责解密、缓存和 WAL；只选择精确规范相对库名，调用 get 时保留原始键，规范名冲突拒绝。缺密钥或源可返回空目录，解密和读取失败则返回脱敏错误。
 
-## Intentional differences from Python
+仅缺失标题表是可选情况；坏 schema、视图、锁或非法行导致整次失败。字段只接受文本或 NULL，不兼容数值/BLOB 字典值。三个查询共用读事务。
 
-- No shared temporary decrypted database. The supplied account's DbCache
-  owns decryption, cached copies, persistence and WAL application.
-- Only the exact normalized relative database name is selected; the original
-  key is passed unchanged to DbCache. Canonical collisions are errors.
-- Missing key/source returns an empty catalog. Decryption/read failures return
-  a redacted error rather than printing an exception and returning empty.
-- Only a missing caption table is optional. Broken schema/views, locks and
-  invalid rows fail the complete read instead of silently omitting captions.
-- Mapping columns must be text or NULL. Python's accidental support for
-  numeric/blob dictionary values is not part of the typed Rust contract.
-- The three queries share a read transaction instead of separate snapshots.
+公开错误的 Display、Debug 及测试断言不得输出含签名 URL 或密钥的完整映射。
 
-## Verification
+## 运行
 
-Nine catalog tests pass on Windows x64 MSVC. The AST comparisons include
-15 original mapping/template cases, 7 valid replacement cases and 14 invalid
-replacement cases. Cache tests use synthetic encrypted pages, different
-account keys, cold WAL, cache hits, incremental WAL and restart-time WAL
-updates. They assert source DB/WAL bytes remain unchanged by catalog loads.
-
-Commands (PowerShell, from repository root):
+按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-$env:LIBCLANG_PATH = 'C:\CodexLocal\build-tools\libclang\clang\native'
-cargo check --target x86_64-pc-windows-msvc
-cargo test --target x86_64-pc-windows-msvc toolkit::emoticons::catalog
 cargo test --target x86_64-pc-windows-msvc --bin wx toolkit::emoticons::catalog
 ```
 
-Full command output: `cargo-check.log` and `cargo-test-bin.log`.
-The initial unqualified test run passed all nine catalog tests. A later
-logging run could not link the unrelated `chat_plan_runtime` executable
-(LNK1104, possibly an executable held by a concurrent test); its complete
-output is retained in `cargo-test.log`. The `--bin wx` run avoids rebuilding
-unrelated integration-test executables.
-The test filter excludes unrelated integration tests; this is not a full
-repository test-suite result. CLI/facade registration remains owned by the
-main task.
+合成回归覆盖映射、替换表达式、独立账号密钥、冷缓存、WAL 增量、缓存命中及重启后更新；加载前后检查源 DB/WAL 字节不变。该过滤器不是全仓测试。

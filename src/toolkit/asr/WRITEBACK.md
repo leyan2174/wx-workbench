@@ -1,6 +1,6 @@
 # 聊天 JSON 转录回写
 
-模块 `writeback.rs` 已由 `asr/mod.rs` 注册，复用 anyhow、serde_json、tempfile、same-file。它负责消息填充与聊天 JSON 原子发布；后端、数据库和缓存由上层编排，本次文档同步不改 Rust。
+模块 `writeback.rs` 已由 `asr/mod.rs` 注册，复用 anyhow、serde_json、tempfile、same-file。它负责消息填充与聊天 JSON 原子发布；后端、数据库和缓存由上层编排。
 
 ## 接口
 
@@ -42,16 +42,8 @@ Windows 最终比对句柄只允许 READ | DELETE 共享，普通文件写入在
 
 两个文件发布入口使用同一 `.文件名.wx-asr.lock` 协作协议。普通底层回写没有逐条持久化；批处理的逐条成功缓存可在聊天 JSON 未最终提交时保留，但恢复并不意味着源库/配置可以删除。批处理检查非空转录，识别失败或持久化 warnings 会在保存成功文档和报告后通过 CLI 非零状态提醒；`engine_warnings` 仅标识 Python 推理尚存，不等于失败。
 
-## 测试与历史证据
+## 测试
 
-`writeback_tests.rs` 使用合成 JSON、注入回调及 tempfile，无用户数据、无后端或密钥。覆盖 NULL、缺身份、同号跨分片、逐条错误、未知字段、重复运行、同路径、异路径、源库拒绝、部分写入失败和 Windows 锁定替换失败。
+`writeback_tests.rs` 使用合成 JSON、注入回调及临时目录，覆盖空值、缺身份、跨分片同号、逐条失败、未知字段、重复运行、同路径与异路径、硬链接、源库拒绝和并发发布冲突。测试不调用真实后端或读取账号密钥。
 
-当前已完成上述接线；此层仍不依赖 local.rs，不实现后端、数据库定位或聊天增量合并。以下为早期开发验证记录，不是当前待集成或持续阻塞状态。
-
-历史独立结果：Windows MSVC rustc --test 编译成功，11 项测试全部通过（含硬链接源文件保护），当时记录于 tests/fixtures/asr-writeback/harness-test.log。当时根 cargo check/test 在 silk-codec/frida-sys 的 bindgen 阶段因缺少 libclang.dll 失败，未进入整库测试；同目录 cargo-check.log、cargo-test.log 为当时日志，不表示当前主工程仍受该问题阻塞。
-
-2026-09-07 并发修复复测：发布函数接管初始快照，在最终身份比对后关闭初始与最终两份目标句柄，再执行 persist；仅关闭最终句柄不足以恢复 Windows 更新。身份比对期间两份句柄同时存活，锁保持至发布结束。`cargo test --offline --target x86_64-pc-windows-msvc --bin wx toolkit::asr::` 实跑 51 passed、0 failed、0 ignored，覆盖 14 项回写测试以及同路径、硬链接、pipeline 正向更新。日志位于 C:\CodexLocal\日志\writeback-asr-full-tests.log。未使用真实模型或用户数据。
-
-上段 51 项亦为历史快照。
-
-2026-09-07 文档同步期间集中重跑 check/test 均通过：check 有 9 条 warnings；全量测试退出 0，20 组 1325 passed / 0 failed / 11 ignored，日志 `C:/CodexLocal/wx-cli-doc-sync-tests.log`。18 项实际 exe `--help` 全部通过，日志 `C:/CodexLocal/wx-cli-doc-help-check.log`。UI 61 / 0 和额外 8 个原忽略项显式通过为已有验证结果，本轮未重跑；默认忽略项不计为通过。真实账号、模型质量、GPU、云端及发布验收尚未完成。
+复跑入口见[测试说明](../../../tests/README.md)。同路径发布时，最终身份比对后须释放初始和最终两个检查句柄，发布锁仍持有到提交结束；只关闭其中一个句柄不足以允许 Windows 替换目标。

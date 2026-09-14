@@ -1,19 +1,53 @@
 use super::output::{emit_warnings, print_response, OutputOpts};
 use super::transport;
+pub use crate::daemon::operations::history::{parse_time, parse_time_end};
 use crate::ipc::Request;
 use anyhow::Result;
 
-pub fn cmd_history(
-    chat: String,
-    limit: usize,
-    offset: usize,
-    since: Option<String>,
-    until: Option<String>,
-    msg_type: Option<String>,
-    msg_types: Vec<String>,
-    oldest_first: bool,
-    opts: OutputOpts,
-) -> Result<()> {
+#[derive(clap::Args)]
+pub struct Args {
+    /// 聊天对象名称（支持模糊匹配）
+    pub chat: String,
+    /// 消息数量
+    #[arg(short = 'n', long, default_value = "50")]
+    pub limit: usize,
+    /// 分页偏移
+    #[arg(long, default_value = "0")]
+    pub offset: usize,
+    /// 起始时间 YYYY-MM-DD
+    #[arg(long)]
+    pub since: Option<String>,
+    /// 结束时间 YYYY-MM-DD
+    #[arg(long)]
+    pub until: Option<String>,
+    /// 消息类型过滤 [text|image|voice|video|sticker|location|link|file|call|system]
+    #[arg(long = "type", value_name = "TYPE",
+          value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
+    pub msg_type: Option<String>,
+    /// 多类型筛选，支持逗号分隔或重复指定
+    #[arg(long = "types", value_delimiter = ',', conflicts_with = "msg_type",
+          value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
+    pub msg_types: Vec<String>,
+    /// 从全部分片中的最早消息开始分页
+    #[arg(long)]
+    pub oldest_first: bool,
+    /// 输出 JSON（默认 YAML）
+    #[arg(long)]
+    pub json: bool,
+}
+
+pub fn cmd_history(args: Args, opts: OutputOpts) -> Result<()> {
+    let Args {
+        chat,
+        limit,
+        offset,
+        since,
+        until,
+        msg_type,
+        msg_types,
+        oldest_first,
+        ..
+    } = args;
     let since_ts = since.as_deref().map(parse_time).transpose()?;
     let until_ts = until.as_deref().map(parse_time_end).transpose()?;
     let type_val = msg_type.as_deref().and_then(parse_msg_type);
@@ -45,46 +79,6 @@ pub fn cmd_history(
     let resp = transport::send(req)?;
     emit_warnings(&resp.data);
     print_response(&resp.data, &opts)
-}
-
-pub fn parse_time(s: &str) -> Result<i64> {
-    use chrono::{Local, TimeZone};
-    for fmt in &["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, fmt) {
-            return Local
-                .from_local_datetime(&dt)
-                .single()
-                .map(|d| d.timestamp())
-                .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
-        }
-    }
-    if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let dt = d.and_hms_opt(0, 0, 0).unwrap();
-        return Local
-            .from_local_datetime(&dt)
-            .single()
-            .map(|d| d.timestamp())
-            .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
-    }
-    anyhow::bail!(
-        "无法解析时间 '{}'，支持 YYYY-MM-DD / YYYY-MM-DD HH:MM / YYYY-MM-DD HH:MM:SS",
-        s
-    )
-}
-
-pub fn parse_time_end(s: &str) -> Result<i64> {
-    use chrono::{Local, TimeZone};
-    if s.len() == 10 {
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-            let dt = d.and_hms_opt(23, 59, 59).unwrap();
-            return Local
-                .from_local_datetime(&dt)
-                .single()
-                .map(|d| d.timestamp())
-                .ok_or_else(|| anyhow::anyhow!("本地时间歧义: {}", s));
-        }
-    }
-    parse_time(s)
 }
 
 /// 将消息类型字符串转为 local_type 整数，未知类型返回 None

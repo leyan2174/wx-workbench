@@ -268,16 +268,31 @@ mod parity_tests {
 
     fn mixed_input(root: &Path, album: bool) -> PathBuf {
         let input = root.join("input");
-        let leaf = if album { input.join("chat/2026-09/Img") } else { input.clone() };
+        let leaf = if album {
+            input.join("chat/2026-09/Img")
+        } else {
+            input.clone()
+        };
         fs::create_dir_all(&leaf).unwrap();
-        fs::write(leaf.join("v1.dat"), aes_image(V1_MAGIC, b"cfcd208495d565ef")).unwrap();
+        fs::write(
+            leaf.join("v1.dat"),
+            aes_image(V1_MAGIC, b"cfcd208495d565ef"),
+        )
+        .unwrap();
         fs::write(leaf.join("v2.dat"), aes_image(V2_MAGIC, KEY)).unwrap();
-        fs::write(leaf.join("xor.dat"), PNG.iter().map(|byte| byte ^ 0x37).collect::<Vec<_>>()).unwrap();
+        fs::write(
+            leaf.join("xor.dat"),
+            PNG.iter().map(|byte| byte ^ 0x37).collect::<Vec<_>>(),
+        )
+        .unwrap();
         input
     }
 
     fn assert_totals(report: &Report) {
-        assert_eq!(report.total, report.written + report.skipped + report.skipped_no_key + report.failures.len());
+        assert_eq!(
+            report.total,
+            report.written + report.skipped + report.skipped_no_key + report.failures.len()
+        );
         assert_eq!(report.formats.values().sum::<usize>(), report.written);
     }
 
@@ -287,10 +302,22 @@ mod parity_tests {
             let root = tempfile::tempdir().unwrap();
             let input = mixed_input(root.path(), album);
             let output = root.path().join("output");
-            let targets = if album { output.join("chat/2026-09") } else { output.clone() };
+            let targets = if album {
+                output.join("chat/2026-09")
+            } else {
+                output.clone()
+            };
             let report = batch(&input, &output, None, 0x88, false, album).unwrap();
             assert_totals(&report);
-            assert_eq!((report.total, report.written, report.skipped, report.skipped_no_key), (3, 2, 0, 1));
+            assert_eq!(
+                (
+                    report.total,
+                    report.written,
+                    report.skipped,
+                    report.skipped_no_key
+                ),
+                (3, 2, 0, 1)
+            );
             assert!(report.failures.is_empty());
             assert_eq!(report.formats.get("jpg"), Some(&1));
             assert_eq!(report.formats.get("png"), Some(&1));
@@ -299,12 +326,23 @@ mod parity_tests {
             assert!(!targets.join("v2.jpg").exists());
             assert!(report.finish().is_ok());
             let json = serde_json::to_value(&report).unwrap();
-            for field in ["total", "written", "skipped", "planned", "failures", "skipped_no_key", "formats"] {
+            for field in [
+                "total",
+                "written",
+                "skipped",
+                "planned",
+                "failures",
+                "skipped_no_key",
+                "formats",
+            ] {
                 assert!(json.get(field).is_some());
             }
             let resumed = batch(&input, &output, Some(KEY), 0x88, false, album).unwrap();
             assert_totals(&resumed);
-            assert_eq!((resumed.written, resumed.skipped, resumed.skipped_no_key), (1, 2, 0));
+            assert_eq!(
+                (resumed.written, resumed.skipped, resumed.skipped_no_key),
+                (1, 2, 0)
+            );
             assert!(resumed.failures.is_empty());
             assert_eq!(resumed.formats.len(), 1);
             assert_eq!(resumed.formats.get("jpg"), Some(&1));
@@ -323,9 +361,20 @@ mod parity_tests {
         let output = root.path().join("output");
         let first = batch(&input, &output, Some(KEY), 0x88, false, false).unwrap();
         assert_eq!(first.written, 3);
-        let report = batch(&input, &output, Some(b"wrong-key-16byte"), 0x88, true, false).unwrap();
+        let report = batch(
+            &input,
+            &output,
+            Some(b"wrong-key-16byte"),
+            0x88,
+            true,
+            false,
+        )
+        .unwrap();
         assert_totals(&report);
-        assert_eq!((report.written, report.skipped_no_key, report.failures.len()), (2, 0, 1));
+        assert_eq!(
+            (report.written, report.skipped_no_key, report.failures.len()),
+            (2, 0, 1)
+        );
         assert_eq!(report.failures[0].path, Path::new("v2.dat"));
         assert_eq!(fs::read(output.join("v2.jpg")).unwrap(), JPEG);
         assert!(report.finish().is_err());
@@ -341,7 +390,10 @@ mod parity_tests {
         let output = root.path().join("output");
         let report = batch(&input, &output, Some(KEY), 0x88, false, false).unwrap();
         assert_totals(&report);
-        assert_eq!((report.written, report.skipped_no_key, report.failures.len()), (2, 0, 1));
+        assert_eq!(
+            (report.written, report.skipped_no_key, report.failures.len()),
+            (2, 0, 1)
+        );
         assert!(!output.join("v2.jpg").exists());
         assert_eq!(report.formats.get("jpg"), Some(&1));
         assert_eq!(report.formats.get("png"), Some(&1));

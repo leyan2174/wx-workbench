@@ -10,30 +10,6 @@ pub struct Args {
     /// 自动在系统默认浏览器打开本地页面
     #[arg(long)]
     pub open: bool,
-    /// 可选企业微信离线快照，浏览器不能更换目录
-    #[arg(long)]
-    pub enterprise_snapshot: Option<PathBuf>,
-    /// 固定企业微信账号 Data 目录；扫描授权仍须由每个任务单独确认
-    #[arg(long, conflicts_with = "enterprise_input")]
-    pub enterprise_data_dir: Option<PathBuf>,
-    /// 企业账号发现的固定根目录；省略时使用原生发现器默认位置
-    #[arg(long)]
-    pub enterprise_discovery_root: Option<PathBuf>,
-    /// 可选企业微信单个离线主库，不能是 WAL
-    #[arg(long, requires = "enterprise_key_file")]
-    pub enterprise_input: Option<PathBuf>,
-    /// 企业微信全局密钥文本文件；逐库密钥优先，不接收命令行明文密钥
-    #[arg(long)]
-    pub enterprise_key_file: Option<PathBuf>,
-    /// 带账号绑定的企业微信逐库密钥 JSON；浏览器不能提交文件路径
-    #[arg(long, conflicts_with = "enterprise_input")]
-    pub enterprise_keys_file: Option<PathBuf>,
-    /// 明确本人企业账号 ID，不从目录猜测
-    #[arg(long)]
-    pub enterprise_self_id: Option<i64>,
-    /// 只允许扫描这些企业微信 PID；授权仍由任务单独提供
-    #[arg(long, value_delimiter = ',')]
-    pub enterprise_pid: Vec<u32>,
     /// 当前账号已解码图片缓存；预览仅只读此目录和本服务生成的图片目录
     #[arg(long)]
     pub image_cache_dir: Option<PathBuf>,
@@ -66,27 +42,15 @@ mod tests {
     }
 
     #[test]
-    fn enterprise_batch_accepts_global_and_database_keys_together() {
-        let parsed = Invocation::try_parse_from([
-            "web",
-            "--enterprise-data-dir",
-            "synthetic-data",
-            "--enterprise-key-file",
-            "global.key",
-            "--enterprise-keys-file",
-            "per-database.json",
-        ])
-        .unwrap()
-        .args;
-        assert_eq!(parsed.enterprise_key_file, Some("global.key".into()));
-        assert_eq!(
-            parsed.enterprise_keys_file,
-            Some("per-database.json".into())
-        );
+    fn accepts_personal_image_cache() {
+        let parsed = Invocation::try_parse_from(["web", "--image-cache-dir", "synthetic-images"])
+            .unwrap()
+            .args;
+        assert_eq!(parsed.image_cache_dir, Some("synthetic-images".into()));
     }
 
     #[test]
-    fn enterprise_single_database_keeps_its_separate_key_contract() {
+    fn removed_enterprise_flags_are_rejected() {
         assert!(
             Invocation::try_parse_from(["web", "--enterprise-input", "synthetic.db",]).is_err()
         );

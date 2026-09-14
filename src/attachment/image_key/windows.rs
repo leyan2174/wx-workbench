@@ -473,7 +473,7 @@ fn scan_candidate_buffer(
             let mut key = Zeroizing::new([0u8; 16]);
             key.copy_from_slice(&candidate[..16]);
             // 去重集只持有摘要，避免批量长期保留进程内找到的明文候选。
-            let fingerprint: [u8; 32] = Sha256::digest(&*key).into();
+            let fingerprint: [u8; 32] = Sha256::digest(*key).into();
             if seen.insert(fingerprint) && verify_aes_key(&key, templates) {
                 budget.check()?;
                 return Ok(Some(*key));

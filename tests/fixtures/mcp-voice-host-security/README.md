@@ -1,100 +1,30 @@
-# MCP Voice Host Security Audit
+# MCP 语音宿主安全回归
 
-> Historical acceptance snapshot: the numbers below belong to the recorded
-> source version and log. The documentation update did not rerun the audit or
-> substitute a later main-project count. Source, harness and evidence remain.
+本夹具验证宿主编排顺序、授权、路径保护、真实音频转换和缓存提交。使用受控子进程、合成账号配置、准备音频及本机回环服务，不使用真实识别模型或私人账号。
 
-Status: checked cache-commit implementation verified. Final fresh run: 20 tests,
-19 passed, 0 failed, 1 ignored, exit 0 (4.46 seconds). See `FINAL-AUDIT.md` and
-`final-audit.log`. No audit-owned process remains running.
+## 核对内容
 
-## Scope
+- 未授权或冲突的云配置在读取音频和发起上传前拒绝；初始化与工具列表不触发账号、模型或凭证访问。
+- prepared_audio 的版本、尺寸、摘要、媒体 ID 和来源证据必须一致；畸形 exit_code 不能被当成成功。
+- 绑定后更换账号、配置或目录身份，在 WAV 或缓存发布前拒绝。
+- 临时目录、输出、缓存、模型、账号和运行目录保持隔离；硬链接和 junction 不能绕过守卫。
+- 请求级临时目录在成功和失败后清理；后端非零退出、坏 JSON 和超时不变成成功。
+- 完整文本预算包含实际请求 ID 与 JSON 转义；超限或取消须在受控提交点阻止新 WAV 或缓存落盘。
+- 缓存暂存并复核快照后、persist 前仍调用检查。拒绝时保留原缓存字节，清理暂存文件与锁。
+- 命中是只读操作；后端执行预算只能收紧，不能在 IPC 或缓存读取后重新授予完整超时。
 
-Only this directory is owned by this audit. No production files or other shared
-fixtures are edited. This is host orchestration coverage, not a rerun of the WAV
-publisher's standalone security suite or a speech-recognition quality test.
+## 范围
 
-The fixture compiles the actual `src/cli/mcp.rs`, `src/cli/mcp_voice.rs`, and
-`src/cli/asr.rs`. `build.rs` parses those files with syn and inserts one stderr
-event at each of `open_config_read_lock`, `host_path`, and `BackendArgs::build`.
-It removes module documentation attributes for inclusion; it does not replace
-branches, validation, return values, or file operations. Unique insertion counts
-are asserted. The protocol, runtime, configuration, prepared-audio codec, actual
-SILK/WAV conversion, ASR clients and cache implementation are production modules
-reused from `mcp-voice-host`. The original shared file guard and WAV publisher
-are compiled by path in this crate because their visibility is crate-local.
+夹具的计数与注入用于检查生产分支的调用顺序，不是操作系统级文件访问审计。独立夹具中的合成传输也不能代替 daemon 认证与真实 IPC；后者见[进程测试](../mcp-voice-runtime/README.md)。
 
-Only IPC transport is substituted with a counted synthetic Response. Host tests
-run the actual CLI command in a hidden child process with cleared environment,
-explicit synthetic account configuration and isolated home/temp directories.
-They do not start a daemon or read a real account. Prepared audio is encoded
-using the production encoder and the repository's synthetic silence SILK.
-The fake ASR executable verifies the entire temporary WAV against real codec
-output, records calls, and returns controlled JSON, failure, or delay. No real
-model is used. Explicit cloud tests only connect to an ephemeral loopback HTTP
-listener with a synthetic credential and explicit upload authorization.
+文件符号链接可能需要额外权限，不能用 junction 或硬链接测试替代。成功发布后的 IPC/stdout 断开不保证回滚；同步 stdio 在途取消、真实模型效果与特权攻击者隔离也不由本夹具证明。
 
-## Acceptance Matrix
+## 运行
 
-- Unauthorized or conflicting cloud configuration: no account-open, host-path,
-  backend-build or IPC event; no configured loopback connection or file output.
-- Valid prepared audio with malformed `exit_code`: string, null, booleans,
-  nonzero numbers, fractional numbers, arrays and objects reject before WAV
-  publication or ASR execution. Integer zero remains usable.
-- Corrupted prepared audio, source evidence or wrong media ID: no WAV/backend.
-- A Pending bound to one RuntimeContext rejects a changed runtime identity or
-  account path/configuration before publication.
-- Real protocol CallContext includes escaped text and the actual request ID in
-  the external response budget; decode rejection leaves no staged or final WAV.
-- Local temporary, cache, model, account and runtime paths cannot overlap.
-  Hard-linked model/key cache destinations and directory junctions fail closed.
-- Default temporary roots are request-unique and removed on success and failure.
-- Backend nonzero exit, malformed JSON and timeout do not become success or
-  leave WAV/temp/cache artifacts. Remaining host deadline limits local ASR with
-  and without caching.
-- Checked MCP cache commits must reject oversized responses or cancelled final
-  checks before new persistence. Existing cache bytes must remain unchanged for
-  both hits and misses. These are the new owner-selected acceptance requirements.
-- Callback stage tests prove a miss invokes five host callbacks, a hit three,
-  and uncached transcription three. The fourth miss callback observes the lock
-  and staged cache before persist. Four rejection reasons remain distinguishable;
-  staged files and locks are removed and old cache bytes are preserved. Replacing
-  the original account directory after preflight is caught by the original host
-  guard before that fourth callback and before cache persistence.
-
-## Historical Cache Contract
-
-The first executable audit established the previous documented nontransactional
-memoization behavior: final response rejection could leave a successful backend
-result in the cache (1683 bytes in the synthetic oversized-text case). This was
-not a newly discovered violation of the old documented contract. Historical
-failed runs remain in `host-schema-corrected.log` and
-`host-boundaries-verified.log`. The owner subsequently selected stronger MCP
-precommit checks while preserving ordinary CLI behavior. The original red tests
-are retained as acceptance tests; they are not replaced with observational green
-tests. Post-publication channel loss is still not a rollback guarantee.
-
-## Limits
-
-The entry probes establish ordering in the real code path, not an OS-wide file
-access trace. Default-temp tests establish isolation and cleanup, not a new
-Windows ACL sandbox. A symbolic-link test is explicitly ignored for the required
-Windows creation privilege; junction and hard-link tests run normally. Genuine
-daemon/IPC account routing is independently covered by Noether's existing
-`mcp-voice-runtime` account fixtures and process tests, not counted as this run.
-There is no claim of actual model accuracy, internet-provider integration,
-in-flight synchronous stdio cancellation, privileged-adversary protection, or
-atomic rollback following successful publication.
-
-## Run
-
-Run from the repository root with a new log name; preserve `final-audit.log`:
+按[测试说明](../../README.md)准备依赖后，从仓库根目录执行：
 
 ```powershell
-pwsh -NoProfile -File tests/fixtures/mcp-voice-host-security/run.ps1 -Log ("rerun-" + (Get-Date -Format yyyyMMdd-HHmmss-fff) + ".log")
+cargo test --offline --manifest-path tests/fixtures/mcp-voice-host-security/Cargo.toml -- --nocapture
 ```
 
-The script sets the existing local libclang path, builds offline in a dedicated
-target directory, preserves merged stdout/stderr in this directory, prints the
-last 55 lines, and returns Cargo's exit code. Setup failures and intermediate
-runs are retained and are not counted as completed acceptance results.
+run.ps1 的本机路径和输出行为应先检查；不把运行器中的环境路径当成项目安装要求。完整宿主契约见[MCP 协议](../../../src/mcp/PROTOCOL.md)。

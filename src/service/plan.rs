@@ -57,81 +57,43 @@ pub enum Step {
         output: PathBuf,
         users: Vec<String>,
     },
-    EnterpriseDecrypt {
-        input: PathBuf,
-        output: PathBuf,
-        key_file: PathBuf,
-    },
-    EnterpriseBatchDecrypt {
-        data_dir: PathBuf,
-        output: PathBuf,
-        keys: EnterpriseKeys,
-    },
-    EnterpriseExport {
-        snapshot: PathBuf,
-        output: PathBuf,
-        selection: EnterpriseSelection,
-    },
-    EnterpriseDiscover {
-        root: Option<PathBuf>,
-    },
-    EnterpriseScan {
-        data_dir: PathBuf,
-        pids: Vec<u32>,
-        authorize_memory_scan: bool,
-    },
-    EnterpriseRun {
-        data_dir: PathBuf,
-        decrypted_output: PathBuf,
-        export_output: PathBuf,
-        keys: EnterpriseKeys,
-        selection: EnterpriseSelection,
-    },
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnterpriseKeys {
-    pub key_file: Option<PathBuf>,
-    pub keys_file: Option<PathBuf>,
-    pub authorize_memory_scan: bool,
-    pub pids: Vec<u32>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnterpriseSelection {
-    pub users: Vec<String>,
-    pub formats: Vec<Format>,
-    pub self_id: Option<i64>,
-    pub all_conversations: bool,
-}
-pub fn capabilities(settings: &Settings) -> Vec<Value> {
-    [Kind::WechatKeys, Kind::WechatDecrypt, Kind::ImageKey, Kind::ExportAll, Kind::DecodeImages, Kind::SnsDecrypt,
-        Kind::WxworkDecrypt, Kind::WxworkExport, Kind::VoiceMp3, Kind::WxworkDiscover,
-        Kind::WxworkScan, Kind::WxworkRun].into_iter().map(|kind| {
-        let reason = match kind {
-            Kind::WxworkDecrypt if settings.enterprise_input.is_none() && settings.enterprise_data_dir.is_none() => Some("需要固定 enterprise-data-dir 或单库 enterprise-input"),
-            Kind::WxworkScan | Kind::WxworkRun if settings.enterprise_data_dir.is_none() => Some("需要固定 enterprise-data-dir"),
-            Kind::WxworkExport if settings.enterprise_snapshot.is_none() => Some("需要启动参数 enterprise-snapshot"),
-            _ => None,
-        };
+pub fn capabilities() -> Vec<Value> {
+    [
+        Kind::WechatKeys,
+        Kind::WechatDecrypt,
+        Kind::ImageKey,
+        Kind::ExportAll,
+        Kind::DecodeImages,
+        Kind::SnsDecrypt,
+        Kind::VoiceMp3,
+    ]
+    .into_iter()
+    .map(|kind| {
         let options: &[&str] = match kind {
-            Kind::ExportAll => &["users", "formats", "include_voice", "include_sns", "include_sns_media",
-                "include_images", "allow_missing_media", "with_transcriptions", "allow_upload"],
-            Kind::WxworkExport => &["users", "formats", "all_conversations"],
-            Kind::WxworkRun => &["users", "formats", "all_conversations", "authorize_memory_scan"],
-            Kind::WxworkScan | Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
-            Kind::WxworkDecrypt if settings.enterprise_data_dir.is_some() => &["authorize_memory_scan"],
+            Kind::ExportAll => &[
+                "users",
+                "formats",
+                "include_voice",
+                "include_sns",
+                "include_sns_media",
+                "include_images",
+                "allow_missing_media",
+                "with_transcriptions",
+                "allow_upload",
+            ],
+            Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
             Kind::SnsDecrypt => &["users", "include_sns_media"],
             Kind::VoiceMp3 => &["users"],
             _ => &[],
         };
-        json!({"kind":kind,"enabled":reason.is_none(),"reason":reason,"options":options,
-            "formats":if matches!(kind,Kind::WxworkExport|Kind::WxworkRun|Kind::ExportAll) { vec!["json","csv","html"] } else {vec![]},
+        json!({"kind":kind,"enabled":true,"reason":null,"options":options,
+            "formats":if kind == Kind::ExportAll { vec!["json","csv","html"] } else {vec![]},
             "defaults":Options::default(),
-            "requires_memory_consent":matches!(kind,Kind::WxworkScan|Kind::ImageKey|Kind::WechatKeys),
-            "requires_explicit_scope":matches!(kind,Kind::WxworkExport|Kind::WxworkRun),
+            "requires_memory_consent":matches!(kind,Kind::ImageKey|Kind::WechatKeys),
             "transcription_output":if kind==Kind::ExportAll {Some("separate_json")} else {None}})
-    }).collect()
+    })
+    .collect()
 }
 
 pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
@@ -170,37 +132,6 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
         Kind::ImageKey | Kind::WechatKeys => {
             ensure!(o.authorize_memory_scan, "本次任务未授权读取微信进程内存")
         }
-        Kind::WxworkExport => {
-            ensure!(settings.enterprise_snapshot.is_some(), "未配置企业微信快照");
-        }
-        Kind::WxworkScan => {
-            ensure!(
-                settings.enterprise_data_dir.is_some(),
-                "未配置企业微信 Data 目录"
-            );
-            ensure!(
-                o.authorize_memory_scan,
-                "本次任务未授权读取企业微信进程内存"
-            );
-        }
-        Kind::WxworkRun | Kind::WxworkDecrypt => {
-            if settings.enterprise_data_dir.is_some() {
-                ensure!(
-                    settings.enterprise_key_file.is_some()
-                        || settings.enterprise_keys_file.is_some()
-                        || o.authorize_memory_scan,
-                    "缺少企业微信文件密钥，且本次任务未授权内存取钥"
-                );
-            } else {
-                ensure!(
-                    request.kind == Kind::WxworkDecrypt
-                        && settings.enterprise_input.is_some()
-                        && settings.enterprise_key_file.is_some(),
-                    "未配置企业微信输入和密钥"
-                );
-                ensure!(!o.authorize_memory_scan, "单库离线模式不接受内存扫描授权");
-            }
-        }
         _ => (),
     }
     if request.kind != Kind::ExportAll {
@@ -213,41 +144,16 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
             request.kind == Kind::SnsDecrypt || !o.include_sns_media,
             "任务不支持媒体下载"
         );
-        ensure!(
-            matches!(request.kind, Kind::WxworkExport | Kind::WxworkRun) || o.formats.is_empty(),
-            "任务不支持格式选项"
-        );
+        ensure!(o.formats.is_empty(), "任务不支持格式选项");
     }
     if matches!(
         request.kind,
-        Kind::WechatDecrypt
-            | Kind::WechatKeys
-            | Kind::DecodeImages
-            | Kind::WxworkDecrypt
-            | Kind::WxworkDiscover
-            | Kind::WxworkScan
-            | Kind::ImageKey
+        Kind::WechatDecrypt | Kind::WechatKeys | Kind::DecodeImages | Kind::ImageKey
     ) {
         ensure!(o.users.is_empty(), "此任务不接受会话筛选");
     }
-    if matches!(request.kind, Kind::WxworkExport | Kind::WxworkRun) {
-        ensure!(
-            o.all_conversations == o.users.is_empty(),
-            "须明确选择会话或确认全部会话，不能混用"
-        );
-    } else {
-        ensure!(!o.all_conversations, "任务不支持企业微信全部会话选项");
-    }
     ensure!(
-        !o.authorize_memory_scan
-            || matches!(
-                request.kind,
-                Kind::WxworkScan
-                    | Kind::WxworkDecrypt
-                    | Kind::WxworkRun
-                    | Kind::ImageKey
-                    | Kind::WechatKeys
-            ),
+        !o.authorize_memory_scan || matches!(request.kind, Kind::ImageKey | Kind::WechatKeys),
         "该任务不接受内存扫描授权"
     );
     ensure!(
@@ -296,22 +202,6 @@ pub fn plan(
         config: config.clone(),
         output: output.join("voice"),
         users: o.users.clone(),
-    };
-    let keys = || EnterpriseKeys {
-        key_file: settings.enterprise_key_file.clone(),
-        keys_file: settings.enterprise_keys_file.clone(),
-        authorize_memory_scan: o.authorize_memory_scan,
-        pids: if o.authorize_memory_scan {
-            settings.enterprise_pids.clone()
-        } else {
-            Vec::new()
-        },
-    };
-    let selection = || EnterpriseSelection {
-        users: o.users.clone(),
-        formats: formats(o),
-        self_id: settings.enterprise_self_id,
-        all_conversations: o.all_conversations,
     };
     let mut steps = Vec::new();
     match request.kind {
@@ -364,50 +254,6 @@ pub fn plan(
             steps.push(sns());
         }
         Kind::VoiceMp3 => steps.push(voice()),
-        Kind::WxworkDecrypt => {
-            if let Some(data_dir) = &settings.enterprise_data_dir {
-                steps.push(Step::EnterpriseBatchDecrypt {
-                    data_dir: data_dir.clone(),
-                    output: output.join("enterprise-snapshot"),
-                    keys: keys(),
-                });
-            } else {
-                steps.push(Step::EnterpriseDecrypt {
-                    input: settings.enterprise_input.clone().expect("validated input"),
-                    output: output.join("enterprise.db"),
-                    key_file: settings.enterprise_key_file.clone().expect("validated key"),
-                });
-            }
-        }
-        Kind::WxworkExport => steps.push(Step::EnterpriseExport {
-            snapshot: settings
-                .enterprise_snapshot
-                .clone()
-                .expect("validated snapshot"),
-            output: output.join("enterprise-export"),
-            selection: selection(),
-        }),
-        Kind::WxworkDiscover => steps.push(Step::EnterpriseDiscover {
-            root: settings.enterprise_discovery_root.clone(),
-        }),
-        Kind::WxworkScan => steps.push(Step::EnterpriseScan {
-            data_dir: settings
-                .enterprise_data_dir
-                .clone()
-                .expect("validated data"),
-            pids: settings.enterprise_pids.clone(),
-            authorize_memory_scan: true,
-        }),
-        Kind::WxworkRun => steps.push(Step::EnterpriseRun {
-            data_dir: settings
-                .enterprise_data_dir
-                .clone()
-                .expect("validated data"),
-            decrypted_output: output.join("enterprise-snapshot"),
-            export_output: output.join("enterprise-export"),
-            keys: keys(),
-            selection: selection(),
-        }),
     }
     Ok(steps)
 }
@@ -426,7 +272,7 @@ mod tests {
             };
             assert!(validate(&r, &Settings::default()).is_err());
         }
-        for kind in [Kind::WechatKeys, Kind::ImageKey, Kind::WxworkScan] {
+        for kind in [Kind::WechatKeys, Kind::ImageKey] {
             assert!(validate(
                 &Submission {
                     kind,
@@ -483,21 +329,15 @@ mod tests {
         .is_err());
     }
     #[test]
-    fn enterprise_scope_and_cloud_consent_are_explicit() {
+    fn cloud_consent_is_explicit() {
         let mut settings = Settings {
-            enterprise_snapshot: Some("snapshot".into()),
             transcription_backend: "openai".into(),
             ..Default::default()
         };
         let mut r = Submission {
-            kind: Kind::WxworkExport,
+            kind: Kind::ExportAll,
             options: Options::default(),
         };
-        assert!(validate(&r, &settings).is_err());
-        r.options.all_conversations = true;
-        assert!(validate(&r, &settings).is_ok());
-        r.kind = Kind::ExportAll;
-        r.options.all_conversations = false;
         r.options.with_transcriptions = true;
         assert!(validate(&r, &settings).is_err());
         r.options.allow_upload = true;

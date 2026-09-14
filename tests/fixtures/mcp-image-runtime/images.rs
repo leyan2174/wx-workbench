@@ -1,8 +1,6 @@
-#[path = "../mcp-readonly-runtime/encrypted_sqlite.rs"]
-mod encrypted_sqlite;
+use crate::support::encrypted_sqlite::{encrypt, sqlite};
 use crate::support::Account;
 use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
-use encrypted_sqlite::{encrypt, sqlite};
 use serde_json::{json, Value};
 use std::fs;
 

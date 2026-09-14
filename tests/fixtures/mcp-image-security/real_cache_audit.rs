@@ -3,6 +3,8 @@ use mcp_image_security::real_cache_query;
 
 fn encrypted_sqlite(path: &Path) -> Vec<u8> {
     use cbc::cipher::{BlockEncryptMut, KeyIvInit};
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
     let conn = Connection::open(path).unwrap();
     let mut reserve: std::ffi::c_int = 80;
     // Configure genuine SQLite pages with SQLCipher's reserved tail bytes.
@@ -22,6 +24,10 @@ fn encrypted_sqlite(path: &Path) -> Vec<u8> {
     let plain = fs::read(path).unwrap();
     assert_eq!(plain[20], 80);
     assert_eq!(plain.len() % 4096, 0);
+    // 合成页面与生产校验使用相同的盐派生和小端页号认证，不能省略 HMAC。
+    let mac_salt = [0x55 ^ 0x3a; 16];
+    let mut mac_key = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha512>(&[0x11; 32], &mac_salt, 2, &mut mac_key);
     let mut output = Vec::new();
     for (index, page) in plain.chunks_exact(4096).enumerate() {
         let start = if index == 0 { 16 } else { 0 };
@@ -39,6 +45,10 @@ fn encrypted_sqlite(path: &Path) -> Vec<u8> {
             destination.copy_from_slice(&block);
         }
         encrypted[4016..4032].fill(0x33);
+        let mut mac = Hmac::<Sha512>::new_from_slice(&mac_key).unwrap();
+        mac.update(&encrypted[start..4032]);
+        mac.update(&((index + 1) as u32).to_le_bytes());
+        encrypted[4032..].copy_from_slice(&mac.finalize().into_bytes());
         output.extend(encrypted);
     }
     output

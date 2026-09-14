@@ -1,11 +1,12 @@
 use super::*;
+use crate::daemon::query::encrypted_cache;
 use rusqlite::{params, Connection};
 use std::{collections::HashMap, fs};
 
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("合成 contact.db");
-    let conn = Connection::open(&path).unwrap();
+    let conn = encrypted_cache::sqlite(&path);
     conn.execute_batch("CREATE TABLE contact_label(label_id_,label_name_,sort_order_); CREATE TABLE contact(username TEXT,extra_buffer BLOB,unknown_field TEXT);
             INSERT INTO contact_label VALUES(1,'朋友',20),(2,'Work',10),(3,'',30),(4,'WORK team',40),(5,'无人',50);").unwrap();
     for (user, ids) in [("u1", "１,2,2,3,unknown,999"), ("u2", "+1,٢"), ("u1", "1")] {
@@ -216,14 +217,7 @@ async fn seeded_cache(root: &Path, path: &Path, key: &str, invalid_key: bool) ->
     let source = root.join("source");
     fs::create_dir_all(source.join("contact")).unwrap();
     let raw = source.join("contact/contact.db");
-    fs::write(&raw, b"synthetic encrypted placeholder").unwrap();
-    let modified = fs::metadata(&raw)
-        .unwrap()
-        .modified()
-        .unwrap()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+    let modified = encrypted_cache::seed(path, &raw);
     let mtimes = root.join("mtimes.json");
     fs::write(
         &mtimes,
@@ -233,7 +227,7 @@ async fn seeded_cache(root: &Path, path: &Path, key: &str, invalid_key: bool) ->
     let value = if invalid_key {
         "invalid synthetic key".into()
     } else {
-        "00".repeat(32)
+        "11".repeat(32)
     };
     DbCache::with_dirs(
         source,

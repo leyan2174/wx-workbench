@@ -191,8 +191,8 @@ fn make_root(root: &Path, inputs: &[PathBuf]) -> Result<HostOutputGuard> {
         })?);
         let source = PathBuf::from(fs::canonicalize(input)?.to_string_lossy().to_lowercase());
         ensure!(
-            !source.starts_with(&projected)
-                && !(metadata.is_dir() && projected.starts_with(&source)),
+            !(source.starts_with(&projected)
+                || metadata.is_dir() && projected.starts_with(&source)),
             "output overlaps protected input"
         );
     }
@@ -281,6 +281,7 @@ pub(crate) fn prepare(
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .share_mode(1)
         .custom_flags(0x00200000)
         .open(root.join(LOCK))

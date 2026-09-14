@@ -1,5 +1,6 @@
 use super::super::strict_message::{locate, Resolution, MAX_STORED_BYTES};
 use super::*;
+use crate::daemon::query::encrypted_cache;
 use rusqlite::Connection;
 use std::fs;
 use std::path::PathBuf;
@@ -32,16 +33,8 @@ impl Fixture {
         for key in raw_keys {
             let key = (*key).to_owned();
             let original = source.join(&key);
-            fs::write(&original, b"synthetic encrypted placeholder").unwrap();
-            let mt = fs::metadata(&original)
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64;
             let path = cache.join(format!("{:x}.db", md5::compute(&key)));
-            let conn = Connection::open(&path).unwrap();
+            let conn = encrypted_cache::sqlite(&path);
             for username in [
                 "wxid_peer",
                 "room@chatroom",
@@ -51,6 +44,7 @@ impl Fixture {
                 conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type,create_time,WCDB_CT_message_content,message_content)")).unwrap();
             }
             drop(conn);
+            let mt = encrypted_cache::seed(&path, &original);
             mtimes.insert(key.clone(), json!({"db_mt": mt, "wal_mt": 0, "path": path}));
             keys.insert(key, "11".repeat(32));
             paths.push(path);
@@ -73,6 +67,10 @@ impl Fixture {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "测试按原始数据库字段构造消息，用于校验身份冲突与异常列"
+    )]
     fn insert(
         &self,
         shard: usize,
@@ -415,6 +413,11 @@ async fn corrupt_shard_empty_tables_and_sqlite_scalar_types_are_explicit() {
     .unwrap();
     drop(conn);
     fs::write(&f.paths[1], b"corrupt synthetic SQLite").unwrap();
+    // Prevent recovery from hiding the intentionally unreadable shard.
+    let source = f.db.db_dir().join("message/message_1.db");
+    let mut bytes = fs::read(&source).unwrap();
+    bytes[4032] ^= 1;
+    fs::write(source, bytes).unwrap();
     assert!(f.query("wxid_peer", 1, 100).await.is_err());
 }
 

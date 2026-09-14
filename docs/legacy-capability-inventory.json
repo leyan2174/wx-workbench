@@ -5,274 +5,183 @@
   "modules": [
     {
       "path": "vendor/wechat-decrypt/app_gui.py",
-      "sha256": "2646cd2e1069fed4637715ab9138a173e6d35ff3c74a95a2292ded68b4406932",
-      "lines": 939,
+      "sha256": "1ac6ba75ec149f3e389b6cf61670f54611562d56baa300a14d6472c02a844472",
+      "lines": 680,
       "migration": "requires-review",
       "language": "python",
       "symbols": [
         {
           "name": "_run_subtask",
           "kind": "function",
-          "line": 37,
+          "line": 35,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_load_contact_map",
           "kind": "function",
-          "line": 122,
+          "line": 111,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_display_name",
           "kind": "function",
-          "line": 143,
+          "line": 132,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_discover_contacts",
           "kind": "function",
-          "line": 148,
+          "line": 137,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog",
           "kind": "class",
-          "line": 220,
+          "line": 209,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog.__init__",
           "kind": "function",
-          "line": 221,
+          "line": 210,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._bind_mousewheel",
           "kind": "function",
-          "line": 324,
+          "line": 313,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._unbind_mousewheel",
           "kind": "function",
-          "line": 328,
+          "line": 317,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._toggle_all",
           "kind": "function",
-          "line": 331,
+          "line": 320,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._filter_list",
           "kind": "function",
-          "line": 337,
+          "line": 326,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._on_ok",
           "kind": "function",
-          "line": 345,
+          "line": 334,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ExportOptionsDialog._on_cancel",
           "kind": "function",
-          "line": 369,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog",
-          "kind": "class",
-          "line": 374,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog.__init__",
-          "kind": "function",
-          "line": 375,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._format_time",
-          "kind": "function",
-          "line": 450,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._bind_mousewheel",
-          "kind": "function",
-          "line": 459,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._unbind_mousewheel",
-          "kind": "function",
-          "line": 463,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._toggle_all",
-          "kind": "function",
-          "line": 466,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._filter_list",
-          "kind": "function",
-          "line": 472,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._on_ok",
-          "kind": "function",
-          "line": 480,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "WxworkExportOptionsDialog._on_cancel",
-          "kind": "function",
-          "line": 498,
+          "line": 358,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App",
           "kind": "class",
-          "line": 503,
+          "line": 365,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App.__init__",
           "kind": "function",
-          "line": 504,
+          "line": 366,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._build_ui",
           "kind": "function",
-          "line": 524,
+          "line": 384,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._log",
           "kind": "function",
-          "line": 612,
+          "line": 455,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._clear_log",
           "kind": "function",
-          "line": 618,
+          "line": 461,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._set_buttons",
           "kind": "function",
-          "line": 624,
+          "line": 467,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._run_task",
           "kind": "function",
-          "line": 634,
+          "line": 475,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._discover_and_select",
           "kind": "function",
-          "line": 676,
+          "line": 507,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._show_contact_dialog",
           "kind": "function",
-          "line": 692,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "App._discover_wxwork_and_select",
-          "kind": "function",
-          "line": 729,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "App._show_wxwork_dialog",
-          "kind": "function",
-          "line": 746,
+          "line": 523,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._run_subprocess",
           "kind": "function",
-          "line": 775,
+          "line": 561,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._exec_combined",
           "kind": "function",
-          "line": 824,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "App._exec_wxwork_decrypt",
-          "kind": "function",
-          "line": 866,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "App._exec_wxwork_export",
-          "kind": "function",
-          "line": 891,
+          "line": 606,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._exec_task",
           "kind": "function",
-          "line": 909,
+          "line": 650,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "App._on_task_done",
           "kind": "function",
-          "line": 927,
+          "line": 668,
           "decorators": [],
           "migration": "requires-review"
         }
@@ -280,13 +189,10 @@
       "arguments": [],
       "imports": [
         "from config import load_config",
-        "from datetime import datetime",
-        "from export_wxwork_messages import discover_conversations",
         "from tkinter import messagebox",
         "from tkinter import ttk, scrolledtext",
         "import Crypto, Crypto.Cipher, Crypto.Cipher.AES, Crypto.Util.Padding",
         "import ctypes",
-        "import export_wxwork_messages",
         "import functools, platform, ctypes, ctypes.wintypes",
         "import glob as globmod",
         "import hashlib",
@@ -299,7 +205,6 @@
         "import sys",
         "import threading",
         "import tkinter as tk",
-        "import wxwork_crypto",
         "import xml.etree.ElementTree",
         "import zstandard"
       ]
@@ -513,8 +418,8 @@
     },
     {
       "path": "vendor/wechat-decrypt/config.py",
-      "sha256": "3ab5dbfa1948006b98843dc82e28577bea4c125bd4894de426540d8e0c4b1b29",
-      "lines": 221,
+      "sha256": "973d4d4a7e35a9163eef7d8f042113abd686187b8de0293fc99f30673d574701",
+      "lines": 215,
       "migration": "requires-review",
       "language": "python",
       "symbols": [
@@ -535,28 +440,28 @@
         {
           "name": "_choose_candidate",
           "kind": "function",
-          "line": 51,
+          "line": 46,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_auto_detect_db_dir_windows",
           "kind": "function",
-          "line": 80,
+          "line": 75,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "auto_detect_db_dir",
           "kind": "function",
-          "line": 125,
+          "line": 120,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "load_config",
           "kind": "function",
-          "line": 129,
+          "line": 124,
           "decorators": [],
           "migration": "requires-review"
         }
@@ -845,74 +750,6 @@
         "import glob",
         "import os",
         "import struct",
-        "import sys"
-      ]
-    },
-    {
-      "path": "vendor/wechat-decrypt/decrypt_wxwork_db.py",
-      "sha256": "8276f8174994ee9938f17e3e7a22093be4504d2e335f285316b752a5b1758c41",
-      "lines": 176,
-      "migration": "requires-review",
-      "language": "python",
-      "symbols": [
-        {
-          "name": "_app_paths",
-          "kind": "function",
-          "line": 23,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_config",
-          "kind": "function",
-          "line": 29,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_parse_key_hex",
-          "kind": "function",
-          "line": 62,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_keys",
-          "kind": "function",
-          "line": 71,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_iter_db_files",
-          "kind": "function",
-          "line": 78,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "main",
-          "kind": "function",
-          "line": 89,
-          "decorators": [],
-          "migration": "requires-review"
-        }
-      ],
-      "arguments": [
-        {
-          "line": 91,
-          "declaration": "parser.add_argument('--key', help='16-byte raw key as 32 hex chars')"
-        }
-      ],
-      "imports": [
-        "from config import _app_base_dir, _config_file_path",
-        "from find_wxwork_keys import auto_detect_wxwork_db_dir",
-        "from key_utils import get_key_info, strip_key_metadata",
-        "from wxwork_crypto import decrypt_wxwork_database, is_plain_sqlite_page, is_wxsqlite3_aes128_page1, verify_sqlite_file, verify_wxsqlite3_aes128_key",
-        "import argparse",
-        "import json",
-        "import os",
-        "import shutil",
         "import sys"
       ]
     },
@@ -2148,259 +1985,6 @@
       ]
     },
     {
-      "path": "vendor/wechat-decrypt/export_wxwork_messages.py",
-      "sha256": "ec4fc5b7b6fb2b509d9f7887e8d30a9a19f2a56258accb5796d5ddf407dfa61e",
-      "lines": 745,
-      "migration": "requires-review",
-      "language": "python",
-      "symbols": [
-        {
-          "name": "_app_paths",
-          "kind": "function",
-          "line": 39,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_config",
-          "kind": "function",
-          "line": 45,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_infer_self_id",
-          "kind": "function",
-          "line": 69,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_safe_dirname",
-          "kind": "function",
-          "line": 79,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_table_exists",
-          "kind": "function",
-          "line": 85,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_open_db",
-          "kind": "function",
-          "line": 93,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_user_map",
-          "kind": "function",
-          "line": 99,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_group_member_names",
-          "kind": "function",
-          "line": 130,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_conversation_kind",
-          "kind": "function",
-          "line": 162,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_name_from_conversation_id",
-          "kind": "function",
-          "line": 176,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_message_counts",
-          "kind": "function",
-          "line": 195,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "discover_conversations",
-          "kind": "function",
-          "line": 221,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_read_varint",
-          "kind": "function",
-          "line": 284,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_clean_text",
-          "kind": "function",
-          "line": 297,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_looks_like_plain_text",
-          "kind": "function",
-          "line": 307,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_decode_text_segment",
-          "kind": "function",
-          "line": 317,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_parse_protobuf_strings",
-          "kind": "function",
-          "line": 335,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_dedupe_texts",
-          "kind": "function",
-          "line": 374,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "decode_content",
-          "kind": "function",
-          "line": 386,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_format_time",
-          "kind": "function",
-          "line": 416,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_message_type_name",
-          "kind": "function",
-          "line": 428,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_display_message_content",
-          "kind": "function",
-          "line": 432,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_build_message",
-          "kind": "function",
-          "line": 439,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_iter_message_rows",
-          "kind": "function",
-          "line": 479,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_write_html",
-          "kind": "function",
-          "line": 540,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_write_csv",
-          "kind": "function",
-          "line": 577,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_write_json",
-          "kind": "function",
-          "line": 600,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_selected_from_env",
-          "kind": "function",
-          "line": 614,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_formats_from_env",
-          "kind": "function",
-          "line": 621,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "export_messages",
-          "kind": "function",
-          "line": 630,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "main",
-          "kind": "function",
-          "line": 710,
-          "decorators": [],
-          "migration": "requires-review"
-        }
-      ],
-      "arguments": [
-        {
-          "line": 712,
-          "declaration": "parser.add_argument('--list', action='store_true', help='list conversations and exit')"
-        },
-        {
-          "line": 713,
-          "declaration": "parser.add_argument('--conversation', action='append', help='conversation ID to export; can be passed multiple times')"
-        },
-        {
-          "line": 718,
-          "declaration": "parser.add_argument('--formats', help='comma separated formats: csv,html,json')"
-        }
-      ],
-      "imports": [
-        "from collections import defaultdict",
-        "from config import _app_base_dir, _config_file_path",
-        "from datetime import datetime",
-        "from html import escape",
-        "import argparse",
-        "import csv",
-        "import json",
-        "import os",
-        "import re",
-        "import sqlite3",
-        "import sys"
-      ]
-    },
-    {
       "path": "vendor/wechat-decrypt/find_all_keys.py",
       "sha256": "bd9cbbb1a283c17c50b4b6e5d4f2d2a08c020cb6fc8a46ee28ec0383ea6b600d",
       "lines": 205,
@@ -2717,174 +2301,6 @@
         "from ctypes import wintypes",
         "import ctypes",
         "import glob",
-        "import json",
-        "import os",
-        "import re",
-        "import struct",
-        "import subprocess",
-        "import sys",
-        "import time"
-      ]
-    },
-    {
-      "path": "vendor/wechat-decrypt/find_wxwork_keys.py",
-      "sha256": "01524cfa3463e9ace3e26470af5ca169caebbe1e85af0472c7b794bda6389392",
-      "lines": 668,
-      "migration": "requires-review",
-      "language": "python",
-      "symbols": [
-        {
-          "name": "MBI",
-          "kind": "class",
-          "line": 38,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "read_mem",
-          "kind": "function",
-          "line": 47,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "enum_regions",
-          "kind": "function",
-          "line": 55,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "verify_enc_key_wxwork",
-          "kind": "function",
-          "line": 93,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "get_wxwork_pids",
-          "kind": "function",
-          "line": 118,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_wxwork_data_dir_mtime",
-          "kind": "function",
-          "line": 143,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_is_noninteractive_mode",
-          "kind": "function",
-          "line": 163,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "auto_detect_wxwork_db_dir",
-          "kind": "function",
-          "line": 172,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "filter_encrypted_dbs",
-          "kind": "function",
-          "line": 229,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "scan_memory_for_wxwork_keys",
-          "kind": "function",
-          "line": 249,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_find_region",
-          "kind": "function",
-          "line": 331,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_read_u32",
-          "kind": "function",
-          "line": 341,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_valid_ptr",
-          "kind": "function",
-          "line": 349,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_wxwork_page_size_chain",
-          "kind": "function",
-          "line": 353,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_record_candidate_key",
-          "kind": "function",
-          "line": 375,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "scan_memory_for_wxwork_cipher_structs",
-          "kind": "function",
-          "line": 397,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "cross_verify_wxwork_keys",
-          "kind": "function",
-          "line": 467,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "save_wxwork_results",
-          "kind": "function",
-          "line": 486,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_load_wxwork_config",
-          "kind": "function",
-          "line": 530,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "main",
-          "kind": "function",
-          "line": 569,
-          "decorators": [],
-          "migration": "requires-review"
-        }
-      ],
-      "arguments": [],
-      "imports": [
-        "from config import _config_file_path, _app_base_dir",
-        "from key_scan_common import collect_db_files",
-        "from wxwork_crypto import is_plain_sqlite_page, is_wxsqlite3_aes128_page1, verify_wxsqlite3_aes128_key",
-        "import bisect",
-        "import ctypes",
-        "import ctypes.wintypes as wt",
-        "import functools",
-        "import hashlib",
-        "import hmac as hmac_mod",
         "import json",
         "import os",
         "import re",
@@ -4117,8 +3533,8 @@
     },
     {
       "path": "vendor/wechat-decrypt/monitor_web.py",
-      "sha256": "0e0439677d91333c4372c847821ea4f6de559420e2f548cfadd2b134d16e1095",
-      "lines": 2918,
+      "sha256": "4e8db4e7e71f00958f4a0dadd023efd5e4aebdbb6d57794cec4abb7920ab0a0c",
+      "lines": 2844,
       "migration": "requires-review",
       "language": "python",
       "symbols": [
@@ -4356,98 +3772,91 @@
         {
           "name": "_build_export_steps",
           "kind": "function",
-          "line": 2353,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_build_wxwork_export_steps",
-          "kind": "function",
-          "line": 2363,
+          "line": 2335,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_list_sessions",
           "kind": "function",
-          "line": 2428,
+          "line": 2387,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_broadcast_tool_event",
           "kind": "function",
-          "line": 2498,
+          "line": 2424,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_run_tool_task",
           "kind": "function",
-          "line": 2503,
+          "line": 2429,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "Handler",
           "kind": "class",
-          "line": 2590,
+          "line": 2516,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "Handler.log_message",
           "kind": "function",
-          "line": 2591,
+          "line": 2517,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "Handler.handle",
           "kind": "function",
-          "line": 2592,
+          "line": 2518,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "Handler.do_GET",
           "kind": "function",
-          "line": 2598,
+          "line": 2524,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "Handler.do_POST",
           "kind": "function",
-          "line": 2720,
+          "line": 2646,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "ThreadedServer",
           "kind": "class",
-          "line": 2796,
+          "line": 2722,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_start_monitor_if_ready",
           "kind": "function",
-          "line": 2801,
+          "line": 2727,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_start_monitor_if_ready._warmup",
           "kind": "function",
-          "line": 2866,
+          "line": 2792,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "main",
           "kind": "function",
-          "line": 2894,
+          "line": 2820,
           "decorators": [],
           "migration": "requires-review"
         }
@@ -4629,71 +4038,71 @@
     },
     {
       "path": "vendor/wechat-decrypt/wechat_decrypt_launcher.py",
-      "sha256": "28d362188d692a208f7ba2705cbf830b93d9f270609f38ef724bac8728456adc",
-      "lines": 139,
+      "sha256": "4de62a66f2f331dd33cda893c985f301451e82bdb7ffd877b8ee7545d9d43ff4",
+      "lines": 136,
       "migration": "requires-review",
       "language": "python",
       "symbols": [
         {
           "name": "_app_base_dir",
           "kind": "function",
-          "line": 32,
+          "line": 29,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_script_dir",
           "kind": "function",
-          "line": 38,
+          "line": 35,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_prepare_runtime",
           "kind": "function",
-          "line": 42,
+          "line": 39,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_configure_stdio",
           "kind": "function",
-          "line": 48,
+          "line": 45,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "print_usage",
           "kind": "function",
-          "line": 54,
+          "line": 51,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "_resolve_script",
           "kind": "function",
-          "line": 74,
+          "line": 71,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "run_script",
           "kind": "function",
-          "line": 90,
+          "line": 87,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "dispatch",
           "kind": "function",
-          "line": 115,
+          "line": 112,
           "decorators": [],
           "migration": "requires-review"
         },
         {
           "name": "main",
           "kind": "function",
-          "line": 133,
+          "line": 130,
           "decorators": [],
           "migration": "requires-review"
         }
@@ -4747,107 +4156,6 @@
         "import subprocess",
         "import sys",
         "import tempfile"
-      ]
-    },
-    {
-      "path": "vendor/wechat-decrypt/wxwork_crypto.py",
-      "sha256": "719119d662949118618ffd8dafd890e26caf64e86fe4ed7a8f52c54d86153861",
-      "lines": 132,
-      "migration": "requires-review",
-      "language": "python",
-      "symbols": [
-        {
-          "name": "_modmult",
-          "kind": "function",
-          "line": 14,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "generate_initial_vector",
-          "kind": "function",
-          "line": 22,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "derive_wxsqlite3_aes128_page_key",
-          "kind": "function",
-          "line": 32,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "is_plain_sqlite_page",
-          "kind": "function",
-          "line": 40,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "has_wxsqlite3_plain_header_fragment",
-          "kind": "function",
-          "line": 44,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "is_wxsqlite3_aes128_page1",
-          "kind": "function",
-          "line": 62,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "_decrypt_aes128_cbc",
-          "kind": "function",
-          "line": 66,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "decrypt_wxsqlite3_aes128_page",
-          "kind": "function",
-          "line": 72,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "looks_like_sqlite_page1",
-          "kind": "function",
-          "line": 91,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "verify_wxsqlite3_aes128_key",
-          "kind": "function",
-          "line": 100,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "decrypt_wxwork_database",
-          "kind": "function",
-          "line": 110,
-          "decorators": [],
-          "migration": "requires-review"
-        },
-        {
-          "name": "verify_sqlite_file",
-          "kind": "function",
-          "line": 125,
-          "decorators": [],
-          "migration": "requires-review"
-        }
-      ],
-      "arguments": [],
-      "imports": [
-        "from Crypto.Cipher import AES",
-        "import hashlib",
-        "import os",
-        "import sqlite3",
-        "import struct"
       ]
     }
   ]

@@ -1,11 +1,10 @@
-//! Read-only daemon projections and browser-local delivery state.
+//! 后台状态的只读视图，以及当前 Web 实例的事件、队列和限额。
 use crate::service::protocol::{Call, Log, Task};
 pub use crate::service::settings::Settings;
 use anyhow::{ensure, Result};
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -23,14 +22,11 @@ pub struct Event {
 #[derive(Default)]
 pub struct Records {
     pub tasks: VecDeque<Task>,
-    pub messages: VecDeque<Value>,
-    pub message_bytes: usize,
+    pub monitor_session: Option<String>,
     pub journal_ok: bool,
-    pub enterprise_snapshot: Option<PathBuf>,
 }
 pub struct Shared {
     pub runtime: crate::runtime::RuntimeContext,
-    pub settings: Settings,
     pub token: String,
     pub authority: String,
     pub origin: String,
@@ -38,6 +34,7 @@ pub struct Shared {
     pub events: broadcast::Sender<Event>,
     pub shutdown: watch::Sender<bool>,
     pub queries: Arc<Semaphore>,
+    pub query_waiters: Arc<Semaphore>,
     pub streams: Arc<Semaphore>,
     pub task_requests: Arc<Semaphore>,
 }
@@ -59,13 +56,6 @@ pub fn random_id() -> Result<String> {
 }
 
 impl Shared {
-    pub fn effective_settings(&self) -> Settings {
-        let mut settings = self.settings.clone();
-        if let Some(snapshot) = &self.records.lock().unwrap().enterprise_snapshot {
-            settings.enterprise_snapshot = Some(snapshot.clone());
-        }
-        settings
-    }
     pub fn event(&self, name: &'static str, data: Value) {
         let _ = self.events.send(Event {
             name,
@@ -176,11 +166,9 @@ impl Shared {
             );
             tasks.push_back(task);
         }
-        let snapshot = serde_json::from_value(list["enterprise_snapshot"].clone())?;
         let mut records = self.records.lock().unwrap();
         records.tasks = tasks;
         records.journal_ok = list["history_persisted"].as_bool().unwrap_or(false);
-        records.enterprise_snapshot = snapshot;
         Ok(cursor)
     }
 }

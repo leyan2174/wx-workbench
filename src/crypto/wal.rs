@@ -1,73 +1,132 @@
-use anyhow::Result;
-use std::io::{SeekFrom, Seek, Write};
+use anyhow::{ensure, Result};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use super::{decrypt_page, PAGE_SZ};
+use super::{atomic, auth::PageAuth, decrypt_layout, PAGE_SZ};
 
 pub const WAL_HDR_SZ: usize = 32;
 pub const WAL_FRAME_HDR: usize = 24;
+const FRAME_SIZE: usize = WAL_FRAME_HDR + PAGE_SZ;
+const MAX_PAGE: u32 = 1_000_000;
 
-/// 将 WAL 文件中的变更应用到已解密的数据库文件
-///
-/// WAL 格式（SQLite 标准，SQLCipher 4 的 WAL 帧也被加密）：
-/// - WAL header (32 bytes): magic(4) + format(4) + page_sz(4) + ckpt_seq(4) + salt1(4) + salt2(4) + cksum1(4) + cksum2(4)
-/// - 每帧：frame_header(24 bytes) + page_data(PAGE_SZ bytes)
-///   - frame_header: pgno(4) + commit_pgcnt(4) + salt1(4) + salt2(4) + cksum1(4) + cksum2(4)
-pub fn apply_wal(wal_path: &Path, out_path: &Path, enc_key: &[u8; 32]) -> Result<()> {
-    if !wal_path.exists() {
+fn be(bytes: &[u8]) -> u32 {
+    u32::from_be_bytes(bytes[..4].try_into().unwrap())
+}
+
+fn checksum(bytes: &[u8], little: bool, mut sum: [u32; 2]) -> [u32; 2] {
+    for pair in bytes.chunks_exact(8) {
+        let word = |p: &[u8]| {
+            if little {
+                u32::from_le_bytes(p[..4].try_into().unwrap())
+            } else {
+                be(p)
+            }
+        };
+        sum[0] = sum[0].wrapping_add(word(pair)).wrapping_add(sum[1]);
+        sum[1] = sum[1].wrapping_add(word(&pair[4..])).wrapping_add(sum[0]);
+    }
+    sum
+}
+
+// 只记录连续有效前缀内最后一次提交。不能跳过损坏帧继续寻找“看起来有效”的
+// 后续帧：滚动校验和绑定整条链，旧代次尾部与未提交事务都不能进入缓存。
+fn committed(data: &[u8]) -> Result<Option<(usize, u32)>> {
+    ensure!(data.len() >= WAL_HDR_SZ, "WAL 头不完整");
+    let magic = be(data);
+    ensure!(matches!(magic, 0x377f0682 | 0x377f0683), "WAL magic 无效");
+    ensure!(be(&data[4..]) == 3_007_000, "WAL 版本不支持");
+    ensure!(be(&data[8..]) == PAGE_SZ as u32, "WAL 页面大小不支持");
+    let little = magic == 0x377f0682;
+    let mut sum = checksum(&data[..24], little, [0; 2]);
+    ensure!(sum == [be(&data[24..]), be(&data[28..])], "WAL 头校验失败");
+    let mut last = None;
+    for (index, frame) in data[WAL_HDR_SZ..].chunks_exact(FRAME_SIZE).enumerate() {
+        let pgno = be(frame);
+        if pgno == 0 || frame[8..16] != data[16..24] {
+            break;
+        }
+        let next = checksum(&frame[..8], little, sum);
+        let next = checksum(&frame[WAL_FRAME_HDR..], little, next);
+        if next != [be(&frame[16..]), be(&frame[20..])] {
+            break;
+        }
+        // 保留既有资源上限，但不再静默跳过合法却超限的页面。
+        ensure!(pgno <= MAX_PAGE, "WAL 页号超过资源上限");
+        sum = next;
+        let pages = be(&frame[4..]);
+        ensure!(pages <= MAX_PAGE, "WAL 提交大小超过资源上限");
+        if pages != 0 {
+            last = Some((index + 1, pages));
+        }
+    }
+    Ok(last)
+}
+
+/// 认证后将最后完整提交应用到副本；任何认证/写入失败均保留原输出。
+/// source_db 必须由固定账号上下文显式传入，绝不从缓存路径推导原库。
+pub fn apply_wal(
+    wal_path: &Path,
+    out_path: &Path,
+    enc_key: &[u8; 32],
+    source_db: &Path,
+) -> Result<()> {
+    let mut wal = match atomic::open_source(wal_path) {
+        Ok(file) => file,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(())
+        }
+        Err(error) => return Err(error),
+    };
+    let before = wal.metadata()?;
+    let mut data = Vec::new();
+    wal.read_to_end(&mut data)?;
+    if data.is_empty() {
         return Ok(());
     }
-
-    let wal_data = std::fs::read(wal_path)?;
-    if wal_data.len() <= WAL_HDR_SZ {
+    let Some((frames, pages)) = committed(&data)? else {
         return Ok(());
+    };
+    let mut source = atomic::open_source(source_db)?;
+    let source_before = source.metadata()?;
+    let mut page1 = [0u8; PAGE_SZ];
+    source.read_exact(&mut page1)?;
+    let auth = PageAuth::from_page1(enc_key, &page1)?;
+    let selected = &data[WAL_HDR_SZ..WAL_HDR_SZ + frames * FRAME_SIZE];
+    // 认证实际页号，包括页 1。沿用原实现的 WAL 全密文布局，不因旧密钥导致
+    // 的失败猜测另一种格式。即使某帧稍后被覆盖或截断，也不接受认证失败。
+    for frame in selected.chunks_exact(FRAME_SIZE) {
+        auth.verify(&frame[WAL_FRAME_HDR..], be(frame), false)?;
     }
-
-    // 读取 WAL 头中的 salt1 / salt2
-    let s1 = u32::from_be_bytes(wal_data[16..20].try_into().unwrap());
-    let s2 = u32::from_be_bytes(wal_data[20..24].try_into().unwrap());
-
-    let frame_size = WAL_FRAME_HDR + PAGE_SZ;
-    let frame_area = &wal_data[WAL_HDR_SZ..];
-
-    // 打开输出文件做随机写
-    let mut db_file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(out_path)?;
-
-    let mut pos = 0usize;
-    while pos + frame_size <= frame_area.len() {
-        let fh = &frame_area[pos..pos + WAL_FRAME_HDR];
-        let page_data = &frame_area[pos + WAL_FRAME_HDR..pos + frame_size];
-
-        let pgno = u32::from_be_bytes(fh[0..4].try_into().unwrap());
-        let fs1 = u32::from_be_bytes(fh[8..12].try_into().unwrap());
-        let fs2 = u32::from_be_bytes(fh[12..16].try_into().unwrap());
-
-        pos += frame_size;
-
-        // 跳过无效页码
-        if pgno == 0 || pgno > 1_000_000 {
-            continue;
+    let mut output = atomic::Output::new(out_path, &[&source, &wal])?;
+    output.copy_old()?;
+    for frame in selected.chunks_exact(FRAME_SIZE) {
+        let pgno = be(frame);
+        let plain = decrypt_layout(enc_key, &frame[WAL_FRAME_HDR..], false)?;
+        output
+            .file()
+            .seek(SeekFrom::Start((pgno as u64 - 1) * PAGE_SZ as u64))?;
+        output.file().write_all(&plain)?;
+        let commit_pages = be(&frame[4..]);
+        if commit_pages != 0 {
+            // 中间提交的收缩也必须作用于副本，避免之后扩容重新暴露已删除页面。
+            output
+                .file()
+                .set_len(commit_pages as u64 * PAGE_SZ as u64)?;
         }
-        // salt 不匹配的帧属于已检查点或旧事务
-        if fs1 != s1 || fs2 != s2 {
-            continue;
-        }
-
-        let mut page_buf = page_data.to_vec();
-        if page_buf.len() < PAGE_SZ {
-            page_buf.resize(PAGE_SZ, 0);
-        }
-
-        // WAL 帧中的页数据不含 SALT 头，所以对 pgno=1 的帧也用普通页解密路径
-        // （区别于主数据库第一页需要跳过 SALT 并写入 SQLite 魔数）
-        let dec = decrypt_page(enc_key, &page_buf, if pgno == 1 { 2 } else { pgno })?;
-        let file_offset = (pgno as u64 - 1) * PAGE_SZ as u64;
-        db_file.seek(SeekFrom::Start(file_offset))?;
-        db_file.write_all(&dec)?;
     }
-
-    Ok(())
+    output.file().set_len(pages as u64 * PAGE_SZ as u64)?;
+    let after = wal.metadata()?;
+    let source_after = source.metadata()?;
+    ensure!(
+        before.len() == after.len()
+            && before.modified()? == after.modified()?
+            && source_before.len() == source_after.len()
+            && source_before.modified()? == source_after.modified()?,
+        "应用 WAL 期间输入发生变化，未发布结果"
+    );
+    output.publish()
 }

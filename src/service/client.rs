@@ -1,6 +1,6 @@
 //! Connect-only task client. Never starts a daemon or retries a submitted call.
 use super::{
-    protocol::{Call, Envelope, Reply, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, VERSION},
+    protocol::{Call, Envelope, Reply, MAX_REQUEST_BYTES, VERSION},
     transport::{self, DirectoryGuard, CALL_TIMEOUT},
 };
 use crate::runtime::RuntimeContext;
@@ -173,7 +173,20 @@ pub(crate) async fn connect(runtime: &RuntimeContext) -> Result<NamedPipeClient>
 
 /// A timeout is an ambiguous outcome. Callers must retain their idempotency key.
 pub(crate) async fn request(runtime: &RuntimeContext, call: Call) -> Result<Value> {
-    tokio::time::timeout(CALL_TIMEOUT, async {
+    request_with_timeout(runtime, call, CALL_TIMEOUT).await
+}
+
+pub(crate) async fn request_with_timeout(
+    runtime: &RuntimeContext,
+    call: Call,
+    timeout: std::time::Duration,
+) -> Result<Value> {
+    ensure!(
+        !timeout.is_zero() && timeout <= std::time::Duration::from_secs(90),
+        "Invalid service call deadline"
+    );
+    let max_response_bytes = call.response_limit();
+    tokio::time::timeout(timeout, async {
         let directory = DirectoryGuard::open(&runtime.directory)?;
         let mut pipe = connect(runtime).await?;
         let bytes = transport::read_identity(&directory.path.join("service-token.key"), 64)?;
@@ -181,8 +194,9 @@ pub(crate) async fn request(runtime: &RuntimeContext, call: Call) -> Result<Valu
         let mut envelope = Envelope { version: VERSION, runtime_id: runtime.id.clone(), token: String::from_utf8(bytes.to_vec()).map_err(|_| anyhow::anyhow!("invalid task token encoding"))?, request: call };
         let encoded = transport::encode(&envelope, MAX_REQUEST_BYTES);
         envelope.token.zeroize();
-        transport::write_frame(&mut pipe, &encoded?).await?;
-        let bytes = transport::read_frame(&mut pipe, MAX_RESPONSE_BYTES).await?;
+        let encoded = zeroize::Zeroizing::new(encoded?);
+        transport::write_frame(&mut pipe, &encoded).await?;
+        let bytes = transport::read_frame(&mut pipe, max_response_bytes).await?;
         // Let the server close only after its entire response was consumed.
         tokio::io::AsyncWriteExt::write_all(&mut pipe, &[0]).await?;
         let reply: Reply = serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid task reply"))?;

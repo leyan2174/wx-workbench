@@ -1,3 +1,5 @@
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 #[path = "fixtures/mcp-readonly-runtime/encrypted_sqlite.rs"]
 mod encrypted_sqlite;
 
@@ -85,6 +87,7 @@ fn success(output: Output) -> String {
 #[test]
 fn encrypted_catalog_preview_and_cache_export_are_native_and_preserve_sources() {
     let root = tempfile::tempdir().unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     let snapshots = fixture(root.path());
     let preview = success(run(root.path(), &["--dry-run", "--filter", "example"]));
     assert!(preview.contains(MD5) && preview.contains("Example"));
@@ -110,6 +113,7 @@ fn encrypted_catalog_preview_and_cache_export_are_native_and_preserve_sources() 
 #[test]
 fn unsafe_output_is_rejected_before_creating_nested_database_directory() {
     let root = tempfile::tempdir().unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     let snapshots = fixture(root.path());
     let result = run(root.path(), &["db_storage/export"]);
     assert!(!result.status.success());
@@ -122,6 +126,7 @@ fn unsafe_output_is_rejected_before_creating_nested_database_directory() {
 #[test]
 fn per_item_failure_retains_legacy_success_exit_and_missing_keys_fail() {
     let root = tempfile::tempdir().unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     fixture(root.path());
     assert!(success(run(root.path(), &["out"])).contains("0 成功, 1 失败"));
     assert_eq!(fs::read_dir(root.path().join("out")).unwrap().count(), 0);
@@ -155,6 +160,7 @@ fn encrypted_catalog_downloads_and_publishes_over_loopback_http() {
     };
     let root = tempfile::tempdir().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     listener.set_nonblocking(true).unwrap();
     let url = format!("http://{}/emoji", listener.local_addr().unwrap());
     let snapshots = fixture_with_url(root.path(), &url);
@@ -206,6 +212,7 @@ fn encrypted_catalog_downloads_and_publishes_over_loopback_http() {
 #[test]
 fn run_emoticons_reuses_saved_keys_with_a_synthetic_live_process() {
     let root = tempfile::tempdir().unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     fixture(root.path());
     let config = root.path().join("config.json");
     let mut settings: serde_json::Value =

@@ -19,8 +19,13 @@ fn main() {
         eprintln!("Unable to isolate inherited standard handles: {error}");
         std::process::exit(1);
     }
-    if std::env::var("WX_DAEMON_TASK_WORKER").as_deref() == Ok("1") {
-        if let Err(error) = cli::task_worker::run() {
+    if std::env::var("WX_DAEMON_OPERATION_WORKER").as_deref() == Ok("1") {
+        if let Err(error) = daemon::operation_worker::run() {
+            eprintln!("错误: {error:#}");
+            std::process::exit(1);
+        }
+    } else if std::env::var("WX_DAEMON_TASK_WORKER").as_deref() == Ok("1") {
+        if let Err(error) = daemon::operations::task_worker::run() {
             eprintln!("任务执行失败：{error:#}");
             std::process::exit(1);
         }

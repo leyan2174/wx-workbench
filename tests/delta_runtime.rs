@@ -251,6 +251,9 @@ impl Fixture {
     }
 }
 
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         if self.profile.join("config.json").exists() && self.runtime_root().exists() {
@@ -259,6 +262,7 @@ impl Drop for Fixture {
                 eprintln!("警告：合成账号 daemon 停止失败，检查本次完整错误输出");
             }
         }
+        drop(bootstrap::RuntimeCleanup(self.runtime_root()));
         // TempDir 只清理本测试创建的绝对临时目录，不接触用户账号及安装目录。
     }
 }
@@ -330,12 +334,24 @@ fn manifest_path(output: &Path, run_id: &str) -> PathBuf {
 }
 
 fn tree_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    fn visit(root: &Path, directory: &Path, result: &mut BTreeMap<PathBuf, Vec<u8>>) {
+    tree_snapshot_except(root, &[])
+}
+
+fn tree_snapshot_except(root: &Path, excluded: &[PathBuf]) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(
+        root: &Path,
+        directory: &Path,
+        excluded: &[PathBuf],
+        result: &mut BTreeMap<PathBuf, Vec<u8>>,
+    ) {
         for entry in fs::read_dir(directory).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
+            if excluded.contains(&path) {
+                continue;
+            }
             if entry.file_type().unwrap().is_dir() {
-                visit(root, &path, result);
+                visit(root, &path, excluded, result);
             } else {
                 result.insert(
                     path.strip_prefix(root).unwrap().to_owned(),
@@ -345,7 +361,7 @@ fn tree_snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     let mut result = BTreeMap::new();
-    visit(root, root, &mut result);
+    visit(root, root, excluded, &mut result);
     result
 }
 
@@ -695,7 +711,7 @@ fn append_run_preserves_full_exports_and_previous_runs_byte_for_byte() {
 }
 
 #[test]
-fn append_run_requires_an_existing_root_without_starting_daemon() {
+fn append_run_requires_an_existing_root_without_loading_account_databases() {
     let f = Fixture::encrypted_account();
     let output = f.output("absent-append-root");
     let sources = tree_snapshot(&f.profile);
@@ -707,11 +723,9 @@ fn append_run_requires_an_existing_root_without_starting_daemon() {
     assert!(!stderr.contains("启动当前账号"), "{stderr}");
     assert!(!output.exists());
     assert_eq!(tree_snapshot(&f.profile), sources);
-    if f.runtime_root().exists() {
-        assert!(!tree_snapshot(&f.runtime_root())
-            .keys()
-            .any(|path| path.ends_with("daemon.pid")));
-    }
+    let runtime = f.account_runtime();
+    assert_eq!(fs::read_dir(runtime.join("cache")).unwrap().count(), 0);
+    assert!(!f.runtime_root().join("bootstrap").exists());
 }
 
 #[test]
@@ -727,6 +741,16 @@ fn append_run_rejects_source_decrypted_cache_and_runtime_directories() {
     f.assert_real_daemon_and_decryption();
     let runtime = f.account_runtime();
     assert!(f.run(&["daemon", "stop"]).status.success());
+    let lifecycle: Vec<_> = [
+        "daemon.pid",
+        "daemon.log",
+        "daemon.lock",
+        "startup.lock",
+        "service-token.key",
+    ]
+    .iter()
+    .map(|name| runtime.join(name))
+    .collect();
     let protected = [
         f.profile.join("db_storage"),
         f.profile.join("decrypted"),
@@ -741,7 +765,7 @@ fn append_run_rejects_source_decrypted_cache_and_runtime_directories() {
         )
         .unwrap();
     }
-    let before = tree_snapshot(f.root.path());
+    let before = tree_snapshot_except(f.root.path(), &lifecycle);
     for directory in &protected {
         for output in [directory.clone(), directory.join("existing-output")] {
             let result = f.append_delta(&output, "forbidden-run");
@@ -752,7 +776,7 @@ fn append_run_rejects_source_decrypted_cache_and_runtime_directories() {
             assert!(String::from_utf8_lossy(&result.stderr)
                 .contains("Output must be outside the source directory"));
             assert!(!output.join("deltas").exists());
-            assert_eq!(tree_snapshot(f.root.path()), before);
+            assert_eq!(tree_snapshot_except(f.root.path(), &lifecycle), before);
         }
         let missing = directory.join("missing-output");
         let result = f.delta(
@@ -766,13 +790,13 @@ fn append_run_rejects_source_decrypted_cache_and_runtime_directories() {
         assert!(String::from_utf8_lossy(&result.stderr)
             .contains("Output must be outside the source directory"));
         assert!(!missing.exists());
-        assert_eq!(tree_snapshot(f.root.path()), before);
+        assert_eq!(tree_snapshot_except(f.root.path(), &lifecycle), before);
     }
     for output in [
         f.profile.join("all_keys.json"),
         f.profile.join("config.json"),
     ] {
         assert!(!f.append_delta(&output, "forbidden-run").status.success());
-        assert_eq!(tree_snapshot(f.root.path()), before);
+        assert_eq!(tree_snapshot_except(f.root.path(), &lifecycle), before);
     }
 }

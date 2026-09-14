@@ -35,11 +35,6 @@ _DEFAULT = {
     "decrypted_dir": "decrypted",
     "decoded_image_dir": "decoded_images",
     "wechat_process": _DEFAULT_PROCESS,
-    "wxwork_db_dir": "",
-    "wxwork_keys_file": "wxwork_keys.json",
-    "wxwork_decrypted_dir": "wxwork_decrypted",
-    "wxwork_export_dir": "wxwork_export",
-    "wxwork_process": "WXWork.exe",
     # 语音转录后端: "local" (默认, 本地 Whisper) 或 "openai" (OpenAI API)
     # 切到 openai 时语音将上传至 OpenAI 服务器, 详见 README "语音转录隐私" 章节
     "transcription_backend": "local",
@@ -161,7 +156,6 @@ def load_config():
     base = _app_base_dir()
     for key in (
         "keys_file", "decrypted_dir", "decoded_image_dir",
-        "wxwork_keys_file", "wxwork_decrypted_dir", "wxwork_export_dir",
     ):
         if key in cfg and cfg[key] and not os.path.isabs(cfg[key]):
             cfg[key] = os.path.join(base, cfg[key])

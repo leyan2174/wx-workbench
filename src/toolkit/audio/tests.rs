@@ -1,9 +1,16 @@
 use super::*;
 
-fn fixtures() -> PathBuf {
+pub(super) fn fixtures() -> PathBuf {
     std::env::var_os("WX_AUDIO_FIXTURES")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio"))
+        .unwrap_or_else(|| {
+            // 同一源码也由 tests/fixtures 下的独立清单编译，不能假定清单就在仓库根。
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .ancestors()
+                .map(|root| root.join("tests/fixtures/audio"))
+                .find(|path| path.join("tone.silk").is_file())
+                .expect("找不到仓库合成音频样本目录")
+        })
 }
 
 fn packet(payload: &[u8]) -> Vec<u8> {

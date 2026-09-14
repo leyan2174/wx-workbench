@@ -411,7 +411,7 @@ fn search_range(
     budget.check()?;
     let mut digits = [0; 10];
     for high in range {
-        if budget.candidates_tested % 1024 == 0 {
+        if budget.candidates_tested.is_multiple_of(1024) {
             budget.check()?;
         }
         budget.candidates_tested += 1;

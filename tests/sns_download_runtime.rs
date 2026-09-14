@@ -1,5 +1,7 @@
 //! 原生 SNS 下载 CLI 契约：仅 loopback 和合成数据库，不验证旧 alias 迁移。
 use base64::Engine;
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
@@ -169,13 +171,19 @@ impl Fixture {
             fs::read(self.path("ambient.json")).unwrap(),
             b"invalid ambient config"
         );
-        assert!(!self.path("runtime").exists(), "不得加载账号或启动 daemon");
+        bootstrap::assert_only_bootstrap(&self.path("runtime"));
         assert_eq!(
             fs::read(self.path("source/sns.db")).unwrap(),
             self.original_db
         );
         assert_eq!(fs::read_dir(self.path("source")).unwrap().count(), 1);
         result
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(bootstrap::BootstrapCleanup(self.path("runtime")));
     }
 }
 

@@ -75,9 +75,12 @@ impl RequestAccumulator {
             ("write", timing.write_ms),
             ("wait_read", timing.wait_read_ms),
             ("parse", timing.parse_ms),
-            ("total", timing.total_ms),
+            ("authenticated_roundtrip", timing.authenticated_roundtrip_ms),
+            ("total", Some(timing.total_ms)),
         ] {
-            self.phases.entry(name).or_default().observe(value);
+            if let Some(value) = value {
+                self.phases.entry(name).or_default().observe(value);
+            }
         }
         if self.recent_total.len() == RECENT_CAPACITY {
             self.recent_total.pop_front();
@@ -118,7 +121,7 @@ impl RequestAccumulator {
             if recent.is_empty() {
                 return None;
             }
-            let rank = (recent.len() * percent + 99) / 100;
+            let rank = (recent.len() * percent).div_ceil(100);
             recent.get(rank.saturating_sub(1)).copied()
         };
         RequestStatistics {

@@ -1,10 +1,10 @@
-# wx-cli Agent Rules
+# wx-cli 协作规则
 
-This fork targets Windows x64 MSVC only.
+本仓库只面向 Windows x64 MSVC。
 
-- After Rust changes, run `cargo check`; never commit failing Rust code.
-- Before delivery, run `cargo check --target x86_64-pc-windows-msvc` and `cargo test`.
-- When changing the package version, run `cargo update --workspace`.
-- Preserve account isolation; never commit keys, private data or decrypted caches.
-- After each commit, push to the configured `origin` remote.
-- Do not restore removed platform code or release targets without a user request.
+- 修改 Rust 后运行 cargo check，不提交检查失败的 Rust 代码。
+- 交付前运行 cargo check --target x86_64-pc-windows-msvc 和 cargo test。
+- 修改包版本时运行 cargo update --workspace。
+- 保持账号隔离；不提交密钥、私人数据或解密缓存。
+- 每次提交后推送到已配置的 origin 远端。
+- 未经用户要求，不恢复已移除的平台代码或发布目标。

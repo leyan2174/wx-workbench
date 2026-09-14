@@ -1,8 +1,7 @@
 # 原生引用回复解码
 
-实现位于 `src/daemon/query/mcp_refer.rs`。本工作流不修改 query、IPC、server 或 MCP 注册。
+实现位于 `src/daemon/query/mcp_refer.rs`，由 daemon 查询层调用。
 
-> 2026-09-07 文档核对：上述句子描述初次交付的写入范围。当前 `query.rs` 已注册并导出 `q_decode_refer`，不需要再次补接线。主仓定向入口为 `cargo test --bin wx daemon::query::mcp_refer -- --nocapture`。下方 oracle/临时副本说明保留，本次未执行，也不重建 golden 或覆盖旧日志。
 
 ## API
 
@@ -47,18 +46,12 @@ pub async fn q_decode_refer(
 - app type 沿用原生格式器的 ASCII 十进制子集，含符号和合法下划线，不接受全部 Python Unicode 数字语法。
 - 引用时间保留字符串；可表示的 i64 时间按本地时区渲染，畸形或越界值仍保留在结构化字段中。
 
-## 复现
+## 测试
+
+按[测试说明](../../README.md)准备依赖，从仓库根目录运行：
 
 ```powershell
-python tests/fixtures/mcp-refer/oracle.py
-python tests/fixtures/mcp-refer/oracle.py --test-rust
+cargo test --bin wx daemon::query::mcp_refer -- --nocapture
 ```
 
-AST oracle 只抽取旧纯函数及 `decode_refer`，使用临时合成 SQLite 与身份，
-不导入 MCP 模块，不访问真实账号。`--write` 可重建 golden；现有 30 个对照用例保持不变。
-
-Rust runner 把 src、tests、Cargo 文件和编译期 WASM 资源复制到临时目录，只在副本中
-补充尚不存在的模块注册。它直接编译共享 XML/摘要接口以及真实 `DbCache`，复用构建缓存，
-不修改工作树注册文件。测试通过受控调度在 SQLite 读取后、结果恢复前加入新分片，无 sleep 竞态。
-
-完整日志：`C:/CodexLocal/日志/mcp-refer-check.log` 和 `mcp-refer-test.log`。
+oracle.py 使用 AST 提取参考纯函数和 decode_refer，只访问临时合成 SQLite，不导入旧 MCP 服务。`--write` 会重建 golden，普通回归不需要执行。测试用受控调度在查询后注入新分片，检查前后清单一致性；源字节不变和歧义拒绝见[安全回归](../mcp-readonly-security/README.md)。

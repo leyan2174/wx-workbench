@@ -50,7 +50,7 @@ def main():
     tracked = subprocess.check_output(['git', 'ls-files', '-z', 'vendor/wechat-decrypt'],
                                      cwd=root).decode('utf-8').split('\0')
     files = [p for p in tracked if p and Path(p).suffix in {'.py', '.js'}
-             and 'tests' not in Path(p).parts]
+             and 'tests' not in Path(p).parts and (root / p).is_file()]
     modules = [describe(root / p, p) for p in sorted(files)]
     output = root / 'docs' / 'legacy-capability-inventory.json'
     payload = {'schema_version': 1, 'scope': '全部受版本控制的 wechat-decrypt Python/JavaScript 生产源码',

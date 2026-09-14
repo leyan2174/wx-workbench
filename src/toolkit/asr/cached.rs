@@ -70,11 +70,13 @@ pub fn transcribe_cached_with_receipt_checked(
     })
 }
 
+type BeforeStore<'a> = &'a mut dyn FnMut(&Transcription) -> Result<()>;
+
 fn transcribe(
     request: &CachedRequest<'_>,
     backend: &Backend,
     evidence: Option<&VoiceEvidence>,
-    mut before_store: Option<&mut dyn FnMut(&Transcription) -> Result<()>>,
+    mut before_store: Option<BeforeStore<'_>>,
 ) -> Result<(CachedOutcome, Option<ReceiptState>)> {
     // 授权必须早于音频、模型与缓存访问；不得因已有云端结果绕过授权。
     backend.check_authorization()?;
@@ -196,8 +198,11 @@ pub(super) fn identity(
         Backend::LegacyPythonLocal(config) => {
             let engine = config.cache_identity()?;
             let options = serde_json::to_string(&("cached-byte-pipeline-v1", create_time))?;
-            Ok((ConfigIdentity::new("legacy-python-local", &engine, "engine-defined", &options)?,
-                Vec::new(), None))
+            Ok((
+                ConfigIdentity::new("legacy-python-local", &engine, "engine-defined", &options)?,
+                Vec::new(),
+                None,
+            ))
         }
         Backend::Local(config) => {
             if let Some(root) = &config.temp_root {

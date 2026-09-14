@@ -28,7 +28,10 @@ impl ConfigIdentity {
         options_identity: &str,
     ) -> Result<Self> {
         ensure!(
-            matches!(backend, "local" | "whisper_cpp" | "openai" | "legacy-python-local"),
+            matches!(
+                backend,
+                "local" | "whisper_cpp" | "openai" | "legacy-python-local"
+            ),
             "unsupported cache backend"
         );
         ensure!(

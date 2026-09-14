@@ -1,8 +1,7 @@
 # MCP 联系人标签查询
 
-生产实现：`src/daemon/query/mcp_contacts.rs`。初次独立交付没有修改公共注册、IPC、MCP 协议或 ASR；当前模块、daemon 的 ContactTags/TagMembers 分支及 MCP 工具均已接线。
+生产实现为 `src/daemon/query/mcp_contacts.rs`，由 daemon 的 ContactTags/TagMembers 分支及 MCP 工具调用。
 
-> 2026-09-07 文档核对：本目录的独立 Cargo harness 早已撤除，本次清理的是遗留 `target/` 生成物，不是 `tests.rs`、oracle 或历史日志。下面的主仓命令是现行入口；本次只更新文档，没有新增测试运行结果。
 
 ## 接线接口
 
@@ -17,7 +16,7 @@
 
 旧实现会把数据库故障吞成空标签；本实现明确报错。异常 NULL/非文本名称、非整数排序值等不兼容 schema 明确失败，不伪造结果。数值 ID 保留 Python 数值相等语义，文本 ID 不与数字混同。protobuf 保留旧切片截断行为，并有机器整数溢出保护。
 
-直接复用 `crate::toolkit::contact_metadata::{parse_label_id, sqlite_id_equal, extract_field_30}`，分别命名为 label_id、id_equal、field_30。本文件不再保留重复解析器，也不修改共享实现本体。
+直接复用 `crate::toolkit::contact_metadata::{parse_label_id, sqlite_id_equal, extract_field_30}`，分别命名为 label_id、id_equal、field_30。不在查询模块另写解析器。
 
 ## 资源上限
 
@@ -30,6 +29,8 @@
 
 ## 验证边界
 
-生产模块通过 cfg(test) 引用本目录 tests.rs，全部测试直接由主仓编译。已移除独立 Cargo harness 与缓存替身；使用真实 DbCache::with_dirs 注入合成缓存命中，同时核验反斜杠键、账号边界和坏密钥前的查询校验。此处不覆盖完整加解密或主仓 IPC 接线。
+生产模块通过 cfg(test) 引用本目录 tests.rs，全部测试直接由主仓编译。本目录没有独立 Cargo manifest；使用真实 DbCache::with_dirs 注入合成缓存命中，同时核验反斜杠键、账号边界和坏密钥前的查询校验。此处不覆盖完整加解密或主仓 IPC 接线。
 
 oracle 只从旧源码 AST 提取两个标签 helper，不启动旧服务、不访问真实账号或网络。设置 CONTACTS_ORACLE_PYTHON 可选择本机 Python；生产代码无需 Python、新 Rust 依赖或配置读取。主仓运行 `cargo test --bin wx daemon::query::mcp_contacts::tests`，保留旧差分测试与各限额边界测试。
+
+运行环境及输出约定见[测试说明](../../README.md)。

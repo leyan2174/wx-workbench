@@ -66,9 +66,8 @@ pub async fn q_decode_image_with_key_file(
         chat,
         local_id,
         create_time,
-        output_root,
         V2KeyMaterial {
-            aes_key: (&*keys.aes).as_ref(),
+            aes_key: (*keys.aes).as_ref(),
             xor_key: *keys.xor,
         },
         guard,
@@ -150,17 +149,7 @@ pub async fn q_decode_image(
     key: V2KeyMaterial<'_>,
 ) -> Result<Value> {
     let guard = native_image::HostOutputGuard::new(output_root)?;
-    q_decode_image_guarded(
-        db,
-        names,
-        chat,
-        local_id,
-        create_time,
-        output_root,
-        key,
-        guard,
-    )
-    .await
+    q_decode_image_guarded(db, names, chat, local_id, create_time, key, guard).await
 }
 
 async fn q_decode_image_guarded(
@@ -169,7 +158,6 @@ async fn q_decode_image_guarded(
     chat: &str,
     local_id: i64,
     create_time: i64,
-    output_root: &Path,
     key: V2KeyMaterial<'_>,
     guard: native_image::HostOutputGuard,
 ) -> Result<Value> {
@@ -214,7 +202,7 @@ async fn q_decode_image_guarded(
         .get(raw_key)
         .await?
         .context("current account resource database unavailable")?;
-    let output_root = output_root.to_path_buf();
+    let output_root = guard.output_root().to_path_buf();
     let message_keys = names.msg_db_keys.clone();
     let raw_key = raw_key.clone();
     // 密钥只为阻塞任务临时复制，并在任务结束时清零；不序列化或记录密钥。
@@ -222,10 +210,11 @@ async fn q_decode_image_guarded(
     let xor_key = key.xor_key;
     tokio::task::spawn_blocking(move || -> Result<Value> {
         before.verify(&db_dir, &message_keys, &raw_key)?;
+        let snapshot = crate::daemon::cache::ResourceSnapshot::new(&resource_db)?;
         let result = native_image::export_image_with_guard(
             ImageRequest {
                 message: &identity,
-                resource_db: &resource_db,
+                resource_db: &snapshot.path(),
                 attach_root: &attach_root,
                 output_root: &output_root,
                 key: V2KeyMaterial {

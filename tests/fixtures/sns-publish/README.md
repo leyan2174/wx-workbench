@@ -1,32 +1,26 @@
-# SNS Publish Harness
+# SNS 发布测试
 
-> Documentation check, 2026-09-07: `sns/mod.rs` already registers `publish`, and
-> production timeline/album exports use it. The standalone harness remains;
-> this document update did not run tests. Run results belong to their recorded
-> source snapshot, not to this cleanup.
+生产时间线和相册共用 publish 模块及 HostOutputGuard。夹具只使用 Windows 临时合成文件，不发现账号、不读取真实数据库或下载媒体。
 
-Windows-only, synthetic temporary files; no account discovery, database reads, or network media.
-Imports the actual new publisher and existing HostOutputGuard without changing the main module tree.
+## 调用契约
+
+绑定信息必须来自调用方固定的账号和数据库上下文；source ID 原样比较，不构成来源认证。prepare 应接收所有候选相对文件，包括可选扩展名和 sidecar。
+
+根文件使用空相对路径的 guard；图片和视频分别使用 images、videos guard。计划文件的父目录按需创建，相册即使没有媒体任务也准备两个空媒体目录；目录深度和子目录数量受预算限制。
+
+下载暂存位于输出树之外。publish_all 在替换前检查所有源与目标，按调用方顺序提交。错误报告已提交文件数，之前的文件不回滚，后面的汇总文件不发布。
+
+绑定清单是所有权声明，不是完成凭据。显式认领旧目录后，legacy_unverified 在后续更新仍保留。未知文件和子树不递归扫描、删除或宣称已验证。持久锁文件不删除，Windows 独占写句柄随释放或进程退出而解锁。
+
+该机制协调合作写者，不提供对抗性 compare-and-swap 或跨文件崩溃事务。
+
+## 运行
+
+按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-cargo check --manifest-path tests/fixtures/sns-publish/Cargo.toml --target x86_64-pc-windows-msvc
+cargo test --bin wx toolkit::sns::publish::tests -- --nocapture
 cargo test --manifest-path tests/fixtures/sns-publish/Cargo.toml --target x86_64-pc-windows-msvc publish::tests -- --nocapture
 ```
 
-For the registered module, run `cargo test --bin wx toolkit::sns::publish::tests -- --nocapture`
-from the repository root. No additional module registration is needed. Bindings must come
-from the caller's account/database context; source IDs are compared verbatim, not authenticated.
-Pass all candidate relative files to `prepare`, including optional media extensions and sidecars.
-Use `guard(Path::new(""))` for root files, and `guard(Path::new("images"))` / `videos` for reuse.
-Parents of planned files are created; `tree_kind = "album"` also always prepares empty `images`
-and `videos` directories, even without media jobs. Parent depth is bounded, with at most 128 subdirectories.
-Stage downloads outside the output tree. `publish_all` checks every source and target before
-replacing anything and preserves caller ordering. An error states the number of committed files;
-earlier files are not rolled back, later summary files are not published.
-
-The binding manifest is an ownership declaration, not a completion receipt. Explicit legacy
-adoption keeps `legacy_unverified` true on subsequent updates. Unknown files and subtrees are
-not recursively scanned, removed, or claimed as verified. The persistent lock file is intentionally
-not deleted; the exclusive Windows write handle releases automatically on drop/process exit.
-This excludes cooperating writers; final path checks and atomic replacement are not an adversarial
-cross-process compare-and-swap or a multi-file crash transaction.
+合成发布测试不代替整个相册业务或实际媒体内容验证。

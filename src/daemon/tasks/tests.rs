@@ -59,7 +59,7 @@ async fn missing_query_keys_do_not_block_task_configuration_or_rejected_consent(
         "not_configured"
     );
     configure(&service).await;
-    for kind in [Kind::WechatKeys, Kind::ImageKey, Kind::WxworkScan] {
+    for kind in [Kind::WechatKeys, Kind::ImageKey] {
         assert_eq!(
             service
                 .dispatch(submission(2, kind))
@@ -72,6 +72,75 @@ async fn missing_query_keys_do_not_block_task_configuration_or_rejected_consent(
     assert!(service.records.lock().unwrap().tasks.is_empty());
     assert!(!runtime.config.keys_file.exists());
     assert!(!runtime.config.decrypted_dir.exists());
+}
+
+#[tokio::test]
+async fn retired_tasks_are_archived_without_losing_personal_history_or_outputs() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path(), "migration");
+    let (first, queue) = service(&runtime);
+    configure(&first).await;
+    first
+        .dispatch(submission(1, Kind::WechatDecrypt))
+        .await
+        .unwrap();
+    drop(queue);
+    drop(first);
+    let journal_path = runtime.directory.join("tasks-history.json");
+    let mut journal: Value = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+    journal["tasks"][0]["options"]["all_conversations"] = json!(false);
+    let mut retired = journal["tasks"][0].clone();
+    let retired_id = format!("{:064x}", 2);
+    retired["id"] = json!(retired_id);
+    retired["kind"] = json!("wxwork_export");
+    retired["options"]["all_conversations"] = json!(true);
+    let old_output = runtime
+        .root
+        .join("web-output")
+        .join(&runtime.id)
+        .join(&retired_id);
+    fs::create_dir_all(&old_output).unwrap();
+    fs::write(old_output.join("keep.txt"), b"synthetic prior output").unwrap();
+    retired["output_dir"] = json!(old_output);
+    journal["tasks"].as_array_mut().unwrap().push(retired);
+    journal["requests"][&retired_id] = json!("b".repeat(64));
+    let original = serde_json::to_vec(&journal).unwrap();
+    fs::write(&journal_path, &original).unwrap();
+    let (restored, mut queue) = service(&runtime);
+    let list = restored.dispatch(Call::List {}).await.unwrap();
+    assert_eq!(list["tasks"].as_array().unwrap().len(), 1);
+    assert_eq!(list["tasks"][0]["status"], "interrupted");
+    assert!(list["tasks"][0]["options"]
+        .get("all_conversations")
+        .is_none());
+    assert!(matches!(
+        queue.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        fs::read(old_output.join("keep.txt")).unwrap(),
+        b"synthetic prior output"
+    );
+    let archive = runtime.directory.join(format!(
+        "tasks-history-retired-{:x}.json",
+        Sha256::digest(&original)
+    ));
+    assert_eq!(fs::read(&archive).unwrap(), original);
+    crate::toolkit::private_file::assert_private_acl(&archive);
+    let current: Value = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
+    assert_eq!(current["requests"].as_object().unwrap().len(), 1);
+    configure(&restored).await;
+    assert_eq!(
+        restored
+            .dispatch(submission(1, Kind::WechatDecrypt))
+            .await
+            .unwrap()["status"],
+        "interrupted"
+    );
+    drop(queue);
+    drop(restored);
+    let (_again, _queue) = service(&runtime);
+    assert_eq!(fs::read(&archive).unwrap(), original);
 }
 
 #[tokio::test]
@@ -167,8 +236,9 @@ async fn settings_and_configuration_changes_never_mutate_a_queued_task() {
         .dispatch(submission(1, Kind::WechatDecrypt))
         .await
         .unwrap();
-    let mut input = SettingsInput::default();
-    input.enterprise_discovery_root = Some(root.path().to_owned());
+    let input = SettingsInput {
+        image_cache_dir: Some(root.path().to_owned()),
+    };
     assert_eq!(
         service
             .dispatch(Call::Configure { settings: input })

@@ -1,9 +1,13 @@
 #[path = "../../../src/toolkit/audio/mod.rs"]
 pub mod audio;
+#[path = "../../../src/toolkit/legacy.rs"]
+#[allow(dead_code)]
+pub mod legacy;
 #[path = "../../../src/toolkit/asr/mod.rs"]
 pub mod toolkit_asr;
 pub mod toolkit {
     pub use super::audio;
+    pub use super::legacy;
     pub use super::toolkit_asr as asr;
 }
 #[path = "../../../src/attachment/local_files.rs"]
@@ -20,13 +24,33 @@ pub mod ipc;
 #[allow(unfulfilled_lint_expectations)] // 生产二进制私有入口在此作为公开测试 API 引用。
 pub mod protocol;
 #[path = "../../../src/runtime.rs"]
+#[allow(dead_code)]
 pub mod runtime;
 pub mod mcp {
     pub use crate::protocol;
 }
-#[path = "../../../src/cli/asr.rs"]
+#[path = "../../../src/daemon/operations/asr.rs"]
 pub mod cli_asr;
-#[path = "../../../src/cli/mcp_voice.rs"]
-pub mod mcp_voice;
-// mcp_voice 使用与生产 cli 相同的相邻模块名称。
+#[path = "../../../src/crypto/mod.rs"]
+pub mod crypto;
+#[path = "../../../src/daemon/cache.rs"]
+#[allow(dead_code, unused_imports)] // 独立 voice 宿主不使用图片资源快照等缓存入口；生产根使用该导出，缓存测试仍保留。
+pub mod db_cache;
+#[path = "../../../src/daemon/mcp_service.rs"]
+pub mod mcp_service;
+pub mod daemon {
+    pub use crate::db_cache as cache;
+    pub use crate::mcp_service;
+    pub mod operations {
+        pub use crate::cli_asr as asr;
+    }
+}
+pub mod cli {
+    pub use crate::cli_asr as asr;
+}
 pub use cli_asr as asr;
+pub use mcp_service::voice as mcp_voice;
+
+pub fn fixture_runtime(config: &std::path::Path, home: &std::path::Path) -> anyhow::Result<runtime::RuntimeContext> {
+    runtime::RuntimeContext::from_config(config.to_owned(), config::load_config_at(config)?, home.to_owned())
+}

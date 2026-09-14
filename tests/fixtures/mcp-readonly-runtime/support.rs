@@ -1,7 +1,12 @@
 //! 真实进程与合成账号，不包含或替代生产 query/protocol。
 pub mod attachments;
-mod encrypted_sqlite;
+pub(crate) mod encrypted_sqlite;
 pub mod history;
+#[path = "../../../src/toolkit/private_file.rs"]
+#[allow(dead_code)]
+mod private_file;
+#[path = "../../support/bootstrap.rs"]
+mod runtime_cleanup;
 use encrypted_sqlite::{encrypt, sqlite};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -149,6 +154,7 @@ impl Account {
             cmd.get_envs().collect::<Vec<_>>()
         );
         self.daemon = Some(cmd.spawn().unwrap());
+        self.register_daemon_identity();
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
             if let Ok(pong) = self.ipc(json!({"cmd":"ping"})) {
@@ -162,6 +168,45 @@ impl Account {
             assert!(Instant::now() < deadline, "daemon 未及时就绪");
             thread::sleep(Duration::from_millis(30));
         }
+    }
+
+    fn register_daemon_identity(&self) {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::{
+            Foundation::{FILETIME, HANDLE},
+            System::Threading::GetProcessTimes,
+        };
+        let child = self.daemon.as_ref().unwrap();
+        let mut created = FILETIME::default();
+        let mut exit = FILETIME::default();
+        let mut kernel = FILETIME::default();
+        let mut user = FILETIME::default();
+        unsafe {
+            GetProcessTimes(
+                HANDLE(child.as_raw_handle()),
+                &mut created,
+                &mut exit,
+                &mut kernel,
+                &mut user,
+            )
+            .unwrap();
+        }
+        let runtime_id = self.pipe.strip_prefix("wx-cli-v2-").unwrap();
+        let directory = self.home.join("accounts").join(runtime_id);
+        fs::create_dir_all(&directory).unwrap();
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(directory.join("daemon.pid"))
+            .unwrap();
+        private_file::restrict(&file).unwrap();
+        let record = json!({"pid":child.id(), "exe":env!("CARGO_BIN_EXE_wx"),
+            "created":(u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime),
+            "runtime_id":runtime_id});
+        file.write_all(&serde_json::to_vec(&record).unwrap())
+            .unwrap();
+        file.sync_all().unwrap();
     }
 
     pub fn ipc(&self, request: Value) -> Result<Value, String> {
@@ -284,6 +329,7 @@ impl Account {
 
 impl Drop for Account {
     fn drop(&mut self) {
+        drop(runtime_cleanup::RuntimeCleanup(self.home.clone()));
         self.stop();
     }
 }

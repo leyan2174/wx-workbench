@@ -1,7 +1,7 @@
 //! 沿用 legacy 的 DB/WAL mtime 变化观测，但不自行解密或修改 SQLite/WAL。
 //! IPC 与后台实际解密/固定只读查询分别用单调时钟计时；不能据此证明网络延迟或消息因果链。
-use super::statistics::Statistics;
 pub use super::statistics::RequestStatistics;
+use super::statistics::Statistics;
 use super::{
     event, metadata_allows_progress, millis, state, stop_reason, transport,
     validate_request_limits, wait_interval, Cancellation, Event, FixedRuntimeContext,

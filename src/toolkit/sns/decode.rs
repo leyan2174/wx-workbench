@@ -131,7 +131,7 @@ pub fn decode_content(value: Content<'_>) -> Result<String> {
             } else {
                 let compact: String = value.chars().filter(|c| !c.is_whitespace()).collect();
                 if compact.len() >= 16
-                    && compact.len() % 2 == 0
+                    && compact.len().is_multiple_of(2)
                     && compact.bytes().all(|c| c.is_ascii_hexdigit())
                 {
                     let bytes: Vec<u8> = compact
@@ -141,7 +141,7 @@ pub fn decode_content(value: Content<'_>) -> Result<String> {
                         .collect();
                     return decode_content(Content::Blob(&bytes));
                 }
-                if compact.len() >= 24 && compact.len() % 4 == 0 {
+                if compact.len() >= 24 && compact.len().is_multiple_of(4) {
                     if let Ok(bytes) = STANDARD.decode(&compact) {
                         return decode_content(Content::Blob(&bytes));
                     }

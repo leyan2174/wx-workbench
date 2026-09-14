@@ -67,7 +67,7 @@ pbkdf2 = "0.12"
 zeroize = "1"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
 ''', encoding="utf-8")
-        env = dict(os.environ, LIBCLANG_PATH=r"C:\CodexLocal\build-tools\libclang\clang\native")
+        env = os.environ.copy()
         for command in ("check", "test"):
             args = ["cargo", command, "--manifest-path", str(root / "Cargo.toml"), "--target", "x86_64-pc-windows-msvc", "--offline"]
             if command == "test":

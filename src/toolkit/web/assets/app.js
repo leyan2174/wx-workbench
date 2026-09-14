@@ -75,7 +75,7 @@ SOFTWARE.
     history.replaceState(null, '', location.pathname + location.search);
   }
   storage.set('wx.web.token', token);
-  const model = { state: {}, contacts: [], sessions: [], tags: [], tagCache: new Map(), tagMembership: new Map(), tagBusy: false, tagError: '', tagSeq: 0, tasks: [], messages: [], selected: null, contactChoice: null, source: 'wechat', view: 'sessions', offset: 0, total: null, hasMore: false, detailId: null, detail: null, online: false, live: true, epoch: 0, historySeq: 0, tasksSeq: 0, detailSeq: 0, directoryError: {}, connectedOnce: false };
+  const model = { state: {}, contacts: [], sessions: [], tags: [], tagCache: new Map(), tagMembership: new Map(), tagBusy: false, tagError: '', tagSeq: 0, tasks: [], messages: [], selected: null, source: 'wechat', view: 'sessions', offset: 0, total: null, hasMore: false, detailId: null, detail: null, online: false, live: true, epoch: 0, historySeq: 0, tasksSeq: 0, detailSeq: 0, directoryError: {}, connectedOnce: false };
   let historyController, directoryController, streamController, streamTimer, pollTimer, refreshTimer, streamGeneration = 0, refreshPending = false, refreshQueued = false, taskEventsPending = false, dataEventsPending = false;
   let imageListController, imageController, imageUrl, imageOffset = 0, imageGeneration = 0;
   let capabilitiesDirty = false, directoriesDirty = false, directoryRevision = 0, directorySeq = 0;
@@ -83,6 +83,7 @@ SOFTWARE.
   const notificationWatermarks = new Map(), openNotifications = new Set();
   const inlineImages = new Map(), inlineQueue = [];
   let inlineActive = 0, inlineGeneration = 0, inlineBytes = 0;
+  let inlineRetryAt = 0, inlinePumpTimer;
   const monitorWarning = el('p', $('history-error').className); monitorWarning.id = 'monitor-warning'; monitorWarning.hidden = true;
   monitorWarning.setAttribute('role', 'status'); $('history-error').after(monitorWarning);
   const activeStates = new Set(['queued', 'pending', 'running', 'cancelling', 'cancel_requested']);
@@ -94,11 +95,6 @@ SOFTWARE.
     { kind: 'export_all', name: '导出聊天', group: '个人微信', icon: 'download', export: true },
     { kind: 'decode_images', name: '批量解密图片', group: '个人微信', icon: 'play' },
     { kind: 'sns_decrypt', name: '朋友圈解密与导出', group: '朋友圈', icon: 'download', users: true },
-    { kind: 'wxwork_decrypt', name: '企业微信解密', group: '企业微信', icon: 'play' },
-    { kind: 'wxwork_discover', name: '发现企业微信账号', group: '企业微信', icon: 'search' },
-    { kind: 'wxwork_export', name: '企业微信导出', group: '企业微信', icon: 'download', export: true, source: 'wxwork' },
-    { kind: 'wxwork_scan', name: '企业微信密钥扫描', group: '企业微信', icon: 'search' },
-    { kind: 'wxwork_run', name: '企业微信提取与导出', group: '企业微信', icon: 'play', source: 'wxwork', export: true },
     { kind: 'voice_mp3', name: '语音转 MP3', group: '媒体', icon: 'play', users: true }
   ];
   let availableTasks = catalog, taskSpec = null, formReaders = [], selection = new Set(), submitting = false, formGeneration = 0;
@@ -348,8 +344,8 @@ SOFTWARE.
     return [...new Set([...direct, ...linked])];
   }
   function personType(item) {
-    const id = username(item), type = String(item.type || '');
-    return id.endsWith('@chatroom') || ['group', '群', '群聊'].includes(type) ? 'group' : id.startsWith('gh_') || ['public', '公众号'].includes(type) ? 'public' : 'direct';
+    const id = username(item), type = String(item.chat_type || item.type || '');
+    return id.endsWith('@chatroom') || ['group', '群', '群聊'].includes(type) ? 'group' : id.startsWith('gh_') || ['official_account', 'public', '公众号'].includes(type) ? 'public' : 'direct';
   }
   function mergedPeople() {
     if (model.view === 'contacts') return model.contacts;
@@ -418,33 +414,18 @@ SOFTWARE.
     target.append(fragment);
   }
   function selectPerson(item) {
-    if (model.source === 'wxwork' && item.contact_id !== undefined) {
-      const conversations = Array.isArray(item.conversations) ? item.conversations : [];
-      if (conversations.length === 1) { selectPerson(conversations[0]); return; }
-      clearSelected();
-      model.contactChoice = item;
-      $('chat-title').textContent = displayName(item); $('chat-subtitle').textContent = username(item);
-      document.body.classList.add('chat-open');
-      empty($('messages'), conversations.length ? '请选择会话' : '未找到该联系人的已有单聊会话');
-      // 多个真实会话必须由用户选择，不能凭姓名或联系人数字 ID 猜测。
-      for (const conversation of conversations) {
-        $('messages').append(button(`${displayName(conversation)} (${username(conversation)})`, () => selectPerson(conversation), 'person'));
-      }
-      return;
-    }
     closeImages();
     if (username(model.selected || {}) !== username(item)) resetInlineImages();
-    model.contactChoice = null;
     model.selected = item; model.offset = 0; model.messages = []; model.total = null;
     $('chat-title').textContent = displayName(item); $('chat-subtitle').textContent = [username(item), ...tagNames(item)].join(' · ');
-    $('export-chat').disabled = !model.online || !availableTasks.some((x) => x.kind === (model.source === 'wxwork' ? 'wxwork_export' : 'export_all') && x.enabled !== false); $('refresh-history').disabled = false;
+    $('export-chat').disabled = !model.online || !availableTasks.some((x) => x.kind === 'export_all' && x.enabled !== false); $('refresh-history').disabled = false;
     document.body.classList.add('chat-open'); $('sidebar').classList.remove('open'); $('sidebar-toggle').setAttribute('aria-expanded', 'false');
     updateImageButton();
     renderDirectory(); loadHistory();
   }
   function clearSelected() {
     closeImages(); resetInlineImages(); historyController?.abort(); ++model.historySeq;
-    model.selected = null; model.contactChoice = null; model.offset = 0; model.messages = []; model.total = null; model.hasMore = false;
+    model.selected = null; model.offset = 0; model.messages = []; model.total = null; model.hasMore = false;
     $('chat-title').textContent = '消息记录'; $('chat-subtitle').textContent = '未选择会话';
     $('export-chat').disabled = true; $('refresh-history').disabled = true;
     $('messages').setAttribute('aria-busy', 'false'); notice('history-error');
@@ -527,6 +508,7 @@ SOFTWARE.
   }
   function resetInlineImages() {
     ++inlineGeneration; inlineQueue.length = 0;
+    clearTimeout(inlinePumpTimer); inlineRetryAt = 0;
     for (const entry of inlineImages.values()) releaseInline(entry); inlineImages.clear(); inlineBytes = 0;
     if ($('inline-image-dialog')?.open) $('inline-image-dialog').close();
   }
@@ -563,21 +545,30 @@ SOFTWARE.
       entry.blobUrl = URL.createObjectURL(blob); entry.bytes = blob.size; inlineBytes += blob.size; entry.status = 'ready'; paintInline(entry);
     } catch (error) {
       if (!validInline(entry) || error.name === 'AbortError') return;
-      if (entry.attempts < 3 && [429, 503].includes(error.status)) {
-        entry.retryTimer = setTimeout(() => { if (validInline(entry)) { inlineQueue.push(entry); pumpInline(); } }, 1000 * entry.attempts);
+      const retryLimit = error.status === 429 ? 6 : 3;
+      // 已完成但失败的解码交给用户重试；缺密钥等条件不变时，自动重试只会阻塞整页队列。
+      if (entry.attempts < retryLimit && [429, 503].includes(error.status) && error.code !== 'decode_failed') {
+        const delay = Math.min(8000, 1000 * (2 ** (entry.attempts - 1)));
+        // 后台解码槽位由整页共用；繁忙时暂停队列，避免后续图片逐张撞上同一限制。
+        inlineRetryAt = Math.max(inlineRetryAt, Date.now() + delay);
+        entry.retryTimer = setTimeout(() => { if (validInline(entry)) { inlineQueue.push(entry); pumpInline(); } }, delay);
       } else { entry.status = 'error'; entry.error = errorText(error); paintInline(entry); }
     }
   }
   function pumpInline() {
+    clearTimeout(inlinePumpTimer);
+    if (Date.now() < inlineRetryAt) {
+      inlinePumpTimer = setTimeout(pumpInline, inlineRetryAt - Date.now());
+      return;
+    }
     while (inlineActive < 2 && inlineQueue.length) {
       const entry = inlineQueue.shift(); if (!validInline(entry) || entry.status !== 'pending') continue;
       inlineActive++; decodeInline(entry).finally(() => { inlineActive--; pumpInline(); });
     }
   }
-  function renderInline(message, wanted) {
+  function renderInline(message) {
     const node = el('div', 'inline-image'), binding = inlineBinding(message);
     if (!binding) { node.append(el('p', 'muted', '图片尚无可用的精确消息身份')); return node; }
-    wanted.add(binding.key);
     let entry = inlineImages.get(binding.key);
     if (!entry) {
       entry = { ...binding, epoch: model.epoch, generation: inlineGeneration, nodes: [], status: 'pending', attempts: 0, bytes: 0 };
@@ -589,7 +580,13 @@ SOFTWARE.
     const query = $('message-search').value.toLocaleLowerCase(), type = $('message-type').value;
     const messages = model.messages.filter((item) => (!query || [messageText(item), item.sender_name, item.sender].join(' ').toLocaleLowerCase().includes(query)) && (!type || messageType(item) === type));
     const target = $('messages'); target.replaceChildren();
-    const wantedImages = new Set(); for (const entry of inlineImages.values()) entry.nodes = [];
+    // 本地筛选只隐藏消息，不取消当前页的解码；否则恢复筛选会重复占用后台槽位。
+    const wantedImages = new Set();
+    for (const item of model.messages) {
+      const binding = messageType(item) === 'image' ? inlineBinding(item) : null;
+      if (binding) wantedImages.add(binding.key);
+    }
+    for (const entry of inlineImages.values()) entry.nodes = [];
     if (!messages.length) empty(target, model.selected ? query || type ? '本页没有符合条件的消息' : '该会话暂无消息' : '选择会话查看消息记录');
     const fragment = document.createDocumentFragment();
     messages.forEach((item) => {
@@ -599,7 +596,7 @@ SOFTWARE.
       const kindLabel = kind === 'other' ? String(item.type_name || item.type || item.msg_type || item.local_type || kindLabels.other) : kindLabels[kind];
       if (kind !== 'text') meta.append(el('span', 'message-type', kindLabel));
       node.append(meta, renderRich(item.rich) || el('div', 'message-content', messageText(item) || `[${kindLabel}]`));
-      if (kind === 'image' && model.source === 'wechat') node.append(renderInline(item, wantedImages));
+      if (kind === 'image' && model.source === 'wechat') node.append(renderInline(item));
       fragment.append(node);
     });
     target.append(fragment);
@@ -653,14 +650,10 @@ SOFTWARE.
     const target = $('account-state'); target.replaceChildren();
     const fields = [['账号/运行实例', $('account-summary').textContent], ['账号状态', account.status || state.account_status || '未提供'], ['工作目录', state.workspace || state.data_dir || '未提供'], ['版本', state.version || (state.api_version ? `API ${state.api_version} · ${state.engine || ''}` : '未提供')], ['任务历史', state.history_persisted === undefined ? '未提供' : state.history_persisted ? '已持久化' : '未持久化'], ['服务地址', location.origin], ['认证状态', token ? '已设置访问令牌' : '未设置访问令牌']];
     fields.forEach(([key, value]) => target.append(el('dt', '', key), el('dd', '', value)));
-    if (state.enterprise) [['企业数据目录', state.enterprise.data_configured], ['企业解密快照', state.enterprise.snapshot_configured], ['企业预配密钥', state.enterprise.credentials_configured]].forEach(([key, value]) => target.append(el('dt', '', key), el('dd', '', value ? '已配置' : '未配置')));
     if (state.transcription) target.append(el('dt', '', '转录后端'), el('dd', '', state.transcription.backend === 'local' ? 'local（Python 本地兼容层）' : state.transcription.backend || '未配置'));
     $('auth-state').textContent = token ? '访问令牌已保存在当前标签页' : '尚未设置访问令牌';
     availableTasks = descriptors(state); renderTools();
-    const sources = (state.sources || ['wechat']).filter((source) => ['wechat', 'wxwork'].includes(source));
-    $('source-select').replaceChildren(...sources.map((source) => new Option(source === 'wechat' ? '个人微信' : '企业微信', source)));
-    if (sources.includes(model.source)) $('source-select').value = model.source;
-    $('export-chat').disabled = !model.online || !model.selected || !availableTasks.some((x) => x.kind === (model.source === 'wxwork' ? 'wxwork_export' : 'export_all') && x.enabled !== false);
+    $('export-chat').disabled = !model.online || !model.selected || !availableTasks.some((x) => x.kind === 'export_all' && x.enabled !== false);
     updateImageButton();
     loadNotificationSettings();
   }
@@ -706,16 +699,17 @@ SOFTWARE.
     const wasChatOpen = document.body.classList.contains('chat-open');
     directoriesDirty = Object.keys(errors).length > 0 || revision !== directoryRevision;
     renderTags(); renderDirectory();
-    if (model.contactChoice) {
-      const contact = model.contacts.find((item) => username(item) === username(model.contactChoice));
-      if (contact) selectPerson(contact); else clearSelected();
-    } else if (model.selected) {
+    if (model.selected) {
       const id = username(model.selected);
       const replacement = model.sessions.find((item) => username(item) === id)
-        || (source === 'wechat' ? model.contacts.find((item) => username(item) === id) : model.contacts.flatMap((item) => item.conversations || []).find((item) => username(item) === id));
+        || model.contacts.find((item) => username(item) === id);
       if (replacement) { model.selected = replacement; $('chat-title').textContent = displayName(replacement); loadHistory(true); }
       else clearSelected();
-    } else if (model.sessions.length) selectPerson(model.sessions[0]);
+    } else {
+      const first = model.sessions.find(item => item.chat_type !== 'folded'
+        && !['brandsessionholder', '@placeholder_foldgroup'].includes(username(item)));
+      if (first) selectPerson(first);
+    }
     if (!revealSelection && !wasChatOpen) document.body.classList.remove('chat-open');
     renderState();
   }
@@ -726,9 +720,8 @@ SOFTWARE.
     model.tasks = rows(data, 'tasks'); renderQueue();
     const changed = model.tasks.filter((task) => !activeStates.has(statusOf(task)) && previous.get(taskId(task)) !== statusOf(task));
     capabilitiesDirty = capabilitiesDirty || changed.length > 0;
-    if (changed.some((task) => task.kind?.startsWith('wxwork_') || ['wechat_decrypt', 'wechat_keys'].includes(task.kind))) {
+    if (changed.some((task) => ['wechat_decrypt', 'wechat_keys'].includes(task.kind))) {
       directoriesDirty = true; ++directoryRevision;
-      if (taskSpec?.source === 'wxwork' && $('task-dialog').open && !submitting) $('task-dialog').close();
     }
     if (capabilitiesDirty) {
       const state = await request('/api/state');
@@ -791,7 +784,7 @@ SOFTWARE.
       { name: 'include_sns_media', label: '下载朋友圈媒体', default: false },
       { name: 'with_transcriptions', label: '生成独立的语音转写 JSON', default: false },
       { name: 'allow_upload', label: '允许本任务上传语音至云端转写服务', default: false },
-      { name: 'authorize_memory_scan', label: ['image_key', 'wechat_keys'].includes(spec.kind) ? '允许本任务读取个人微信进程内存以提取密钥' : '允许本任务读取企业微信进程内存以提取密钥', default: false, required: spec.requires_memory_consent === true || ['image_key', 'wechat_keys', 'wxwork_scan'].includes(spec.kind) || (['wxwork_decrypt', 'wxwork_run'].includes(spec.kind) && model.state.enterprise?.credentials_configured === false) }
+      { name: 'authorize_memory_scan', label: '允许本任务读取个人微信进程内存以提取密钥', default: false, required: spec.requires_memory_consent === true || ['image_key', 'wechat_keys'].includes(spec.kind) }
     ].filter((flag) => allowed.has(flag.name));
     if (!flags.length) return;
     const group = el('fieldset'); group.append(el('legend', '', '处理选项'));
@@ -830,7 +823,7 @@ SOFTWARE.
     } else if (spec.export || spec.users) {
       if (spec.export) {
       const formats = el('fieldset'), choices = el('div', 'formats'); formats.append(el('legend', '', '导出格式'), choices);
-      (spec.formats || (spec.source === 'wxwork' ? ['json', 'html', 'csv'] : ['json'])).forEach((value) => { const input = el('input'); input.type = 'checkbox'; input.value = value; input.checked = value === 'json'; const label = el('label', 'check'); label.append(input, el('span', '', value.toUpperCase())); choices.append(label); });
+      (spec.formats || ['json']).forEach((value) => { const input = el('input'); input.type = 'checkbox'; input.value = value; input.checked = value === 'json'; const label = el('label', 'check'); label.append(input, el('span', '', value.toUpperCase())); choices.append(label); });
       formReaders.push((options) => { options.formats = [...choices.querySelectorAll('input:checked')].map((input) => input.value); if (!options.formats.length) throw new Error('请选择至少一种导出格式'); });
       target.append(formats);
       }
@@ -839,27 +832,17 @@ SOFTWARE.
       type.setAttribute('aria-label', '待导出会话类型'); [['', '全部类型'], ['direct', '单聊'], ['group', '群聊'], ['public', '公众号']].forEach(([value, label]) => type.add(new Option(label, value)));
       tag.setAttribute('aria-label', '待导出会话标签'); tag.add(new Option('全部标签', '')); filters.append(type, tag);
       sessions.append(el('legend', '', '选择会话')); search.type = 'search'; search.placeholder = '筛选待导出会话'; search.setAttribute('aria-label', '筛选待导出会话'); sessions.append(search, filters, toolbar, list); target.append(sessions);
-      const source = spec.source || 'wechat', needsFetch = source !== model.source || (source === 'wxwork' && directoriesDirty);
-      const snapshotMissing = source === 'wxwork' && model.state.enterprise?.snapshot_configured === false;
-      const supportsAll = spec.options?.includes('all_conversations') === true;
-      let allInput;
-      if (supportsAll) {
-        const label = el('label', 'check'); allInput = el('input'); allInput.type = 'checkbox'; allInput.name = 'all_conversations'; allInput.checked = false;
-        label.append(allInput, el('span', '', '本任务处理全部企业微信会话')); sessions.insertBefore(label, search);
-      }
-      let pickerTags = source === model.source ? model.tags : [], tagBusy = false, tagError = '', tagSequence = 0;
-      let people = needsFetch || snapshotMissing ? [] : model.sessions;
+      const source = 'wechat', needsFetch = directoriesDirty;
+      let pickerTags = model.tags, tagBusy = false, tagError = '', tagSequence = 0;
+      let people = needsFetch ? [] : model.sessions;
       const itemTags = (item) => tagNames(item, source);
       const filtered = () => people.filter((item) => `${displayName(item)} ${username(item)} ${itemTags(item).join(' ')}`.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()) && (!type.value || personType(item) === type.value) && (!tag.value || itemTags(item).includes(tag.value)));
       const render = () => {
-        list.replaceChildren(); const all = Boolean(allInput?.checked);
-        [search, type, tag, ...toolbar.querySelectorAll('button')].forEach((input) => { input.disabled = all || snapshotMissing; });
-        count.textContent = all ? '全部会话' : snapshotMissing ? '无可读取快照' : `已选 ${selection.size} / ${people.length}`;
-        if (all || snapshotMissing) { empty(list, all ? '已选择全部企业微信会话' : '未配置可读取会话的企业微信快照'); return; }
+        list.replaceChildren();
+        count.textContent = `已选 ${selection.size} / ${people.length}`;
         if (tagBusy || tagError) { empty(list, tagError || '正在加载标签成员…'); return; }
         const visible = filtered(); if (!visible.length) empty(list, '暂无可选会话'); visible.forEach((item) => { const label = el('label'), input = el('input'); input.type = 'checkbox'; input.checked = selection.has(username(item)); input.addEventListener('change', () => { input.checked ? selection.add(username(item)) : selection.delete(username(item)); count.textContent = `已选 ${selection.size} / ${people.length}`; }); label.append(input, el('span', '', `${displayName(item)} (${username(item)})`)); list.append(label); });
       };
-      allInput?.addEventListener('change', render);
       toolbar.append(button('选择筛选结果', () => { if (tagBusy || tagError) return; filtered().forEach((item) => selection.add(username(item))); render(); }), button('清空', () => { selection.clear(); render(); }), count); search.addEventListener('input', render); type.addEventListener('change', render);
       tag.addEventListener('change', async () => {
         const seq = ++tagSequence; tagError = ''; tagBusy = Boolean(tag.value && source === 'wechat' && !model.tagCache.has(tag.value)); render();
@@ -868,12 +851,9 @@ SOFTWARE.
         finally { if (seq === tagSequence && generation === formGeneration) { tagBusy = false; render(); } }
       });
       formReaders.push((options) => {
-        if (allInput) options.all_conversations = allInput.checked;
-        if (allInput?.checked) { options.users = []; return; }
-        if (snapshotMissing) throw new Error('未配置解密快照；尚未确认本任务的全部会话范围');
         if (!selection.size) throw new Error('请选择至少一个会话'); if (selection.size > 200) throw new Error('一次最多选择 200 个会话'); options.users = [...selection];
       });
-      if (needsFetch && !snapshotMissing) {
+      if (needsFetch) {
         $('task-submit').disabled = true; empty(list, '正在读取会话…');
         try { const data = await request(`/api/sessions?${new URLSearchParams({ source, limit: '2000' })}`); if (generation !== formGeneration) return; people = rows(data, 'sessions'); selection = new Set([...selection].filter((id) => people.some((item) => username(item) === id))); $('task-submit').disabled = false; }
         catch (error) { if (generation === formGeneration) { notice('task-error', errorText(error)); empty(list, '会话加载失败'); } return; }
@@ -1021,7 +1001,7 @@ SOFTWARE.
   function clearRecords() {
     closeNotifications(); resetInlineImages();
     closeImages();
-    capabilitiesDirty = false; directoriesDirty = false; model.contactChoice = null; ++directorySeq; ++directoryRevision; notice('monitor-warning');
+    capabilitiesDirty = false; directoriesDirty = false; ++directorySeq; ++directoryRevision; notice('monitor-warning');
     directoryController?.abort();
     historyController?.abort(); ++model.historySeq; ++model.detailSeq;
     model.selected = null; model.contacts = []; model.sessions = []; model.tags = []; model.tagCache.clear(); model.tagMembership.clear(); model.tagBusy = false; model.tagError = ''; ++model.tagSeq; model.messages = []; model.tasks = []; model.detail = null; model.detailId = null; model.offset = 0; model.total = null; model.hasMore = false;
@@ -1066,8 +1046,7 @@ SOFTWARE.
   $('previous-page').addEventListener('click', () => { model.offset = Math.max(0, model.offset - Number($('page-size').value)); loadHistory(); });
   $('next-page').addEventListener('click', () => { model.offset += Number($('page-size').value); loadHistory(); });
   $('page-size').addEventListener('change', () => { model.offset = 0; loadHistory(); });
-  $('export-chat').addEventListener('click', () => { const spec = availableTasks.find((item) => item.kind === (model.source === 'wxwork' ? 'wxwork_export' : 'export_all')); if (spec && model.selected && spec.enabled !== false) openTask(spec, username(model.selected)); });
-  $('source-select').addEventListener('change', () => { stopEvents(); ++model.epoch; model.source = $('source-select').value; model.directoryError = {}; clearRecords(); refreshAll(); });
+  $('export-chat').addEventListener('click', () => { const spec = availableTasks.find((item) => item.kind === 'export_all'); if (spec && model.selected && spec.enabled !== false) openTask(spec, username(model.selected)); });
   $('task-form').addEventListener('submit', submitTask);
   $('detail-refresh').addEventListener('click', loadDetail);
   $('cancel-task').addEventListener('click', cancelTask);

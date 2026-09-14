@@ -163,12 +163,18 @@ impl Fixture {
     }
 }
 
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         // 始终传入本测试的独立配置与运行目录，禁止停止其他账号后台。
         for profile in &self.profiles {
             let _ = self.run(profile, &["daemon", "stop"]);
         }
+        drop(bootstrap::RuntimeCleanup(
+            self.root.path().join("shared-runtime"),
+        ));
     }
 }
 

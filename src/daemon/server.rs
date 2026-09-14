@@ -16,20 +16,14 @@ mod contacts_tests;
 mod chat_tests;
 
 /// 启动 IPC server（Windows named pipe）
-pub async fn serve(
-    state: Arc<QueryState>,
-    pipe_name: &str,
-) -> Result<()> {
+pub async fn serve(state: Arc<QueryState>, pipe_name: &str) -> Result<()> {
     #[cfg(windows)]
     serve_windows(state, pipe_name).await?;
     Ok(())
 }
 
 #[cfg(windows)]
-async fn serve_windows(
-    state: Arc<QueryState>,
-    pipe_name: &str,
-) -> Result<()> {
+async fn serve_windows(state: Arc<QueryState>, pipe_name: &str) -> Result<()> {
     use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced, ListenerOptions};
 
     // 库自动补上 Windows 管道前缀；名称统一来自启动时固定的账号上下文。
@@ -41,7 +35,7 @@ async fn serve_windows(
     eprintln!("[server] 监听账号管道 {pipe_name}");
 
     loop {
-        // Backpressure the listener instead of spawning unbounded waiting handlers.
+        // 先取得连接许可再接收，避免派生无界等待任务。
         let permit = Arc::clone(&connections).acquire_owned().await?;
         let conn = listener.accept().await?;
         let state = Arc::clone(&state);
@@ -107,11 +101,17 @@ pub(super) const MAX_REQUEST_FRAME_BYTES: usize = 64 * 1024;
 pub(super) async fn read_initial_request_frame<R: AsyncBufRead + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<String>> {
-    tokio::time::timeout(std::time::Duration::from_secs(5), read_request_frame(reader))
-        .await
-        .map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, "Initial request frame timed out")
-        })?
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        read_request_frame(reader),
+    )
+    .await
+    .map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "Initial request frame timed out",
+        )
+    })?
 }
 
 pub(super) async fn read_request_frame<R: AsyncBufRead + Unpin>(
@@ -271,9 +271,9 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             .await
             {
                 Ok(value) => Response::ok(value),
-                // 解码拒绝属于业务失败；保持传输可用，且不泄露路径或密钥。
+                // 未分类的导出失败与明确的消息缺失分开；保持传输可用，不泄露错误链。
                 Err(_) => Response::ok(serde_json::json!({
-                    "exit_code": 1,
+                    "exit_code": 3,
                     "status": "error",
                     "message": "Image export failed"
                 })),
@@ -403,15 +403,20 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 db,
                 &names_arc,
                 &chat,
-                limit,
-                offset,
-                since,
-                until,
-                msg_type,
-                with_meta,
-                debug_source,
-                msg_types.as_deref(),
-                oldest_first,
+                query::HistoryQuery {
+                    page: query::MessagePage { limit, offset },
+                    filter: query::MessageFilter {
+                        since,
+                        until,
+                        msg_type,
+                    },
+                    meta: query::MetaOptions {
+                        with_meta,
+                        debug_source,
+                    },
+                    msg_types: msg_types.as_deref(),
+                    oldest_first,
+                },
             )
             .await
             {
@@ -435,11 +440,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 &keyword,
                 chats,
                 limit,
-                since,
-                until,
-                msg_type,
-                with_meta,
-                debug_source,
+                query::MessageFilter {
+                    since,
+                    until,
+                    msg_type,
+                },
+                query::MetaOptions {
+                    with_meta,
+                    debug_source,
+                },
             )
             .await
             {
@@ -588,34 +597,20 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             with_meta,
             debug_source,
         } => {
+            let options = query::AttachmentQuery {
+                kinds,
+                page: query::MessagePage { limit, offset },
+                since,
+                until,
+                meta: query::MetaOptions {
+                    with_meta,
+                    debug_source,
+                },
+            };
             let result = if image_metadata {
-                query::q_attachments_with_image_metadata(
-                    db,
-                    &names_arc,
-                    &chat,
-                    kinds,
-                    limit,
-                    offset,
-                    since,
-                    until,
-                    with_meta,
-                    debug_source,
-                )
-                .await
+                query::q_attachments_with_image_metadata(db, &names_arc, &chat, options).await
             } else {
-                query::q_attachments(
-                    db,
-                    &names_arc,
-                    &chat,
-                    kinds,
-                    limit,
-                    offset,
-                    since,
-                    until,
-                    with_meta,
-                    debug_source,
-                )
-                .await
+                query::q_attachments(db, &names_arc, &chat, options).await
             };
             match result {
                 Ok(v) => Response::ok(v),

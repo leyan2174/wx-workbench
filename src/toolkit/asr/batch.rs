@@ -1,4 +1,4 @@
-//! 固定账号自动数据库批量转录；开发阶段待集中验证。
+//! 基于固定账号的数据库快照批量转录语音。
 //! 成功缓存逐条提交，JSON 由既有回写层或 export_for 发布，不修改源数据库。
 mod files;
 use super::{
@@ -12,7 +12,12 @@ use crate::{daemon::cache::DbCache, runtime::RuntimeContext};
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
-use std::{collections::{BTreeMap, HashMap}, fs, path::{Path, PathBuf}, time::SystemTime};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
 #[derive(Debug, Clone)]
 pub struct CacheOptions {
@@ -22,7 +27,9 @@ pub struct CacheOptions {
 
 impl Default for CacheOptions {
     fn default() -> Self {
-        Self { file_name: "batch-transcriptions.json".into() }
+        Self {
+            file_name: "batch-transcriptions.json".into(),
+        }
     }
 }
 
@@ -57,7 +64,10 @@ pub struct Warning {
 
 impl Report {
     fn for_backend(backend: &Backend) -> Self {
-        let mut report = Self { backend_kind: cached::backend_name(backend).into(), ..Self::default() };
+        let mut report = Self {
+            backend_kind: cached::backend_name(backend).into(),
+            ..Self::default()
+        };
         if matches!(backend, Backend::LegacyPythonLocal(_)) {
             let warning = "legacy-python-local: Whisper/PyTorch inference still uses Python; Rust owns database association, cache and writeback. Named models retain Whisper's on-demand weight download behavior; audio is not uploaded.";
             eprintln!("[asr-batch] {warning}");
@@ -71,11 +81,19 @@ impl Report {
         self.skipped_existing = report.skipped_existing;
         self.skipped_non_voice = report.skipped_non_voice;
         self.failed = report.failed;
-        self.errors = report.errors.into_iter().map(|error| Failure {
-            index: error.index, error: error.error,
-        }).collect();
+        self.errors = report
+            .errors
+            .into_iter()
+            .map(|error| Failure {
+                index: error.index,
+                error: error.error,
+            })
+            .collect();
         for error in &self.errors {
-            eprintln!("[asr-batch] message index {} failed: {}", error.index, error.error);
+            eprintln!(
+                "[asr-batch] message index {} failed: {}",
+                error.index, error.error
+            );
         }
         self
     }
@@ -90,9 +108,13 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// 调用者须保持 Snapshot 存活；切勿只保存路径后释放所有者。
-    pub fn sources(&self) -> &[DecryptedSource] { &self.sources }
+    pub fn sources(&self) -> &[DecryptedSource] {
+        &self.sources
+    }
 
-    pub fn account_id(&self) -> &str { &self.account_id }
+    pub fn account_id(&self) -> &str {
+        &self.account_id
+    }
 }
 
 pub struct BatchTranscriber {
@@ -106,15 +128,30 @@ impl BatchTranscriber {
     /// 不重新发现当前账号；构造阶段不访问音频、模型或云端。
     pub fn new(runtime: &RuntimeContext, backend: Backend, options: CacheOptions) -> Result<Self> {
         backend.check_authorization()?;
-        ensure!(!runtime.id.trim().is_empty(), "fixed account identity is required");
+        ensure!(
+            !runtime.id.trim().is_empty(),
+            "fixed account identity is required"
+        );
         let name = &options.file_name;
-        ensure!(name.ends_with(".json") && name.len() <= 128
-            && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
-            && !name.starts_with('.') && !name.contains(".."), "invalid ASR cache filename");
-        ensure!(runtime.directory.is_absolute(), "account directory must be absolute");
+        ensure!(
+            name.ends_with(".json")
+                && name.len() <= 128
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+                && !name.starts_with('.')
+                && !name.contains(".."),
+            "invalid ASR cache filename"
+        );
+        ensure!(
+            runtime.directory.is_absolute(),
+            "account directory must be absolute"
+        );
         Ok(Self {
-            runtime: runtime.clone(), backend,
-            cache_path: runtime.directory.join(name), snapshot: None,
+            runtime: runtime.clone(),
+            backend,
+            cache_path: runtime.directory.join(name),
+            snapshot: None,
         })
     }
 
@@ -133,11 +170,18 @@ impl BatchTranscriber {
     /// delta UID 依赖原始字段；只复制成功转录到 extras，绝不改动 raw_content。
     pub fn process_delta(&mut self, document: &mut Value) -> Result<Report> {
         self.backend.check_authorization()?;
-        ensure!(document.get("source_error").is_none_or(Value::is_null),
-            "delta source has an error; transcription refused");
-        let username = document.get("username").and_then(Value::as_str)
-            .filter(|name| !name.trim().is_empty()).context("delta requires exact username")?;
-        let messages = document.get("messages").and_then(Value::as_array)
+        ensure!(
+            document.get("source_error").is_none_or(Value::is_null),
+            "delta source has an error; transcription refused"
+        );
+        let username = document
+            .get("username")
+            .and_then(Value::as_str)
+            .filter(|name| !name.trim().is_empty())
+            .context("delta requires exact username")?;
+        let messages = document
+            .get("messages")
+            .and_then(Value::as_array)
             .context("delta messages must be an array")?;
         let mut pending = Vec::with_capacity(messages.len());
         for message in messages {
@@ -152,20 +196,33 @@ impl BatchTranscriber {
             if let Some(value) = message.get("username") {
                 normal["username"] = value.clone();
             }
-            if let Some(value) = message.get("extras").and_then(|extras| extras.get("transcription")) {
+            if let Some(value) = message
+                .get("extras")
+                .and_then(|extras| extras.get("transcription"))
+            {
                 normal["transcription"] = value.clone();
             }
             pending.push(normal);
         }
         let mut normal = serde_json::json!({"username": username, "messages": pending});
         let report = self.process(&mut normal)?;
-        let messages = document["messages"].as_array_mut().expect("validated delta messages");
-        for (message, processed) in messages.iter_mut().zip(normal["messages"].as_array().expect("normal messages")) {
+        let messages = document["messages"]
+            .as_array_mut()
+            .expect("validated delta messages");
+        for (message, processed) in messages
+            .iter_mut()
+            .zip(normal["messages"].as_array().expect("normal messages"))
+        {
             if let Some(text) = processed.get("transcription") {
                 let message = message.as_object_mut().expect("validated delta message");
-                let extras = message.entry("extras").or_insert_with(|| serde_json::json!({}));
-                extras.as_object_mut().expect("validated delta extras")
-                    .entry("transcription").or_insert_with(|| text.clone());
+                let extras = message
+                    .entry("extras")
+                    .or_insert_with(|| serde_json::json!({}));
+                extras
+                    .as_object_mut()
+                    .expect("validated delta extras")
+                    .entry("transcription")
+                    .or_insert_with(|| text.clone());
             }
         }
         Ok(report)
@@ -178,74 +235,144 @@ impl BatchTranscriber {
     }
 
     fn protect_output(&self, output: &Path) -> Result<()> {
-        let parent = output.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        let output = parent.canonicalize()?.join(output.file_name().context("output filename required")?);
-        for path in [&self.runtime.directory, &self.runtime.config.db_dir,
-            &self.runtime.config.decrypted_dir, &self.runtime.config.keys_file,
-            &self.runtime.config_path] {
+        let parent = output
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let output = parent
+            .canonicalize()?
+            .join(output.file_name().context("output filename required")?);
+        for path in [
+            &self.runtime.directory,
+            &self.runtime.config.db_dir,
+            &self.runtime.config.decrypted_dir,
+            &self.runtime.config.keys_file,
+            &self.runtime.config_path,
+        ] {
             if let Ok(protected) = path.canonicalize() {
-                ensure!(!output.starts_with(&protected), "output overlaps account data or configuration");
+                ensure!(
+                    !output.starts_with(&protected),
+                    "output overlaps account data or configuration"
+                );
                 if output.exists() && protected.is_file() {
-                    ensure!(!same_file::is_same_file(&output, &protected)?, "output aliases protected file");
+                    ensure!(
+                        !same_file::is_same_file(&output, &protected)?,
+                        "output aliases protected file"
+                    );
                 }
             }
         }
         Ok(())
     }
 
-    fn transcribe(&mut self, identity: &VoiceIdentity, report: &mut Report,
-        preparation_error: &mut Option<String>) -> Result<String> {
+    fn transcribe(
+        &mut self,
+        identity: &VoiceIdentity,
+        report: &mut Report,
+        preparation_error: &mut Option<String>,
+    ) -> Result<String> {
         self.backend.check_authorization()?;
         if self.snapshot.is_none() && preparation_error.is_none() {
             match prepare_snapshot(&self.runtime) {
                 Ok(snapshot) => self.snapshot = Some(snapshot),
-                Err(error) => *preparation_error = Some(format!("database snapshot unavailable: {error:#}")),
+                Err(error) => {
+                    *preparation_error = Some(format!("database snapshot unavailable: {error:#}"))
+                }
             }
         }
         if let Some(error) = preparation_error {
             anyhow::bail!("{error}");
         }
         let snapshot = self.snapshot.as_ref().context("snapshot missing")?;
-        let sources: Vec<_> = snapshot.sources().iter().filter(|source| {
-            let name = source.source.replace('\\', "/").to_ascii_lowercase();
-            name != "message/message_resource.db" && !name.starts_with("message/message_resource_")
-        }).cloned().collect();
-        let voice = database_media::resolve_voice_sources(&sources, MessageIdentity {
-            username: &identity.username, source: &identity.source, local_id: identity.local_id,
-        }, None)?;
+        let sources: Vec<_> = snapshot
+            .sources()
+            .iter()
+            .filter(|source| {
+                let name = source.source.replace('\\', "/").to_ascii_lowercase();
+                name != "message/message_resource.db"
+                    && !name.starts_with("message/message_resource_")
+            })
+            .cloned()
+            .collect();
+        let voice = database_media::resolve_voice_sources(
+            &sources,
+            MessageIdentity {
+                username: &identity.username,
+                source: &identity.source,
+                local_id: identity.local_id,
+            },
+            None,
+        )?;
         let evidence = &voice.evidence;
         // 以消息分片和消息 ID 建缓存；媒体 local_id 仅作为 receipt 证据。
         let request = CachedRequest {
-            cache_path: &self.cache_path, account: &self.runtime.id,
-            username: &evidence.username, source: &evidence.message_source,
-            local_id: evidence.message_local_id, create_time: evidence.create_time,
+            cache_path: &self.cache_path,
+            account: &self.runtime.id,
+            username: &evidence.username,
+            source: &evidence.message_source,
+            local_id: evidence.message_local_id,
+            create_time: evidence.create_time,
             silk: &voice.silk,
         };
         let outcome = cached::transcribe_cached_with_receipt_checked(
-            &request, evidence, &self.backend, |transcription| {
-                ensure!(!transcription.text.trim().is_empty(), "transcription is empty");
+            &request,
+            evidence,
+            &self.backend,
+            |transcription| {
+                ensure!(
+                    !transcription.text.trim().is_empty(),
+                    "transcription is empty"
+                );
                 Ok(())
             },
         )?;
-        ensure!(!outcome.cached.transcription.text.trim().is_empty(), "cached transcription is empty");
+        ensure!(
+            !outcome.cached.transcription.text.trim().is_empty(),
+            "cached transcription is empty"
+        );
         match outcome.cached.cache_state {
             CacheState::Hit => report.cache_hits += 1,
             CacheState::Stored | CacheState::AlreadyPresent => report.cache_persisted += 1,
-            state => warn(report, identity, format!("cache {state:?}; this result may require recognition again after interruption")),
+            state => warn(
+                report,
+                identity,
+                format!(
+                    "cache {state:?}; this result may require recognition again after interruption"
+                ),
+            ),
         }
-        if !matches!(outcome.receipt, ReceiptState::Stored | ReceiptState::AlreadyPresent) {
-            warn(report, identity, format!("receipt {:?}; receipt-only recovery unavailable", outcome.receipt));
+        if !matches!(
+            outcome.receipt,
+            ReceiptState::Stored | ReceiptState::AlreadyPresent
+        ) {
+            warn(
+                report,
+                identity,
+                format!(
+                    "receipt {:?}; receipt-only recovery unavailable",
+                    outcome.receipt
+                ),
+            );
         }
-        eprintln!("[asr-batch] {} {} {}: {:?}", identity.username, identity.source,
-            identity.local_id, outcome.cached.cache_state);
+        eprintln!(
+            "[asr-batch] {} {} {}: {:?}",
+            identity.username, identity.source, identity.local_id, outcome.cached.cache_state
+        );
         Ok(outcome.cached.transcription.text)
     }
 }
 
 fn warn(report: &mut Report, id: &VoiceIdentity, error: String) {
-    eprintln!("[asr-batch] {} {} {}: {}", id.username, id.source, id.local_id, error);
-    report.warnings.push(Warning { username: id.username.clone(), source: id.source.clone(),
-        local_id: id.local_id, error });
+    eprintln!(
+        "[asr-batch] {} {} {}: {}",
+        id.username, id.source, id.local_id, error
+    );
+    report.warnings.push(Warning {
+        username: id.username.clone(),
+        source: id.source.clone(),
+        local_id: id.local_id,
+        error,
+    });
 }
 
 #[derive(PartialEq, Eq)]
@@ -265,16 +392,31 @@ fn states(paths: &[PathBuf]) -> Result<Vec<SourceState>> {
             let path = PathBuf::from(name);
             let metadata = match fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound && !suffix.is_empty() => continue,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound && !suffix.is_empty() =>
+                {
+                    continue
+                }
                 Err(error) => return Err(error.into()),
             };
-            ensure!(metadata.is_file() && !metadata.file_type().is_symlink(), "invalid database source");
-            #[cfg(windows)] {
+            ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "invalid database source"
+            );
+            #[cfg(windows)]
+            {
                 use std::os::windows::fs::MetadataExt;
-                ensure!(metadata.file_attributes() & 0x400 == 0, "reparse database source");
+                ensure!(
+                    metadata.file_attributes() & 0x400 == 0,
+                    "reparse database source"
+                );
             }
-            result.push(SourceState { identity: same_file::Handle::from_path(&path)?, path,
-                length: metadata.len(), modified: metadata.modified()? });
+            result.push(SourceState {
+                identity: same_file::Handle::from_path(&path)?,
+                path,
+                length: metadata.len(),
+                modified: metadata.modified()?,
+            });
         }
     }
     Ok(result)
@@ -283,48 +425,93 @@ fn states(paths: &[PathBuf]) -> Result<Vec<SourceState>> {
 /// 账号级完整只读快照，不要求 ASR 后端，不创建转录缓存。
 /// 私有解密产物由返回值持有，适用于 ASR 和聊天目录导出。
 pub fn prepare_snapshot(runtime: &RuntimeContext) -> Result<Snapshot> {
-    ensure!(!runtime.id.trim().is_empty() && runtime.directory.is_absolute(), "fixed account context required");
+    ensure!(
+        !runtime.id.trim().is_empty() && runtime.directory.is_absolute(),
+        "fixed account context required"
+    );
     // 独立线程运行异步解密，允许同步回调由现有 Tokio 宿主调用。
-    std::thread::scope(|scope| scope.spawn(|| -> Result<Snapshot> {
-        let executor = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-        executor.block_on(async {
-            let paths = snapshot_source_files(&runtime.config.db_dir)?;
-            let before = states(&paths)?;
-            let root = runtime.config.db_dir.canonicalize()?;
-            let raw: Value = serde_json::from_slice(&fs::read(&runtime.config.keys_file)
-                .context("read fixed-account database keys")?)?;
-            let keys = raw.as_object().context("database keys must be an object")?;
-            let mut normalized = BTreeMap::new();
-            for (source, value) in keys {
-                let source = source.replace('\\', "/").to_ascii_lowercase();
-                if source.starts_with("message/message_") || source.starts_with("message/media_")
-                    || source == "contact/contact.db" {
-                    let key = value.as_str().or_else(|| value.get("enc_key").and_then(Value::as_str))
-                        .context("unsupported database key entry")?;
-                    ensure!(normalized.insert(source, key.to_owned()).is_none(), "duplicate database key source");
-                }
-            }
-            let mut selected = HashMap::new();
-            for path in &paths {
-                let source = path.strip_prefix(&root)?.to_str().context("non-UTF8 source")?.replace('\\', "/");
-                let key = normalized.remove(&source.to_ascii_lowercase()).context("database source has no account key")?;
-                selected.insert(source, key);
-            }
-            ensure!(normalized.is_empty(), "account key inventory contains missing database sources");
-            fs::create_dir_all(&runtime.directory)?;
-            let directory = tempfile::Builder::new().prefix("export-snapshot-").tempdir_in(&runtime.directory)?;
-            let db = DbCache::with_dirs(root, directory.path().to_owned(),
-                directory.path().join("_mtimes.json"), selected).await?;
-            let mut sources = Vec::new();
-            for source in db.raw_db_keys() {
-                let path = db.get(&source).await?.context("database snapshot missing")?;
-                sources.push(DecryptedSource { source, path });
-            }
-            ensure!(paths == snapshot_source_files(&runtime.config.db_dir)? && before == states(&paths)?,
-                "account database changed while preparing snapshot; retry batch");
-            Ok(Snapshot { account_id: runtime.id.clone(), sources, _directory: directory })
-        })
-    }).join().map_err(|_| anyhow::anyhow!("database snapshot worker panicked"))?)
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> Result<Snapshot> {
+                let executor = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                executor.block_on(async {
+                    let paths = snapshot_source_files(&runtime.config.db_dir)?;
+                    let before = states(&paths)?;
+                    let root = runtime.config.db_dir.canonicalize()?;
+                    let raw: Value = serde_json::from_slice(
+                        &fs::read(&runtime.config.keys_file)
+                            .context("read fixed-account database keys")?,
+                    )?;
+                    let keys = raw.as_object().context("database keys must be an object")?;
+                    let mut normalized = BTreeMap::new();
+                    for (source, value) in keys {
+                        let source = source.replace('\\', "/").to_ascii_lowercase();
+                        if source.starts_with("message/message_")
+                            || source.starts_with("message/media_")
+                            || source == "contact/contact.db"
+                        {
+                            let key = value
+                                .as_str()
+                                .or_else(|| value.get("enc_key").and_then(Value::as_str))
+                                .context("unsupported database key entry")?;
+                            ensure!(
+                                normalized.insert(source, key.to_owned()).is_none(),
+                                "duplicate database key source"
+                            );
+                        }
+                    }
+                    let mut selected = HashMap::new();
+                    for path in &paths {
+                        let source = path
+                            .strip_prefix(&root)?
+                            .to_str()
+                            .context("non-UTF8 source")?
+                            .replace('\\', "/");
+                        let key = normalized
+                            .remove(&source.to_ascii_lowercase())
+                            .context("database source has no account key")?;
+                        selected.insert(source, key);
+                    }
+                    ensure!(
+                        normalized.is_empty(),
+                        "account key inventory contains missing database sources"
+                    );
+                    fs::create_dir_all(&runtime.directory)?;
+                    let directory = tempfile::Builder::new()
+                        .prefix("export-snapshot-")
+                        .tempdir_in(&runtime.directory)?;
+                    let db = DbCache::with_dirs(
+                        root,
+                        directory.path().to_owned(),
+                        directory.path().join("_mtimes.json"),
+                        selected,
+                    )
+                    .await?;
+                    let mut sources = Vec::new();
+                    for source in db.raw_db_keys() {
+                        let path = db
+                            .get(&source)
+                            .await?
+                            .context("database snapshot missing")?;
+                        sources.push(DecryptedSource { source, path });
+                    }
+                    ensure!(
+                        paths == snapshot_source_files(&runtime.config.db_dir)?
+                            && before == states(&paths)?,
+                        "account database changed while preparing snapshot; retry batch"
+                    );
+                    Ok(Snapshot {
+                        account_id: runtime.id.clone(),
+                        sources,
+                        _directory: directory,
+                    })
+                })
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("database snapshot worker panicked"))?
+    })
 }
 
 fn snapshot_source_files(root: &Path) -> Result<Vec<PathBuf>> {
@@ -334,15 +521,22 @@ fn snapshot_source_files(root: &Path) -> Result<Vec<PathBuf>> {
         ensure!(index < 4096, "database directory entry limit exceeded");
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        let resource = name == "message_resource.db" || name.strip_prefix("message_resource_")
-            .and_then(|s| s.strip_suffix(".db"))
-            .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()));
-        if resource { paths.push(entry.path()); }
+        let resource = name == "message_resource.db"
+            || name
+                .strip_prefix("message_resource_")
+                .and_then(|s| s.strip_suffix(".db"))
+                .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()));
+        if resource {
+            paths.push(entry.path());
+        }
     }
     paths.sort();
     let mut identities = std::collections::HashSet::new();
     for path in &paths {
-        ensure!(identities.insert(same_file::Handle::from_path(path)?), "snapshot sources alias the same file");
+        ensure!(
+            identities.insert(same_file::Handle::from_path(path)?),
+            "snapshot sources alias the same file"
+        );
     }
     // 与主库同样拒绝资源库重解析点；这一步不打开 SQLite，也不解密。
     let _ = states(&paths)?;

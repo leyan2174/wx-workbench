@@ -435,31 +435,20 @@ fn export_document_impl(
     let mut diagnostics = Vec::new();
     let mut media_issues = 0;
     let mut budget = options.max_total_media_bytes;
-    let images = media::image_catalog(
-        &inputs,
-        target,
-        &rows,
-        staging.path(),
+    let mut media_output = media::MediaOutput {
+        stage: staging.path(),
         options,
-        &mut budget,
-        &mut staged,
-    )?;
+        budget: &mut budget,
+        files: &mut staged,
+    };
+    let images = media::image_catalog(&inputs, target, &rows, &mut media_output)?;
     media_issues += images
         .directory
         .values()
         .filter(|m| m.status != "available")
         .count();
     for row in &mut rows {
-        row.media = media::prepare(
-            &inputs,
-            target,
-            row,
-            staging.path(),
-            options,
-            &mut budget,
-            &mut staged,
-            &images,
-        );
+        row.media = media::prepare(&inputs, target, row, &mut media_output, &images);
         media_issues += row
             .media
             .iter()

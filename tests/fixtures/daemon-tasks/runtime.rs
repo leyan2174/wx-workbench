@@ -1,4 +1,6 @@
 use super::{success, Fixture};
+#[path = "mcp.rs"]
+mod mcp;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -11,39 +13,117 @@ fn call(fixture: &Fixture, account: &Path, args: &[&str]) -> Value {
     serde_json::from_str(&success(fixture.run(account, args))).unwrap()
 }
 
-fn snapshot(fixture: &Fixture) -> PathBuf {
-    let destination = fixture.root.join("enterprise-snapshot");
-    fs::create_dir(&destination).unwrap();
-    for name in ["message.db", "user.db", "session.db"] {
-        fs::copy(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/enterprise/queries")
-                .join(name),
-            destination.join(name),
-        )
-        .unwrap();
+#[test]
+fn removed_enterprise_entrypoints_fail_before_account_access() {
+    let fixture = Fixture::new();
+    let account = fixture.root.join("unconfigured");
+    for args in [
+        vec!["toolkit", "enterprise", "--help"],
+        vec!["toolkit", "decrypt-enterprise", "--help"],
+        vec!["toolkit", "enterprise-batch", "--help"],
+        vec!["toolkit", "run", "enterprise-batch", "--", "--help"],
+        vec!["toolkit", "web", "--enterprise-snapshot", "missing"],
+        vec!["tasks", "configure", "--enterprise-data-dir", "missing"],
+        vec!["tasks", "submit", "wxwork-discover"],
+        vec!["tasks", "submit", "wxwork-scan"],
+        vec!["tasks", "submit", "wxwork-decrypt"],
+        vec!["tasks", "submit", "wxwork-export"],
+        vec!["tasks", "submit", "wxwork-run"],
+    ] {
+        let output = fixture.run(&account, &args);
+        assert!(
+            !output.status.success(),
+            "removed entrypoint accepted: {args:?}"
+        );
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("config.json"),
+            "removed entrypoint accessed account: {args:?}"
+        );
     }
-    destination
+    assert!(!account.exists());
+    assert!(!fixture.root.join("shared-runtime").exists());
+}
+
+fn personal_messages(account: &Path, count: usize) -> PathBuf {
+    let plain = account.join("messages-plain.db");
+    fs::copy(account.join("fixture.db"), &plain).unwrap();
+    let mut db = rusqlite::Connection::open(&plain).unwrap();
+    let table = format!("Msg_{:x}", md5::compute("task-peer"));
+    db.execute_batch(&format!("CREATE TABLE [{table}] (local_id INTEGER,local_type INTEGER,create_time INTEGER,real_sender_id INTEGER,message_content TEXT,WCDB_CT_message_content INTEGER)")).unwrap();
+    let transaction = db.transaction().unwrap();
+    {
+        let mut insert = transaction
+            .prepare(&format!("INSERT INTO [{table}] VALUES (?1,1,?1,NULL,?2,0)"))
+            .unwrap();
+        for id in 1..=count {
+            insert
+                .execute(rusqlite::params![id as i64, "synthetic message ".repeat(4)])
+                .unwrap();
+        }
+    }
+    transaction.commit().unwrap();
+    drop(db);
+    let encrypted = account.join("db_storage/message/message_0.db");
+    fs::create_dir_all(encrypted.parent().unwrap()).unwrap();
+    super::encrypt_fixture(&plain, &encrypted);
+    fs::write(
+        account.join("all_keys.json"),
+        json!({
+            "contact/contact.db":"11".repeat(32),
+            "message/message_0.db":"11".repeat(32)
+        })
+        .to_string(),
+    )
+    .unwrap();
+    encrypted
 }
 
 pub(super) fn assert_personal_tasks(fixture: &Fixture, account: &Path, user: &str) {
-    let task = call(fixture, account, &["tasks", "submit", "wechat-decrypt", "--wait"]);
+    let task = call(
+        fixture,
+        account,
+        &["tasks", "submit", "wechat-decrypt", "--wait"],
+    );
     assert_eq!(task["status"], "succeeded");
     assert!(account.join("decrypted/contact/contact.db").is_file());
-    let task = call(fixture, account, &["tasks", "submit", "export-all", "--users", user, "--formats", "json", "--no-images", "--wait"]);
+    let task = call(
+        fixture,
+        account,
+        &[
+            "tasks",
+            "submit",
+            "export-all",
+            "--users",
+            user,
+            "--formats",
+            "json",
+            "--no-images",
+            "--wait",
+        ],
+    );
     assert_eq!(task["status"], "succeeded");
     let mut directories = vec![PathBuf::from(task["output_dir"].as_str().unwrap()).join("chats")];
     let mut found = false;
     while let Some(directory) = directories.pop() {
         for entry in fs::read_dir(directory).unwrap() {
             let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() { directories.push(entry.path()); }
-            else if entry.path().extension().is_some_and(|extension| extension == "json") {
-                found |= fs::read_to_string(entry.path()).unwrap().contains("synthetic message");
+            if entry.file_type().unwrap().is_dir() {
+                directories.push(entry.path());
+            } else if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                found |= fs::read_to_string(entry.path())
+                    .unwrap()
+                    .contains("synthetic message");
             }
         }
     }
-    assert!(found, "personal daemon export omitted the synthetic message");
+    assert!(
+        found,
+        "personal daemon export omitted the synthetic message"
+    );
 }
 
 fn terminal(fixture: &Fixture, account: &Path, id: &str) -> Value {
@@ -64,19 +144,20 @@ fn terminal(fixture: &Fixture, account: &Path, id: &str) -> Value {
 #[test]
 fn daemon_task_worker_exports_once_and_history_survives_restart() {
     let mut fixture = Fixture::new();
-    let account = fixture.account("task-owner", false);
-    fs::remove_file(account.join("all_keys.json")).unwrap();
+    let account = fixture.account("task-owner", true);
     let other = fixture.account("other-task-owner", false);
-    let snapshot = snapshot(&fixture);
-    let before = fs::read(snapshot.join("message.db")).unwrap();
+    let source = personal_messages(&account, 4);
+    let before = fs::read(&source).unwrap();
+    let images = fixture.root.join("images");
+    fs::create_dir(&images).unwrap();
     let info = call(
         &fixture,
         &account,
         &[
             "tasks",
             "configure",
-            "--enterprise-snapshot",
-            snapshot.to_str().unwrap(),
+            "--image-cache-dir",
+            images.to_str().unwrap(),
         ],
     );
     assert_eq!(info["configured"], true);
@@ -88,8 +169,10 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     let args = [
         "tasks",
         "submit",
-        "wxwork-export",
-        "--all-conversations",
+        "export-all",
+        "--users",
+        "task-peer",
+        "--no-images",
         "--formats",
         "json,csv,html",
         "--request-id",
@@ -98,7 +181,7 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     ];
     let task = call(&fixture, &account, &args);
     assert_eq!(task["status"], "succeeded", "{task}");
-    let output = Path::new(task["output_dir"].as_str().unwrap()).join("enterprise-export");
+    let output = Path::new(task["output_dir"].as_str().unwrap()).join("chats");
     assert!(output.is_dir());
     assert!(fs::read_dir(&output).unwrap().next().is_some());
     assert_eq!(call(&fixture, &account, &args), task);
@@ -119,7 +202,7 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     assert!(!fixture.run(&other, &["tasks", "get", &id]).status.success());
     let logs = call(&fixture, &account, &["tasks", "logs", &id]);
     assert!(!logs["logs"].as_array().unwrap().is_empty());
-    assert_eq!(fs::read(snapshot.join("message.db")).unwrap(), before);
+    assert_eq!(fs::read(&source).unwrap(), before);
     success(fixture.run(&account, &["daemon", "stop"]));
     assert_eq!(call(&fixture, &account, &["tasks", "get", &id]), task);
     call(
@@ -128,8 +211,8 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
         &[
             "tasks",
             "configure",
-            "--enterprise-snapshot",
-            snapshot.to_str().unwrap(),
+            "--image-cache-dir",
+            images.to_str().unwrap(),
         ],
     );
     assert_eq!(call(&fixture, &account, &args), task);
@@ -143,19 +226,12 @@ struct Web {
 }
 
 impl Web {
-    fn start(fixture: &Fixture, account: &Path, snapshot: &Path) -> Self {
+    fn start(fixture: &Fixture, account: &Path) -> Self {
         use std::os::windows::process::CommandExt;
         let log = fixture.root.join("web-process.log");
         let stdout = fs::File::create(&log).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_wx"))
-            .args([
-                "toolkit",
-                "web",
-                "--port",
-                "0",
-                "--enterprise-snapshot",
-                snapshot.to_str().unwrap(),
-            ])
+            .args(["toolkit", "web", "--port", "0"])
             .env_remove("WX_DAEMON_MODE")
             .env_remove("WX_DAEMON_TASK_WORKER")
             .env_remove("WX_CLI_EXPECTED_RUNTIME")
@@ -230,9 +306,9 @@ impl Drop for Web {
 #[test]
 fn web_and_cli_share_tasks_and_web_shutdown_does_not_stop_daemon() {
     let mut fixture = Fixture::new();
-    let account = fixture.account("web-task-owner", false);
-    let snapshot = snapshot(&fixture);
-    let mut web = Web::start(&fixture, &account, &snapshot);
+    let account = fixture.account("web-task-owner", true);
+    personal_messages(&account, 4);
+    let mut web = Web::start(&fixture, &account);
     let info = call(&fixture, &account, &["tasks", "info"]);
     let directory = fixture
         .root
@@ -248,8 +324,7 @@ fn web_and_cli_share_tasks_and_web_shutdown_does_not_stop_daemon() {
         401
     );
     let id = "cd".repeat(32);
-    let request =
-        json!({"kind":"wxwork_export","options":{"all_conversations":true,"formats":["json"]}});
+    let request = json!({"kind":"export_all","options":{"users":["task-peer"],"include_images":false,"formats":["json"]}});
     for _ in 0..2 {
         let response = web.request(
             reqwest::Method::POST,
@@ -287,7 +362,7 @@ fn web_and_cli_share_tasks_and_web_shutdown_does_not_stop_daemon() {
     let task = terminal(&fixture, &account, &id);
     assert_eq!(task["status"], "succeeded", "{task}");
     assert_eq!(call(&fixture, &account, &["tasks", "cancel", &id]), task);
-    let web = Web::start(&fixture, &account, &snapshot);
+    let web = Web::start(&fixture, &account);
     let result = web.request(
         reqwest::Method::GET,
         &format!("/api/tasks/{id}"),
@@ -350,32 +425,8 @@ fn cancelling_and_stopping_reap_running_workers_without_stopping_queries_early()
     };
     let mut fixture = Fixture::new();
     let account = fixture.account("cancel-task-owner", true);
-    let snapshot = snapshot(&fixture);
-    let mut db = rusqlite::Connection::open(snapshot.join("message.db")).unwrap();
-    let transaction = db.transaction().unwrap();
-    {
-        let mut insert = transaction.prepare("INSERT INTO message_table VALUES(?1,?1,?1,10000000001,'R:team',2,1700000000,0,?2,NULL,NULL)").unwrap();
-        for id in 100..100100 {
-            insert
-                .execute(rusqlite::params![
-                    id,
-                    "synthetic cancellation workload".repeat(4)
-                ])
-                .unwrap();
-        }
-    }
-    transaction.commit().unwrap();
-    drop(db);
-    let info = call(
-        &fixture,
-        &account,
-        &[
-            "tasks",
-            "configure",
-            "--enterprise-snapshot",
-            snapshot.to_str().unwrap(),
-        ],
-    );
+    personal_messages(&account, 100_000);
+    let info = call(&fixture, &account, &["tasks", "configure"]);
     let directory = fixture
         .root
         .join("shared-runtime/accounts")
@@ -391,8 +442,10 @@ fn cancelling_and_stopping_reap_running_workers_without_stopping_queries_early()
             &[
                 "tasks",
                 "submit",
-                "wxwork-export",
-                "--all-conversations",
+                "export-all",
+                "--users",
+                "task-peer",
+                "--no-images",
                 "--formats",
                 "json,csv,html",
                 "--request-id",

@@ -43,36 +43,12 @@ pub enum Command {
 #[derive(Debug, Default, clap::Args)]
 pub struct SettingsArgs {
     #[arg(long)]
-    pub enterprise_snapshot: Option<PathBuf>,
-    #[arg(long, conflicts_with = "enterprise_input")]
-    pub enterprise_data_dir: Option<PathBuf>,
-    #[arg(long)]
-    pub enterprise_discovery_root: Option<PathBuf>,
-    #[arg(long, requires = "enterprise_key_file")]
-    pub enterprise_input: Option<PathBuf>,
-    #[arg(long)]
-    pub enterprise_key_file: Option<PathBuf>,
-    #[arg(long, conflicts_with = "enterprise_input")]
-    pub enterprise_keys_file: Option<PathBuf>,
-    #[arg(long, allow_hyphen_values = true)]
-    pub enterprise_self_id: Option<i64>,
-    #[arg(long, value_delimiter = ',')]
-    pub enterprise_pid: Vec<u32>,
-    #[arg(long)]
     pub image_cache_dir: Option<PathBuf>,
 }
 
 impl From<SettingsArgs> for SettingsInput {
     fn from(args: SettingsArgs) -> Self {
         Self {
-            enterprise_snapshot: args.enterprise_snapshot,
-            enterprise_data_dir: args.enterprise_data_dir,
-            enterprise_discovery_root: args.enterprise_discovery_root,
-            enterprise_input: args.enterprise_input,
-            enterprise_key_file: args.enterprise_key_file,
-            enterprise_keys_file: args.enterprise_keys_file,
-            enterprise_self_id: args.enterprise_self_id,
-            enterprise_pid: args.enterprise_pid,
             image_cache_dir: args.image_cache_dir,
         }
     }
@@ -102,8 +78,6 @@ pub struct SubmitArgs {
     pub allow_upload: bool,
     #[arg(long)]
     pub authorize_memory_scan: bool,
-    #[arg(long, conflicts_with = "users")]
-    pub all_conversations: bool,
     #[arg(long, value_parser = parse_id)]
     pub request_id: Option<String>,
     #[arg(long)]
@@ -125,7 +99,6 @@ impl SubmitArgs {
                 with_transcriptions: self.with_transcriptions,
                 allow_upload: self.allow_upload,
                 authorize_memory_scan: self.authorize_memory_scan,
-                all_conversations: self.all_conversations,
             },
         }
     }
@@ -134,36 +107,21 @@ impl SubmitArgs {
         if let Some(id) = &self.request_id {
             parse_id(id).map_err(anyhow::Error::msg)?;
         }
-        if matches!(
-            self.kind,
-            Kind::WechatKeys | Kind::ImageKey | Kind::WxworkScan
-        ) {
+        if matches!(self.kind, Kind::WechatKeys | Kind::ImageKey) {
             ensure!(
                 self.authorize_memory_scan,
                 "This task requires --authorize-memory-scan"
             );
         }
-        // WxworkRun/Decrypt consent depends on bound key files; the daemon checks it.
         ensure!(
-            !self.authorize_memory_scan
-                || matches!(
-                    self.kind,
-                    Kind::WechatKeys
-                        | Kind::ImageKey
-                        | Kind::WxworkScan
-                        | Kind::WxworkRun
-                        | Kind::WxworkDecrypt
-                ),
+            !self.authorize_memory_scan || matches!(self.kind, Kind::WechatKeys | Kind::ImageKey),
             "This task does not accept --authorize-memory-scan"
         );
         Ok(())
     }
 }
 
-fn parse_kind(value: &str) -> std::result::Result<Kind, String> {
-    serde_json::from_value(Value::String(value.replace('-', "_")))
-        .map_err(|_| format!("Unknown task kind: {value}"))
-}
+use crate::service::protocol::parse_task_kind as parse_kind;
 
 fn parse_format(value: &str) -> std::result::Result<Format, String> {
     serde_json::from_value(Value::String(value.into()))
@@ -171,11 +129,7 @@ fn parse_format(value: &str) -> std::result::Result<Format, String> {
 }
 
 fn parse_id(value: &str) -> std::result::Result<String, String> {
-    if value.len() == 64
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if crate::service::protocol::valid_task_id(value) {
         Ok(value.into())
     } else {
         Err("ID must contain exactly 64 lowercase hexadecimal characters".into())
@@ -426,11 +380,6 @@ mod tests {
             "export_all",
             "decode_images",
             "sns_decrypt",
-            "wxwork_decrypt",
-            "wxwork_export",
-            "wxwork_discover",
-            "wxwork_scan",
-            "wxwork_run",
             "voice_mp3",
         ] {
             assert_eq!(
@@ -468,18 +417,13 @@ mod tests {
                 && !o.include_images
                 && args.wait
         );
-        let args = submit(&[
-            "tasks",
-            "submit",
-            "wxwork-run",
-            "--all-conversations",
-            "--authorize-memory-scan",
-        ]);
-        assert!(
-            args.submission().options.all_conversations
-                && args.submission().options.authorize_memory_scan
-        );
         for argv in [
+            vec!["tasks", "submit", "wxwork-run"],
+            vec!["tasks", "submit", "wxwork-export"],
+            vec!["tasks", "submit", "wxwork-decrypt"],
+            vec!["tasks", "submit", "wxwork-discover"],
+            vec!["tasks", "submit", "wxwork-scan"],
+            vec!["tasks", "submit", "export-all", "--all-conversations"],
             vec!["tasks", "submit", "shell"],
             vec!["tasks", "submit", "export-all", "--path", "x"],
             vec!["tasks", "submit", "export-all", "--argv", "x"],
@@ -514,7 +458,7 @@ mod tests {
                 .as_deref(),
             Some(id.as_str())
         );
-        for kind in ["wechat-keys", "image-key", "wxwork-scan"] {
+        for kind in ["wechat-keys", "image-key"] {
             assert!(submit(&["tasks", "submit", kind]).validate().is_err());
             assert!(
                 submit(&["tasks", "submit", kind, "--authorize-memory-scan"])
@@ -537,63 +481,18 @@ mod tests {
 
     #[test]
     fn settings_fields_map_without_web_args_or_account_io() {
-        let Command::Configure(args) = Invocation::try_parse_from([
-            "tasks",
-            "configure",
-            "--enterprise-snapshot",
-            "snapshot",
-            "--enterprise-data-dir",
-            "data",
-            "--enterprise-discovery-root",
-            "root",
-            "--enterprise-key-file",
-            "key",
-            "--enterprise-keys-file",
-            "keys",
-            "--enterprise-self-id",
-            "-42",
-            "--enterprise-pid",
-            "1,2",
-            "--enterprise-pid",
-            "3",
-            "--image-cache-dir",
-            "images",
-        ])
-        .unwrap()
-        .command
+        let Command::Configure(args) =
+            Invocation::try_parse_from(["tasks", "configure", "--image-cache-dir", "images"])
+                .unwrap()
+                .command
         else {
             panic!()
         };
         assert_eq!(
             SettingsInput::from(args),
             SettingsInput {
-                enterprise_snapshot: Some("snapshot".into()),
-                enterprise_data_dir: Some("data".into()),
-                enterprise_discovery_root: Some("root".into()),
-                enterprise_input: None,
-                enterprise_key_file: Some("key".into()),
-                enterprise_keys_file: Some("keys".into()),
-                enterprise_self_id: Some(-42),
-                enterprise_pid: vec![1, 2, 3],
                 image_cache_dir: Some("images".into()),
             }
-        );
-        let Command::Configure(args) = Invocation::try_parse_from([
-            "tasks",
-            "configure",
-            "--enterprise-input",
-            "input",
-            "--enterprise-key-file",
-            "key",
-        ])
-        .unwrap()
-        .command
-        else {
-            panic!()
-        };
-        assert_eq!(
-            SettingsInput::from(args).enterprise_input,
-            Some("input".into())
         );
         for argv in [
             vec!["tasks", "configure", "--enterprise-input", "input"],

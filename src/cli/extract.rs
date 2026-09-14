@@ -1,8 +1,6 @@
 use anyhow::Result;
 
-use crate::ipc::Request;
-use super::output::{print_value, resolve};
-use super::transport;
+use crate::service::operations::Operation;
 
 /// `wx extract` — 把单个 `attachment_id` 对应的资源解密写到指定路径。
 ///
@@ -15,11 +13,10 @@ pub fn cmd_extract(
     overwrite: bool,
     json: bool,
 ) -> Result<()> {
-    let req = Request::Extract {
+    crate::service::operation_client::run(Operation::Extract {
         attachment_id,
         output,
         overwrite,
-    };
-    let resp = transport::send(req)?;
-    print_value(&resp.data, &resolve(json))
+        json,
+    })
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::query::encrypted_cache;
 use serde_json::json;
 use std::fs;
 
@@ -23,25 +24,12 @@ async fn fixture() -> Fixture {
     let g = golden();
     let mut mtimes = serde_json::Map::new();
     let mut keys = HashMap::new();
-    let mut cached = HashMap::new();
+    let mut cached: HashMap<String, PathBuf> = HashMap::new();
     let mut seed = |source: &str| {
-        let original = db_dir.join(source);
-        fs::write(&original, b"only synthetic encrypted placeholder").unwrap();
         let path = cache_dir.join(format!("{:x}.db", md5::compute(source.as_bytes())));
-        let mt = fs::metadata(&original)
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-        mtimes.insert(
-            source.into(),
-            json!({"db_mt": mt, "wal_mt": 0, "path": path}),
-        );
         keys.insert(source.into(), "11".repeat(32));
         cached.insert(source.into(), path.clone());
-        Connection::open(path).unwrap()
+        encrypted_cache::sqlite(&path)
     };
     for shard in g["shards"].as_array().unwrap() {
         let conn = seed(shard["source"].as_str().unwrap());
@@ -99,6 +87,13 @@ async fn fixture() -> Fixture {
             .unwrap();
     }
     drop(contact);
+    for (source, path) in &cached {
+        let mt = encrypted_cache::seed(path, &db_dir.join(source));
+        mtimes.insert(
+            source.clone(),
+            json!({"db_mt": mt, "wal_mt": 0, "path": path}),
+        );
+    }
     let mtime = cache_dir.join("_mtimes.json");
     fs::write(&mtime, serde_json::to_vec(&mtimes).unwrap()).unwrap();
     let db = DbCache::with_dirs(db_dir, cache_dir, mtime, keys)
@@ -213,6 +208,11 @@ async fn unknown_or_unreadable_shard_cannot_be_partial_success() {
         b"synthetic corrupt database",
     )
     .unwrap();
+    // Prevent recovery from hiding the intentionally unreadable shard.
+    let source = f.db.db_dir().join("message/message_1.db");
+    let mut bytes = fs::read(&source).unwrap();
+    bytes[4032] ^= 1;
+    fs::write(source, bytes).unwrap();
     assert!(
         q_export_delta_username(&f.db, &f.names, "wxid_peer".into(), Some(100), None)
             .await

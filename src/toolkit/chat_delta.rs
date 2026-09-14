@@ -208,8 +208,7 @@ pub fn prepare_delta(chat: &DeltaChat, window: &DeltaWindow) -> Result<PreparedD
         .messages
         .iter()
         .filter(|m| {
-            m.timestamp >= window.start.unwrap()
-                && window.end.map_or(true, |end| m.timestamp <= end)
+            m.timestamp >= window.start.unwrap() && window.end.is_none_or(|end| m.timestamp <= end)
         })
         .collect();
     rows.sort_by_key(|m| m.timestamp);

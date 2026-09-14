@@ -500,24 +500,44 @@ where
             let runtime_id = runtime.id.clone();
             connections.spawn(async move {
                 let _permit = permit;
-                let _ = tokio::time::timeout(CALL_TIMEOUT, async {
-                    let bytes = read_frame(&mut stream, MAX_REQUEST_BYTES).await?;
-                    let mut envelope: Envelope = serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid task request"))?;
+                let _ = async {
+                    let bytes = Zeroizing::new(tokio::time::timeout(CALL_TIMEOUT, read_frame(&mut stream, MAX_REQUEST_BYTES)).await??);
+                    let mut envelope: Envelope = match serde_json::from_slice(&bytes) {
+                        Ok(envelope) => envelope,
+                        Err(_) => {
+                            let reply = Reply::failure(runtime_id.clone(), error("invalid_request", "Unsupported or invalid service request"));
+                            let encoded = encode(&reply, MAX_RESPONSE_BYTES)?;
+                            tokio::time::timeout(CALL_TIMEOUT, async {
+                                write_frame(&mut stream, &encoded).await?;
+                                ensure!(stream.read_u8().await? == 0, "invalid task response acknowledgement");
+                                Ok::<(), anyhow::Error>(())
+                            }).await??;
+                            return Ok::<(), anyhow::Error>(());
+                        }
+                    };
                     let auth = authenticate(envelope.version, &envelope.runtime_id, &envelope.token, &runtime_id, &token.value);
                     envelope.token.zeroize();
-                    let outcome = match auth { Ok(()) => handler(envelope.request).await, Err(error) => Err(error) };
+                    let max_response_bytes = envelope.request.response_limit();
+                    let outcome = match auth {
+                        Ok(()) => tokio::time::timeout(Duration::from_secs(60), handler(envelope.request)).await
+                            .unwrap_or_else(|_| Err(error("deadline", "Operation deadline exceeded; outcome may be unknown"))),
+                        Err(error) => Err(error),
+                    };
                     let reply = match outcome {
                         Ok(data) => Reply::success(runtime_id.clone(), data),
                         Err(error) => Reply::failure(runtime_id.clone(), error),
                     };
-                    let bytes = match encode(&reply, MAX_RESPONSE_BYTES) {
+                    let bytes = match encode(&reply, max_response_bytes) {
                         Ok(bytes) => bytes,
                         Err(_) => encode(&Reply::failure(runtime_id, error("response_too_large", "task response exceeds size limit")), MAX_RESPONSE_BYTES)?,
                     };
-                    write_frame(&mut stream, &bytes).await?;
-                    ensure!(stream.read_u8().await? == 0, "invalid task response acknowledgement");
+                    tokio::time::timeout(CALL_TIMEOUT, async {
+                        write_frame(&mut stream, &bytes).await?;
+                        ensure!(stream.read_u8().await? == 0, "invalid task response acknowledgement");
+                        Ok::<(), anyhow::Error>(())
+                    }).await??;
                     Ok::<(), anyhow::Error>(())
-                }).await;
+                }.await;
             });
             while connections.try_join_next().is_some() {}
         }
@@ -706,7 +726,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let original = dir.path().join("original");
         let path = dir.path().join("service-token.key");
-        leave_stale_token(&original, &vec![b'a'; 64]);
+        leave_stale_token(&original, &[b'a'; 64]);
         if let Err(error) = std::os::windows::fs::symlink_file(&original, &path) {
             if error.raw_os_error() == Some(1314) {
                 eprintln!("symlink test skipped: Windows symlink privilege is unavailable");
@@ -820,7 +840,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let original = dir.path().join("original");
         let path = dir.path().join("service-token.key");
-        leave_stale_token(&original, &vec![b'a'; 64]);
+        leave_stale_token(&original, &[b'a'; 64]);
         std::fs::hard_link(&original, &path).unwrap();
         let listener = create_pipe(&test_name(dir.path()), true).unwrap();
         assert!(TokenFile::create(DirectoryGuard::open(dir.path()).unwrap(), &listener).is_err());

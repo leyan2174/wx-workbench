@@ -1,5 +1,7 @@
 //! 完整 wx 子进程离线计划回归；仅合成 SQLite、元数据和媒体，无 Python 依赖。
 use chrono::{Local, TimeZone};
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 use rusqlite::Connection;
 use std::{
     collections::BTreeMap,
@@ -139,6 +141,14 @@ impl Fixture {
     }
 }
 
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(bootstrap::BootstrapCleanup(
+            self.root.join("must-not-create-runtime"),
+        ));
+    }
+}
+
 fn run(mut cmd: Command) -> Output {
     println!("COMMAND: {cmd:?}");
     let output = cmd.output().expect("无法启动 Cargo 构建的 wx 进程");
@@ -191,11 +201,23 @@ fn csv_rows(path: &Path) -> Vec<Vec<String>> {
 }
 
 fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    fn visit(base: &Path, path: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+    snapshot_except(root, None)
+}
+
+fn snapshot_except(root: &Path, excluded: Option<&Path>) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(
+        base: &Path,
+        path: &Path,
+        excluded: Option<&Path>,
+        files: &mut BTreeMap<PathBuf, Vec<u8>>,
+    ) {
         for entry in fs::read_dir(path).unwrap() {
             let path = entry.unwrap().path();
+            if excluded == Some(path.as_path()) {
+                continue;
+            }
             if path.is_dir() {
-                visit(base, &path, files);
+                visit(base, &path, excluded, files);
             } else {
                 files.insert(
                     path.strip_prefix(base).unwrap().to_path_buf(),
@@ -205,7 +227,7 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         }
     }
     let mut files = BTreeMap::new();
-    visit(root, root, &mut files);
+    visit(root, root, excluded, &mut files);
     files
 }
 
@@ -245,7 +267,11 @@ fn estimate_entire_csv_matches_contract_without_python_or_config() {
     assert_eq!(csv_rows(&path), rows);
     assert_eq!(snapshot(&f.cache), cache);
     assert_eq!(snapshot(&f.source), source);
-    assert!(!f.root.join("must-not-create-runtime").exists());
+    bootstrap::assert_only_bootstrap(&f.root.join("must-not-create-runtime"));
+    assert_eq!(
+        fs::read(f.root.join("must-not-read-config.json")).unwrap(),
+        b"invalid synthetic config; must not be read"
+    );
     assert!(fs::read_dir(f.root.join("empty-path"))
         .unwrap()
         .next()
@@ -333,11 +359,15 @@ fn existing_output_is_preserved_and_sources_are_never_destinations() {
         assert!(!output.exists());
         assert_eq!(snapshot(&f.source), before);
     }
-    assert!(!snapshot(&f.root).keys().any(|p| p
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .starts_with(".wx-chat-plan-")));
+    assert!(
+        !snapshot_except(&f.root, Some(&f.root.join("must-not-create-runtime")))
+            .keys()
+            .any(|p| p
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".wx-chat-plan-"))
+    );
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::query::encrypted_cache;
 use std::{fs, path::PathBuf};
 
 const CHAT: &str = "wxid_fixture";
@@ -28,16 +29,8 @@ impl Fixture {
         let mut resource = PathBuf::new();
         for raw in message_keys.iter().copied().chain([RESOURCE]) {
             let source = db_dir.join(raw);
-            fs::write(&source, b"synthetic encrypted placeholder").unwrap();
-            let mt = fs::metadata(&source)
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64;
             let path = cache.join(format!("{:x}.db", md5::compute(raw)));
-            let conn = Connection::open(&path).unwrap();
+            let conn = encrypted_cache::sqlite(&path);
             if raw == RESOURCE {
                 conn.execute_batch(
                     "CREATE TABLE ChatName2Id(user_name TEXT);
@@ -54,6 +47,7 @@ impl Fixture {
                 messages.push(path.clone());
             }
             drop(conn);
+            let mt = encrypted_cache::seed(&path, &source);
             mtimes.insert(raw.into(), json!({"db_mt": mt, "wal_mt": 0, "path": path}));
             keys.insert(raw.into(), "11".repeat(32));
         }
@@ -119,13 +113,16 @@ impl Fixture {
             &self.db,
             &self.names,
             CHAT,
-            None,
-            limit,
-            offset,
-            since,
-            until,
-            false,
-            false,
+            AttachmentQuery {
+                kinds: None,
+                page: MessagePage { limit, offset },
+                since,
+                until,
+                meta: MetaOptions {
+                    with_meta: false,
+                    debug_source: false,
+                },
+            },
             enhanced,
         )
         .await
@@ -168,6 +165,11 @@ async fn production_default_and_empty_page_skip_invalid_resource() {
     let f = Fixture::new().await;
     f.insert(0, 1, 100, 3);
     fs::write(&f.resource, b"broken resource").unwrap();
+    // Keep the resource unavailable even when the cache attempts a rebuild.
+    let source = f.db.db_dir().join(RESOURCE);
+    let mut bytes = fs::read(&source).unwrap();
+    bytes[4032] ^= 1;
+    fs::write(source, bytes).unwrap();
     let ordinary = f.list(false, 20, 0, None, None).await.unwrap();
     assert_eq!(ordinary["count"], 1);
     assert!(ordinary["attachments"][0].get("md5").is_none());
@@ -246,44 +248,10 @@ async fn production_duplicate_beyond_other_shard_timestamp_cap_is_found() {
 }
 
 fn encrypted_sqlite(path: &std::path::Path) -> Vec<u8> {
-    use cbc::cipher::{BlockEncryptMut, KeyIvInit};
-    let conn = Connection::open(path).unwrap();
-    let mut reserve: std::ffi::c_int = 80;
-    // The existing cache fixture uses genuine SQLite pages with SQLCipher reserve bytes.
-    let status = unsafe {
-        rusqlite::ffi::sqlite3_file_control(
-            conn.handle(),
-            c"main".as_ptr(),
-            rusqlite::ffi::SQLITE_FCNTL_RESERVE_BYTES,
-            (&mut reserve as *mut std::ffi::c_int).cast(),
-        )
-    };
-    assert_eq!(status, rusqlite::ffi::SQLITE_OK);
-    conn.execute_batch("VACUUM").unwrap();
-    drop(conn);
-    let plain = fs::read(path).unwrap();
-    assert_eq!(plain[20], 80);
-    assert_eq!(plain.len() % 4096, 0);
-    let mut output = Vec::new();
-    for (index, page) in plain.chunks_exact(4096).enumerate() {
-        let start = if index == 0 { 16 } else { 0 };
-        let mut encrypted = vec![0u8; 4096];
-        if index == 0 {
-            encrypted[..16].fill(0x55);
-        }
-        let mut blocks: Vec<aes::cipher::Block<aes::Aes256>> = page[start..4016]
-            .chunks_exact(16)
-            .map(aes::cipher::Block::<aes::Aes256>::clone_from_slice)
-            .collect();
-        cbc::Encryptor::<aes::Aes256>::new((&[0x11; 32]).into(), (&[0x33; 16]).into())
-            .encrypt_blocks_mut(&mut blocks);
-        for (destination, block) in encrypted[start..4016].chunks_exact_mut(16).zip(blocks) {
-            destination.copy_from_slice(&block);
-        }
-        encrypted[4016..4032].fill(0x33);
-        output.extend(encrypted);
-    }
-    output
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("encrypted.db");
+    encrypted_cache::seed(path, &output);
+    fs::read(output).unwrap()
 }
 
 #[tokio::test]
@@ -349,7 +317,22 @@ async fn production_cold_cache_and_authorized_redecrypt_are_allowed() {
         let dat = fs::read(&f.dat).unwrap();
         for _ in 0..2 {
             let result = q_attachments_with_image_metadata(
-                &db, &f.names, CHAT, None, 20, 0, None, None, false, false,
+                &db,
+                &f.names,
+                CHAT,
+                AttachmentQuery {
+                    kinds: None,
+                    page: MessagePage {
+                        limit: 20,
+                        offset: 0,
+                    },
+                    since: None,
+                    until: None,
+                    meta: MetaOptions {
+                        with_meta: false,
+                        debug_source: false,
+                    },
+                },
             )
             .await
             .unwrap();

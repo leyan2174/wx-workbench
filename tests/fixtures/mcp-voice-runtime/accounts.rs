@@ -1,7 +1,5 @@
-#[path = "../mcp-readonly-runtime/encrypted_sqlite.rs"]
-mod encrypted_sqlite;
+use crate::support::encrypted_sqlite::{encrypt, sqlite};
 use crate::{artifacts, support::Account};
-use encrypted_sqlite::{encrypt, sqlite};
 use std::fs;
 
 pub fn seed(account: &Account) {

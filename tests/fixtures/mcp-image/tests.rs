@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::query::encrypted_cache;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 
@@ -32,18 +33,8 @@ impl Fixture {
         let mut resource = PathBuf::new();
         for raw in message_keys.iter().chain(resource_keys.iter()) {
             let source = db_dir.join(raw.replace('\\', "/"));
-            if !source.exists() {
-                fs::write(&source, b"synthetic encrypted placeholder").unwrap();
-            }
-            let mt = fs::metadata(&source)
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64;
             let path = cache.join(format!("{:x}.db", md5::compute(raw)));
-            let conn = Connection::open(&path).unwrap();
+            let conn = encrypted_cache::sqlite(&path);
             if normalize(raw) == RESOURCE_KEY {
                 conn.execute_batch(
                     "CREATE TABLE ChatName2Id(user_name TEXT);
@@ -72,6 +63,7 @@ impl Fixture {
                 messages.push(path.clone());
             }
             drop(conn);
+            let mt = encrypted_cache::seed(&path, &source);
             mtimes.insert(raw.to_string(), json!({"db_mt":mt,"wal_mt":0,"path":path}));
             keys.insert(raw.to_string(), "11".repeat(32));
         }
@@ -394,6 +386,11 @@ async fn native_root_policy_and_resource_corruption_remain_fail_closed() {
     .is_err());
     f.empty_output();
     fs::write(&f.resource, b"not sqlite").unwrap();
+    // Corrupt the source too, so cache recovery cannot repair this failure fixture.
+    let source = f.db.db_dir().join(RESOURCE_KEY);
+    let mut bytes = fs::read(&source).unwrap();
+    bytes[4032] ^= 1;
+    fs::write(source, bytes).unwrap();
     assert!(f.query(0).await.is_err());
     f.empty_output();
 }
@@ -401,7 +398,7 @@ async fn native_root_policy_and_resource_corruption_remain_fail_closed() {
 #[test]
 fn host_key_json_uses_cli_parsers_and_default_xor() {
     let keys = parse_key_json(br#"{"aes_key":"1234567890abcdef"}"#).unwrap();
-    assert_eq!((&*keys.aes).as_ref(), Some(b"1234567890abcdef"));
+    assert_eq!((*keys.aes).as_ref(), Some(b"1234567890abcdef"));
     assert_eq!(*keys.xor, 0x88);
     for value in [br#"{"xor_key":"0xa2"}"#.as_slice(), br#"{"xor_key":162}"#] {
         let keys = parse_key_json(value).unwrap();

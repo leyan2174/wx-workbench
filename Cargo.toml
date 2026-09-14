@@ -1,6 +1,6 @@
 [package]
 name = "wx-cli"
-version = "0.3.0-leyan.7"
+version = "0.3.0"
 edition = "2021"
 default-run = "wx"
 description = "Windows WeChat 4.x local data CLI: decrypt databases, query and export records"
@@ -9,6 +9,7 @@ repository = "https://github.com/jackwener/wx-cli"
 keywords = ["wechat", "sqlcipher", "decrypt", "cli"]
 categories = ["command-line-utilities"]
 readme = "README.md"
+exclude = [".claude/**", ".codex/**", "**/*.log", "docs/diagrams/history/**", "docs/diagrams/**/*.png"]
 
 [[bin]]
 name = "wx"
@@ -25,7 +26,8 @@ bench = false
 clap = { version = "4", features = ["derive"] }
 
 # 异步
-tokio = { version = "1", features = ["full"] }
+# 保留已修复阻塞任务调度问题的运行时最低版本。
+tokio = { version = "1.52.4", features = ["full"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
@@ -37,7 +39,7 @@ csv = "1"
 encoding_rs = "0.8"
 
 # SQLite
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 
 # 加密
 aes = "0.8"

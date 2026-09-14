@@ -1,11 +1,21 @@
 //! Versioned local IPC. Only Configure may introduce allowed input paths.
 pub use super::settings::SettingsInput;
+#[path = "monitor.rs"]
+pub(crate) mod monitor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 pub const VERSION: u32 = 1;
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 pub const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+
+/// 提交幂等键就是后台任务 ID；各入口使用同一格式，不能自行截短或重新生成。
+pub fn valid_task_id(id: &str) -> bool {
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -16,12 +26,12 @@ pub enum Kind {
     ExportAll,
     DecodeImages,
     SnsDecrypt,
-    WxworkDecrypt,
-    WxworkExport,
-    WxworkDiscover,
-    WxworkScan,
-    WxworkRun,
     VoiceMp3,
+}
+
+pub fn parse_task_kind(value: &str) -> Result<Kind, String> {
+    serde_json::from_value(Value::String(value.replace('-', "_")))
+        .map_err(|_| format!("Unknown task kind: {value}"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,7 +64,6 @@ pub struct Options {
     pub with_transcriptions: bool,
     pub allow_upload: bool,
     pub authorize_memory_scan: bool,
-    pub all_conversations: bool,
 }
 
 impl Default for Options {
@@ -70,7 +79,6 @@ impl Default for Options {
             with_transcriptions: false,
             allow_upload: false,
             authorize_memory_scan: false,
-            all_conversations: false,
         }
     }
 }
@@ -118,6 +126,26 @@ impl Task {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    Monitor {
+        request: monitor::Call,
+    },
+    Mcp {
+        request: Box<super::mcp::Call>,
+    },
+    Web {
+        request: Box<super::web::Call>,
+    },
+    OperationStart {
+        id: String,
+        invocation: Box<super::operation_protocol::Invocation>,
+    },
+    OperationPoll {
+        id: String,
+        after: u64,
+    },
+    OperationCancel {
+        id: String,
+    },
     Configure {
         settings: SettingsInput,
     },
@@ -139,6 +167,20 @@ pub enum Call {
         wait_ms: u64,
     },
     Shutdown {},
+}
+impl Call {
+    pub(crate) fn response_limit(&self) -> usize {
+        match self {
+            Self::Monitor { request } => request.response_limit(),
+            Self::Web { .. } => super::web::MAX_RESPONSE_BYTES,
+            Self::Mcp { request } => request
+                .budget
+                .max_response_bytes
+                .saturating_add(64 * 1024)
+                .min(24 * 1024 * 1024),
+            _ => MAX_RESPONSE_BYTES,
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -235,6 +277,12 @@ mod tests {
             json!({"kind":"shell"}),
             json!({"kind":"export_all","path":"other"}),
             json!({"kind":"export_all","options":{"command":"cmd.exe"}}),
+            json!({"kind":"wxwork_decrypt"}),
+            json!({"kind":"wxwork_export"}),
+            json!({"kind":"wxwork_discover"}),
+            json!({"kind":"wxwork_scan"}),
+            json!({"kind":"wxwork_run"}),
+            json!({"kind":"export_all","options":{"all_conversations":true}}),
         ] {
             assert!(serde_json::from_value::<Submission>(value).is_err());
         }
@@ -247,6 +295,8 @@ mod tests {
             json!({"port":80}),
             json!({"open":true}),
             json!({"command":"cmd.exe"}),
+            json!({"enterprise_snapshot":"removed"}),
+            json!({"enterprise_data_dir":"removed"}),
         ] {
             assert!(serde_json::from_value::<SettingsInput>(value).is_err());
         }

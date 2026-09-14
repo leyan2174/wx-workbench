@@ -3,24 +3,25 @@
 pub mod asr;
 #[path = "../../../src/toolkit/audio/mod.rs"]
 pub mod audio;
-#[path = "../../../src/attachment/local_files.rs"]
-pub mod local_files;
 #[path = "cli.rs"]
 pub mod cli;
-#[path = "../../../src/toolkit/files.rs"]
-mod files;
-#[path = "../../../src/toolkit/sns/video_runtime.rs"]
-pub mod video;
 #[path = "../../../src/config.rs"]
 pub mod config;
-#[path = "../../../src/runtime.rs"]
-pub mod runtime;
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
-#[path = "../../../src/daemon/cache.rs"]
-pub mod production_cache;
+#[path = "../../../src/toolkit/files.rs"]
+mod files;
 #[path = "../../../src/toolkit/legacy.rs"]
 pub mod legacy;
+#[path = "../../../src/attachment/local_files.rs"]
+pub mod local_files;
+#[path = "../../../src/daemon/cache.rs"]
+#[allow(unused_imports)] // 语音和视频测试不调用图片资源快照接口。
+pub mod production_cache;
+#[path = "../../../src/runtime.rs"]
+pub mod runtime;
+#[path = "../../../src/toolkit/sns/video_runtime.rs"]
+pub mod video;
 
 pub mod daemon {
     pub use super::production_cache as cache;

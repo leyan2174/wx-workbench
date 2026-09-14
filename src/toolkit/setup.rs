@@ -103,7 +103,8 @@ fn inspect(path: &Path) -> Result<(PathBuf, HostOutputGuard, bool)> {
     let mut missing = false;
     for part in path.components() {
         current.push(part);
-        if !current.is_absolute() {
+        // VerbatimDisk 前缀单独也被视为 absolute，但 \\?\C: 还不是可访问的根目录。
+        if matches!(part, Component::Prefix(_)) || !current.is_absolute() {
             continue;
         }
         if missing {
@@ -445,6 +446,39 @@ fn env_present(name: &str) -> bool {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_disk_paths_support_snapshots_and_missing_outputs() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("config.json");
+        fs::write(&config, b"{}").unwrap();
+        let canonical = fs::canonicalize(&config).unwrap();
+        let document = ConfigDocument::load(&canonical).unwrap();
+        assert_eq!(document.value, json!({}));
+        assert!(same_path(&config, &canonical).unwrap());
+
+        let missing = fs::canonicalize(root.path())
+            .unwrap()
+            .join("new")
+            .join("keys.json");
+        let snapshot = Snapshot::capture(&missing).unwrap();
+        assert!(!missing.exists());
+        snapshot
+            .write_json(
+                &json!({"synthetic": true}),
+                std::slice::from_ref(&canonical),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&missing).unwrap()).unwrap(),
+            json!({"synthetic": true})
+        );
+        assert_eq!(fs::read(&config).unwrap(), b"{}");
+        assert!(check_target(&canonical, &[config]).is_err());
+
+        let prefix_only = PathBuf::from(canonical.components().next().unwrap().as_os_str());
+        assert!(inspect(&prefix_only).is_err());
+    }
 
     #[test]
     fn invalid_documents_are_preserved_byte_for_byte() {

@@ -102,7 +102,7 @@ async fn q_prepare_voice_ambiguity_and_backend_errors_have_safe_error_chains() {
         .await
         .unwrap_err();
     assert_eq!(format!("{error:#}"), "voice preparation unavailable");
-    fs::write(&f.paths[2], b"SECRET_CORRUPT_DATABASE").unwrap();
+    fs::write(f.db.db_dir().join(SOURCES[2]), b"SECRET_CORRUPT_DATABASE").unwrap();
     let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
         .await
         .unwrap_err();
@@ -139,6 +139,17 @@ async fn audio_sql_to_local_ipc_bridge_roundtrips_without_source_changes() {
     assert_eq!(before, f.snapshot());
 }
 
+#[path = "../encrypted_cache.rs"]
+mod encrypted_cache;
+
+const SOURCES: [&str; 5] = [
+    "message/message_0.db",
+    "message/message_1.db",
+    "message/media_0.db",
+    "message/media_1.db",
+    "contact/contact.db",
+];
+
 struct Fixture {
     _root: tempfile::TempDir,
     db: DbCache,
@@ -154,26 +165,18 @@ impl Fixture {
         fs::create_dir_all(source.join("message")).unwrap();
         fs::create_dir(source.join("contact")).unwrap();
         fs::create_dir(&cache).unwrap();
-        let raw = [
-            "message/message_0.db",
-            "message/message_1.db",
-            "message/media_0.db",
-            "message/media_1.db",
-            "contact/contact.db",
-        ];
         let mut keys = HashMap::new();
         let mut mtimes = serde_json::Map::new();
         let mut paths = Vec::new();
-        for (index, key) in raw.into_iter().enumerate() {
+        for (index, key) in SOURCES.into_iter().enumerate() {
             let original = source.join(key);
-            fs::write(&original, b"synthetic encrypted database").unwrap();
             let raw_key = if upper {
                 key.to_ascii_uppercase().replace('/', "\\")
             } else {
                 key.into()
             };
             let path = cache.join(format!("{:x}.db", md5::compute(&raw_key)));
-            let c = Connection::open(&path).unwrap();
+            let c = encrypted_cache::sqlite(&path);
             if index < 2 {
                 let table = format!("Msg_{:x}", md5::compute("wxid_peer"));
                 c.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type INTEGER,create_time INTEGER,server_id INTEGER,WCDB_CT_message_content INTEGER,message_content BLOB)")).unwrap();
@@ -197,13 +200,7 @@ impl Fixture {
                     .unwrap();
             }
             drop(c);
-            let mt = fs::metadata(&original)
-                .unwrap()
-                .modified()
-                .unwrap()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64;
+            let mt = encrypted_cache::seed(&path, &original);
             mtimes.insert(raw_key.clone(), json!({"db_mt":mt,"wal_mt":0,"path":path}));
             keys.insert(raw_key, "11".repeat(32));
             paths.push(path);
@@ -227,29 +224,20 @@ impl Fixture {
         };
         let value =
             mcp_audio::q_prepare_voice(&self.db, &self.names, "wxid_peer", 700, limits).await?;
-        Ok(prepared_audio::decode(
-            &serde_json::to_vec(&value["prepared_audio"])?,
-            limits,
-        )?)
+        prepared_audio::decode(&serde_json::to_vec(&value["prepared_audio"])?, limits)
     }
     fn message_voice(
         &self,
         time: Option<i64>,
     ) -> Result<database_media::DatabaseVoice, database_media::DatabaseMediaError> {
-        let sources: Vec<_> = [
-            "message/message_0.db",
-            "message/message_1.db",
-            "message/media_0.db",
-            "message/media_1.db",
-            "contact/contact.db",
-        ]
-        .into_iter()
-        .zip(&self.paths)
-        .map(|(source, path)| database_media::DecryptedSource {
-            source: source.into(),
-            path: path.clone(),
-        })
-        .collect();
+        let sources: Vec<_> = SOURCES
+            .into_iter()
+            .zip(&self.paths)
+            .map(|(source, path)| database_media::DecryptedSource {
+                source: source.into(),
+                path: path.clone(),
+            })
+            .collect();
         database_media::resolve_voice_sources(
             &sources,
             database_media::MessageIdentity {
@@ -340,11 +328,11 @@ async fn audio_ambiguity_precedes_type_and_time_can_disambiguate() {
 
 #[tokio::test]
 async fn audio_missing_unknown_and_corrupt_dependencies_fail_closed() {
-    for index in 0..5 {
+    for source in SOURCES {
         let f = Fixture::new(false).await;
-        fs::write(&f.paths[index], b"synthetic corrupt database").unwrap();
+        fs::write(f.db.db_dir().join(source), b"synthetic corrupt database").unwrap();
         let before = f.snapshot();
-        assert!(f.prepared_voice().await.is_err(), "corrupt source {index}");
+        assert!(f.prepared_voice().await.is_err(), "corrupt source {source}");
         assert_eq!(before, f.snapshot());
     }
     for key in [

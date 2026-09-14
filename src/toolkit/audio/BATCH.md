@@ -1,29 +1,20 @@
 # 数据库语音批量导出
 
-## 当前入口（2026-09-07）
+## 入口
 
 [audio/mod.rs](mod.rs) 已注册 `batch`，[toolkit CLI](../../cli/toolkit.rs) 已直接调用 `BatchOptions::from_config_file` 和 `convert_database`，无需再接线。
 
 ```powershell
-wx toolkit voice-batch --config C:\account-workspace\config.json
-wx toolkit voice-batch --config C:\account-workspace\config.json --output-dir C:\account-exports\voices --contacts wxid_a,wxid_b
+wx toolkit voice-batch --config config.json
+wx toolkit voice-batch --config C:\account-workspace\config.json --output-dir exports\voices --contacts synthetic-user-a,synthetic-user-b
 ```
 
-上例是用法说明，本轮没有执行。`--config` 必填；`--output-dir` 和 `--contacts` 可选。
+`--config` 必填；`--output-dir` 和 `--contacts` 可选。
 相对 `--config` 及显式 `--output-dir` 按进程工作目录解析；配置内部相对路径则按配置父目录解析，二者不能混淆。
 `--contacts` 覆盖配置构造器读取的 `WECHAT_EXPORT_CONTACTS`，显式空字符串表示不筛选。
 CLI 打印完整 JSON 报告；若 `failed > 0`，随后返回失败，已成功写出的文件保留，不是整批事务。
 没有 CLI `--ffmpeg` 参数，程序调用方可直接设置 `BatchOptions.ffmpeg`。
 
-| 状态 | 证据与边界 |
-| --- | --- |
-| 当前主线自动化 | Rust 精简后全量 `1325/0/11 ignored`、个人 Web `61/0`；8 次可选测试执行另行通过，MSVC check 仍有 9 警告。计数来自主线，不是本模块独立测试数 |
-| 当前批量职责 | 只读取显式配置对应的已解密 `message/media_0.db`；不自动跨媒体分片、不解密数据库、不执行 ASR |
-| 本轮验证范围 | 只静态校订文档，未运行 Cargo、ffmpeg 或真实账号；真实录音、模型/GPU、真实云服务未据此验收。企微排除目标，保留其既有实现和入口 |
-
-当前证据出处见 [Rust 迁移记录](../../../docs/rust-migration.md)、[系统架构](../../../docs/architecture.md)；单文件差异见 [README.md](README.md)。
-
-主线本轮文档同步验证：`C:/CodexLocal/wx-cli-doc-sync-tests.log` 终态退出 0，20 套件 `1325/0/11`；check 退出 0、9 警告，18 项 EXE help 检查通过。不是本文件维护者重跑；help 检查不替代真实批量导出或部署验收。
 
 库接口：
 
@@ -95,27 +86,8 @@ println!("{}", serde_json::to_string(&report)?);
 Web 与 `wx tasks` 的任务由 [daemon 任务服务](../../daemon/tasks/mod.rs) 和[类型化计划](../../service/plan.rs) 编排，daemon 持有工作进程生命周期；音频核心没有逐条 GUI 回调。
 未保证多个 batch 进程并发运行时的 exactly-once 语义；主程序应避免对同一输出目录并发启动。
 
-## 历史独立验证
+## 测试
 
-以下保留 2026-09-07 集成前的独立 harness 记录，不是本轮重跑；当前主线验收见开头状态表。
+`batch_tests.rs` 使用临时 SQLite 数据库，覆盖路径推导、联系人筛选、Name2Id 映射、安全目录名、同名联系人隔离、已有项跳过、源库保护、坏 BLOB、缺编码器和临时文件清理。发布竞争测试要求晚出现的目标不被覆盖。
 
-独立项目位于 C:/CodexLocal/audio-validation-native，不运行全仓 Cargo，不使用主仓 target。
-batch_tests.rs 使用 tempfile 内新建的真实 SQLite 数据库，不读取私人数据库或配置。
-2026-09-07 最终 Windows x64 MSVC 独立 cargo check 成功，无警告；
-显式启用 ffmpeg 测试后共 19 passed、0 failed、0 ignored（单文件 7 项，batch 12 项）。
-
-验证用例覆盖配置路径推导、筛选语义、安全目录名、Name2Id 映射、unknown 回退、.info 内容和只写一次、
-同名联系人隔离、联系人库缺失、主库缺失、源目录边界、已有文件跳过、坏 BLOB、无效字段、缺失编码器及临时文件清理。
-另覆盖全点号/截断为空的目录名、Windows 设备名、编码期间目标晚出现时的不覆盖发布及目标为目录时的失败清理。
-
-显式启用的端到端测试真实调用 ffmpeg，输入为已通过 pilk PCM 差分验证的合成 multi100.silk：
-
-- 5 条 SQLite 记录首次：成功 4，失败 1；其中转换 3、已有跳过 1。
-- 第二次：成功 4，失败 1；其中转换 0、已有跳过 4。
-- media.db 和 contact.db 前后逐字节一致，既有 MP3 保留，无残留临时文件。
-
-```powershell
-cargo test --manifest-path C:\CodexLocal\audio-validation-native\Cargo.toml --target x86_64-pc-windows-msvc --config 'env.LIBCLANG_PATH="C:/CodexLocal/build-tools/libclang/clang/native"' --config 'env.WX_AUDIO_FIXTURES="C:/CodexLocal/src/wx-cli/tests/fixtures/audio"' -- --include-ignored --nocapture
-```
-
-默认测试仍忽略需外部 ffmpeg 的用例；显式可选执行与默认全量的 ignored 数分别报告。后续主线已经有集成记录，不能再用本节“独立验证”状态推定主仓未接入或未回归。
+需要 FFmpeg 的端到端用例默认忽略，确认依赖后定向执行。测试命令见[测试说明](../../../tests/README.md)；本核心只处理配置指定的 `media_0.db`，不能用这些用例证明其他媒体分片均已导出。

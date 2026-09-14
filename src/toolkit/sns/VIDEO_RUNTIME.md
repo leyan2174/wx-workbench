@@ -5,26 +5,17 @@ runtime 本身不启动 Node、不执行 JS、不联网、不读取账户、密�
 调用方可以读取密钥文件、缓存，或按其授权策略下载媒体，不能把 runtime 的离线边界扩大为整个相册工作流永不联网。
 没有重写 ISAAC 或其他密码学算法；真正的密钥流仍由供应商 WASM 产生。
 
-## 当前入口与状态（2026-09-07）
+## 入口
 
 ```powershell
-wx toolkit decode-sns-video encrypted.bin decoded.mp4 --key-file C:\account-workspace\video-key.txt
+wx toolkit decode-sns-video encrypted.bin decoded.mp4 --key-file video-key.txt
 wx toolkit decode-sns-video plaintext.mp4 copied.mp4
 ```
 
 输入和输出是必需位置参数；加密输入必须提供 UTF-8 `--key-file`（最多 1024 字节），明文 MP4 不需要密钥或初始化 runtime。
 默认使用内嵌 WASM；可选 `--wasm` 仍要求同一受审计哈希，不是任意插件入口。
-[单视频 CLI](../../cli/sns_video.rs) 只解码前 128 KiB、流式复制尾部，在头部验证后才创建输出暂存文件，拒绝覆盖已有输出。内存 API 的 256 MiB 限额不等于 CLI 整文件上限；后者没有该整文件限额，也没有完整容器/播放验证。
+[单视频操作](../../daemon/operations/sns_video.rs) 只解码前 128 KiB、流式复制尾部，在头部验证后才创建输出暂存文件，拒绝覆盖已有输出。内存 API 的 256 MiB 限额不等于 CLI 整文件上限；后者没有该整文件限额，也没有完整容器/播放验证。
 
-| 状态 | 证据与边界 |
-| --- | --- |
-| 主仓接线 | [sns/mod.rs](mod.rs) 已注册 runtime，[Cargo.toml](../../../Cargo.toml) 已声明 wasmi；[album.rs](album.rs) 为图片及视频使用 `VideoRuntime::bundled`，无需 Node 桥 |
-| 当前主线自动化 | 精简后 Rust `1325 passed / 0 failed / 11 ignored`、个人 Web `61/0`；另有 8 次可选测试执行通过，check 通过但保留 9 警告。不是本模块独立测试数 |
-| 验证边界 | 本轮仅静态校订文档，无 Cargo、网络或真实视频验证；真实账号、私人 key、任意播放器、模型/GPU、真实云服务未据此验收。企微排除目标，保留其既有实现和入口 |
-
-最新状态与日志出处见 [Rust 迁移记录](../../../docs/rust-migration.md)、[系统架构](../../../docs/architecture.md)。
-
-主线本轮文档同步验证：`C:/CodexLocal/wx-cli-doc-sync-tests.log` 终态退出 0，20 套件 `1325/0/11`；check 退出 0、9 警告，18 项 EXE help 检查通过。help 通过不代表真实视频可播放或部署验收，本文件维护者未重跑这些命令。
 
 ## 集成接口
 
@@ -50,7 +41,7 @@ wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
 ```
 
 另使用仓库已有 `sha2 = "0.10"`、`zeroize = "1"`；测试使用已有 `serde_json`。
-历史独立 harness 固定自己的 Cargo.lock；当前生产构建使用主仓清单和锁文件。
+生产构建使用主仓清单和锁文件。
 
 ## 已核对 ABI
 
@@ -68,9 +59,9 @@ wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
 - 选择解释器 wasmi，避免为这个窄 ABI 引入 JIT、JS 引擎或通用 Emscripten 层。燃料包含初始化、分配、构造、generate 和析构；内存与表容量受 StoreLimits 限制。
 - 此适配器严格绑定已审计 WASM 哈希；更新供应商二进制需重新探测及跑对照，不能简单删除哈希校验。
 
-## 历史向量与回归入口
+## 向量与回归入口
 
-下面是初始独立迁移时的向量来源与复现命令，本轮未执行；当前扩展限额和异常用例见 [video_runtime_tests.rs](video_runtime_tests.rs)，主线结果见开头。
+扩展限额和异常用例见 [video_runtime_tests.rs](video_runtime_tests.rs)，运行前按[测试说明](../../../tests/README.md)配置依赖。
 原始向量均为公开合成输入，原 Node 包装器 `--stdio` 是基准。
 `tests/fixtures/sns-video-native/generate-vectors.cjs` 生成 `vectors.json`：
 key 为 `0`、`1`、`-1`、`18446744073709551615`、`00042`、带空格的 `42`；
@@ -90,7 +81,6 @@ cargo test --manifest-path tests/fixtures/sns-video-native/Cargo.toml --target x
 
 - runtime 不承担下载、缓存或账号选择；原生 CLI、相册及父模块注册已完成。它替换特定 Node 密钥流业务，不代表供应商整个 JS/WASM 软件栈都被重写。
 - 不实现该 WASM 中的 FFmpeg 或其他导出功能，因为原 Node 业务路径未调用它们。
-- 未用真实视频、私人 key 或账户数据验证；MP4 验证与旧代码一致，仅检查长度及 `ftyp`，不等同于完整容器验证。
+- MP4 验证仅检查长度及 `ftyp`，不等同于完整容器验证或播放器兼容性验证。
 - 不复刻 Node 启动、JSON stdio 协议或任意 JS 类型强制转换，Rust 接口显式接收字符串和整数长度。
 - 不支持任意替代 WASM；不声称覆盖 C++ 数字解析器所有异常输入或所有 Unicode 边界。
-- 独立 harness 记录是历史证据；当前整仓集成与可选执行由主线记录证明，本轮文档任务没有重新运行它们。

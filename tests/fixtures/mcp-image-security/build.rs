@@ -1,6 +1,6 @@
 use quote::ToTokens;
 fn main() {
-    let path = "../../../src/cli/transport.rs";
+    let path = "../../../src/service/query_client.rs";
     println!("cargo:rerun-if-changed={path}");
     let source = std::fs::read_to_string(path).unwrap();
     let parsed = syn::parse_file(&source).unwrap();

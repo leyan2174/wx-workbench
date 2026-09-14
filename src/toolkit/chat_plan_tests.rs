@@ -558,15 +558,14 @@ fn scan_counts_busy_and_readonly_files_without_reading_contents() {
     assert!(result.statuses.is_empty());
     drop(locked);
     let path = root.join("nested/copy.bin");
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    let original_permissions = fs::metadata(&path).unwrap().permissions();
+    let mut permissions = original_permissions.clone();
     permissions.set_readonly(true);
     fs::set_permissions(&path, permissions).unwrap();
     let result = scan_username(&media, "alpha");
     assert_eq!(result.bytes, 57);
     assert!(result.statuses.is_empty());
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_readonly(false);
-    fs::set_permissions(&path, permissions).unwrap();
+    fs::set_permissions(&path, original_permissions).unwrap();
 }
 
 #[test]

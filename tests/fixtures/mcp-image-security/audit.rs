@@ -228,8 +228,19 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         let config = root.path().join("account.json");
         let capture = root.path().join("request.json");
         let key = root.path().join("explicit-key.json");
-        fs::write(&config, br#"{"db_dir":"synthetic"}"#).unwrap();
-        fs::write(&key, b"SYNTHETIC_SECRET_KEY_abcdef012345").unwrap();
+        let account = root.path().join("account");
+        let output_root = root.path().join("output");
+        for path in [account.join("db_storage"), account.join("decrypted"), output_root.clone()] {
+            fs::create_dir_all(path).unwrap();
+        }
+        fs::write(account.join("keys.json"), b"{}").unwrap();
+        fs::write(&config, serde_json::to_vec(&json!({
+            "db_dir": account.join("db_storage"),
+            "keys_file": account.join("keys.json"),
+            "decrypted_dir": account.join("decrypted"),
+            "wechat_process": "SyntheticNeverLaunched.exe"
+        })).unwrap()).unwrap();
+        fs::write(&key, br#"{"xor_key":165}"#).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_host-probe"));
         command
             .env("WX_CLI_CONFIG", &config)
@@ -241,7 +252,7 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         if mode != "unconfigured" {
             command
                 .arg("--media-output-root")
-                .arg(root.path())
+                .arg(&output_root)
                 .arg("--image-key-file")
                 .arg(&key);
         }
@@ -281,7 +292,7 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
                 serde_json::from_slice(&fs::read(capture).unwrap()).unwrap();
             assert_eq!(request["cmd"], "decode_image");
             assert_eq!(request["chat"], CHAT);
-            assert_eq!(request["output_root"], root.path().to_str().unwrap());
+            assert_eq!(request["output_root"], output_root.to_str().unwrap());
             assert_eq!(request["image_key_file"], key.to_str().unwrap());
             if mode == "secret-error" {
                 assert_eq!(reply["result"]["isError"], true);

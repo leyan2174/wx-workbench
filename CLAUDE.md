@@ -1,11 +1,5 @@
-# wx-cli Project Rules
+# 仓库规则
 
-This fork supports Windows x64 MSVC only. Follow AGENTS.md.
+本项目仅支持 Windows x64 MSVC。统一遵循 [AGENTS.md](AGENTS.md)，不在此维护另一套重复规则。
 
-- Run cargo check after Rust edits and cargo test before delivery.
-- Check the x86_64-pc-windows-msvc target; no other release targets are supported.
-- Keep client and server on compatible interprocess named-pipe APIs.
-- Update Cargo.lock with cargo update --workspace after version changes.
-- Preserve Windows process handle isolation and account-scoped files.
-- Never commit private keys or chat exports.
-- Push commits to the configured origin remote.
+开发入口见 [README](README.md)，测试与人工前置条件见[测试说明](tests/README.md)。密钥、私人聊天、解密缓存和本机测试日志不得进入版本控制。

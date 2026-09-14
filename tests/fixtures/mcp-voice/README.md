@@ -1,13 +1,7 @@
 # 原生 MCP 语音列表
 
-> 2026-09-07 文档核对：生产 query、IPC VoiceMessages 和 MCP 语音工具均已注册。下面的接线建议、独立验收数字和“未验证”描述是该夹具交付时点的范围，不是当前生产待办。独立 harness 与测试源码保留；真实合成账号进程回归另见 [voice-runtime](../voice-runtime/README.md) 和 [mcp-voice-runtime](../mcp-voice-runtime/README.md)，不与本页数字合并。本次未执行 Cargo。
 
-旧证据：mcp_server.py:3578 get_voice_messages；3531 使用 Name2Id.rowid，
-3628 查询 VoiceInfo.local_id/create_time/length(voice_data)，每片 limit+offset
-候选后全局 DESC 分页。旧 _iter_media_db_paths 会跳过不可用片，新版按要求
-严格拒绝；不复用 cli/voices.rs 的导出写入、blob 读取、逐片分页或模糊匹配。
-
-公共接线由主线程负责：
+接口：
 
 ```rust
 pub async fn q_voice_messages(
@@ -23,7 +17,7 @@ VoiceQuery 为显式 username、usize limit/offset、Option<i64> since/until。
 区间两端均含；时间字符串由上层现有解析器处理，不在核心猜时区。
 精确 username 直接传入；显示名必须精确唯一解析，不作子串匹配。
 
-DbCache 现已按追加授权新增账号级 `pub(crate) media_db_keys(&self) -> Vec<String>`，
+DbCache 提供账号级 `pub(crate) media_db_keys(&self) -> Vec<String>`，
 查询内部调用 helper，不再接受外部 media_keys 参数。
 从已加载配置返回完整媒体原始键，不复用仅含消息片的 Names.msg_db_keys。
 本模块不访问 all_keys、不读取任何密钥配置。适配器核对磁盘清单并解析全部
@@ -38,8 +32,6 @@ voice_data_bytes（Option<u64>）。source 固定规范相对键 message/media_N
 READ_ONLY SQLite 每片独立读事务；缺片或模式损坏不跳过。全局排序稳定是
 针对固定数据集，不保证多个库同时刻快照或并发新增消息下跨页不漂移。
 显式离线入口不能自行证明清单账号归属/完整性，必须由调用方保证。
-异步适配器目前在当前线程做 SQLite 查询，主线程有高并发需求时应将
-解密后 query_voice_shards 放入 spawn_blocking。没有真实账号解密集成验证。
 
 专属 harness 的 DbCache 是公开 API 形状替身，只验证 None/清单边界，不
 伪称真实解密回归。SQLite 库全部由测试合成，不使用真实数据。
@@ -51,11 +43,11 @@ cargo test --offline --manifest-path tests/fixtures/mcp-voice/Cargo.toml --targe
 依赖均已有 anyhow、rusqlite、serde、same-file，测试另用 tempfile/tokio；
 不需要新增生产依赖或 Windows feature。
 
-## 真实 DbCache 复核与最小 helper 建议
+## DbCache 与来源键
 
 DbCache::with_dirs 原样保存 all_keys，get_with_mode 使用 all_keys.get(rel_key)
 精确匹配，之后才把路径分隔符转换为本机格式。不能返回规范化键再调用 get。
-追加授权后已在 DbCache impl 内实现以下只读 helper，并补纯内存测试：
+只读 helper 筛选规则如下：
 
 ```rust
 pub(crate) fn media_db_keys(&self) -> Vec<String> {
@@ -81,33 +73,19 @@ media_cache.db、media_.db、media_0.db-wal、非 ASCII 数字和其他目录。
 SQLite；DbCache 自身仍可能更新解密缓存/WAL，这不是端到端零磁盘写入承诺。
 SQLite 只读连接在某些 WAL 环境可能创建/使用 shm sidecar，不使用 immutable
 跳过 WAL，避免静默读旧数据。多库不是统一快照，DbCache 刷新与 SQL 查询的
-并发协调仍归主线程所有。
+并发协调由 daemon 查询层负责。
 
 旧 MCP 返回的是显示名标题、格式化时间、local_id、四舍五入 KB 和分页提示，
 没有原生 JSON schema。本模块保留底层 create_time/local_id/真实字节长度并
 新增归属证据；显示名、时区格式化、分页提示应由 MCP 展示层实现。
 旧 NULL 长度可能导致格式化异常，本模块返回 None，不将未知长度伪装为零。
 
-## rowid 遮蔽修复
+## rowid 模式校验
 
 在每片同一读事务内，归属查询前使用 pragma_table_list 验证 Name2Id 和
 VoiceInfo 为普通 rowid 表（非视图/虚拟表/WITHOUT ROWID）。使用 table_xinfo
 检查所有列，包括生成列；任何大小写的 rowid/_rowid_/oid 用户列均拒绝，
 不改用别名猜测。不使用正则解析建表语句。非保留名称的 INTEGER PRIMARY KEY
-仍可作为真实 SQLite rowid 别名，已通过 Alice/Bob 正向隔离测试。
+仍可作为真实 SQLite rowid 别名。
 
-历史交接要求：Poincare 的 F1 复现需要由其所有者将旧漏洞行为断言改为 query 返回 Err，
-错误链包含 `unsupported rowid schema`（最外层仍为分片 source 上下文），
-并保留库文件不变断言。本 worker 不修改独立安全 fixture，F2 不在此次范围。
-实跑主仓 mcp_voice 测试 11 passed、0 failed、0 ignored，无警告；日志为
-C:\CodexLocal\日志\mcp-voice-rowid-tests.log。旧式真实表分页等正向测试均保留。
-
-实跑：Windows MSVC 独立 cargo check 无警告；cargo test 8 passed、0 failed、
-0 ignored，doc-tests 0。日志为 C:\CodexLocal\日志\mcp-voice-check.log 与
-C:\CodexLocal\日志\mcp-voice-tests.log。真实 DbCache 的纯 helper 测试也已通过，
-日志为 mcp-voice-real-helper-test.log。主线程已注册 query/IPC VoiceMessages；
-主仓查询模块 7 项测试全通过、无警告，日志为 mcp-voice-integrated-tests.log。
-另 1 项适配器替身测试仅在独立 harness 中运行，不代表真实账号解密集成。
-审查 fixture 必须改用双参数 q_voice_messages。MCP 工具列表接线仍由主线程负责。
-
-后续保持拒绝断言的独立修复记录见 [mcp-voice-security](../mcp-voice-security/README.md)；上面的历史数字和交接措辞不覆盖该记录。
+模式拒绝和跨联系人隔离见[安全回归](../mcp-voice-security/README.md)，环境与运行说明见[测试说明](../../README.md)。生产 IPC 与账号隔离另由[语音进程测试](../mcp-voice-runtime/README.md)覆盖。

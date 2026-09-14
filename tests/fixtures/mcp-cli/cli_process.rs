@@ -3,11 +3,12 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
-    sync::mpsc,
-    thread,
-    time::Duration,
 };
 use wx_mcp_cli_harness::ipc::{Request, Response};
+pub use wx_mcp_cli_harness::{ipc, mcp, mcp_service, runtime};
+#[path = "../mcp-auth/mock.rs"]
+mod authenticated_mock;
+use authenticated_mock::{Mock, Reply};
 
 fn command(config: Option<&Path>, home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mcp-cli-harness"));
@@ -47,46 +48,30 @@ fn account(base: &Path, name: &str) -> (PathBuf, PathBuf, String) {
     (config, home, pipe)
 }
 
-fn mock(pipe: String, expected_connections: usize) -> thread::JoinHandle<Vec<Request>> {
-    let (ready, wait) = mpsc::channel();
-    let handle = thread::spawn(move || {
-        use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced, ListenerOptions};
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-            let listener = ListenerOptions::new().name(pipe.to_ns_name::<GenericNamespaced>().unwrap()).create_tokio().unwrap();
-            ready.send(()).unwrap();
-            if expected_connections == 0 {
-                // 第二个账号明确监听却不应收到任何请求，证明不使用共享固定管道名。
-                assert!(tokio::time::timeout(Duration::from_secs(2),listener.accept()).await.is_err());
-                return Vec::new();
+fn mock(config: &Path, home: &Path) -> Mock {
+    let runtime = wx_mcp_cli_harness::fixture_runtime(config, home).unwrap();
+    Mock::start(runtime, |value| {
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        let response = match &request {
+            Request::Ping => Response::ok(json!({"pong":true})),
+            Request::Sessions { .. } => Response::ok(json!({"sessions":[]})),
+            Request::Contacts { query: Some(q), .. } if q == "synthetic-error" => {
+                Response::err("PRIVATE_MESSAGE SYNTHETIC_KEYS")
             }
-            let mut received = Vec::new();
-            for _ in 0..expected_connections {
-                let stream = tokio::time::timeout(Duration::from_secs(5),listener.accept()).await.unwrap().unwrap();
-                let mut reader = tokio::io::BufReader::new(stream);
-                let mut line = String::new();
-                tokio::time::timeout(Duration::from_secs(5),reader.read_line(&mut line)).await.unwrap().unwrap();
-                let request: Request = serde_json::from_str(&line).unwrap();
-                let response = match &request {
-                    Request::Ping => Response::ok(json!({"pong":true})),
-                    Request::Sessions {..} => Response::ok(json!({"sessions":[]})),
-                    Request::Contacts {query:Some(q), ..} if q == "synthetic-error" => Response::err("PRIVATE_MESSAGE SYNTHETIC_KEYS"),
-                    Request::Contacts {..} => Response::ok(json!({"contacts":[{"username":"synthetic","display":"synthetic"}],"total":1})),
-                    Request::History {..} => Response::ok(json!({"messages":[],"count":0})),
-                    Request::Search {..} => Response::ok(json!({"results":[],"count":0})),
-                    Request::DecodeTransfer {..} | Request::DecodeLocation {..} => Response::ok(json!({"exit_code":0,"text":"synthetic decoded metadata"})),
-                    Request::Attachments {..} => Response::ok(json!({"attachments":[],"count":0})),
-                    _ => panic!("unexpected non-query request"),
-                };
-                reader.get_mut().write_all(response.to_json_line().unwrap().as_bytes()).await.unwrap();
-                reader.get_mut().flush().await.unwrap();
-                received.push(request);
+            Request::Contacts { .. } => Response::ok(
+                json!({"contacts":[{"username":"synthetic","display":"synthetic"}],"total":1}),
+            ),
+            Request::History { .. } => Response::ok(json!({"messages":[],"count":0})),
+            Request::Search { .. } => Response::ok(json!({"results":[],"count":0})),
+            Request::DecodeTransfer { .. } | Request::DecodeLocation { .. } => {
+                Response::ok(json!({"exit_code":0,"text":"synthetic decoded metadata"}))
             }
-            received
-        })
-    });
-    wait.recv_timeout(Duration::from_secs(5)).unwrap();
-    handle
+            Request::Attachments { .. } => Response::ok(json!({"attachments":[],"count":0})),
+            _ => panic!("unexpected non-query request"),
+        };
+
+        Reply::Json(serde_json::to_value(response).unwrap())
+    })
 }
 
 fn send(input: &mut ChildStdin, frame: Value) {
@@ -123,10 +108,10 @@ fn initialize(input: &mut ChildStdin, output: &mut impl BufRead) {
 fn eight_tools_use_real_account_isolated_transport_without_database_access() {
     let temp = tempfile::tempdir().unwrap();
     let (config_a, home_a, pipe_a) = account(temp.path(), "a");
-    let (_, home_b, pipe_b) = account(temp.path(), "b");
+    let (config_b, home_b, pipe_b) = account(temp.path(), "b");
     assert_ne!(pipe_a, pipe_b);
-    let server_a = mock(pipe_a, 18);
-    let server_b = mock(pipe_b, 0);
+    let server_a = mock(&config_a, &home_a);
+    let server_b = mock(&config_b, &home_b);
     let original = std::fs::read(&config_a).unwrap();
     let mut child = command(Some(&config_a), &home_a)
         .stdin(Stdio::piped())
@@ -198,7 +183,11 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
         exited.stderr.is_empty(),
         "no daemon startup or private errors expected"
     );
-    let received = server_a.join().unwrap();
+    let received: Vec<Request> = server_a
+        .finish()
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
     assert_eq!(received.len(), 18);
     assert_eq!(
         received
@@ -207,7 +196,7 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
             .count(),
         9
     );
-    assert!(server_b.join().unwrap().is_empty());
+    assert!(server_b.finish().is_empty());
     assert_eq!(std::fs::read(&config_a).unwrap(), original);
     assert!(
         std::fs::OpenOptions::new()
@@ -216,8 +205,17 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
             .is_ok(),
         "lock released at EOF"
     );
-    assert!(!home_a.exists());
-    assert!(!home_b.exists());
+    for (config, home) in [(&config_a, &home_a), (&config_b, &home_b)] {
+        let runtime = wx_mcp_cli_harness::fixture_runtime(config, home).unwrap();
+        let names: Vec<_> = std::fs::read_dir(runtime.directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert!(
+            names.is_empty(),
+            "mock identity files must be removed at shutdown"
+        );
+    }
 }
 
 #[test]

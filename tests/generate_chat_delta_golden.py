@@ -120,8 +120,8 @@ serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
 sha2 = "0.10"
 tempfile = "3"
 ''', encoding="utf-8")
-        env = dict(os.environ, LIBCLANG_PATH=r"C:\CodexLocal\build-tools\libclang\clang\native")
-        logs = Path(r"C:\CodexLocal\日志")
+        env = os.environ.copy()
+        logs = Path(__file__).resolve().parent.parent / "target" / "test-logs"
         logs.mkdir(parents=True, exist_ok=True)
         for subcommand in ("check", "test"):
             command = ["cargo", subcommand, "--manifest-path", str(root / "Cargo.toml"), "--target", "x86_64-pc-windows-msvc", "--offline"]

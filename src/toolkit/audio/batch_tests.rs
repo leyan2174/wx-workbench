@@ -214,9 +214,7 @@ fn same_display_names_have_separate_info_and_keep_existing_info() {
 #[ignore = "requires ffmpeg in PATH; synthetic SQLite end-to-end audio batch"]
 fn real_sqlite_batch_converts_and_repeated_run_skips() {
     let fixture = Fixture::new();
-    let fixtures = std::env::var_os("WX_AUDIO_FIXTURES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio"));
+    let fixtures = super::super::tests::fixtures();
     let silk = fs::read(fixtures.join("multi100.silk")).unwrap();
     fixture.add(1, 1, Some(&silk));
     fixture.add(1, 2, Some(b"bad"));
@@ -269,9 +267,7 @@ fn real_sqlite_batch_converts_and_repeated_run_skips() {
 fn missing_encoder_counts_failure_and_removes_temporary_silk() {
     let mut fixture = Fixture::new();
     fixture.options.ffmpeg = fixture._temporary.path().join("missing-ffmpeg.exe");
-    let fixtures = std::env::var_os("WX_AUDIO_FIXTURES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio"));
+    let fixtures = super::super::tests::fixtures();
     fixture.add(1, 1, Some(&fs::read(fixtures.join("tone.silk")).unwrap()));
     let report = convert_database(&fixture.options).unwrap();
     assert_eq!((report.total, report.success, report.failed), (1, 0, 1));

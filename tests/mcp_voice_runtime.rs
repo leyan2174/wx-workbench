@@ -226,7 +226,7 @@ fn real_transcription_uses_local_wav_backend_and_account_bound_cache() {
 }
 
 #[test]
-fn persistent_cache_hit_survives_removed_voice_sources_and_stopped_daemon() {
+fn persistent_cache_hit_survives_removed_sources_with_new_daemon_session() {
     let home = tempfile::tempdir().unwrap();
     let mut account = Account::new(home.path(), "A");
     accounts::seed(&account);
@@ -259,7 +259,11 @@ fn persistent_cache_hit_survives_removed_voice_sources_and_stopped_daemon() {
         .unwrap()
         .starts_with(account.root().canonicalize().unwrap()));
     fs::rename(&source, &removed).unwrap();
-    assert_eq!(text(mcp.call("transcribe_voice", args(700))), original);
+    account.start();
+    safe_failure(
+        mcp.call("transcribe_voice", args(700)),
+        "Query backend unavailable",
+    );
     mcp.finish();
     let mut reopened = local(&account, output.path(), &model, Some(&cache), None);
     assert_eq!(text(reopened.call("transcribe_voice", args(700))), original);

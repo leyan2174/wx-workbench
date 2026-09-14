@@ -106,7 +106,7 @@ pub fn contacts_from_path(path: &Path, query: Option<&str>, limit: usize) -> Res
 fn text(value: ValueRef<'_>) -> Result<String> {
     Ok(match value {
         ValueRef::Null | ValueRef::Integer(0) | ValueRef::Real(0.0) => String::new(),
-        ValueRef::Blob(bytes) if bytes.is_empty() => String::new(),
+        ValueRef::Blob([]) => String::new(),
         ValueRef::Text(bytes) => {
             ensure!(
                 bytes.len() <= MAX_TEXT_BYTES,

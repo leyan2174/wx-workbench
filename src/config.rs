@@ -19,7 +19,7 @@ pub fn load_config() -> Result<Config> {
 
 /// 从指定文件加载一次配置，避免后台启动过程中重复发现配置而切换账号。
 pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
-    let content = std::fs::read_to_string(&config_path)
+    let content = std::fs::read_to_string(config_path)
         .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
     let raw: serde_json::Value =
         serde_json::from_str(&content).with_context(|| "config.json 格式错误")?;

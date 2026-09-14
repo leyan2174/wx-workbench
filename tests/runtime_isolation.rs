@@ -1,5 +1,7 @@
 //! 使用合成 SQLCipher 数据验证完整进程链路，不读取本机微信资料。
 
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 #[path = "fixtures/daemon-tasks/runtime.rs"]
 mod daemon_tasks;
 
@@ -92,6 +94,9 @@ impl Drop for Fixture {
         for profile in &self.profiles {
             let _ = self.run(profile, &["daemon", "stop"]);
         }
+        drop(bootstrap::BootstrapCleanup(
+            self.root.join("shared-runtime"),
+        ));
         let _ = fs::remove_dir_all(&self.root);
     }
 }
@@ -381,93 +386,6 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
 }
 
 #[test]
-fn enterprise_queries_and_exports_are_offline_and_non_overwriting() {
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/enterprise/queries");
-    let snapshot = fixture.root.join("snapshot");
-    fs::create_dir(&snapshot).unwrap();
-    let originals: Vec<_> = ["message.db", "user.db", "session.db"]
-        .into_iter()
-        .map(|name| {
-            let bytes = fs::read(source.join(name)).unwrap();
-            fs::write(snapshot.join(name), &bytes).unwrap();
-            (name, bytes)
-        })
-        .collect();
-    let snapshot_arg = snapshot.to_str().unwrap();
-    let contacts = success(fixture.run(
-        &profile,
-        &["toolkit", "enterprise", snapshot_arg, "contacts"],
-    ));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&contacts)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .len(),
-        4
-    );
-    let conversations = success(fixture.run(
-        &profile,
-        &["toolkit", "enterprise", snapshot_arg, "conversations"],
-    ));
-    let conversations: serde_json::Value = serde_json::from_str(&conversations).unwrap();
-    assert_eq!(conversations.as_array().unwrap().len(), 4);
-    let cid = conversations[0]["conversation_id"].as_str().unwrap();
-    let messages = success(fixture.run(
-        &profile,
-        &["toolkit", "enterprise", snapshot_arg, "messages"],
-    ));
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&messages)
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .len(),
-        7
-    );
-    let filtered = success(fixture.run(
-        &profile,
-        &[
-            "toolkit",
-            "enterprise",
-            snapshot_arg,
-            "messages",
-            "--conversations",
-            cid,
-            "--limit",
-            "1",
-        ],
-    ));
-    let filtered: serde_json::Value = serde_json::from_str(&filtered).unwrap();
-    assert_eq!(filtered.as_array().unwrap().len(), 1);
-    assert_eq!(filtered[0]["conversation_id"], cid);
-    for format in ["json", "csv", "html"] {
-        let output = fixture.root.join(format!("enterprise.{format}"));
-        let args = [
-            "toolkit",
-            "enterprise",
-            snapshot_arg,
-            "export",
-            cid,
-            output.to_str().unwrap(),
-            "--format",
-            format,
-        ];
-        success(fixture.run(&profile, &args));
-        let original = fs::read(&output).unwrap();
-        assert!(!original.is_empty());
-        assert!(!fixture.run(&profile, &args).status.success());
-        assert_eq!(fs::read(&output).unwrap(), original);
-    }
-    for (name, original) in originals {
-        assert_eq!(fs::read(snapshot.join(name)).unwrap(), original);
-    }
-    assert!(!fixture.root.join("shared-runtime").exists());
-}
-
-#[test]
 #[ignore = "requires native ffmpeg in PATH; explicitly run with audio integration"]
 fn native_voice_batch_cli_uses_explicit_config_and_skips_existing() {
     let fixture = Fixture::new();
@@ -521,46 +439,8 @@ fn native_voice_batch_cli_uses_explicit_config_and_skips_existing() {
     assert_eq!(report["converted"], 0);
     assert_eq!(fs::read(&paths[0]).unwrap(), mp3);
     assert_eq!(fs::read(&media).unwrap(), original);
-    assert!(!fixture.root.join("shared-runtime").exists());
-}
-
-#[test]
-fn enterprise_cli_decrypts_offline_fixtures_without_python_or_key_disclosure() {
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/enterprise");
-    let key = fixture.root.join("synthetic-key.txt");
-    fs::write(&key, "00112233445566778899aabbccddeeff\n").unwrap();
-    for name in ["header.enc", "legacy.enc"] {
-        let output = fixture.root.join(format!("{name}.db"));
-        let input = source.join(name);
-        let args = [
-            "toolkit",
-            "decrypt-enterprise",
-            input.to_str().unwrap(),
-            output.to_str().unwrap(),
-            "--key-file",
-            key.to_str().unwrap(),
-        ];
-        let result = fixture.run(&profile, &args);
-        assert!(
-            !String::from_utf8_lossy(&result.stdout).contains("00112233445566778899aabbccddeeff")
-        );
-        assert!(
-            !String::from_utf8_lossy(&result.stderr).contains("00112233445566778899aabbccddeeff")
-        );
-        let report: serde_json::Value = serde_json::from_str(&success(result)).unwrap();
-        assert_eq!(report["pages"], 6);
-        assert_eq!(
-            fs::read(&output).unwrap(),
-            fs::read(source.join("plain.db")).unwrap()
-        );
-        assert!(!fixture.run(&profile, &args).status.success());
-        assert_eq!(
-            fs::read(&output).unwrap(),
-            fs::read(source.join("plain.db")).unwrap()
-        );
-    }
+    bootstrap::assert_only_bootstrap(&fixture.root.join("shared-runtime"));
+    assert!(!profile.join("config.json").exists());
 }
 
 #[test]
@@ -630,7 +510,14 @@ fn native_audio_cli_works_without_python() {
     );
     assert!(report["size"].as_u64().unwrap() > 0);
     assert_eq!(fs::read(source).unwrap(), before);
-    assert_eq!(fs::read_dir(&fixture.root).unwrap().count(), 1);
+    let mut entries: Vec<_> = fs::read_dir(&fixture.root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    entries.sort();
+    assert_eq!(entries, ["shared-runtime", "voice.mp3"]);
+    assert!(fixture.root.join("shared-runtime/bootstrap").is_dir());
+    assert!(!profile.exists());
 }
 
 #[test]
@@ -757,15 +644,23 @@ fn failed_query_keeps_service_alive_and_retries_after_keys_are_repaired() {
     assert!(!output.status.success());
     assert!(success(fixture.run(&bad, &["daemon", "status"])).contains("运行中"));
     let directory = fs::read_dir(fixture.root.join("shared-runtime/accounts"))
-        .unwrap().next().unwrap().unwrap().path();
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
     let record = fs::read(directory.join("daemon.pid")).unwrap();
-    let info: serde_json::Value = serde_json::from_str(
-        &success(fixture.run(&bad, &["tasks", "info"]))
-    ).unwrap();
+    let info: serde_json::Value =
+        serde_json::from_str(&success(fixture.run(&bad, &["tasks", "info"]))).unwrap();
     assert_eq!(info["configured"], false);
-    fs::write(bad.join("all_keys.json"), serde_json::json!({
-        "contact/contact.db": "11".repeat(32)
-    }).to_string()).unwrap();
+    fs::write(
+        bad.join("all_keys.json"),
+        serde_json::json!({
+            "contact/contact.db": "11".repeat(32)
+        })
+        .to_string(),
+    )
+    .unwrap();
     assert!(success(fixture.run(&bad, &["contacts", "--json"])).contains("broken-account"));
     assert_eq!(fs::read(directory.join("daemon.pid")).unwrap(), record);
     success(fixture.run(&bad, &["daemon", "stop"]));

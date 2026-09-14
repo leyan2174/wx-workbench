@@ -259,7 +259,7 @@ fn local_src(media: &Value, directory: &str) -> Option<String> {
     Some(encoded)
 }
 
-fn media<'a>(post: &'a Value, video: bool) -> Vec<(&'a Value, String)> {
+fn media(post: &Value, video: bool) -> Vec<(&Value, String)> {
     post.get("media")
         .and_then(Value::as_array)
         .into_iter()

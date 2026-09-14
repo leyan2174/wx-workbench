@@ -1,8 +1,7 @@
-# 附件只读引用独立验收
+# 附件只读引用测试
 
-本 fixture 只引用 `src/toolkit/attachment_refs.rs` 和真实 `message` 模块。初次独立交付没有修改公共 mod、根 Cargo、CLI、daemon 或图；当前 `toolkit/mod.rs` 已注册该模块，生产查询接线由主线维护。
+本夹具引用 `src/toolkit/attachment_refs.rs` 和真实 `message` 模块；生产查询由 daemon 调用共享实现。
 
-> 2026-09-07 文档核对：下面的独立验收数字和交接待办保留为历史证据。本次没有执行测试。标量元数据约束的后续修复证明见 [SCALAR-FIX.md](../native-attachment-security/SCALAR-FIX.md)；decoder 的默认 XOR 现为 `0x88`，下方默认值问题是修复前记录，不是当前缺陷。
 
 ## 接入契约
 
@@ -40,29 +39,14 @@ Windows 上结果持有只读常规文件及相关目录句柄，拒绝新的写
 
 旧图片解密、SQL定位、多分片歧义和MCP返回适配不属于本模块。这里不复用具有“取最新”回退的 attachment resolver，也不把 export_content 的摘要反解析成附件身份。
 
-## 历史交接待办
+## 运行
 
-1. `message::xml::parse/collapse` 现为 pub(crate)，已直接复用。parse仍固定20,000字符；本模块在记录路径局部保留有界500,000字符重试（拒绝DTD/ENTITY，外层须精确type19标记）。建议共享 `parse_with_limit` 或 `parse_record` 入口，让导出与附件复用；本次没有修改共享文件。
-2. `V2KeyMaterial` 派生 Default 的 `xor_key` 实际为0，`with_aes` 才是0x88。本模块不涉及DAT解码；仅报告主线程修复，不改 decoder 文件。
-
-## 复现与日志
-
-从仓库根执行；均离线，不 import mcp_server、不加载真实账号。oracle 用AST截取旧工具候选扫描前的真实语句，合成SQL对象仅返回内存行，28组正常契约含群前缀、类型、hash、50+索引和大记录；不运行旧服务初始化。
-
-以下保留独立 harness 的准备与运行说明。oracle/夹具复制命令会写生成文件，复核原证据时不要重建 golden 或覆盖已有日志；原通过数字只对应下方记录的那次运行。
+按[测试说明](../../README.md)准备依赖，从仓库根目录运行：
 
 ```powershell
-python tests/fixtures/attachment-refs/oracle.py
-New-Item -ItemType Directory -Force -Path tests/fixtures/attachment-refs/tests/fixtures
-Copy-Item -LiteralPath tests/fixtures/transfer-golden.json -Destination tests/fixtures/attachment-refs/tests/fixtures/transfer-golden.json
-cargo check --offline --manifest-path tests/fixtures/attachment-refs/Cargo.toml --target x86_64-pc-windows-msvc
-cargo test --offline --manifest-path tests/fixtures/attachment-refs/Cargo.toml --target x86_64-pc-windows-msvc -- --nocapture
+cargo test --offline --manifest-path tests/fixtures/attachment-refs/Cargo.toml -- --nocapture
 ```
 
-共享 message 的既有转账测试使用 CARGO_MANIFEST_DIR 读取原 golden，因此只把该合成数据复制到 fixture 内；副本已忽略提交，不修改共享测试。
+oracle.py 通过 AST 提取参考实现中的元数据语句，只使用合成 SQL 行，不启动旧服务或访问账号。重新生成 golden 会写入文件，普通回归无需重建。夹具中的路径、摘要、索引和大记录测试应保留源字节及目录集合不变断言；符号链接权限不足须单列跳过。
 
-[oracle.log](oracle.log)、[check.log](check.log)、[test.log](test.log)、[clippy.log](clippy.log) 保留实际 stdout/stderr，检查与测试修正过程追加到日志中。tests.rs 的 Windows junction 测试仅对本次 tempfile 创建链接，打印完整子命令与输出，测试后移除链接；不遍历真实微信缓存。目录/文件字节不变检查覆盖成功查找，不将忽略项算通过。
-
-2026-09-07 实跑：MSVC offline cargo check 通过；68项测试通过（45项附件引用测试、23项真实共享 message 测试），0失败、0忽略；另有28组旧 AST 元数据 golden 全部匹配。Clippy `--all-targets -- -D warnings` 通过。修正过测试 harness 依赖/合成 golden 路径、临时目录时间戳误判以及测试 mklink 参数斜杠；失败过程未从日志中删除。
-
-未跑根 crate 全仓测试或注册入口；独立验收不能替代主线程公共接线回归。
+消息定位和 MCP 返回边界见[附件契约](../../../docs/native-attachment-contract.md)，畸形标量的拒绝断言见[查询安全回归](../native-attachment-security/README.md)。

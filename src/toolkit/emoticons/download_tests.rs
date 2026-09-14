@@ -33,7 +33,17 @@ fn serve(responses: Vec<Vec<u8>>) -> (String, std::thread::JoinHandle<()>) {
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
             let mut request = [0; 4096];
-            stream.read(&mut request).unwrap();
+            let mut used = 0;
+            // TCP 可拆分请求头；收到结束标志后才响应，并保留固定大小上限。
+            loop {
+                assert!(used < request.len(), "loopback request header too large");
+                let read = stream.read(&mut request[used..]).unwrap();
+                assert!(read > 0, "loopback request ended before headers");
+                used += read;
+                if request[..used].windows(4).any(|part| part == b"\r\n\r\n") {
+                    break;
+                }
+            }
             let _ = stream.write_all(&response);
         }
     });

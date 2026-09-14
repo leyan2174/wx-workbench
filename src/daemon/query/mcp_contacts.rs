@@ -162,7 +162,7 @@ pub fn contact_tags_from_path(path: &Path, names: &HashMap<String, String>) -> R
                     );
                     bytes
                 }
-                ValueRef::Text(bytes) if bytes.is_empty() => continue,
+                ValueRef::Text([]) => continue,
                 ValueRef::Integer(0) | ValueRef::Real(0.0) => continue,
                 _ => bail!("unsupported contact extra_buffer type"),
             };

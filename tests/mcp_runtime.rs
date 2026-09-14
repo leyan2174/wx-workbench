@@ -1,6 +1,13 @@
 //! 真实 wx mcp 黑盒回归：只使用临时合成账号和命名管道 mock，不读取真实微信数据。
-//! 不包含生产模块、不复制协议、不启动真实查询 daemon。固定30秒超时用实钟验收。
+//! 认证 service mock 调用真实 daemon MCP 业务，仅查询结果可注入；30秒超时用实钟验收。
 #![cfg(windows)]
+
+include!("fixtures/mcp-voice-host/lib.rs");
+#[path = "fixtures/mcp-auth/mock.rs"]
+mod authenticated_mock;
+#[path = "support/bootstrap.rs"]
+mod runtime_cleanup;
+use authenticated_mock::{Mock, Reply};
 
 #[allow(dead_code)]
 #[path = "fixtures/mcp-voice-runtime/artifacts.rs"]
@@ -52,6 +59,13 @@ struct Account {
     keys: PathBuf,
     database: PathBuf,
     pipe: String,
+    runtime: runtime::RuntimeContext,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(runtime_cleanup::RuntimeCleanup(self.home.clone()));
+    }
 }
 
 impl Fixture {
@@ -94,7 +108,10 @@ impl Fixture {
             digest.update([0]);
         }
         let pipe = format!("wx-cli-v2-{:x}", digest.finalize());
+        let runtime = fixture_runtime(&config, &self.home).unwrap();
+        assert_eq!(runtime.pipe_name(), pipe);
         Account {
+            runtime,
             config,
             keys,
             database,
@@ -128,10 +145,15 @@ impl Fixture {
     }
 
     fn assert_no_daemon_or_database_output(&self, account: &Account) {
-        assert!(
-            !self.home.join("accounts").exists(),
-            "unexpected daemon startup"
-        );
+        if account.runtime.directory.exists() {
+            for entry in fs::read_dir(&account.runtime.directory).unwrap() {
+                let name = entry.unwrap().file_name();
+                assert!(
+                    matches!(name.to_str(), Some("daemon.pid" | "service-token.key")),
+                    "unexpected daemon artifact: {name:?}"
+                );
+            }
+        }
         assert_eq!(fs::read_dir(&account.database).unwrap().count(), 0);
         assert_eq!(
             fs::read(&account.keys).unwrap(),
@@ -275,86 +297,6 @@ impl Drop for Wx {
     }
 }
 
-enum Reply {
-    Json(Value),
-    Raw(Vec<u8>),
-    UntilClientCloses(Arc<AtomicBool>),
-}
-
-struct Mock {
-    stop: Option<tokio::sync::oneshot::Sender<()>>,
-    thread: Option<JoinHandle<Vec<Value>>>,
-}
-
-impl Mock {
-    fn start(pipe: &str, mut respond: impl FnMut(&Value) -> Reply + Send + 'static) -> Self {
-        let pipe = pipe.to_owned();
-        let (ready, wait) = mpsc::channel();
-        let (stop, stopped) = tokio::sync::oneshot::channel();
-        let thread = thread::spawn(move || {
-            use interprocess::local_socket::{
-                tokio::prelude::*, GenericNamespaced, ListenerOptions,
-            };
-            use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-                let listener = ListenerOptions::new().name(pipe.to_ns_name::<GenericNamespaced>().unwrap()).create_tokio().unwrap();
-                ready.send(()).unwrap();
-                let mut requests = Vec::new();
-                let serve = async {
-                    loop {
-                        let stream = listener.accept().await.unwrap();
-                        let mut reader = tokio::io::BufReader::new(stream);
-                        let mut line = String::new();
-                        reader.read_line(&mut line).await.unwrap();
-                        let request: Value = serde_json::from_str(&line).unwrap();
-                        let reply = if request["cmd"] == "ping" { Reply::Json(json!({"ok":true,"pong":true})) } else { respond(&request) };
-                        requests.push(request);
-                        match reply {
-                            Reply::Json(value) => { reader.get_mut().write_all(format!("{value}\n").as_bytes()).await.unwrap(); }
-                            Reply::Raw(bytes) => { let _ = reader.get_mut().write_all(&bytes).await; }
-                            Reply::UntilClientCloses(closed) => {
-                                let mut probe = [0u8;1];
-                                let count = reader.read(&mut probe).await.unwrap();
-                                assert_eq!(count,0);
-                                closed.store(true,Ordering::Release);
-                            }
-                        }
-                    }
-                };
-                tokio::select! {
-                    _ = stopped => {},
-                    _ = tokio::time::sleep(Duration::from_secs(45)) => panic!("mock exceeded test deadline"),
-                    _ = serve => {},
-                }
-                requests
-            })
-        });
-        wait.recv_timeout(Duration::from_secs(5)).unwrap();
-        Self {
-            stop: Some(stop),
-            thread: Some(thread),
-        }
-    }
-
-    fn finish(mut self) -> Vec<Value> {
-        let _ = self.stop.take().unwrap().send(());
-        let requests = self.thread.take().unwrap().join().unwrap();
-        eprintln!("完整 IPC 请求：{}", json!(requests));
-        requests
-    }
-}
-
-impl Drop for Mock {
-    fn drop(&mut self) {
-        if let Some(stop) = self.stop.take() {
-            let _ = stop.send(());
-        }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
 fn success(finished: Finished) {
     assert!(finished.status.success(), "{}", finished.stderr);
     assert!(
@@ -456,7 +398,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
     let a = fixture.account("a");
     let b = fixture.account("b");
     assert_ne!(a.pipe, b.pipe);
-    let server_a = Mock::start(&a.pipe, |request| {
+    let server_a = Mock::start(a.runtime.clone(), |request| {
         Reply::Json(match request["cmd"].as_str().unwrap() {
             "sessions" => json!({"ok":true,"sessions":[]}),
             "contacts" => json!({"ok":true,"contacts":[{"username":"synthetic-a"}]}),
@@ -494,7 +436,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
             _ => panic!("unregistered query reached IPC"),
         })
     });
-    let server_b = Mock::start(&b.pipe, |_| panic!("wrong account reached"));
+    let server_b = Mock::start(b.runtime.clone(), |_| panic!("wrong account reached"));
     let original = fs::read(&a.config).unwrap();
     let output = fixture.temp.path().join("media-output");
     fs::create_dir(&output).unwrap();
@@ -715,7 +657,7 @@ fn real_wx_ipc_limit_is_inclusive_and_bad_backend_frames_are_safe() {
     .into_bytes();
     assert_eq!(exact.len(), 1024);
     let mut next = 0;
-    let server = Mock::start(&account.pipe, move |_| {
+    let server = Mock::start(account.runtime.clone(), move |_| {
         next += 1;
         match next {
             1 => Reply::Raw(exact.clone()),
@@ -748,7 +690,9 @@ fn real_wx_response_expansion_limit_never_writes_partial_json() {
     let account = fixture.account("output-limit");
     let response = json!({"ok":true,"text":"\"".repeat(360)});
     assert!(response.to_string().len() + 1 < 1024);
-    let server = Mock::start(&account.pipe, move |_| Reply::Json(response.clone()));
+    let server = Mock::start(account.runtime.clone(), move |_| {
+        Reply::Json(response.clone())
+    });
     let mut wx = Wx::start(fixture.command(Some(&account), Some(1024)));
     wx.initialize();
     wx.send(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_contacts"}}));
@@ -766,7 +710,9 @@ fn real_voice_response_budget_counts_request_id_before_wav_publication() {
     let account = fixture.account("voice-result-budget");
     let prepared = json!({"ok":true,"prepared_audio":voice::prepared("synthetic","A",700)});
     assert!(serde_json::to_vec(&prepared).unwrap().len() > 1024);
-    let server = Mock::start(&account.pipe, move |_| Reply::Json(prepared.clone()));
+    let server = Mock::start(account.runtime.clone(), move |_| {
+        Reply::Json(prepared.clone())
+    });
     let output = tempfile::tempdir().unwrap();
     let mut command = fixture.command(Some(&account), Some(1024));
     command.arg("--media-output-root").arg(output.path());
@@ -809,7 +755,7 @@ fn real_wx_silent_ipc_times_out_and_closes_connection_without_worker_leak() {
     let account = fixture.account("silent");
     let closed = Arc::new(AtomicBool::new(false));
     let watch = closed.clone();
-    let server = Mock::start(&account.pipe, move |_| {
+    let server = Mock::start(account.runtime.clone(), move |_| {
         Reply::UntilClientCloses(watch.clone())
     });
     let mut wx = Wx::start(fixture.command(Some(&account), None));

@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-LOGS = Path(r"C:\CodexLocal\日志")
+LOGS = REPO / "target" / "test-logs"
 
 
 def execute(command, log, **kwargs):

@@ -111,7 +111,7 @@ fn capture_range(
     expected: usize,
     memory_bytes: usize,
 ) -> std::result::Result<std::ops::Range<usize>, wasmi::Error> {
-    if size == 0 || size != expected || size > MAX_KEYSTREAM_BYTES || size % 8 != 0 {
+    if size == 0 || size != expected || size > MAX_KEYSTREAM_BYTES || !size.is_multiple_of(8) {
         return Err(host_error());
     }
     let end = start.checked_add(size).ok_or_else(host_error)?;
@@ -215,7 +215,7 @@ impl VideoRuntime {
         let mut config = Config::default();
         config.consume_fuel(true);
         let engine = Engine::new(&config);
-        let module = Module::new(&engine, &bytes[..]).map_err(failure)?;
+        let module = Module::new(&engine, bytes).map_err(failure)?;
         Ok(Self {
             engine,
             module,

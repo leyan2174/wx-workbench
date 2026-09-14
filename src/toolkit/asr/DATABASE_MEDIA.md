@@ -28,7 +28,7 @@ let voice = database_media::resolve_voice(
 
 可选 `--cache-file FILE --cache-account NAME` 必须成对，NAME 非空且只是调用方命名空间；缓存文件须为独立可信目录中的 JSON，不能覆盖数据库、程序、模型或凭证。后端授权检查先于数据库和音频访问。输出是 `transcription`、双侧 `evidence` 和可选 `cache` 状态；明确返回 `account_authenticated=false`、`account_provenance="caller_supplied_decrypted_snapshot"`，不序列化原始音频或凭证。
 
-`wx toolkit transcribe-chat` 及转录导出流程已通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，宿主验证后执行解码/转录；不是 daemon 直接运行后端。显式媒体清单的 `transcribe-chat-native` 仍作为另一入口保留。
+`wx toolkit transcribe-chat` 及转录导出流程已通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，daemon 内的宿主策略执行器验证后执行解码或转录。显式媒体清单的 `transcribe-chat-native` 仍作为另一入口保留。
 
 ## 关联证据
 
@@ -49,13 +49,12 @@ let voice = database_media::resolve_voice(
 - 输入根目录是账号信任边界。已解密库没有可靠的统一账号证明，不能检测调用方把别的账号文件复制或硬链接进此根目录；两个独立根目录绝不相互搜索，但这不等于验证文件的来源账号。
 - 没有 server_id/svr_id 的旧 schema、未发送语音的零 server_id、未知分片命名、缺必需表列都拒绝。没有采用仅 local_id、时间戳或 data_index 推断的降级关联。**这是可证明 schema 的核心，不是全部版本语音关联已完成。**
 - 不知道显式快照之外是否缺少媒体分片，调用方必须保证目录或清单完整。目录枚举最多 1024 个媒体分片、4096 个目录条目；显式来源清单最多 2049 项。每条 BLOB 最大 16MiB。原始数据仅验证 SILK_V3 头，真实帧完整性留给已有 SILK 解码器。
-- server_id 与 svr_id 的关联基于已核对字段及一致性约束；合成测试证明实现行为，不代替真实版本语料上的关联验证。本任务未读取真实数据库。
+- server_id 与 svr_id 的关联基于已核对字段及一致性约束；合成测试证明实现行为，不代替真实版本语料上的关联验证。
 - 核心不生成临时音频或媒体清单。已接入 `asr::transcribe_audio_bytes`，直接消费 SILK 字节，复用原生解码/校验后分发后端；本地后端可以产生受控临时 WAV，云端在显式授权后发送 WAV，不能把核心只读边界扩大解释为整条转录链无副作用。
 
 ## 合成回归
 
-测试文件 `database_media_tests.rs` 覆盖完整字节一致、原始前缀、同号跨消息/媒体分片、同号跨联系人/账号、精确大小写、消息和媒体重复、缺行缺库、缺证据列、时间冲突、零 server_id、路径注入、sidecar、不支持媒体内容及查询前后全部数据库字节/文件集合不变。清单入口、MCP 媒体 ID 反查和数据库 CLI 另有生产模块合成测试；公共注册已完成，统一回归由主线程执行。
+测试文件 `database_media_tests.rs` 覆盖完整字节一致、原始前缀、同号跨消息/媒体分片、同号跨联系人/账号、精确大小写、消息和媒体重复、缺行缺库、缺证据列、时间冲突、零 server_id、路径注入、sidecar、不支持媒体内容及查询前后全部数据库字节/文件集合不变。清单入口、MCP 媒体 ID 反查和数据库 CLI 另有生产模块合成测试。
 
-历史独立结果：Windows `x86_64-pc-windows-msvc` 编译成功，18 个测试全部通过（0 failed，0 ignored）。另覆盖中文/空格/%/# 根目录的 URI 编码、rowid 用户列遮蔽、损坏库和缺媒体库不创建文件。当时日志：`C:\CodexLocal\日志\database-media-tests.log`；程序：`C:\CodexLocal\日志\database_media_worker_tests.exe --nocapture`。本次未重跑，不能据此宣称真实数据库或模型验收。
 
-2026-09-07 文档同步期间集中重跑 check/test 均通过：check 有 9 条 warnings；全量测试退出 0，20 组 1325 passed / 0 failed / 11 ignored，日志 `C:/CodexLocal/wx-cli-doc-sync-tests.log`。18 项实际 exe `--help` 全部通过，日志 `C:/CodexLocal/wx-cli-doc-help-check.log`。UI 61 / 0 和额外 8 个原忽略项显式通过为已有验证结果，本轮未重跑；默认忽略项不计为通过。真实账号、模型质量、GPU、云端及发布验收尚未完成。
+URI 编码、用户列遮蔽 rowid、损坏库及缺库不创建文件也属于回归范围。命令与依赖见[测试说明](../../../tests/README.md)。

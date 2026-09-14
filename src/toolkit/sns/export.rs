@@ -588,7 +588,7 @@ fn write_export_with_publication(
                         cache.index,
                         &value,
                         staging.path(),
-                        &name,
+                        name,
                         cache.keys,
                         RecoveryOptions::default(),
                     )?;

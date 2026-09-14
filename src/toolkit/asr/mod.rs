@@ -152,7 +152,7 @@ pub fn prepare_wav_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
 /// 已有 SILK 解码器固定输出 24kHz、单声道、16 位小端 PCM。
 pub fn pcm24k_to_wav(pcm: &[u8]) -> Result<Vec<u8>> {
     ensure!(
-        !pcm.is_empty() && pcm.len() % 2 == 0,
+        !pcm.is_empty() && pcm.len().is_multiple_of(2),
         "PCM must contain whole 16-bit samples"
     );
     ensure!(
@@ -225,7 +225,7 @@ pub fn validate_wav(bytes: &[u8]) -> Result<WavInfo> {
             info.sample_rate = rate;
         } else if tag == b"data" {
             ensure!(
-                format_seen && !data_seen && size > 0 && size % 2 == 0,
+                format_seen && !data_seen && size > 0 && size.is_multiple_of(2),
                 "invalid WAV data"
             );
             data_seen = true;

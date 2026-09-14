@@ -1,0 +1,330 @@
+use super::*;
+use crate::service::web::Failure;
+
+fn fixture() -> Result<(tempfile::TempDir, Arc<WebService>)> {
+    let root = tempfile::tempdir()?;
+    let config_path = root.path().join("config.json");
+    let config = crate::config::Config {
+        db_dir: root.path().join("account/db_storage"),
+        keys_file: root.path().join("keys.json"),
+        decrypted_dir: root.path().join("decrypted"),
+        wechat_process: "SyntheticNeverLaunched.exe".into(),
+    };
+    std::fs::create_dir_all(&config.db_dir)?;
+    std::fs::write(&config_path, serde_json::to_vec(&config)?)?;
+    std::fs::write(&config.keys_file, b"{}")?;
+    let runtime = RuntimeContext::from_config(config_path, config, root.path().join("runtime"))?;
+    let query = Arc::new(crate::daemon::query_state::QueryState::new(runtime.clone()));
+    Ok((root, WebService::new(runtime, query)))
+}
+
+async fn assert_pending<F: std::future::Future>(mut future: std::pin::Pin<&mut F>) {
+    std::future::poll_fn(|context| {
+        assert!(future.as_mut().poll(context).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn query_waiters_are_call_bounded_and_only_four_dispatch_after_release() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let held = state.queries.clone().acquire_many_owned(4).await?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(32);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    let mut waiting = Vec::new();
+    for _ in 0..32 {
+        let mut call = Box::pin(state.handle(Call::Tags { name: None }));
+        assert_pending(call.as_mut()).await;
+        waiting.push(call);
+    }
+    assert_eq!(state.calls.available_permits(), 0);
+    assert_eq!(
+        state
+            .handle(Call::Tags { name: None })
+            .await
+            .unwrap_err()
+            .code,
+        "busy"
+    );
+    assert!(receive.try_recv().is_err());
+    drop(held);
+    for call in &mut waiting {
+        assert_pending(call.as_mut()).await;
+    }
+    assert_eq!(state.queries.available_permits(), 0);
+    for _ in 0..4 {
+        let (request, reply) = receive.try_recv()?;
+        assert!(matches!(request, Request::ContactTags));
+        reply.send(Response::ok(json!({"tags":[]}))).unwrap();
+    }
+    assert!(receive.try_recv().is_err());
+    for call in waiting.drain(..4) {
+        assert_eq!(call.await?["tags"], json!([]));
+    }
+    drop(waiting);
+    assert_eq!(state.calls.available_permits(), 32);
+    assert_eq!(state.queries.available_permits(), 4);
+    assert!(receive.try_recv().is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn query_wait_timeout_is_busy_and_releases_call_without_dispatch() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let held = state.queries.clone().acquire_many_owned(4).await?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    let error = state.handle(Call::Tags { name: None }).await.unwrap_err();
+    assert_eq!(error.code, "busy");
+    assert_eq!(error.message, "Web business service is busy");
+    assert_eq!(state.calls.available_permits(), 32);
+    assert!(receive.try_recv().is_err());
+    drop(held);
+    assert_eq!(state.queries.available_permits(), 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelled_query_waiter_returns_call_and_never_consumes_later_query() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let held = state.queries.clone().acquire_many_owned(4).await?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    let mut call = Box::pin(state.handle(Call::Tags { name: None }));
+    assert_pending(call.as_mut()).await;
+    assert_eq!(state.calls.available_permits(), 31);
+    drop(call);
+    assert_eq!(state.calls.available_permits(), 32);
+    drop(held);
+    let mut next = Box::pin(state.handle(Call::Tags { name: None }));
+    assert_pending(next.as_mut()).await;
+    let (request, reply) = receive.try_recv()?;
+    assert!(matches!(request, Request::ContactTags));
+    reply.send(Response::ok(json!({"tags":[]}))).unwrap();
+    assert_eq!(next.await?["tags"], json!([]));
+    assert!(receive.try_recv().is_err());
+    assert_eq!(state.calls.available_permits(), 32);
+    assert_eq!(state.queries.available_permits(), 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn handle_nonbusy_errors_remain_unavailable_and_redacted() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let invalid = state
+        .handle(Call::Tags {
+            name: Some("PRIVATE\nSECRET".into()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.code, "unavailable");
+    assert_eq!(invalid.message, "Web business operation unavailable");
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    let mut call = Box::pin(state.handle(Call::Tags { name: None }));
+    assert_pending(call.as_mut()).await;
+    let (_, reply) = receive.try_recv()?;
+    reply
+        .send(Response::err("PRIVATE path SECRET key 查询繁忙"))
+        .unwrap();
+    assert_eq!(call.await.unwrap_err(), invalid);
+    assert_eq!(state.calls.available_permits(), 32);
+    assert_eq!(state.queries.available_permits(), 4);
+    Ok(())
+}
+
+#[tokio::test]
+async fn image_business_codes_keep_missing_distinct_from_export_failure_and_clean_up() -> Result<()>
+{
+    for (code, expected) in [
+        (1, Failure::Unavailable),
+        (2, Failure::Ambiguous),
+        (3, Failure::DecodeFailed),
+    ] {
+        let (_root, state) = fixture()?;
+        let (send, mut receive) = tokio::sync::mpsc::channel(1);
+        *state.query_fixture.lock().unwrap() = Some(send);
+        let id = crate::attachment::AttachmentId {
+            v: 1,
+            chat: "alice".into(),
+            local_id: 7,
+            create_time: 123,
+            kind: crate::attachment::AttachmentKind::Image,
+            db: None,
+        };
+        let owner = state.clone();
+        let task = tokio::spawn(async move {
+            owner
+                .handle(Call::DecodeImage {
+                    encoded: id.encode().unwrap(),
+                    source: "message/message_0.db".into(),
+                })
+                .await
+        });
+        let (request, reply) = tokio::time::timeout(Duration::from_secs(3), receive.recv())
+            .await?
+            .unwrap();
+        let Request::DecodeImage {
+            output_root,
+            image_key_file,
+            ..
+        } = request
+        else {
+            anyhow::bail!("unexpected query");
+        };
+        let output = std::path::PathBuf::from(output_root);
+        let key = std::path::PathBuf::from(image_key_file.unwrap());
+        assert!(key.is_file());
+        reply
+            .send(Response::ok(
+                json!({"exit_code":code,"status":"error","message":"PRIVATE SECRET"}),
+            ))
+            .unwrap();
+        let result = task.await??;
+        assert_eq!(result, json!({"failure":expected}));
+        assert!(!output.parent().unwrap().exists());
+        assert!(!key.exists());
+        assert_eq!(state.calls.available_permits(), 32);
+        assert_eq!(state.queries.available_permits(), 4);
+        assert_eq!(state.decodes.available_permits(), 2);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn monitor_history_is_daemon_owned_bounded_and_launch_scoped() -> Result<()> {
+    let (_root, state) = fixture()?;
+    state.event("message", json!({"local_id":0,"timestamp":0}));
+    let start = state.records.lock().unwrap().cursor;
+    state
+        .records
+        .lock()
+        .unwrap()
+        .sessions
+        .push_back(("launch".into(), start));
+    for id in 1..=2100 {
+        state.event(
+            "message",
+            json!({
+                "local_id":id,"timestamp":id,"web_delivery":{"committed":true,"replay":false}
+            }),
+        );
+    }
+    let value = state
+        .handle(Call::MonitorHistory {
+            session: "launch".into(),
+            limit: 2,
+            offset: 1,
+            since: Some(2097),
+        })
+        .await?;
+    assert_eq!(value["scope"], "launch_monitor");
+    assert_eq!(value["messages"][0]["local_id"], 2099);
+    assert_eq!(value["messages"][1]["local_id"], 2098);
+    assert!(value["messages"][0].get("web_delivery").is_none());
+    assert_eq!(state.records.lock().unwrap().messages.len(), 2000);
+    assert_eq!(state.records.lock().unwrap().events.len(), 256);
+    assert_eq!(state.events(start)["reset"], true);
+    let cursor = state.records.lock().unwrap().cursor;
+    assert_eq!(state.events(cursor)["events"], json!([]));
+    assert_eq!(state.events(cursor + 1)["reset"], true);
+    assert!(state
+        .handle(Call::MonitorHistory {
+            session: "another-daemon".into(),
+            limit: 1,
+            offset: 0,
+            since: None,
+        })
+        .await
+        .is_err());
+    assert!(state
+        .handle(Call::MonitorEvents {
+            epoch: "another-daemon".into(),
+            after: 0,
+        })
+        .await
+        .is_err());
+    state.shutdown().await?;
+    assert!(state.handle(Call::MonitorOpen {}).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn event_pages_advance_only_to_delivered_events() -> Result<()> {
+    let (_root, state) = fixture()?;
+    for id in 0..200 {
+        state.event("monitor_status", json!({"status":"ready","id":id}));
+    }
+    let first = state.events(0);
+    assert_eq!(first["events"].as_array().unwrap().len(), 128);
+    assert_eq!(first["cursor"], 128);
+    let second = state.events(128);
+    assert_eq!(second["events"].as_array().unwrap().len(), 72);
+    assert_eq!(second["events"][0]["seq"], 129);
+    assert_eq!(second["cursor"], 200);
+    state.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelled_image_waiter_does_not_own_cleanup_or_daemon_shutdown() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    let id = crate::attachment::AttachmentId {
+        v: 1,
+        chat: "alice".into(),
+        local_id: 7,
+        create_time: 123,
+        kind: crate::attachment::AttachmentKind::Image,
+        db: None,
+    };
+    let worker = state.clone();
+    let waiter = tokio::spawn(async move {
+        worker
+            .handle(Call::DecodeImage {
+                encoded: id.encode().unwrap(),
+                source: "message/message_0.db".into(),
+            })
+            .await
+    });
+    let (request, reply) = tokio::time::timeout(Duration::from_secs(3), receive.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("image query missing"))?;
+    let Request::DecodeImage {
+        output_root,
+        image_key_file,
+        ..
+    } = request
+    else {
+        anyhow::bail!("unexpected internal query");
+    };
+    let key = std::path::PathBuf::from(image_key_file.unwrap());
+    let temporary = std::path::PathBuf::from(output_root)
+        .parent()
+        .unwrap()
+        .to_owned();
+    assert!(key.is_file());
+    waiter.abort();
+    assert!(waiter.await.unwrap_err().is_cancelled());
+    assert!(key.is_file(), "HTTP cancellation released daemon's key");
+    let owner = state.clone();
+    let mut stopping = tokio::spawn(async move { owner.shutdown().await });
+    tokio::task::yield_now().await;
+    assert!(
+        !stopping.is_finished(),
+        "daemon shutdown skipped active decode"
+    );
+    reply
+        .send(Response::ok(json!({"exit_code":1,"status":"error"})))
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), &mut stopping).await???;
+    assert!(
+        !temporary.exists(),
+        "daemon failed to clean temporary key/output"
+    );
+    assert_eq!(state.decodes.available_permits(), 2);
+    assert_eq!(Failure::Unavailable.http_status(), 404);
+    Ok(())
+}

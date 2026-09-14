@@ -1,6 +1,7 @@
 //! 合成账号与真实 DbCache/SQLite 的音频适配测试；不访问私人账号或网络。
 #![allow(dead_code)]
 #[path = "../src/daemon/cache.rs"]
+#[allow(unused_imports)] // 音频适配测试不调用图片资源快照接口。
 pub mod cache;
 mod daemon {
     pub use crate::cache;

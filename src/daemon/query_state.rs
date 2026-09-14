@@ -1,6 +1,9 @@
 use anyhow::{ensure, Result};
-use std::sync::Arc;
-use tokio::sync::{OnceCell, RwLock, RwLockReadGuard};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard};
 
 use super::{cache::DbCache, query, query::Names};
 use crate::runtime::RuntimeContext;
@@ -10,7 +13,8 @@ struct QuerySnapshot {
     names: RwLock<Arc<Names>>,
 }
 
-/// Holds the generation read lock for the entire query, including all cache writes.
+/// 查询期间持有当前代际的读锁，直到查询返回及其同步等待的缓存写入完成。
+/// 调用取消后仍在运行的缓存提交由 cache_work 单独跟踪，失效和关闭也会等待它。
 pub struct QueryLease<'a> {
     snapshot: RwLockReadGuard<'a, QuerySnapshot>,
 }
@@ -28,6 +32,8 @@ impl QueryLease<'_> {
 pub struct QueryState {
     runtime: RuntimeContext,
     snapshot: RwLock<OnceCell<QuerySnapshot>>,
+    cache_work: Arc<Mutex<()>>,
+    stopped: AtomicBool,
 }
 
 impl QueryState {
@@ -35,12 +41,22 @@ impl QueryState {
         Self {
             runtime,
             snapshot: RwLock::new(OnceCell::new()),
+            cache_work: Arc::new(Mutex::new(())),
+            stopped: AtomicBool::new(false),
         }
     }
 
     pub async fn snapshot(&self) -> Result<QueryLease<'_>> {
         let cell = self.snapshot.read().await;
+        ensure!(
+            !self.stopped.load(Ordering::Acquire),
+            "Query service is stopping"
+        );
         cell.get_or_try_init(|| self.initialize()).await?;
+        ensure!(
+            !self.stopped.load(Ordering::Acquire),
+            "Query service is stopping"
+        );
         Ok(QueryLease {
             snapshot: RwLockReadGuard::map(cell, |cell| {
                 cell.get()
@@ -49,12 +65,18 @@ impl QueryState {
         })
     }
 
-    /// Drain active query leases and discard the old cache before admitting new queries.
-    /// Call after a successful key refresh; do not hold a query lease while awaiting this.
+    /// 等待已有查询及取消后仍在提交的缓存任务结束，再丢弃旧代际。
+    /// 密钥刷新成功后调用；等待时不能持有查询租约，否则会阻塞自身。
     pub async fn invalidate(&self) {
         let mut cell = self.snapshot.write().await;
+        let _pending = self.cache_work.lock().await;
         let previous = cell.take();
         drop(previous);
+    }
+
+    pub async fn shutdown(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.invalidate().await;
     }
 
     async fn initialize(&self) -> Result<QuerySnapshot> {
@@ -71,11 +93,12 @@ impl QueryState {
 
         let msg_db_keys = super::collect_db_keys(&all_keys, super::is_msg_db_key);
         let biz_msg_db_keys = super::collect_db_keys(&all_keys, super::is_biz_msg_db_key);
-        let db = DbCache::with_dirs(
+        let db = DbCache::with_dirs_coordinated(
             runtime.config.db_dir.clone(),
             runtime.cache_dir(),
             runtime.mtime_file(),
             all_keys,
+            self.cache_work.clone(),
         )
         .await?;
         let mut names =
@@ -105,12 +128,13 @@ fn validated_runtime(expected: &RuntimeContext) -> Result<RuntimeContext> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::query::encrypted_cache;
     use crate::daemon::server::{
         dispatch_state, read_initial_request_frame, read_request_frame, MAX_REQUEST_FRAME_BYTES,
     };
     use crate::ipc::Request;
     use serde_json::json;
-    use std::{fs, future::Future, path::Path, task::Poll, time::UNIX_EPOCH};
+    use std::{fs, future::Future, path::Path, task::Poll};
     use tokio::io::{AsyncWriteExt, BufReader};
 
     fn runtime(root: &Path) -> RuntimeContext {
@@ -131,22 +155,15 @@ mod tests {
     fn seed(runtime: &RuntimeContext) {
         let source = runtime.config.db_dir.join("contact/contact.db");
         fs::create_dir_all(source.parent().unwrap()).unwrap();
-        fs::write(&source, b"synthetic source").unwrap();
         fs::create_dir_all(runtime.cache_dir()).unwrap();
         let cached = runtime.cache_dir().join("contact.db");
-        let connection = rusqlite::Connection::open(&cached).unwrap();
+        let connection = encrypted_cache::sqlite(&cached);
         connection.execute_batch(
             "CREATE TABLE contact(username TEXT,nick_name TEXT,remark TEXT,verify_flag INTEGER);
              INSERT INTO contact VALUES('wxid_test','Test','',0);",
         ).unwrap();
         drop(connection);
-        let mt = fs::metadata(source)
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
+        let mt = encrypted_cache::seed(&cached, &source);
         fs::write(
             runtime.mtime_file(),
             json!({"contact/contact.db":{"db_mt":mt,"wal_mt":0,"path":cached}}).to_string(),
@@ -280,6 +297,77 @@ mod tests {
         assert!(request.await.ok);
         invalidate.await;
         assert!(state.snapshot.read().await.get().is_none());
+    }
+
+    #[tokio::test]
+    async fn cancelled_cache_commit_is_drained_before_invalidation_or_shutdown() {
+        for stop in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let runtime = runtime(root.path());
+            seed(&runtime);
+            let state = Arc::new(QueryState::new(runtime));
+            let lease = state.snapshot().await.unwrap();
+            assert!(lease.db().invalidate("contact/contact.db").await);
+            let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            lease.db().set_before_commit(move || {
+                entered_tx.send(()).unwrap();
+                release_rx
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .unwrap();
+            });
+            drop(lease);
+            let pending_state = state.clone();
+            let pending = tokio::spawn(async move {
+                let lease = pending_state.snapshot().await.unwrap();
+                lease.db().get("contact/contact.db").await
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(10), entered_rx)
+                .await
+                .unwrap()
+                .unwrap();
+            pending.abort();
+            assert!(pending.await.unwrap_err().is_cancelled());
+            let mut drain = Box::pin(async {
+                if stop {
+                    state.shutdown().await;
+                } else {
+                    state.invalidate().await;
+                }
+            });
+            std::future::poll_fn(|cx| {
+                assert!(drain.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            assert!(dispatch_state(Request::Ping, &state).await.ok);
+            let mut fresh = Box::pin(state.snapshot());
+            std::future::poll_fn(|cx| {
+                assert!(fresh.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            release_tx.send(()).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(10), drain)
+                .await
+                .unwrap();
+            assert!(state.snapshot.read().await.get().is_none());
+            if stop {
+                assert!(fresh.await.is_err());
+            } else {
+                let fresh = fresh.await.unwrap();
+                assert_eq!(
+                    fresh
+                        .db()
+                        .get_with_mode("contact/contact.db")
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .mode,
+                    super::super::cache::CacheMode::CacheHit
+                );
+            }
+        }
     }
 
     #[tokio::test]

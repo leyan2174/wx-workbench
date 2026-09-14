@@ -1,5 +1,5 @@
 //! Account-scoped task ownership. Frontends submit typed capabilities, never commands.
-mod process;
+pub(crate) mod process;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -19,7 +19,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
     sync::{Arc, Mutex},
 };
 use tokio::sync::{mpsc, watch, Notify};
@@ -51,7 +50,6 @@ pub(super) struct Records {
     requests: HashMap<String, String>,
     cancels: HashMap<String, watch::Sender<bool>>,
     binding: Option<Binding>,
-    enterprise_snapshot: Option<PathBuf>,
     journal_ok: bool,
     events: VecDeque<Event>,
     event_bytes: usize,
@@ -77,12 +75,7 @@ pub(super) fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-pub(super) fn valid_id(id: &str) -> bool {
-    id.len() == 64
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
+pub(super) use crate::service::protocol::valid_task_id as valid_id;
 
 impl Service {
     pub fn new(
@@ -105,7 +98,6 @@ impl Service {
                 requests,
                 cancels: HashMap::new(),
                 binding: None,
-                enterprise_snapshot: None,
                 journal_ok: true,
                 events: VecDeque::new(),
                 event_bytes: 0,
@@ -129,23 +121,27 @@ impl Service {
         worker::run(self, receiver).await;
     }
 
+    pub(crate) async fn refresh_configuration(&self) {
+        match store::Redactor::new(&self.runtime) {
+            Ok(redactor) => *self.redactor.lock().unwrap() = redactor,
+            Err(_) => self.request_shutdown(),
+        }
+        self.query.invalidate().await;
+    }
+
     fn info(&self, records: &Records) -> Value {
         json!({"version":VERSION,"runtime_id":self.runtime.id,
             "configured":records.binding.is_some(),
             "settings":records.binding.as_ref().map(|binding| &binding.settings),
+            "config_fingerprint":records.binding.as_ref().map(|binding| &binding.fingerprint),
             "history_persisted":records.journal_ok,
             "running":records.tasks.iter().filter(|task| !task.terminal()).count(),
             "cursor":records.next_event - 1,
-            "limits":{"queue":QUEUE_LIMIT,"history":HISTORY_LIMIT,"logs_per_task":LOG_LIMIT},
-            "enterprise_snapshot":records.enterprise_snapshot})
+            "limits":{"queue":QUEUE_LIMIT,"history":HISTORY_LIMIT,"logs_per_task":LOG_LIMIT}})
     }
 
     fn effective_settings(records: &Records) -> Option<Settings> {
-        let mut settings = records.binding.as_ref()?.settings.clone();
-        if let Some(snapshot) = &records.enterprise_snapshot {
-            settings.enterprise_snapshot = Some(snapshot.clone());
-        }
-        Some(settings)
+        Some(records.binding.as_ref()?.settings.clone())
     }
 
     pub async fn dispatch(
@@ -161,6 +157,15 @@ impl Service {
             return Err(failure("stopping", "后台正在关闭，不接受新操作"));
         }
         match call {
+            Call::OperationStart { .. }
+            | Call::OperationPoll { .. }
+            | Call::OperationCancel { .. }
+            | Call::Mcp { .. }
+            | Call::Monitor { .. }
+            | Call::Web { .. } => Err(failure(
+                "invalid_operation",
+                "操作请求须由 daemon 操作服务处理",
+            )),
             Call::Info {} => Ok(self.info(&self.records.lock().unwrap())),
             Call::Configure { settings: input } => {
                 let pin = ConfigPin::new(&self.runtime)
@@ -194,7 +199,7 @@ impl Service {
                 let records = self.records.lock().unwrap();
                 let tasks: Vec<_> = records.tasks.iter().rev().map(summary).collect();
                 Ok(json!({"tasks":tasks,"cursor":records.next_event-1,
-                    "history_persisted":records.journal_ok,"enterprise_snapshot":records.enterprise_snapshot}))
+                    "history_persisted":records.journal_ok}))
             }
             Call::Get { id } => {
                 if !valid_id(&id) {

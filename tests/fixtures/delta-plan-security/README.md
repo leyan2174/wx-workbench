@@ -4,4 +4,4 @@
 
 不读取现有微信账号，不使用 Python，不请求网络。真实 CLI 由 `CARGO_BIN_EXE_wx` 指定；每个调用隔离配置和运行目录，结束时停止本测试账号的 daemon。
 
-运行：`cargo test --test delta_plan_security -- --nocapture`。本目录可保存完整构建及测试日志；不存放真实用户资料。
+运行：`cargo test --test delta_plan_security -- --nocapture`。完整输出保存到仓库外的私有目录，不存放真实用户资料；环境见[测试说明](../../README.md)。

@@ -44,7 +44,7 @@ Windows 使用 CREATE_NO_WINDOW，不经过 shell。启动后立即将进程加�
 每次终止 Job 最多等待 2 秒、每 5ms 检查活动进程数；调用方仍分别负责
 直接子进程 wait、错误顺序和临时目录清理。共享 Job 可随 Python worker 跨线程移动。
 
-原 `LocalConfig` 字段和 `transcribe` 签名不变，可选新接口：
+需要调整资源预算时使用：
 
 ```rust
 transcribe_with_limits(&config, audio, ResourceLimits {
@@ -65,7 +65,7 @@ PeekNamedPipe 查询可读量，每管道每轮最多读 64KiB，不等待 EOF�
 可能短暂超调，目录扫描也有开销。只统计专属临时目录，不限制可执行文件
 主动写到其他位置。Job 在 spawn 后绑定，存在绑定前派生进程逃逸窗口，
 不声称无竞态沙箱。只运行可信 whisper.cpp，不执行不可信包装程序；临时根
-必须为可信账户隔离目录。非 Windows 平台拒绝运行。未验证真实模型识别。
+必须为可信账户隔离目录。非 Windows 平台拒绝运行。
 
 ## Python 推理桥
 
@@ -77,26 +77,8 @@ PeekNamedPipe 查询可读量，每管道每轮最多读 64KiB，不等待 EOF�
 
 两个本地后端共用 `windows_supervision`，但保持各自协议、资源阈值及清理顺序。Python 在错误或 worker 释放时回收进程，成功请求保持 worker 供复用；临时目录清理最多重试 1 秒。MCP 使用绝对截止时间约束初始化、缓存身份和识别，只能收紧预算；普通配置的 120 秒不构成整个聊天批次总时限。Job 在 spawn 后绑定，仍不承诺消除绑定前逃逸窗口。
 
-## 验证证据
+## 测试
 
-2026-09-07 文档同步期间集中重跑 check/test 均通过：check 有 9 条 warnings；全量测试退出 0，20 组 1325 passed / 0 failed / 11 ignored，日志 `C:/CodexLocal/wx-cli-doc-sync-tests.log`。18 项实际 exe `--help` 全部通过，日志 `C:/CodexLocal/wx-cli-doc-help-check.log`。UI 61 / 0 和额外 8 个原忽略项显式通过为已有验证结果，本轮未重跑；默认忽略项不计为通过。真实账号、模型质量、GPU、云端及发布验收尚未完成。
+从仓库根目录按[测试说明](../../../tests/README.md)运行 `cargo test --bin wx toolkit::asr::`。本地后端测试使用合成程序验证参数、空格路径、文本/JSON、空结果、非零退出、超时及临时目录清理。
 
-以下为早期独立合成测试命令与历史结果，不代表当前全仓验收；本次未执行：
-
-```powershell
-cargo check --manifest-path tests/fixtures/asr-local/Cargo.toml --target x86_64-pc-windows-msvc
-cargo test --manifest-path tests/fixtures/asr-local/Cargo.toml --target x86_64-pc-windows-msvc
-```
-
-测试现场通过 rustc 编译 fake.rs，验证参数传递、空格路径、文本/JSON、
-非零退出、超时及临时目录清理。只使用合成文件；没有实际模型识别验证。
-
-资源回归在 local_tests.rs 内嵌 Rust fixture，覆盖持续双管道输出、响应超限、
-大量文件和目录条目、挂起、派生进程在超时/磁盘超限/父进程退出后的回收。
-派生进程先写入合成心跳，调用返回后断言心跳不再增长，且临时目录已删除。
-2026-09-07 初轮资源回归发现父进程退出后的 Windows 清理延迟，已增加
-有界清理重试。最终独立 Windows MSVC cargo check 通过；cargo test 连续
-三轮均 15 passed、0 failed、0 ignored，doc-tests 0，git diff --check 无错误。
-日志：C:\CodexLocal\日志\asr-local-limits-check.log 及
-C:\CodexLocal\日志\asr-local-limits-test-1.log 至 test-3.log。
-统一接口现已接线；这些早期 15 项结果仅保留为资源监管开发历史，不能替代当前主线回归。
+资源测试覆盖双管道持续输出、响应超限、文件及目录条目超限、挂起，以及父进程结束后的子孙进程回收。合成心跳停止和临时目录清理用于检查回收行为，不代表真实模型、GPU 或识别质量已经验证。需要安装依赖、下载模型或人工确认的项目单列处理。

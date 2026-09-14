@@ -117,7 +117,7 @@ pub fn assert_decode(text: &str, marker: &str, id: i64, root: &Path) -> PathBuf 
     let size = expected.len().to_string();
     let mut grouped = String::new();
     for (index, c) in size.chars().enumerate() {
-        if index > 0 && (size.len() - index) % 3 == 0 {
+        if index > 0 && (size.len() - index).is_multiple_of(3) {
             grouped.push(',');
         }
         grouped.push(c);

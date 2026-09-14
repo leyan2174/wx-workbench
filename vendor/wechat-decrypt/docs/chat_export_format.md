@@ -5,14 +5,12 @@
 
 ## 生成文件
 
-```bash
-.venv/bin/python3 export_chat.py <chat_name> [output.json]
-.venv/bin/python3 transcribe_chat.py <input.json> [output.json]
+```powershell
+.\.venv\Scripts\python.exe export_chat.py synthetic-user output.json
+.\.venv\Scripts\python.exe transcribe_chat.py input.json output.json
 ```
 
-`export_chat.py` 负责原始导出；`transcribe_chat.py` 使用 Whisper（CPU）
-为语音消息填充转录文本。`transcribe_chat.py` 可重复运行 —— 已转录的
-消息会被跳过。
+`export_chat.py` 负责原始导出；`transcribe_chat.py` 按所选后端填充语音转录文本。Python 路径按转录值是否为假值判断待处理项；Rust 回写对已有字段的处理不同，见[回写契约](../../../src/toolkit/asr/WRITEBACK.md)。
 
 `export_all_chats.py` 批量导出时会在输出目录维护 `_export_index.json`。
 该索引用稳定的 `username` 记录当前 JSON 文件名；联系人备注或群名变化后，
@@ -34,19 +32,19 @@
   "contact_tags": ["<tag>"],
   "contact_memo": "<memo>",
   "is_group": true,
-  "messages": [ ... ]
+  "messages": []
 }
 ```
 
-- `chat` —— 聊天的显示名（联系人名或群名）。
-- `username` —— 稳定的 WeChat 用户名（1-on-1 聊天为 `wxid_*`，群聊为 `*@chatroom`）。
+- `chat`：聊天的显示名（联系人名或群名）。
+- `username`：稳定的 WeChat 用户名（1-on-1 聊天为 `wxid_*`，群聊为 `*@chatroom`）。
   `transcribe_chat.py` 会优先读取本字段而非基于 `chat` 再次模糊匹配，避免同名联系人漂移。
-- `exported_at` —— 本地时间字符串，仅作溯源用途。
-- `date_first_msg` / `date_last_msg` —— 本次导出结果中第一条 / 最后一条消息的本地时间。
+- `exported_at`：本地时间字符串，仅作溯源用途。
+- `date_first_msg` / `date_last_msg`：本次导出结果中第一条 / 最后一条消息的本地时间。
 - `contact_remark`、`contact_nick_name`、`contact_tags`、`contact_memo` ——
   单聊联系人 metadata；群聊中省略。
-- `is_group` —— **仅**群聊出现且为 `true`；1-on-1 聊天时省略。
-- `messages` —— 消息数组，跨所有 DB 分片按时间由旧到新排序。
+- `is_group`：**仅**群聊出现且为 `true`；1-on-1 聊天时省略。
+- `messages`：消息数组，跨所有 DB 分片按时间由旧到新排序。
 
 消息条数 = `len(messages)`，没有 `total` 字段。
 
@@ -57,9 +55,9 @@
 
 | 字段            | 类型   | 必填 | 含义 / 缺失时的默认值                                                                                                                                         |
 | --------------- | ------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `local_id`      | int    | 是   | WeChat 内该聊天的稳定行 ID。用于重跑转录或对比导出时的消息匹配。                                                                                              |
-| `timestamp`     | int    | 是   | Unix 时间戳（秒级，本地时间已换算为秒）。通过 `datetime.fromtimestamp(ts)` 转换。                                                                             |
-| `sender`        | string | 是   | `"me"` 代表当前登录用户；否则为发送者的显示名 —— 1-on-1 聊天中是联系人名，群聊中是群成员名。对于无法归属的消息（如系统通知）为 `""`。                         |
+| `local_id`      | int    | 是   | 消息行 ID；不能单独作为跨分片、跨账号的唯一身份。                                                                                              |
+| `timestamp`     | int    | 是   | Unix 时间戳（秒）。显示为本地时间可通过 `datetime.fromtimestamp(ts)` 转换。                                                                             |
+| `sender`        | string | 是   | `"me"` 代表当前登录用户；否则为发送者的显示名：1-on-1 聊天中是联系人名，群聊中是群成员名。对于无法归属的消息（如系统通知）为 `""`。                         |
 | `type`          | string | 否   | 消息类型。**缺失时视为 `"text"`**。已知取值：`text`、`image`、`voice`、`sticker`、`video`、`link_or_file`、`call`、`system`、`recall`、`contact_card`、`location`。 |
 | `content`       | string | 否   | 消息的渲染文本。当没有可提取内容时省略（例如部分图片 / 通话 / 系统事件）。                                                                                    |
 | `transcription` | string | 否   | **仅**在 `type: "voice"` 且已完成转录的消息上出现。若 Whisper 未产出文本可能为空串 `""`。                                                                     |
@@ -72,7 +70,7 @@
 import json
 from datetime import datetime
 
-with open("chat_export_transcribed.json") as f:
+with open("chat_export_transcribed.json", encoding="utf-8") as f:
     data = json.load(f)
 
 is_group = data.get("is_group", False)
@@ -102,7 +100,7 @@ pending = [m for m in data["messages"]
 
 ## 解读注意事项
 
-- **系统消息**（`type: "system"`）的 `sender` 为 `""` —— 不属于任何人。
+- **系统消息**（`type: "system"`）的 `sender` 为 `""`：不属于任何人。
   常见内容：撤回通知（"X 撤回了一条消息"）、添加好友事件等。
 - **空转录**（`transcription: ""`）表示 Whisper 已经运行但未产出文本，
   通常是极短或静音片段。这与"尚未转录"（字段缺失）是不同的状态。

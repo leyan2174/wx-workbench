@@ -1,6 +1,6 @@
-# G05 计划 CSV 消费
+# 导出计划 CSV 测试
 
-生产路径：`wx toolkit export-chats-native OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由 export_chats::Args 定义，经 cli/toolkit.rs 的公开枚举直接分发；不是独立试验入口。默认不带计划时原 users/date/incremental/dry-run 路径保留，不生成计划、不串联 ASR。
+生产路径：`wx toolkit export-chats-native OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由公开 CLI 封送给 daemon 侧导出编排。默认不带计划时原 users/date/incremental/dry-run 路径保留，不生成计划、不串联 ASR。
 
 ## 源码对照
 
@@ -17,15 +17,11 @@
 
 1. `python tests/fixtures/plan-selection/generate_oracle.py`：仅 AST 抽取旧纯函数，不导入旧服务、不读账号。56 组旧消费者结果/错误对照，含 12 列旧 writer 的真实输出。
 2. `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --lib -- --nocapture`：真实新 helper 对照 oracle 和损坏/超限输入。
-3. `cargo test --bin wx cli::export_chats::tests:: -- --nocapture`：保留时间范围回归，直接验证原生 render_plan_csv 输出与 Args。
+3. `cargo test --bin wx export_chats -- --nocapture`：保留时间范围回归，直接验证原生 render_plan_csv 输出与 Args。
 4. 先 `cargo build --bin wx`，将 CARGO_BIN_EXE_wx 设为构建产物绝对路径，再 `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --features runtime --test runtime -- --nocapture`。
 
 runtime 复用现有合成 SQLCipher 工具与 daemon 生命周期，不模拟目标 CLI、选择器或导出 JSON。两名联系人拥有相同显示名，验证名单顺序、blacklist/whitelist、用户和环境过滤、错误计划、空选择、实际导出 username、日期闭区间和增量追加。源快照与计划字节核对不变。
 
 不声称旧 Python 的宽容损坏 CSV 行为完全兼容；这些输入是明确安全收紧。CSV 中的展示/统计列不被当作可靠的导出时间条件，实际时间条件仍由命令行 start/end 决定。
 
-## 本次验收
-
-2026-09-07：选择器 3 项测试（含 56 组旧实现对照）、主程序导出模块 3 项测试、真实 CLI/daemon 运行测试 1 项均通过，主程序构建成功。运行测试先导出时间戳 100 至 200 的 2 条消息，再增量追加时间戳 201 的 1 条，最终 JSON 为同一 username 的 3 条消息；空选择不创建目录，源数据库和原计划未被导出过程修改。
-
-本机完整输出：`C:\CodexLocal\plan-selection-unit-final.log`、`C:\CodexLocal\plan-selection-cli-unit.log`、`C:\CodexLocal\plan-selection-runtime-final.log`、`C:\CodexLocal\plan-selection-build.log`。这些是本模块验收记录，不代表整个迁移项目完成。
+运行环境和人工审核点见[测试说明](../../README.md)。生成 oracle 会写入文件，普通回归无需重建 golden。

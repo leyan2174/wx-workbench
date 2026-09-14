@@ -14,22 +14,16 @@ pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub const DEFAULT_MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 /// 仅携带公开错误类别，不允许底层 message、路径或密钥进入错误通道。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DispatchError {
     Unavailable,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "保留可注入查询器的内部错误类别，当前 CLI 统一映射为不可用"
-        )
-    )]
     Internal,
     Cancelled,
     TimedOut,
     QueryFailed,
     InvalidResponse,
     ResultLimit,
+    InvalidArguments,
 }
 
 const MAX_CANDIDATES: usize = 10_000;
@@ -38,13 +32,6 @@ const MAX_CANDIDATES: usize = 10_000;
 #[derive(Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
 impl CancellationToken {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "供并发宿主发起取消；当前同步 stdio 不读取在途取消通知"
-        )
-    )]
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Release);
     }
@@ -61,7 +48,56 @@ pub struct CallContext {
     max_response_bytes: usize,
     response_id: Value,
 }
+/// IPC budget is created before daemon startup, so startup cannot renew a call.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallBudget {
+    pub deadline_unix_ms: u64,
+    pub max_response_bytes: usize,
+    pub response_id: Value,
+}
+
+fn unix_ms() -> Result<u64, DispatchError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+        .ok_or(DispatchError::Unavailable)
+}
+
 impl CallContext {
+    pub fn budget(&self) -> Result<CallBudget, DispatchError> {
+        self.check()?;
+        Ok(CallBudget {
+            deadline_unix_ms: unix_ms()?.saturating_add(self.remaining().as_millis() as u64),
+            max_response_bytes: self.max_response_bytes,
+            response_id: self.response_id.clone(),
+        })
+    }
+
+    pub fn from_budget(budget: CallBudget) -> Result<Self, DispatchError> {
+        if !(1024..=16 * 1024 * 1024).contains(&budget.max_response_bytes)
+            || !matches!(
+                budget.response_id,
+                Value::Null | Value::String(_) | Value::Number(_)
+            )
+        {
+            return Err(DispatchError::Unavailable);
+        }
+        let remaining = budget
+            .deadline_unix_ms
+            .saturating_sub(unix_ms()?)
+            .min(30_000);
+        let mut context = Self::new(
+            CancellationToken::default(),
+            Duration::from_millis(remaining),
+        );
+        context.max_response_bytes = budget.max_response_bytes;
+        context.response_id = budget.response_id;
+        context.check()?;
+        Ok(context)
+    }
+
     pub fn new(cancellation: CancellationToken, timeout: Duration) -> Self {
         // 溢出按立即超时处理，不能意外退化为无限等待。
         let now = Instant::now();
@@ -104,10 +140,6 @@ impl CallContext {
         )
         .map_err(|_| DispatchError::ResultLimit)
     }
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "供并发宿主持有取消令牌，当前由合成测试验证")
-    )]
     pub fn cancellation(&self) -> CancellationToken {
         self.cancellation.clone()
     }
@@ -124,6 +156,21 @@ pub trait Dispatcher {
         request: Request,
         context: &CallContext,
     ) -> Result<Response, DispatchError>;
+
+    /// 默认不开放后台任务；宿主提供固定工具清单，不从模型参数获取授权。
+    fn task_tools(&self) -> Vec<Tool> {
+        Vec::new()
+    }
+
+    /// 只适配任务 RPC，返回 MCP 内容；不得在此建立队列或等待任务执行完成。
+    fn dispatch_task(
+        &mut self,
+        _name: &str,
+        _arguments: &Value,
+        _context: &CallContext,
+    ) -> Result<Value, DispatchError> {
+        Err(DispatchError::Unavailable)
+    }
 }
 impl<F: FnMut(Request) -> Result<Response, DispatchError>> Dispatcher for F {
     fn dispatch(&mut self, request: Request, _: &CallContext) -> Result<Response, DispatchError> {
@@ -160,8 +207,33 @@ pub struct Tool {
 }
 
 impl Tool {
+    pub fn task(
+        name: &'static str,
+        description: &'static str,
+        input_schema: Value,
+        external: bool,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            command: if external {
+                "submit_task_external"
+            } else {
+                name
+            },
+            input_schema,
+        }
+    }
+
     fn open_world(&self) -> bool {
-        self.command == "transcribe_voice"
+        matches!(self.command, "transcribe_voice" | "submit_task_external")
+    }
+
+    fn destructive(&self) -> bool {
+        matches!(
+            self.command,
+            "submit_task" | "submit_task_external" | "cancel_task"
+        )
     }
 
     fn read_only(&self) -> bool {
@@ -180,6 +252,9 @@ impl Tool {
                 | "voice_messages"
                 | "decode_file_message"
                 | "decode_record_item"
+                | "list_tasks"
+                | "get_task"
+                | "get_task_events"
         )
     }
 }
@@ -544,6 +619,7 @@ fn public_failure(failure: &DispatchError) -> &'static str {
         DispatchError::QueryFailed => "Query failed",
         DispatchError::InvalidResponse => "Invalid query response",
         DispatchError::ResultLimit => "Query result exceeds safe limit",
+        DispatchError::InvalidArguments => "Invalid tool arguments",
     }
 }
 fn valid_id(id: &Value) -> bool {
@@ -572,7 +648,7 @@ impl<D: Dispatcher> Protocol<D> {
     }
     #[cfg_attr(
         not(test),
-        expect(dead_code, reason = "协议状态观察接口，目前由生命周期测试使用")
+        allow(dead_code, reason = "协议库公开状态观察接口；CLI 内部不读取状态")
     )]
     pub fn phase(&self) -> Phase {
         self.phase
@@ -582,7 +658,7 @@ impl<D: Dispatcher> Protocol<D> {
     /// 未解析输入及无效 envelope 不是通知，返回 null id 的 JSON-RPC 错误。
     #[cfg_attr(
         not(test),
-        expect(
+        allow(
             dead_code,
             reason = "独立协议宿主使用默认上下文入口；CLI 显式绑定帧预算"
         )
@@ -653,7 +729,7 @@ impl<D: Dispatcher> Protocol<D> {
                 } else {
                     result(
                         id,
-                        json!({"tools": tools().into_iter().map(|t| json!({"name":t.name,"description":t.description,"inputSchema":t.input_schema,"annotations":{"readOnlyHint":t.read_only(),"destructiveHint":false,"openWorldHint":t.open_world()}})).collect::<Vec<_>>()}),
+                        json!({"tools": tools().into_iter().chain(self.dispatcher.task_tools()).map(|t| json!({"name":t.name,"description":t.description,"inputSchema":t.input_schema,"annotations":{"readOnlyHint":t.read_only(),"destructiveHint":t.destructive(),"openWorldHint":t.open_world()}})).collect::<Vec<_>>()}),
                     )
                 }
             }
@@ -665,6 +741,47 @@ impl<D: Dispatcher> Protocol<D> {
                     error(id, -32602, "Invalid tool call params")
                 } else {
                     let empty = json!({});
+                    if let Some(name) = params.get("name").and_then(Value::as_str) {
+                        if self
+                            .dispatcher
+                            .task_tools()
+                            .iter()
+                            .any(|tool| tool.name == name)
+                        {
+                            let mut context = context.clone();
+                            context.response_id = id.clone();
+                            let reply = context
+                                .check()
+                                .and_then(|()| {
+                                    self.dispatcher.dispatch_task(
+                                        name,
+                                        params.get("arguments").unwrap_or(&empty),
+                                        &context,
+                                    )
+                                })
+                                .and_then(|value| {
+                                    context.check()?;
+                                    Ok(value)
+                                });
+                            return Some(match reply {
+                                Ok(value) => result(id, value),
+                                Err(DispatchError::InvalidArguments) => {
+                                    error(id, -32602, "Invalid task arguments")
+                                }
+                                Err(DispatchError::Internal) => error(id, -32603, "Internal error"),
+                                Err(DispatchError::TimedOut | DispatchError::Cancelled) => result(
+                                    id,
+                                    text_result(
+                                        "Task tool call ended; an accepted background task is not cancelled. Submission outcome may be unknown: get_task by the original idempotency_key or retry submit_task with the same key and arguments; use cancel_task for explicit cancellation.".into(),
+                                        true,
+                                    ),
+                                ),
+                                Err(failure) => {
+                                    result(id, text_result(public_failure(&failure).into(), true))
+                                }
+                            });
+                        }
+                    }
                     match params
                         .get("name")
                         .and_then(Value::as_str)

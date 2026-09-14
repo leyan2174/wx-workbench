@@ -295,6 +295,8 @@ async fn exact_key_missing_source_and_canonical_collisions() {
 // 只在测试中加密合成页；生产解密和 WAL 应用始终调用仓库 crypto。
 fn encrypted_pages(path: &Path, caption: &str, key: &[u8; 32], wal: bool) -> Vec<u8> {
     use cbc::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
     let conn = Connection::open(path).unwrap();
     conn.execute_batch("PRAGMA page_size=4096;").unwrap();
     let mut reserve: i32 = 80;
@@ -322,6 +324,9 @@ fn encrypted_pages(path: &Path, caption: &str, key: &[u8; 32], wal: bool) -> Vec
     drop(conn);
     let plain = fs::read(path).unwrap();
     assert_eq!(plain[20], 80);
+    let salt = [0x35u8; 16];
+    let mut mac_key = [0; 32];
+    pbkdf2::pbkdf2_hmac::<Sha512>(key, &salt.map(|byte| byte ^ 0x3a), 2, &mut mac_key);
     let mut result = Vec::new();
     for (i, page) in plain.chunks_exact(4096).enumerate() {
         let start = if i == 0 && !wal { 16 } else { 0 };
@@ -329,28 +334,21 @@ fn encrypted_pages(path: &Path, caption: &str, key: &[u8; 32], wal: bool) -> Vec
         let enc = cbc::Encryptor::<aes::Aes256>::new(key.into(), (&iv).into())
             .encrypt_padded_vec_mut::<NoPadding>(&page[start..4016]);
         let mut encrypted = vec![0u8; 4096];
+        if start == 16 {
+            encrypted[..16].copy_from_slice(&salt);
+        }
         encrypted[start..4016].copy_from_slice(&enc);
         encrypted[4016..4032].copy_from_slice(&iv);
+        let mut mac = Hmac::<Sha512>::new_from_slice(&mac_key).unwrap();
+        mac.update(&encrypted[start..4032]);
+        mac.update(&((i + 1) as u32).to_le_bytes());
+        encrypted[4032..].copy_from_slice(&mac.finalize().into_bytes());
         result.extend(encrypted);
     }
     result
 }
 
-fn wal_bytes(pages: &[u8]) -> Vec<u8> {
-    let mut bytes = vec![0u8; 32];
-    bytes[..4].copy_from_slice(&0x377f0682u32.to_be_bytes());
-    bytes[8..12].copy_from_slice(&4096u32.to_be_bytes());
-    bytes[16..24].copy_from_slice(&[7; 8]);
-    for (i, page) in pages.chunks_exact(4096).enumerate() {
-        let mut header = [0u8; 24];
-        header[..4].copy_from_slice(&((i + 1) as u32).to_be_bytes());
-        header[4..8].copy_from_slice(&((pages.len() / 4096) as u32).to_be_bytes());
-        header[8..16].copy_from_slice(&[7; 8]);
-        bytes.extend(header);
-        bytes.extend(page);
-    }
-    bytes
-}
+use crate::crypto::test_support::wal_bytes;
 
 #[tokio::test]
 async fn real_cache_cold_wal_incremental_restart_and_account_isolation() {
@@ -392,18 +390,14 @@ async fn real_cache_cold_wal_incremental_restart_and_account_isolation() {
         fs::metadata(&hit.path).unwrap().modified().unwrap(),
         cached_before
     );
-    // 保留主库 mtime 后破坏密文，证明后续成功不是偷偷重新全量解密。
-    let modified = fs::metadata(&source).unwrap().modified().unwrap();
-    fs::write(&source, vec![0u8; base.len()]).unwrap();
-    fs::File::options()
-        .write(true)
-        .open(&source)
-        .unwrap()
-        .set_times(fs::FileTimes::new().set_modified(modified))
-        .unwrap();
+    // 源库必须保持可认证；缓存模式直接证明 WAL 更新未走全量解密。
     std::thread::sleep(std::time::Duration::from_millis(30));
     let second = encrypted_pages(&temp.path().join("second.db"), "incremental", &key, true);
     fs::write(&wal, wal_bytes(&second)).unwrap();
+    assert_eq!(
+        cache.get_with_mode(raw).await.unwrap().unwrap().mode,
+        CacheMode::WalIncremental
+    );
     assert_eq!(
         load(&cache).await.unwrap().items[0].info.caption.as_deref(),
         Some("incremental")
@@ -413,6 +407,10 @@ async fn real_cache_cold_wal_incremental_restart_and_account_isolation() {
     let third = encrypted_pages(&temp.path().join("third.db"), "restart-wal", &key, true);
     fs::write(&wal, wal_bytes(&third)).unwrap();
     let restarted = cache_at(&a, keys.clone()).await;
+    assert_eq!(
+        restarted.get_with_mode(raw).await.unwrap().unwrap().mode,
+        CacheMode::WalIncremental
+    );
     assert_eq!(
         load(&restarted).await.unwrap().items[0]
             .info
@@ -426,7 +424,7 @@ async fn real_cache_cold_wal_incremental_restart_and_account_isolation() {
         Some("other-account")
     );
     assert_ne!(other.get(raw).await.unwrap().unwrap(), hit.path);
-    assert_eq!(fs::read(&source).unwrap(), vec![0u8; base.len()]);
+    assert_eq!(fs::read(&source).unwrap(), base);
     assert_eq!(fs::read(&wal).unwrap(), wal_bytes(&third));
     assert_eq!(
         fs::read(b.join("source/EMOTICON/EMOTICON.DB")).unwrap(),

@@ -30,4 +30,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 find_all_keys_macos
-.claude/worktrees/
+.claude/
+.codex/
+*.log

@@ -4,12 +4,11 @@ mod asr_database;
 pub mod attachments;
 pub mod biz_articles;
 mod chat_plan;
+mod cleanup_native;
 pub mod contacts;
 pub mod daemon_cmd;
 mod database_keys;
 mod decode;
-mod enterprise;
-mod enterprise_batch;
 pub mod export;
 mod export_all;
 mod export_chat;
@@ -21,11 +20,11 @@ mod export_sns;
 pub mod extract;
 pub mod favorites;
 pub mod history;
-mod image_key_sample;
 mod image_keys;
 mod init;
 mod launcher;
 mod mcp;
+mod mcp_tasks;
 mod mcp_voice;
 pub mod members;
 mod monitor_native;
@@ -34,19 +33,15 @@ pub mod output;
 pub mod search;
 pub mod sessions;
 mod setup_native;
-mod cleanup_native;
 pub mod sns_album;
 mod sns_archive;
 pub mod sns_feed;
 pub mod sns_notifications;
 pub mod sns_search;
 mod sns_timeline;
-mod sns_video;
 pub mod stats;
-pub mod toolkit;
-mod toolkit_run_prepare;
-pub(crate) mod task_worker;
 mod tasks;
+pub mod toolkit;
 pub mod transport;
 pub mod unread;
 pub mod voices;
@@ -60,6 +55,62 @@ use clap::{Parser, Subcommand};
 mod contract_tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn grouped_arguments_preserve_cli_defaults_and_flags() {
+        let Commands::History(history) = Cli::try_parse_from(["wx", "history", "peer"])
+            .unwrap()
+            .command
+        else {
+            panic!("expected history");
+        };
+        assert_eq!((history.limit, history.offset), (50, 0));
+        assert!(!history.json && !history.oldest_first);
+
+        let Commands::Voices(voices) = Cli::try_parse_from([
+            "wx",
+            "voices",
+            "peer",
+            "-o",
+            "voices",
+            "-n",
+            "2",
+            "--offset",
+            "3",
+            "--overwrite",
+            "--json",
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("expected voices");
+        };
+        assert_eq!(voices.chat.as_deref(), Some("peer"));
+        assert_eq!(voices.output, "voices");
+        assert_eq!((voices.limit, voices.offset), (Some(2), 3));
+        assert!(voices.overwrite && voices.json);
+
+        let Commands::Toolkit {
+            cmd: toolkit::ToolkitCommands::ExportSnsNative(sns),
+        } = Cli::try_parse_from(["wx", "toolkit", "export-sns-native", "sns.db", "preview"])
+            .unwrap()
+            .command
+        else {
+            panic!("expected native SNS export");
+        };
+        assert_eq!(sns.sns_db, std::path::Path::new("sns.db"));
+        assert_eq!(sns.output_dir, std::path::Path::new("preview"));
+        assert!(!sns.download_media && !sns.update && !sns.adopt_existing);
+        assert!(Cli::try_parse_from([
+            "wx",
+            "toolkit",
+            "export-sns-native",
+            "sns.db",
+            "preview",
+            "--adopt-existing",
+        ])
+        .is_err());
+    }
 
     #[test]
     fn command_tree_and_passthrough_contracts_are_valid() {
@@ -98,18 +149,12 @@ mod contract_tests {
                     "--oldest-first",
                 ])
                 .unwrap();
-                let Commands::History {
-                    msg_type,
-                    msg_types,
-                    oldest_first,
-                    ..
-                } = cli.command
-                else {
+                let Commands::History(args) = cli.command else {
                     panic!("wrong history command")
                 };
-                assert_eq!(msg_type, None);
-                assert_eq!(msg_types, ["image", "text", "voice"]);
-                assert!(oldest_first);
+                assert_eq!(args.msg_type, None);
+                assert_eq!(args.msg_types, ["image", "text", "voice"]);
+                assert!(args.oldest_first);
                 assert!(Cli::try_parse_from([
                     "wx", "history", "peer", "--type", "text", "--types", "image"
                 ])
@@ -124,12 +169,12 @@ mod contract_tests {
     }
 }
 
-/// wx — 微信本地数据 CLI（leyan 本地增强版）
+/// 微信本地数据命令行工具
 #[derive(Parser)]
 #[command(
     name = "wx",
     version = env!("CARGO_PKG_VERSION"),
-    about = "wx — 微信本地数据 CLI（leyan 本地增强版）"
+    about = "微信本地数据命令行工具"
 )]
 pub struct Cli {
     /// 返回更重的 freshness/source 元数据（如 per-shard latest、cache modes）
@@ -177,36 +222,7 @@ enum Commands {
         json: bool,
     },
     /// 查看聊天记录
-    History {
-        /// 聊天对象名称（支持模糊匹配）
-        chat: String,
-        /// 消息数量
-        #[arg(short = 'n', long, default_value = "50")]
-        limit: usize,
-        /// 分页偏移
-        #[arg(long, default_value = "0")]
-        offset: usize,
-        /// 起始时间 YYYY-MM-DD
-        #[arg(long)]
-        since: Option<String>,
-        /// 结束时间 YYYY-MM-DD
-        #[arg(long)]
-        until: Option<String>,
-        /// 消息类型过滤 [text|image|voice|video|sticker|location|link|file|call|system]
-        #[arg(long = "type", value_name = "TYPE",
-              value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
-        msg_type: Option<String>,
-        /// 多类型筛选，支持逗号分隔或重复指定
-        #[arg(long = "types", value_delimiter = ',', conflicts_with = "msg_type",
-              value_parser = ["text","image","voice","video","sticker","location","link","file","call","system"])]
-        msg_types: Vec<String>,
-        /// 从全部分片中的最早消息开始分页
-        #[arg(long)]
-        oldest_first: bool,
-        /// 输出 JSON（默认 YAML）
-        #[arg(long)]
-        json: bool,
-    },
+    History(history::Args),
     /// 搜索消息
     Search {
         /// 搜索关键词
@@ -444,31 +460,7 @@ enum Commands {
         json: bool,
     },
     /// 导出微信语音消息为 .silk，并生成 .voice.json 证据文件
-    Voices {
-        /// 会话名称（可选；省略则导出全部语音）
-        chat: Option<String>,
-        /// 输出目录
-        #[arg(short = 'o', long)]
-        output: String,
-        /// 最多导出条数
-        #[arg(short = 'n', long)]
-        limit: Option<usize>,
-        /// 分页偏移
-        #[arg(long, default_value = "0")]
-        offset: usize,
-        /// 起始时间 YYYY-MM-DD
-        #[arg(long)]
-        since: Option<String>,
-        /// 结束时间 YYYY-MM-DD
-        #[arg(long)]
-        until: Option<String>,
-        /// 目标已存在时覆盖
-        #[arg(long)]
-        overwrite: bool,
-        /// 输出 JSON（默认 YAML）
-        #[arg(long)]
-        json: bool,
-    },
+    Voices(voices::Args),
     /// 调用本机 wechat-decrypt 工具箱能力（解密、图片、朋友圈、Web UI 等）
     Toolkit {
         #[command(subcommand)]
@@ -479,7 +471,7 @@ enum Commands {
         #[command(subcommand)]
         cmd: tasks::Command,
     },
-    /// 原生单聊导出（迁移预览，尚未替换旧批量导出）
+    /// 将指定聊天导出到输出路径
     ExportChat {
         chat: String,
         output: std::path::PathBuf,
@@ -539,10 +531,7 @@ pub fn run_toolbox() {
         match launcher::prepare_first_run() {
             Ok(true) => {}
             Ok(false) => return,
-            Err(error) => {
-                eprintln!("错误: {error}");
-                std::process::exit(1);
-            }
+            Err(error) => exit_dispatch_error(error),
         }
     }
     let args = launcher::arguments(raw);
@@ -551,9 +540,16 @@ pub fn run_toolbox() {
 
 fn finish_dispatch(cli: Cli) {
     if let Err(e) = dispatch(cli) {
-        eprintln!("错误: {}", e);
-        std::process::exit(1);
+        exit_dispatch_error(e);
     }
+}
+
+fn exit_dispatch_error(error: anyhow::Error) -> ! {
+    if let Some(exit) = error.downcast_ref::<crate::service::operation_client::OperationExit>() {
+        std::process::exit(exit.0);
+    }
+    eprintln!("错误: {error}");
+    std::process::exit(1);
 }
 
 fn dispatch(cli: Cli) -> Result<()> {
@@ -584,31 +580,14 @@ fn dispatch(cli: Cli) -> Result<()> {
                 debug_source: base_debug_source,
             },
         ),
-        Commands::History {
-            chat,
-            limit,
-            offset,
-            since,
-            until,
-            msg_type,
-            msg_types,
-            oldest_first,
-            json,
-        } => history::cmd_history(
-            chat,
-            limit,
-            offset,
-            since,
-            until,
-            msg_type,
-            msg_types,
-            oldest_first,
-            OutputOpts {
-                json,
+        Commands::History(args) => {
+            let opts = OutputOpts {
+                json: args.json,
                 with_meta: base_with_meta,
                 debug_source: base_debug_source,
-            },
-        ),
+            };
+            history::cmd_history(args, opts)
+        }
         Commands::Search {
             keyword,
             chats,
@@ -755,16 +734,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             overwrite,
             json,
         } => extract::cmd_extract(attachment_id, output, overwrite, json),
-        Commands::Voices {
-            chat,
-            output,
-            limit,
-            offset,
-            since,
-            until,
-            overwrite,
-            json,
-        } => voices::cmd_voices(chat, output, limit, offset, since, until, overwrite, json),
+        Commands::Voices(args) => voices::cmd_voices(args),
         Commands::Toolkit { cmd } => toolkit::cmd_toolkit(cmd),
         Commands::Tasks { cmd } => tasks::cmd(cmd),
         Commands::ExportChat { chat, output } => export_chat::cmd_export(chat, output),

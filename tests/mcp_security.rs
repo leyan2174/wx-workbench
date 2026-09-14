@@ -1,5 +1,10 @@
 //! MCP 安全专项；仅合成配置、stdin 和本机命名管道，不读取真实账号。
 #![cfg(windows)]
+include!("fixtures/mcp-voice-host/lib.rs");
+#[path = "fixtures/mcp-auth/mock.rs"]
+mod authenticated_mock;
+#[path = "support/bootstrap.rs"]
+mod runtime_cleanup;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -86,6 +91,12 @@ impl Fixture {
         assert_eq!(fs::read(&self.keys).unwrap(), SECRET.as_bytes());
         assert_eq!(fs::read_dir(&self.database).unwrap().count(), 0);
         assert!(!self.root.path().join("decrypted").exists());
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(runtime_cleanup::RuntimeCleanup(self.home.clone()));
     }
 }
 
@@ -335,12 +346,7 @@ fn mcp_empty_or_invalid_explicit_config_never_falls_back_or_echoes_details() {
     )
     .unwrap();
     let server = Mock::start(&f.pipe, false);
-    for selected in [
-        None,
-        Some(malformed.as_path()),
-        Some(huge.as_path()),
-        Some(implicit.as_path()),
-    ] {
+    for selected in [None, Some(malformed.as_path()), Some(huge.as_path())] {
         let mut command = f.command(selected);
         if selected.is_none() {
             command.env("WX_CLI_CONFIG", "");
@@ -357,7 +363,94 @@ fn mcp_empty_or_invalid_explicit_config_never_falls_back_or_echoes_details() {
     }
     assert!(server.finish().is_empty());
     assert!(!f.home.join("accounts").exists());
+    // Match the child's APPDATA override without changing this parallel test process's environment.
+    // Keep db_dir absent on disk so daemon-owned explicit-account validation still rejects it.
+    let fallback_db_dir = f.home.join("Tencent/xwechat");
+    let runtime = runtime::RuntimeContext::from_config(
+        implicit.clone(),
+        config::Config {
+            db_dir: fallback_db_dir.clone(),
+            keys_file: f.keys.clone(),
+            decrypted_dir: f.root.path().join("decrypted"),
+            wechat_process: "Weixin.exe".into(),
+        },
+        f.home.clone(),
+    )
+    .unwrap();
+    assert!(!fallback_db_dir.exists());
+    let directory = runtime.directory.clone();
+    let server = authenticated_mock::Mock::start(runtime, |_| {
+        panic!("implicit account must be rejected before any business query")
+    });
+    let mut wx = Session::start(f.command(Some(&implicit)));
+    wx.ready();
+    let result = wx.call(1, "get_contacts", json!({}));
+    assert_eq!(result["result"]["isError"], true);
+    assert_eq!(
+        result["result"]["content"][0]["text"],
+        "Query backend unavailable"
+    );
+    wx.finish(true);
+    assert_eq!(
+        server.mcp_calls(),
+        1,
+        "must reach authenticated MCP dispatch"
+    );
+    assert_eq!(server.finish(), vec![json!({"cmd":"ping"})]);
+    let mut files: Vec<_> = fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    files.sort();
+    assert!(
+        files.is_empty(),
+        "mock identity files must be removed at shutdown"
+    );
+    assert!(!fallback_db_dir.exists());
     f.untouched();
+}
+
+#[test]
+fn mcp_fixture_cleanup_stops_daemon_after_configuration_changes() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let f = Fixture::new();
+    let runtime = fixture_runtime(&f.config, &f.home).unwrap();
+    let mut wx = Session::start(f.command(Some(&f.config)));
+    wx.ready();
+    let reply = wx.call(1, "get_contacts", json!({}));
+    assert_eq!(reply["result"]["isError"], true);
+    assert_eq!(
+        reply["result"]["content"][0]["text"],
+        "Query backend unavailable"
+    );
+    wx.finish(true);
+    assert!(
+        runtime.pid_path().is_file(),
+        "must exercise a real daemon, not a rejected launch"
+    );
+    fs::write(&f.config, b"invalid changed configuration").unwrap();
+    drop(runtime_cleanup::RuntimeCleanup(f.home.clone()));
+    assert!(!runtime.pid_path().exists());
+    assert!(fs::OpenOptions::new()
+        .write(true)
+        .share_mode(0)
+        .open(runtime.directory.join("daemon.lock"))
+        .is_ok());
+    f.untouched();
+}
+
+#[test]
+fn mcp_mock_cleanup_allows_restarting_the_same_runtime() {
+    let f = Fixture::new();
+    let runtime = fixture_runtime(&f.config, &f.home).unwrap();
+    for _ in 0..2 {
+        let server = authenticated_mock::Mock::start(runtime.clone(), |_| {
+            panic!("no business calls expected")
+        });
+        assert!(server.finish().is_empty());
+        assert!(!runtime.pid_path().exists());
+        assert!(!runtime.directory.join("service-token.key").exists());
+    }
 }
 
 #[test]
@@ -380,12 +473,34 @@ fn mcp_oversized_unterminated_stdin_exits_before_eof() {
 #[test]
 fn mcp_startup_ping_must_obey_response_byte_limit() {
     let f = Fixture::new();
-    let server = Mock::start(&f.pipe, true);
+    let runtime = fixture_runtime(&f.config, &f.home).unwrap();
+    let directory = runtime.directory.clone();
+    assert_eq!(runtime.pipe_name(), f.pipe);
+    let oversized = format!(
+        "{}\n",
+        json!({"ok":true,"pong":true,"padding":"x".repeat(8*1024*1024)})
+    )
+    .into_bytes();
+    let server =
+        authenticated_mock::Mock::start_with_initial_ping(runtime, Some(oversized), |request| {
+            assert_eq!(
+                request,
+                &json!({"cmd":"contacts","limit":50,"legacy_view":true})
+            );
+            authenticated_mock::Reply::Json(json!({"ok":true,"contacts":[]}))
+        });
     let mut wx = Session::start(f.command(Some(&f.config)));
     wx.ready();
     let reply = wx.call(1, "get_contacts", json!({}));
     wx.finish(true);
+    assert_eq!(
+        server.mcp_calls(),
+        1,
+        "must reach authenticated MCP dispatch"
+    );
     let requests = server.finish();
+    assert!(!directory.join("daemon.pid").exists());
+    assert!(!directory.join("service-token.key").exists());
     println!("IPC REQUEST SEQUENCE: {requests:?}");
     println!("STARTUP LOCK CREATED: {}", f.home.join("accounts").exists());
     f.untouched();

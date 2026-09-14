@@ -161,6 +161,7 @@ fn process(
         .env("USERPROFILE", &home)
         .env("LOCALAPPDATA", &home)
         .env("APPDATA", &home)
+        .env("WX_CLI_HOME", &home)
         .env("TEMP", &f.temp)
         .env("TMP", &f.temp)
         .env(

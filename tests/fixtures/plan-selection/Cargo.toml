@@ -35,3 +35,6 @@ md5 = "0.7"
 rusqlite = { version = "0.31", features = ["bundled"] }
 interprocess = { version = "2", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_Storage_FileSystem"] }

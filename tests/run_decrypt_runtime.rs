@@ -1,5 +1,7 @@
 #![cfg(windows)]
 
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
 #[path = "fixtures/mcp-readonly-runtime/encrypted_sqlite.rs"]
 mod encrypted_sqlite;
 
@@ -88,6 +90,14 @@ impl Fixture {
         [&self.config, &self.keys]
             .map(|path| fs::read(path).unwrap())
             .into()
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        drop(bootstrap::RuntimeCleanup(
+            self.root.path().join("isolated-runtime"),
+        ));
     }
 }
 

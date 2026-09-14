@@ -1,5 +1,5 @@
-//! 主线注册方式：toolkit/mod.rs 中 #[path = "web/server.rs"] pub mod web;
-//! HTTP 使用 axum；静态资源由前端开发线负责，本模块只内嵌资源。
+//! 使用 axum 提供 Web HTTP 接口，并内嵌 HTML、JavaScript 和 CSS 资源。
+//! 任务提交与取消通过服务客户端转交 daemon，Web 维护用于展示的任务状态。
 #[path = "automatic_image.rs"]
 mod automatic_image;
 #[cfg(test)]
@@ -55,6 +55,26 @@ fn unavailable(_: impl std::fmt::Display) -> ApiError {
 }
 fn bad() -> ApiError {
     ApiError(StatusCode::BAD_REQUEST, "请求参数无效或任务不支持所选选项")
+}
+
+fn query_error(error: anyhow::Error) -> ApiError {
+    if query::is_busy(&error) {
+        ApiError(StatusCode::TOO_MANY_REQUESTS, "查询繁忙，请稍后重试")
+    } else {
+        unavailable(error)
+    }
+}
+
+#[test]
+fn query_busy_is_not_reported_as_backend_failure() {
+    let error = query_error(
+        crate::service::protocol::ServiceError::new("busy", "synthetic-private-detail").into(),
+    );
+    assert_eq!(error.0, StatusCode::TOO_MANY_REQUESTS);
+    assert!(!error.1.contains("synthetic-private-detail"));
+    let error = query_error(anyhow::anyhow!("synthetic-database-detail"));
+    assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!error.1.contains("synthetic-database-detail"));
 }
 
 fn backend_error(error: anyhow::Error) -> ApiError {
@@ -173,25 +193,18 @@ async fn css() -> impl IntoResponse {
 
 async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     let info = state.backend(Call::Info {}).await.map_err(backend_error)?;
-    let mut settings: server_types::Settings =
+    let settings: server_types::Settings =
         serde_json::from_value(info["settings"].clone()).map_err(unavailable)?;
-    if let Some(snapshot) = &state.records.lock().unwrap().enterprise_snapshot {
-        settings.enterprise_snapshot = Some(snapshot.clone());
-    }
     let mut limits = info["limits"].clone();
     if let Some(limits) = limits.as_object_mut() {
         limits.insert("sse_clients".into(), json!(16));
     }
     Ok(Json(
         json!({"api_version":1,"engine":"rust","runtime_id":state.runtime.id,
-        "gui_mode":"browser","task_kinds":tasks::capabilities(&settings),
+        "gui_mode":"browser","task_kinds":tasks::capabilities(),
         "limits":limits,
         "history_persisted":info["history_persisted"],"running":info["running"],
-        "sources":if settings.enterprise_snapshot.is_some() || settings.enterprise_data_dir.is_some() {vec!["wechat","wxwork"]} else {vec!["wechat"]},
-        "enterprise":{"data_configured":settings.enterprise_data_dir.is_some(),
-            "snapshot_configured":settings.enterprise_snapshot.is_some(),
-            "credentials_configured":settings.enterprise_key_file.is_some() || settings.enterprise_keys_file.is_some(),
-            "memory_scan_requires_consent":true},
+        "sources":["wechat"],
         "transcription":{"backend":settings.transcription_backend,
             "available":matches!(settings.transcription_backend.as_str(),"openai"|"whisper_cpp"|"local"),
             "legacy_local":settings.transcription_backend=="local",
@@ -279,7 +292,7 @@ impl Default for Filter {
 }
 impl Filter {
     fn validate(&self) -> std::result::Result<(), ApiError> {
-        if !matches!(self.source.as_str(), "wechat" | "wxwork")
+        if self.source != "wechat"
             || self.limit == 0
             || self.limit > 2000
             || self.offset > 1_000_000
@@ -297,12 +310,6 @@ type FilterInput = std::result::Result<Query<Filter>, axum::extract::rejection::
 async fn contacts(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
     let Query(filter) = filter.map_err(|_| bad())?;
     filter.validate()?;
-    if filter.source == "wxwork" {
-        return query::enterprise(state, "contacts", None, filter.limit, filter.offset, None)
-            .await
-            .map(Json)
-            .map_err(unavailable);
-    }
     query::request(
         &state,
         ipc::Request::Contacts {
@@ -314,17 +321,11 @@ async fn contacts(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiR
     .await
     .map(query::contacts)
     .map(Json)
-    .map_err(unavailable)
+    .map_err(query_error)
 }
 async fn sessions(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
     let Query(filter) = filter.map_err(|_| bad())?;
     filter.validate()?;
-    if filter.source == "wxwork" {
-        return query::enterprise(state, "sessions", None, filter.limit, filter.offset, None)
-            .await
-            .map(Json)
-            .map_err(unavailable);
-    }
     query::request(
         &state,
         ipc::Request::Sessions {
@@ -336,24 +337,11 @@ async fn sessions(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiR
     .await
     .map(query::sessions)
     .map(Json)
-    .map_err(unavailable)
+    .map_err(query_error)
 }
 async fn history(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
     let Query(filter) = filter.map_err(|_| bad())?;
     filter.validate()?;
-    if filter.source == "wxwork" {
-        return query::enterprise(
-            state,
-            "history",
-            filter.chat,
-            filter.limit,
-            filter.offset,
-            filter.since,
-        )
-        .await
-        .map(Json)
-        .map_err(unavailable);
-    }
     if let Some(chat) = filter.chat.filter(|s| !s.is_empty()) {
         return query::request(
             &state,
@@ -372,23 +360,24 @@ async fn history(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiRe
         )
         .await
         .map(Json)
-        .map_err(unavailable);
+        .map_err(query_error);
     }
-    let records = state.records.lock().unwrap();
-    let messages: Vec<_> = records
-        .messages
-        .iter()
-        .rev()
-        .filter(|m| {
-            filter
-                .since
-                .is_none_or(|s| m["timestamp"].as_i64().is_some_and(|t| t > s))
-        })
-        .skip(filter.offset)
-        .take(filter.limit)
-        .cloned()
-        .collect();
-    Ok(Json(json!({"messages":messages,"scope":"launch_monitor"})))
+    let session = state.records.lock().unwrap().monitor_session.clone();
+    let Some(session) = session else {
+        return Ok(Json(json!({"messages":[],"scope":"launch_monitor"})));
+    };
+    query::web(
+        &state,
+        crate::service::web::Call::MonitorHistory {
+            session,
+            limit: filter.limit,
+            offset: filter.offset,
+            since: filter.since,
+        },
+    )
+    .await
+    .map(Json)
+    .map_err(query_error)
 }
 async fn tags(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
     let Query(filter) = filter.map_err(|_| bad())?;
@@ -396,21 +385,13 @@ async fn tags(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResul
     if filter.source != "wechat" {
         return Err(bad());
     }
-    let mut data = query::request(&state, ipc::Request::ContactTags)
-        .await
-        .map_err(unavailable)?;
-    if let Some(name) = filter.name {
-        if let Some(tags) = data["tags"].as_array_mut() {
-            tags.retain(|t| {
-                t["name"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_lowercase()
-                    .contains(&name.to_lowercase())
-            });
-        }
-    }
-    Ok(Json(data))
+    query::web(
+        &state,
+        crate::service::web::Call::Tags { name: filter.name },
+    )
+    .await
+    .map(Json)
+    .map_err(query_error)
 }
 
 async fn tag_members(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
@@ -426,7 +407,7 @@ async fn tag_members(State(state): State<Arc<Shared>>, filter: FilterInput) -> A
     query::request(&state, ipc::Request::TagMembers { tag_name: name })
         .await
         .map(Json)
-        .map_err(unavailable)
+        .map_err(query_error)
 }
 
 async fn images(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
@@ -439,7 +420,7 @@ async fn images(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiRes
     preview::list(&state, chat, filter.limit, filter.offset, filter.since)
         .await
         .map(Json)
-        .map_err(unavailable)
+        .map_err(query_error)
 }
 
 async fn image(
@@ -449,7 +430,7 @@ async fn image(
     let id = preview::identity(&encoded).map_err(|_| bad())?;
     let image = preview::read(state, encoded, id)
         .await
-        .map_err(unavailable)?
+        .map_err(query_error)?
         .ok_or(ApiError(
             StatusCode::NOT_FOUND,
             "图片未在已授权的解码缓存中找到，请先运行批量解密图片",
@@ -528,10 +509,6 @@ async fn poll_tasks(state: Arc<Shared>, initial_cursor: u64) {
                 }
             }
             cursor = Some(page.cursor);
-            // Refresh promoted enterprise snapshot even without task/log changes.
-            let list = state.backend(Call::List {}).await?;
-            let snapshot = serde_json::from_value(list["enterprise_snapshot"].clone())?;
-            state.records.lock().unwrap().enterprise_snapshot = snapshot;
             if empty {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
@@ -659,14 +636,6 @@ pub async fn serve(
     query::ensure_detached(runtime.clone()).await?;
     crate::service::client::wait_ready(&runtime).await?;
     let input = SettingsInput {
-        enterprise_snapshot: args.enterprise_snapshot.clone(),
-        enterprise_data_dir: args.enterprise_data_dir.clone(),
-        enterprise_discovery_root: args.enterprise_discovery_root.clone(),
-        enterprise_input: args.enterprise_input.clone(),
-        enterprise_key_file: args.enterprise_key_file.clone(),
-        enterprise_keys_file: args.enterprise_keys_file.clone(),
-        enterprise_self_id: args.enterprise_self_id,
-        enterprise_pid: args.enterprise_pid.clone(),
         image_cache_dir: args.image_cache_dir.clone(),
     };
     // Configure must reject a conflicting existing binding, never replace it.
@@ -679,7 +648,6 @@ pub async fn serve(
         info["runtime_id"] == runtime.id && info["configured"] == true,
         "Daemon configuration identity mismatch"
     );
-    let settings = serde_json::from_value(info["settings"].clone())?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, args.port))
         .await
         .context("无法绑定本地端口")?;
@@ -689,7 +657,6 @@ pub async fn serve(
     let (shutdown, _) = watch::channel(false);
     let state = Arc::new(Shared {
         runtime,
-        settings,
         token: server_types::random_id()?,
         authority,
         origin,
@@ -697,6 +664,7 @@ pub async fn serve(
         events,
         shutdown,
         queries: Arc::new(Semaphore::new(4)),
+        query_waiters: Arc::new(Semaphore::new(8)),
         streams: Arc::new(Semaphore::new(16)),
         task_requests: Arc::new(Semaphore::new(4)),
     });
@@ -747,12 +715,10 @@ pub async fn serve(
     };
     let _ = state.shutdown.send(true);
     state.event("shutdown", json!({}));
-    let images_drained = automatic_image::drain().await;
     let _ = task_events.await;
     let _ = monitor.await;
     signal.abort();
     let _ = signal.await;
-    ensure!(images_drained, "自动图片操作未在关闭期限内完成");
     result.context("本地 Web 服务已停止")
 }
 
@@ -846,7 +812,7 @@ mod tests {
                             })
                             .collect();
                         Ok(
-                            json!({"tasks":rows,"cursor":u64::from(task.is_some()),"history_persisted":true,"enterprise_snapshot":null}),
+                            json!({"tasks":rows,"cursor":u64::from(task.is_some()),"history_persisted":true}),
                         )
                     }
                     Call::Events { after, .. } => {
@@ -879,7 +845,10 @@ mod tests {
                         if idempotency_key != "a".repeat(64)
                             || request.kind != crate::service::protocol::Kind::WechatDecrypt
                         {
-                            return Err(ServiceError::new("invalid_request", "Invalid service request"));
+                            return Err(ServiceError::new(
+                                "invalid_request",
+                                "Invalid service request",
+                            ));
                         }
                         Ok(task.get_or_insert_with(|| json!({
                             "id":"a".repeat(64), "kind":request.kind, "options":request.options,
@@ -889,8 +858,15 @@ mod tests {
                             "error":null,
                         })).clone())
                     }
-                    Call::Configure { .. } => Err(ServiceError::new("conflict", "Service request conflicts with current state")),
+                    Call::Configure { .. } => Err(ServiceError::new(
+                        "conflict",
+                        "Service request conflicts with current state",
+                    )),
                     Call::Shutdown {} => panic!("Web must never stop the daemon"),
+                    _ => Err(ServiceError::new(
+                        "invalid_request",
+                        "Unsupported fixture request",
+                    )),
                 }
             }
         });
@@ -1369,28 +1345,29 @@ mod tests {
         let (shutdown, mut stop) = watch::channel(false);
         let state = Arc::new(Shared {
             runtime,
-            settings: server_types::Settings {
-                transcription_backend: "whisper_cpp".into(),
-                ..Default::default()
-            },
             token: "synthetic-http-test-token".into(),
             authority: address.to_string(),
             origin: format!("http://{address}"),
             records: Mutex::new(Records {
                 tasks: VecDeque::new(),
-                messages: VecDeque::new(),
-                message_bytes: 0,
+                monitor_session: None,
                 journal_ok: false,
-                enterprise_snapshot: None,
             }),
             events,
             shutdown,
             queries: Arc::new(Semaphore::new(4)),
+            query_waiters: Arc::new(Semaphore::new(8)),
             streams: Arc::new(Semaphore::new(16)),
             task_requests: Arc::new(Semaphore::new(4)),
         });
-        let (backend_stop, mut backend) =
-            mock_service(&state.runtime, state.settings.clone()).await?;
+        let (backend_stop, mut backend) = mock_service(
+            &state.runtime,
+            server_types::Settings {
+                transcription_backend: "whisper_cpp".into(),
+                ..Default::default()
+            },
+        )
+        .await?;
         // Exercise the production Router and authenticated pipe; no monitor or browser.
 
         let server =

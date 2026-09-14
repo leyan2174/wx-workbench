@@ -3,28 +3,23 @@ use std::ffi::OsString;
 
 pub(super) fn prepare_first_run() -> anyhow::Result<bool> {
     use std::io::IsTerminal;
-    let path = crate::config::find_config_file()?;
-    match std::fs::symlink_metadata(&path) {
-        Ok(_) => return Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
+    match crate::service::operation_client::run(
+        crate::service::operations::Operation::FirstRunCheck,
+    ) {
+        Ok(()) => return Ok(true),
+        Err(error)
+            if error
+                .downcast_ref::<crate::service::operation_client::OperationExit>()
+                .is_some_and(|exit| exit.0 == 10) => {}
+        Err(error) => return Err(error),
     }
     anyhow::ensure!(std::io::stdin().is_terminal() && std::io::stderr().is_terminal(),
         "尚未配置账号；请先运行 wx toolkit setup --interactive --apply，或使用显式参数 --apply --yes");
-    let result = super::setup_native::run(super::setup_native::Args {
-        config_path: Some(path),
+    super::setup_native::submit(super::setup_native::Args {
         interactive: true,
         apply: true,
         ..Default::default()
-    })?;
-    match result {
-        super::setup_native::Outcome::Applied { config_path, .. } => {
-            // 此时尚未启动线程；后续 GUI 和工作进程共享本次明确确认的配置。
-            std::env::set_var("WX_CLI_CONFIG", config_path);
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
+    })
 }
 
 pub(super) fn arguments(mut args: Vec<OsString>) -> Vec<OsString> {
@@ -52,9 +47,6 @@ pub(super) fn arguments(mut args: Vec<OsString>) -> Vec<OsString> {
         Some("find_image_key_monitor.py") => &["toolkit", "find-image-key-monitor"],
         Some("decrypt_sns.py") => &["toolkit", "decrypt-sns"],
         Some("export_sns.py") => &["toolkit", "export-sns"],
-        Some("find_wxwork_keys.py") => &["toolkit", "enterprise-batch", "scan"],
-        Some("decrypt_wxwork_db.py") => &["toolkit", "enterprise-batch", "decrypt"],
-        Some("export_wxwork_messages.py") => &["toolkit", "enterprise-batch", "export"],
         Some("voice_to_mp3.py") => &["toolkit", "voice-to-mp3"],
         Some("batch_decrypt_images.py") => &["toolkit", "batch-decrypt-images"],
         Some("monitor.py") => &["toolkit", "monitor"],
