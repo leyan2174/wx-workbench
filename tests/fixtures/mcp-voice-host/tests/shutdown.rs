@@ -1,6 +1,7 @@
 use mcp_voice_host::{
     ipc::{Request, Response},
-    mcp_service::{self, Call, HostSettings},
+    mcp_service,
+    service::mcp::{unpack, Call, HostSettings},
     protocol::{CallContext, DispatchError},
     runtime::RuntimeContext,
 };
@@ -51,10 +52,10 @@ async fn shutdown_cancels_and_drains_before_releasing_account_lock() {
     assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
     mcp_service::shutdown().await.unwrap();
     done.try_recv().unwrap();
-    assert!(mcp_service::unpack(worker.join().unwrap()).is_err());
+    assert!(unpack(worker.join().unwrap()).is_err());
     assert!(std::fs::OpenOptions::new().write(true).open(&path).is_ok());
     assert_eq!(
-        mcp_service::unpack(mcp_service::dispatch(call, &runtime, |_, _, _| {
+        unpack(mcp_service::dispatch(call, &runtime, |_, _, _| {
             panic!("shutdown accepted another call")
         }))
         .unwrap_err(),

@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 #[derive(Parser)]
 struct Cli {
     #[command(flatten)]
-    args: TranscribeDatabaseNativeArgs,
+    args: crate::cli::operation_args::asr_database::TranscribeDatabaseNativeArgs,
 }
 
 fn args(
@@ -49,7 +49,7 @@ fn args(
             engine.join("model.json").to_string_lossy().into_owned(),
         ]);
     }
-    Cli::try_parse_from(values).unwrap().args
+    Cli::try_parse_from(values).unwrap().args.into()
 }
 
 #[test]

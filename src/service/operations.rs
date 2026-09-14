@@ -11,7 +11,7 @@ use std::path::PathBuf;
 pub enum Operation {
     FirstRunCheck,
     MigrateKeys {
-        args: crate::daemon::operations::key_migration::Args,
+        args: crate::service::operation_requests::key_migration::Args,
     },
     Extract {
         attachment_id: String,
@@ -20,25 +20,25 @@ pub enum Operation {
         json: bool,
     },
     TranscribeAudio {
-        args: crate::daemon::operations::asr::TranscribeAudioNativeArgs,
+        args: crate::service::operation_requests::asr::TranscribeAudioNativeArgs,
     },
     TranscribeChat {
-        args: crate::daemon::operations::asr::TranscribeChatNativeArgs,
+        args: crate::service::operation_requests::asr::TranscribeChatNativeArgs,
     },
     TranscribeBatch {
-        args: crate::daemon::operations::asr_batch::Args,
+        args: crate::service::operation_requests::asr_batch::Args,
     },
     TranscribeDatabase {
-        args: crate::daemon::operations::asr_database::TranscribeDatabaseNativeArgs,
+        args: crate::service::operation_requests::asr_database::TranscribeDatabaseNativeArgs,
     },
     ChatPlan {
-        args: crate::daemon::operations::chat_plan::Args,
+        args: crate::service::operation_requests::chat_plan::Args,
     },
     Cleanup {
-        args: crate::daemon::operations::cleanup_native::Args,
+        args: crate::service::operation_requests::cleanup_native::Args,
     },
     DatabaseKeys {
-        args: crate::daemon::operations::database_keys::Args,
+        args: crate::service::operation_requests::database_keys::Args,
     },
     Export {
         chat: String,
@@ -47,64 +47,64 @@ pub enum Operation {
         limit: usize,
         format: String,
         output: Option<String>,
-        opts: crate::daemon::operations::output::OutputOpts,
+        opts: crate::service::output::OutputOpts,
     },
     ExportChat {
         chat: String,
         output: PathBuf,
     },
     ExportChats {
-        args: crate::daemon::operations::export_chats::Args,
+        args: crate::service::operation_requests::export_chats::Args,
     },
     ExportDelta {
-        args: crate::daemon::operations::export_delta::Args,
+        args: crate::service::operation_requests::export_delta::Args,
     },
     ExportMessages {
-        args: crate::daemon::operations::export_messages::Args,
+        args: crate::service::operation_requests::export_messages::Args,
     },
     ImageKeys {
-        args: crate::daemon::operations::image_keys::Args,
+        args: crate::service::operation_requests::image_keys::Args,
     },
     ImageKeyMonitor {
-        args: crate::daemon::operations::image_keys::MonitorArgs,
+        args: crate::service::operation_requests::image_keys::MonitorArgs,
     },
     Initialize {
         force: bool,
         db_dir_override: Option<String>,
         #[serde(with = "key_provider")]
-        provider: crate::scanner::KeyProvider,
+        provider: crate::service::operation_requests::key_provider::KeyProvider,
         restart: bool,
         executable: Option<std::path::PathBuf>,
         timeout: u64,
     },
     Monitor {
-        args: crate::daemon::operations::monitor_native::Args,
+        args: crate::service::operation_requests::monitor_native::Args,
     },
     Latency {
-        args: crate::daemon::operations::monitor_native::LatencyArgs,
+        args: crate::service::operation_requests::monitor_native::LatencyArgs,
     },
     NewMessages {
         limit: usize,
-        opts: crate::daemon::operations::output::OutputOpts,
+        opts: crate::service::output::OutputOpts,
     },
     Setup {
-        args: crate::daemon::operations::setup_native::Args,
+        args: crate::service::operation_requests::setup_native::Args,
     },
     SetupPreview {
-        args: crate::daemon::operations::setup_native::Args,
+        args: crate::service::operation_requests::setup_native::Args,
     },
     SetupApply {
-        args: crate::daemon::operations::setup_native::Args,
+        args: crate::service::operation_requests::setup_native::Args,
         review: SetupReview,
     },
     SnsAlbum {
-        args: crate::daemon::operations::sns_album::Args,
+        args: crate::service::operation_requests::sns_album::Args,
     },
     SnsArchive {
-        args: crate::daemon::operations::sns_archive::Args,
+        args: crate::service::operation_requests::sns_archive::Args,
     },
     SnsTimeline {
-        args: crate::daemon::operations::sns_timeline::Args,
+        args: crate::service::operation_requests::sns_timeline::Args,
     },
     Voices {
         chat: Option<String>,
@@ -120,12 +120,12 @@ pub enum Operation {
         operation: ToolkitOperation,
     },
     ExportAll {
-        args: crate::daemon::operations::export_all::Args,
+        args: crate::service::operation_requests::export_all::Args,
         prepare: bool,
         announce: bool,
     },
     PreparedEmoticons {
-        args: crate::daemon::operations::export_emoticons::Args,
+        args: crate::service::operation_requests::export_emoticons::Args,
     },
     PreparedDecrypt {
         incremental: bool,
@@ -166,7 +166,7 @@ impl Operation {
 
     /// Pure protocol/authorization validation before account discovery or daemon startup.
     pub fn validate_request(&self) -> anyhow::Result<()> {
-        crate::daemon::operations::validation::validate(self)
+        crate::service::operation_requests::validation::validate(self)
     }
 }
 
@@ -193,9 +193,9 @@ pub enum ToolkitOperation {
         download_media: bool,
         update: bool,
         adopt_existing: bool,
-        local_cache: crate::daemon::operations::export_sns::LocalCacheArgs,
+        local_cache: crate::service::operation_requests::export_sns::LocalCacheArgs,
     },
-    ExportEmoticons(crate::daemon::operations::export_emoticons::Args),
+    ExportEmoticons(crate::service::operation_requests::export_emoticons::Args),
     Status {
         json: bool,
     },
@@ -231,21 +231,24 @@ pub enum ToolkitOperation {
 pub mod key_provider {
     use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
-    #[serde(remote = "crate::scanner::KeyProvider", rename_all = "snake_case")]
+    #[serde(
+        remote = "crate::service::operation_requests::key_provider::KeyProvider",
+        rename_all = "snake_case"
+    )]
     pub enum Wire {
         Auto,
         Memory,
         Account,
     }
     pub fn serialize<S: serde::Serializer>(
-        value: &crate::scanner::KeyProvider,
+        value: &crate::service::operation_requests::key_provider::KeyProvider,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         Wire::serialize(value, serializer)
     }
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<crate::scanner::KeyProvider, D::Error> {
+    ) -> Result<crate::service::operation_requests::key_provider::KeyProvider, D::Error> {
         Wire::deserialize(deserializer)
     }
 }
@@ -253,7 +256,7 @@ pub mod plan_mode {
     use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
     #[serde(
-        remote = "crate::toolkit::chat_plan_selection::Mode",
+        remote = "crate::service::operation_requests::plan::Mode",
         rename_all = "snake_case"
     )]
     pub enum Wire {
@@ -261,30 +264,32 @@ pub mod plan_mode {
         Whitelist,
     }
     pub fn serialize<S: serde::Serializer>(
-        value: &crate::toolkit::chat_plan_selection::Mode,
+        value: &crate::service::operation_requests::plan::Mode,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         Wire::serialize(value, serializer)
     }
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<crate::toolkit::chat_plan_selection::Mode, D::Error> {
+    ) -> Result<crate::service::operation_requests::plan::Mode, D::Error> {
         Wire::deserialize(deserializer)
     }
 }
 pub mod optional_plan_mode {
     use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
-    struct Wrapped(#[serde(with = "super::plan_mode")] crate::toolkit::chat_plan_selection::Mode);
+    struct Wrapped(
+        #[serde(with = "super::plan_mode")] crate::service::operation_requests::plan::Mode,
+    );
     pub fn serialize<S: serde::Serializer>(
-        value: &Option<crate::toolkit::chat_plan_selection::Mode>,
+        value: &Option<crate::service::operation_requests::plan::Mode>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.map(Wrapped).serialize(serializer)
     }
     pub fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<Option<crate::toolkit::chat_plan_selection::Mode>, D::Error> {
+    ) -> Result<Option<crate::service::operation_requests::plan::Mode>, D::Error> {
         Ok(Option::<Wrapped>::deserialize(deserializer)?.map(|v| v.0))
     }
 }
@@ -328,7 +333,7 @@ mod tests {
         let operation = Operation::Initialize {
             force: true,
             db_dir_override: Some("C:/fixture/db_storage".into()),
-            provider: crate::scanner::KeyProvider::Account,
+            provider: crate::service::operation_requests::key_provider::KeyProvider::Account,
             restart: true,
             executable: Some("C:/fixture/Weixin.exe".into()),
             timeout: 300,
@@ -338,7 +343,7 @@ mod tests {
         assert!(matches!(
             serde_json::from_value::<Operation>(serialized).unwrap(),
             Operation::Initialize {
-                provider: crate::scanner::KeyProvider::Account,
+                provider: crate::service::operation_requests::key_provider::KeyProvider::Account,
                 timeout: 300,
                 ..
             }
@@ -347,7 +352,7 @@ mod tests {
 
     #[test]
     fn authorization_and_semantic_checks_do_not_need_an_account() {
-        use crate::daemon::operations::{asr, database_keys, export_delta};
+        use crate::service::operation_requests::{asr, database_keys, export_delta};
         let no_scan = Operation::DatabaseKeys {
             args: database_keys::Args {
                 authorize_memory_scan: false,
@@ -389,65 +394,5 @@ mod tests {
         }
         .validate_request()
         .is_ok());
-    }
-
-    #[test]
-    fn deserialized_requests_cannot_bypass_clap_limits_or_conflicts() {
-        fn args<T: clap::Args + clap::FromArgMatches>(argv: &[&str]) -> T {
-            let matches = T::augment_args(clap::Command::new("fixture"))
-                .try_get_matches_from(argv)
-                .unwrap();
-            T::from_arg_matches(&matches).unwrap()
-        }
-        fn rejects(operation: &Operation, pointer: &str, value: serde_json::Value) {
-            let mut wire = serde_json::to_value(operation).unwrap();
-            *wire.pointer_mut(pointer).unwrap() = value;
-            let decoded: Operation = serde_json::from_value(wire).unwrap();
-            assert!(
-                decoded.validate_request().is_err(),
-                "accepted invalid {pointer}"
-            );
-        }
-        let image = Operation::ImageKeys {
-            args: args(&["fixture", "--offline"]),
-        };
-        assert!(image.validate_request().is_ok());
-        for (pointer, value) in [
-            ("/args/args/timeout", serde_json::json!(0)),
-            ("/args/args/timeout", serde_json::json!(3601)),
-            ("/args/args/max_mib", serde_json::json!(0)),
-            ("/args/args/max_mib", serde_json::json!(32769)),
-            ("/args/args/authorize_memory_scan", serde_json::json!(true)),
-            ("/args/args/offline", serde_json::json!(false)),
-        ] {
-            rejects(&image, pointer, value);
-        }
-        let plan = Operation::ChatPlan {
-            args: args(&[
-                "fixture",
-                "--decrypted-dir",
-                "must-not-read",
-                "--user",
-                "fixture",
-                "--output",
-                "must-not-create.csv",
-            ]),
-        };
-        assert!(plan.validate_request().is_ok());
-        rejects(&plan, "/args/args/threads", serde_json::json!(0));
-        rejects(&plan, "/args/args/threads", serde_json::json!(7));
-        rejects(&plan, "/args/args/users", serde_json::json!([]));
-        let setup = Operation::Setup {
-            args: args(&["fixture"]),
-        };
-        assert!(setup.validate_request().is_ok());
-        rejects(&setup, "/args/args/yes", serde_json::json!(true));
-        rejects(&setup, "/args/args/apply", serde_json::json!(true));
-        rejects(&setup, "/args/args/interactive", serde_json::json!(true));
-        rejects(
-            &setup,
-            "/args/args/openai_key_env",
-            serde_json::json!("INVALID=NAME"),
-        );
     }
 }

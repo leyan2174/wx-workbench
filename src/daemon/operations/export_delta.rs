@@ -3,28 +3,9 @@ use crate::toolkit::chat_delta::{ContactMetadata, DeltaChat, DeltaRunWriter, Del
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashSet;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
-#[derive(clap::Args, serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct Args {
-    /// 输出根目录；默认须全新，--append-run 可复用已有普通目录
-    pub output: PathBuf,
-    /// 精确 username，逗号分隔；默认 WECHAT_EXPORT_USERS 或全部会话
-    #[arg(long)]
-    pub users: Option<String>,
-    /// 含端点的起始时间：本地日期、日期时间或 Unix 秒
-    #[arg(long, allow_hyphen_values = true)]
-    pub start: String,
-    /// 含端点的结束时间；仅日期表示当天零点
-    #[arg(long, allow_hyphen_values = true)]
-    pub end: Option<String>,
-    /// 批次目录名；默认本机时间及纳秒，不接受路径或设备名
-    #[arg(long)]
-    pub run_id: Option<String>,
-    /// 在已有输出根目录中创建全新批次，不覆盖任何已有 run
-    #[arg(long)]
-    pub append_run: bool,
-}
+pub use crate::service::operation_requests::export_delta::Args;
 
 pub fn cmd(args: Args) -> Result<()> {
     let start = super::export_chats::parse_timestamp(&args.start)?;

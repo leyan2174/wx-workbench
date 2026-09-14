@@ -16,24 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Debug, Default, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    /// 按数据库 user_name 精确筛选，多个联系人以逗号分隔
-    #[arg(long)]
-    pub contacts: Option<String>,
-    /// 输出根目录；默认配置旁 wechat_files/<选中账号>
-    #[arg(short = 'o', long)]
-    pub output_dir: Option<PathBuf>,
-    /// 明确认领未绑定来源的旧时间线，不能覆盖已有来源冲突
-    #[arg(long)]
-    pub adopt_existing: bool,
-    /// 授权下载缺失媒体
-    #[arg(long, conflicts_with = "no_remote")]
-    pub download_media: bool,
-    /// 禁止网络下载，优先于 WECHAT_SNS_DOWNLOAD_MEDIA
-    #[arg(long, conflicts_with = "download_media")]
-    pub no_remote: bool,
-}
+pub use crate::service::operation_requests::sns_timeline::Args;
 
 fn options(
     args: &Args,
@@ -301,7 +284,7 @@ mod tests {
     #[derive(Parser)]
     struct Cli {
         #[command(flatten)]
-        args: Args,
+        args: crate::cli::operation_args::sns_timeline::Args,
     }
 
     fn runtime(root: &Path) -> RuntimeContext {
@@ -335,7 +318,7 @@ mod tests {
     #[test]
     fn clap_contract_and_remote_precedence() {
         assert!(Cli::try_parse_from(["sns", "--download-media", "--no-remote"]).is_err());
-        let args = Cli::try_parse_from([
+        let args: Args = Cli::try_parse_from([
             "sns",
             "--contacts",
             "a,b",
@@ -344,7 +327,8 @@ mod tests {
             "--adopt-existing",
         ])
         .unwrap()
-        .args;
+        .args
+        .into();
         assert_eq!(args.contacts.as_deref(), Some("a,b"));
         assert!(args.adopt_existing);
         for env in [

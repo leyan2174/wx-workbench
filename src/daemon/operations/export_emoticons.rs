@@ -1,6 +1,6 @@
 //! 表情导出编排；预览不下载、不创建输出目录，下载不暴露 URL 或密钥。
 use anyhow::{ensure, Context, Result};
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use crate::{
     attachment::local_files::HostOutputGuard,
@@ -13,17 +13,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    /// 输出目录；默认配置文件旁的 exported_emoticons
-    pub output_dir: Option<PathBuf>,
-    /// 只列出表情，不下载，不创建输出目录
-    #[arg(long)]
-    pub dry_run: bool,
-    /// 按描述或表情包 product_id 过滤，忽略大小写
-    #[arg(long)]
-    pub filter: Option<String>,
-}
+pub use crate::service::operation_requests::export_emoticons::Args;
 
 pub(super) fn export(
     runtime: RuntimeContext,

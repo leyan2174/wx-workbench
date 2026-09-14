@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 use crate::daemon::query::encrypted_cache;
 use serde_json::json;

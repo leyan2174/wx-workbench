@@ -18,6 +18,8 @@ pub mod windows_process;
 #[path = "../../../src/service/config_pin.rs"]
 pub mod config_pin;
 pub mod service {
+    pub use crate::asr_contracts as operation_requests;
+    pub use crate::mcp_contract as mcp;
     pub use crate::config_pin;
 }
 pub mod toolkit {
@@ -63,6 +65,7 @@ pub mod daemon {
     }
 }
 pub mod cli {
+    pub use crate::operation_args;
     pub use crate::cli_asr as asr;
 }
 pub use cli_asr as asr;
@@ -71,3 +74,10 @@ pub use mcp_service::voice as mcp_voice;
 pub fn fixture_runtime(config: &std::path::Path, home: &std::path::Path) -> anyhow::Result<runtime::RuntimeContext> {
     runtime::RuntimeContext::from_config(config.to_owned(), config::load_config_at(config)?, home.to_owned())
 }
+
+#[path = "../../support/asr_contracts.rs"]
+pub mod asr_contracts;
+#[path = "../../../src/service/mcp.rs"]
+pub mod mcp_contract;
+#[path = "../../support/mcp_argument_parsers.rs"]
+pub mod operation_args;

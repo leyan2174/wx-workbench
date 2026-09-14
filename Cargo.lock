@@ -2621,6 +2621,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "silk-codec",
+ "syn 2.0.117",
  "tempfile",
  "tokio",
  "tokio-stream",

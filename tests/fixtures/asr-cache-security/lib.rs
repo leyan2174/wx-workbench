@@ -2,7 +2,11 @@
 #[path = "../../support/asr_runtime.rs"]
 #[allow(dead_code)] // 测试壳只调用部分运行时入口。
 mod asr_runtime;
-pub use asr_runtime::{config, crypto, daemon, runtime};
+pub use asr_runtime::{config, crypto, runtime};
+pub mod daemon {
+    pub use super::asr_runtime::daemon::cache;
+    pub mod operations { pub use crate::cli_asr as asr; }
+}
 #[path = "../../../src/toolkit/asr/mod.rs"]
 pub mod asr;
 #[path = "../../../src/toolkit/audio/mod.rs"]
@@ -31,3 +35,9 @@ mod adapter_tests;
 mod cli_path_tests;
 #[cfg(test)]
 mod security_tests;
+
+#[path = "../../support/asr_contracts.rs"]
+pub mod asr_contracts;
+pub mod service {
+    pub use super::asr_contracts as operation_requests;
+}

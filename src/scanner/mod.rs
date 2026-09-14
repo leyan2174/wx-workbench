@@ -8,12 +8,7 @@ pub(crate) use windows::account::{
     load_legacy as load_legacy_account, verify_material as verify_account_material,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum KeyProvider {
-    Auto,
-    Memory,
-    Account,
-}
+pub use crate::service::operation_requests::key_provider::KeyProvider;
 
 pub fn scan_with_provider(
     db_dir: &Path,

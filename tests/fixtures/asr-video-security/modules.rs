@@ -34,6 +34,9 @@ pub mod video;
 pub mod windows_process;
 
 pub mod daemon {
+    pub mod operations {
+        pub use super::super::cli::{asr, asr_database};
+    }
     pub use super::production_cache as cache;
 }
 
@@ -45,4 +48,10 @@ pub mod toolkit {
 
 pub mod attachment {
     pub use super::local_files;
+}
+
+#[path = "../../support/asr_contracts.rs"]
+pub mod asr_contracts;
+pub mod service {
+    pub use super::asr_contracts as operation_requests;
 }

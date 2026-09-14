@@ -1,5 +1,5 @@
 use mcp_voice_host::{
-    asr::{BackendArgs, BackendKind},
+    service::operation_requests::asr::{BackendArgs, BackendKind},
     config::Config,
     ipc::Response,
     mcp_voice::{Args, Operation},

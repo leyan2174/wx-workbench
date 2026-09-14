@@ -14,26 +14,7 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
-#[derive(Debug, Clone, clap::Args, serde::Serialize, serde::Deserialize)]
-pub struct Args {
-    #[command(flatten)]
-    pub sample: super::image_key_sample::SampleArgs,
-    /// 明确授权读取当前微信进程内存
-    #[arg(long, required_unless_present = "offline", conflicts_with = "offline")]
-    pub authorize_memory_scan: bool,
-    /// 仅从当前账号目录及图片缓存推导密钥，不读取进程内存
-    #[arg(long)]
-    pub offline: bool,
-    /// 仅提取和验证，不保存密钥
-    #[arg(long)]
-    pub no_save: bool,
-    /// 离线推导或全部候选进程共用的时间预算（秒）
-    #[arg(long, default_value_t = 120, value_parser = clap::value_parser!(u64).range(1..=3600))]
-    pub timeout: u64,
-    /// 图片缓存与候选进程共用的读取预算（MiB）
-    #[arg(long, default_value_t = 4096, value_parser = clap::value_parser!(u64).range(1..=32768))]
-    pub max_mib: u64,
-}
+pub use crate::service::operation_requests::image_keys::Args;
 
 pub fn cmd(args: Args) -> Result<()> {
     ensure!(
@@ -223,47 +204,7 @@ fn extract_cancellable(
     result
 }
 
-#[derive(Debug, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct MonitorArgs {
-    #[command(flatten)]
-    sample: super::image_key_sample::SampleArgs,
-    /// 明确授权在监控期间重复读取当前微信进程内存
-    #[arg(long, required = true)]
-    authorize_memory_scan: bool,
-    /// 找到后仅验证，不保存密钥
-    #[arg(long)]
-    no_save: bool,
-    /// 单轮扫描上限（秒）；取消时等待当前有界扫描回收资源
-    #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=30))]
-    scan_seconds: u64,
-    /// 两轮扫描之间的等待时间（毫秒）
-    #[arg(long, default_value_t = 5000, value_parser = clap::value_parser!(u64).range(100..=60000))]
-    interval_ms: u64,
-    /// 整个监控的时间上限（秒）
-    #[arg(long, default_value_t = 600, value_parser = clap::value_parser!(u64).range(1..=86400))]
-    timeout: u64,
-    /// 每轮最多读取的内存（MiB）
-    #[arg(long, default_value_t = 4096, value_parser = clap::value_parser!(u64).range(1..=32768))]
-    max_mib: u64,
-}
-
-impl MonitorArgs {
-    pub(crate) fn saves_keys(&self) -> bool {
-        !self.no_save
-    }
-
-    pub(crate) fn validate_request(&self) -> Result<()> {
-        ensure!(self.authorize_memory_scan, "图片密钥监控需要明确授权");
-        ensure!(
-            (1..=30).contains(&self.scan_seconds)
-                && (100..=60000).contains(&self.interval_ms)
-                && (1..=86400).contains(&self.timeout)
-                && (1..=32768).contains(&self.max_mib),
-            "扫描预算超出允许范围"
-        );
-        self.sample.validate_request()
-    }
-}
+pub use crate::service::operation_requests::image_keys::MonitorArgs;
 
 pub fn cmd_monitor(args: MonitorArgs) -> Result<()> {
     args.validate_request()?;
@@ -388,7 +329,7 @@ mod tests {
     #[derive(Parser)]
     struct Invocation {
         #[command(flatten)]
-        args: Args,
+        args: crate::cli::operation_args::image_keys::Args,
     }
 
     #[test]

@@ -1,9 +1,10 @@
-//! MCP stdio framing, fixed-account binding and daemon transport; no task execution.
-use super::{mcp_tasks, mcp_voice, transport};
+// MCP stdio framing, fixed-account binding and daemon transport; no task execution.
+use super::operation_args::mcp_voice;
+use super::{mcp_tasks, transport};
 use crate::mcp::protocol;
 use crate::{
-    daemon::mcp_service::{self, Call, HostSettings},
     ipc::Request,
+    service::mcp::{Call, HostSettings},
 };
 use anyhow::{anyhow, Result};
 use protocol::{CallContext, Controlled, DispatchError, Dispatcher, Protocol};
@@ -55,7 +56,7 @@ impl McpArgs {
             media_output_root: self.media_output_root.clone(),
             image_key_file: self.image_key_file.clone(),
             configured_local_python: self.configured_local_python,
-            voice: self.voice.clone(),
+            voice: self.voice.clone().into(),
         }
     }
 }
@@ -142,7 +143,7 @@ pub fn cmd(mut args: McpArgs) -> Result<()> {
                 opened = true;
                 let response =
                     serde_json::from_value(value).map_err(|_| DispatchError::InvalidResponse)?;
-                mcp_service::unpack(response)
+                crate::service::mcp::unpack(response)
             }
             Err(_) => {
                 invalidated.set(true);

@@ -14,24 +14,9 @@ use std::{
     time::Duration,
 };
 
-#[derive(clap::Args, Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    pub input: PathBuf,
-    pub output: Option<PathBuf>,
-    #[command(flatten)]
-    pub batch: BatchArgs,
-}
+pub use crate::service::operation_requests::asr_batch::Args;
 
-#[derive(clap::Args, Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct BatchArgs {
-    /// 使用显式原生后端参数，否则翻译固定账号 config.json。
-    #[arg(long)]
-    pub explicit_backend: bool,
-    #[command(flatten)]
-    pub backend: BackendArgs,
-    #[arg(long, default_value = "batch-transcriptions.json")]
-    pub asr_cache_name: String,
-}
+pub use crate::service::operation_requests::asr_batch::BatchArgs;
 
 pub fn cmd(args: Args) -> Result<()> {
     let runtime = RuntimeContext::load()?;
@@ -123,7 +108,9 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
         "transcription configuration must be an object"
     );
     let backend = match overrides.backend {
-        super::asr::BackendKind::Local => BackendId::configured(&config)?,
+        crate::service::operation_requests::asr::BackendKind::Local => {
+            BackendId::configured(&config)?
+        }
         selected => selected.identity(Entry::ConfiguredBatch),
     };
     overrides.validate_for(backend)?;
@@ -219,7 +206,7 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
         BackendId::OpenAiCompatible => {
             if overrides.api_key_file.is_some() {
                 return BackendArgs {
-                    backend: super::asr::BackendKind::ExplicitOpenAi,
+                    backend: crate::service::operation_requests::asr::BackendKind::ExplicitOpenAi,
                     openai_base_url: Some(
                         overrides
                             .openai_base_url
@@ -504,8 +491,8 @@ mod credential_tests {
         )
         .unwrap();
         for kind in [
-            super::super::asr::BackendKind::Local,
-            super::super::asr::BackendKind::WhisperCpp,
+            crate::service::operation_requests::asr::BackendKind::Local,
+            crate::service::operation_requests::asr::BackendKind::WhisperCpp,
         ] {
             let selected = configured_backend(
                 &runtime,

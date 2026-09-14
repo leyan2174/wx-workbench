@@ -1,4 +1,6 @@
+mod adapters;
 mod attachment;
+mod business;
 mod cli;
 mod config;
 mod crypto;

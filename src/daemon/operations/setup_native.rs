@@ -1,4 +1,5 @@
 //! 原生配置向导；默认 dry-run，非 TTY 不读取 stdin，不接触扫描器或模型。
+use crate::service::operation_requests::setup_native::argument_fingerprint;
 use crate::service::operations::SetupReview;
 use crate::toolkit::setup::{self, ConfigDocument};
 use anyhow::{ensure, Context, Result};
@@ -9,13 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
-pub enum Backend {
-    Local,
-    #[value(name = "whisper_cpp", alias = "whisper-cpp")]
-    WhisperCpp,
-    Openai,
-}
+pub use crate::service::operation_requests::setup_native::Backend;
 
 impl Backend {
     fn name(self) -> &'static str {
@@ -54,37 +49,7 @@ impl std::fmt::Display for WizardCancelled {
 }
 impl std::error::Error for WizardCancelled {}
 
-#[derive(Default, Debug, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    #[arg(long, conflicts_with_all = ["apply", "dry_run", "interactive", "db_dir", "backend", "whisper_binary", "whisper_model", "local_model", "openai_key_env"])]
-    pub check: bool,
-    /// 显式配置文件；缺省复用 WX_CLI_CONFIG 和现有配置定位逻辑
-    #[arg(long)]
-    pub config_path: Option<PathBuf>,
-    /// 明确选择 db_storage 或含 db_storage 的账号目录
-    #[arg(long)]
-    pub db_dir: Option<PathBuf>,
-    #[arg(long, value_enum)]
-    pub backend: Option<Backend>,
-    #[arg(long)]
-    pub whisper_binary: Option<PathBuf>,
-    #[arg(long)]
-    pub whisper_model: Option<PathBuf>,
-    #[arg(long)]
-    pub local_model: Option<String>,
-    /// 仅保存凭据环境变量名；能力检查只报告是否已设置，不保存或回显其值
-    #[arg(long, alias = "openai-api-key-env")]
-    pub openai_key_env: Option<String>,
-    #[arg(long)]
-    pub interactive: bool,
-    #[arg(long, conflicts_with = "apply")]
-    pub dry_run: bool,
-    #[arg(long)]
-    pub apply: bool,
-    /// 明确确认写入；非交互 apply 必须同时提供
-    #[arg(long, requires = "apply")]
-    pub yes: bool,
-}
+pub use crate::service::operation_requests::setup_native::Args;
 
 fn ask(label: &str, default: &str) -> Result<String> {
     ensure!(
@@ -329,17 +294,6 @@ fn config_path(args: &Args) -> Result<PathBuf> {
         None => crate::config::find_config_file()?,
     })
     .map_err(Into::into)
-}
-
-pub(crate) fn argument_fingerprint(args: &Args, path: &Path) -> Result<String> {
-    let mut normalized = args.clone();
-    normalized.config_path = Some(path.to_owned());
-    normalized.apply = false;
-    normalized.yes = false;
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&normalized)?)
-    ))
 }
 
 fn review_for(args: &Args, document: &ConfigDocument) -> Result<SetupReview> {

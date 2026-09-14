@@ -1,7 +1,7 @@
 use super::output::{emit_warnings, print_response, OutputOpts};
 use super::transport;
-pub use crate::daemon::operations::history::{parse_time, parse_time_end};
 use crate::ipc::Request;
+pub use crate::service::time::{parse_time, parse_time_end};
 use anyhow::Result;
 
 #[derive(clap::Args)]

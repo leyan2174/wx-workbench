@@ -5,12 +5,7 @@ use std::{collections::HashSet, fs::File, io::Read, path::Path};
 const MAX_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ROWS: usize = 100_000;
 
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-pub enum Mode {
-    #[default]
-    Blacklist,
-    Whitelist,
-}
+pub use crate::service::operation_requests::plan::Mode;
 
 pub struct Plan {
     selected: Vec<String>,

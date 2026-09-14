@@ -1,5 +1,5 @@
-//! Argument adaptation and authenticated daemon operation forwarding only.
-pub use crate::daemon::operations::setup_native::{Args, Backend};
+pub use super::operation_args::setup_native::*;
+// Argument adaptation and authenticated daemon operation forwarding only.
 use crate::service::operations::Operation;
 use anyhow::Result;
 
@@ -67,7 +67,7 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
         let mut preview = args.clone();
         preview.apply = false;
         let output = crate::service::operation_client::run_capture(Operation::SetupPreview {
-            args: preview,
+            args: preview.into(),
         })?;
         let mut report: serde_json::Value = serde_json::from_slice(&output)?;
         let review: crate::service::operations::SetupReview =
@@ -77,10 +77,13 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
         }
         args.yes = true;
         args.config_path = Some(review.config_path.clone());
-        crate::service::operation_client::run(Operation::SetupApply { args, review })?;
+        crate::service::operation_client::run(Operation::SetupApply {
+            args: args.into(),
+            review,
+        })?;
         return Ok(true);
     }
     let applied = args.apply;
-    crate::service::operation_client::run(Operation::Setup { args })?;
+    crate::service::operation_client::run(Operation::Setup { args: args.into() })?;
     Ok(applied)
 }

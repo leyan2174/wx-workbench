@@ -12,14 +12,17 @@ mod parse;
 pub(crate) mod publish;
 pub mod video_runtime;
 
-use decode::{decode_content, sanitize_xml, Content};
+#[cfg(test)]
+use decode::{decode_content, Content};
 pub(crate) use export::{
     export_database_with_media, export_database_with_publication, DownloadOptions,
     TimelinePublication,
 };
 pub use export::{CacheRecovery, ExportOptions};
+#[cfg(test)]
+use parse::parse_timeline;
 pub use parse::TimeZone;
-use parse::{parse_timeline, timestamp_filename, Comment, Post};
+use parse::{timestamp_filename, Comment, Post};
 
 pub(crate) mod archive;
 #[cfg(test)]

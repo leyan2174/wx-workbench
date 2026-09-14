@@ -21,9 +21,9 @@ fn batch(args: &BatchArgs) -> Result<()> {
 
 fn range(start: Option<&str>, end: Option<&str>) -> Result<()> {
     let start = start
-        .map(super::export_chats::parse_timestamp)
+        .map(crate::service::time::parse_timestamp)
         .transpose()?;
-    let end = end.map(super::export_chats::parse_timestamp).transpose()?;
+    let end = end.map(crate::service::time::parse_timestamp).transpose()?;
     ensure!(
         !matches!((start, end), (Some(start), Some(end)) if start > end),
         "起始时间不能晚于结束时间"
@@ -32,8 +32,8 @@ fn range(start: Option<&str>, end: Option<&str>) -> Result<()> {
 }
 
 fn dates(start: Option<&str>, end: Option<&str>) -> Result<()> {
-    let start = start.map(super::history::parse_time).transpose()?;
-    let end = end.map(super::history::parse_time_end).transpose()?;
+    let start = start.map(crate::service::time::parse_time).transpose()?;
+    let end = end.map(crate::service::time::parse_time_end).transpose()?;
     ensure!(
         !matches!((start, end), (Some(start), Some(end)) if start > end),
         "起始时间不能晚于结束时间"
@@ -54,11 +54,11 @@ fn output(path: &Path) -> Result<()> {
 fn delta(args: &super::export_delta::Args) -> Result<()> {
     range(Some(&args.start), args.end.as_deref())?;
     let window = crate::toolkit::chat_delta::DeltaWindow {
-        start: Some(super::export_chats::parse_timestamp(&args.start)?),
+        start: Some(crate::service::time::parse_timestamp(&args.start)?),
         end: args
             .end
             .as_deref()
-            .map(super::export_chats::parse_timestamp)
+            .map(crate::service::time::parse_timestamp)
             .transpose()?,
         run_id: args.run_id.clone().unwrap_or_else(|| "request".into()),
         utc_offset_seconds: 0,
@@ -265,7 +265,7 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
             timeout,
             ..
         } => {
-            use crate::scanner::KeyProvider;
+            use super::key_provider::KeyProvider;
             ensure!(
                 !restart || *provider == KeyProvider::Account,
                 "--restart-wechat 仅用于 --key-provider account"

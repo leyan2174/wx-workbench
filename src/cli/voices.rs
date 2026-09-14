@@ -1,5 +1,5 @@
-//! 只适配参数并转发后台操作，不在 CLI 中读取语音数据。
-pub use crate::daemon::operations::voices::Args;
+pub use super::operation_args::voices::*;
+// 只适配参数并转发后台操作，不在 CLI 中读取语音数据。
 use crate::service::operations::Operation;
 use anyhow::Result;
 

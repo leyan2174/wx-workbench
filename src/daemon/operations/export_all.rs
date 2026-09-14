@@ -3,14 +3,9 @@ use crate::{
     ipc::Request,
     message::export::Target,
     runtime::RuntimeContext,
-    toolkit::{
-        chat_delta::DeltaWindow,
-        chat_plan::PlanChat,
-        chat_plan_selection::{Mode, Plan},
-    },
+    toolkit::{chat_delta::DeltaWindow, chat_plan::PlanChat, chat_plan_selection::Plan},
 };
 use anyhow::{ensure, Context, Result};
-use clap::Parser;
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
@@ -18,69 +13,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Parser, serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct Args {
-    /// 输出目录；默认选中配置旁 exported_chats
-    pub output_dir: Option<PathBuf>,
-    /// 导出时按数据库身份关联并转录语音
-    #[arg(short = 't', long)]
-    pub with_transcriptions: bool,
-    /// 生成计划 CSV，不导出聊天
-    #[arg(long, conflicts_with = "from_plan_csv")]
-    pub write_plan_csv: Option<PathBuf>,
-    /// 读取计划 CSV，按 username 选择聊天
-    #[arg(long)]
-    pub from_plan_csv: Option<PathBuf>,
-    #[arg(long, value_enum, default_value = "blacklist")]
-    #[serde(with = "crate::service::operations::plan_mode")]
-    pub plan_mode: Mode,
-    #[arg(long, value_enum, default_value = "estimate")]
-    pub size_mode: super::chat_plan::Mode,
-    /// 保留旧消息并追加本轮新消息
-    #[arg(short = 'i', long)]
-    pub incremental: bool,
-    /// 只写新的 delta 批次，不读取或改写完整聊天文件
-    #[arg(long, requires = "start")]
-    pub delta_only: bool,
-    #[arg(long, allow_hyphen_values = true)]
-    pub start: Option<String>,
-    #[arg(long, allow_hyphen_values = true)]
-    pub end: Option<String>,
-    #[arg(long)]
-    pub dry_run: bool,
-    #[arg(long)]
-    pub users: Option<String>,
-    #[command(flatten)]
-    pub asr: super::asr_batch::BatchArgs,
-}
-
-impl Args {
-    pub(super) fn validate(&self) -> Result<()> {
-        ensure!(
-            self.write_plan_csv.is_none() || self.from_plan_csv.is_none(),
-            "--write-plan-csv 与 --from-plan-csv 不能同时使用"
-        );
-        ensure!(
-            !self.delta_only || self.start.is_some(),
-            "--delta-only 需要 --start"
-        );
-        let start = self
-            .start
-            .as_deref()
-            .map(super::export_chats::parse_timestamp)
-            .transpose()?;
-        let end = self
-            .end
-            .as_deref()
-            .map(super::export_chats::parse_timestamp)
-            .transpose()?;
-        ensure!(
-            !matches!((start, end), (Some(a), Some(b)) if a > b),
-            "起始时间不能晚于结束时间"
-        );
-        Ok(())
-    }
-}
+pub use crate::service::operation_requests::export_all::Args;
 
 pub(super) fn emit(report: Value) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);

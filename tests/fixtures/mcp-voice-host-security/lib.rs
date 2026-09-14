@@ -52,6 +52,7 @@ pub mod asr {
 }
 // 共享 ASR 测试通过 CLI 路径调用本壳已引入的同一操作模块。
 pub mod cli {
+    pub use crate::operation_args;
     pub use crate::asr;
 }
 pub mod mcp_voice {
@@ -69,11 +70,12 @@ pub mod daemon {
 }
 #[allow(dead_code)]
 pub mod service {
+    pub use crate::asr_contracts as operation_requests;
+    pub use crate::mcp_contract as mcp;
     pub mod query_client { include!(concat!(env!("OUT_DIR"), "/service_query_client.rs")); }
     pub mod config_pin { include!(concat!(env!("OUT_DIR"), "/service_config_pin.rs")); }
     pub mod plan { include!(concat!(env!("OUT_DIR"), "/service_plan.rs")); }
     pub mod settings { include!(concat!(env!("OUT_DIR"), "/service_settings.rs")); }
-    pub mod mcp { pub use crate::mcp_service::Call; }
     pub mod protocol { include!(concat!(env!("OUT_DIR"), "/service_protocol.rs")); }
     pub mod client { include!(concat!(env!("OUT_DIR"), "/service_client.rs")); }
     pub mod transport { include!(concat!(env!("OUT_DIR"), "/service_transport.rs")); }
@@ -81,3 +83,10 @@ pub mod service {
 #[path = "../mcp-auth/mock.rs"]
 pub mod authenticated_mock;
 pub use service::query_client as transport;
+
+#[path = "../../support/asr_contracts.rs"]
+pub mod asr_contracts;
+#[path = "../../../src/service/mcp.rs"]
+pub mod mcp_contract;
+#[path = "../../support/mcp_argument_parsers.rs"]
+pub mod operation_args;

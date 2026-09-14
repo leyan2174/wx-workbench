@@ -1,131 +1,17 @@
 //! 显式后端参数及单文件、聊天转录入口；不自动读取账号和云端凭证。
-use crate::toolkit::asr::backend::{BackendId, Entry, Options};
+use crate::toolkit::asr::backend::BackendId;
+#[cfg(test)]
+use crate::toolkit::asr::backend::Entry;
 use crate::toolkit::asr::{self, local, openai, Backend, OfflineMedia};
 use anyhow::{ensure, Context, Result};
-use clap::{Args, ValueEnum};
-use std::{fs::File, io::Read, path::PathBuf, time::Duration};
+use std::{fs::File, io::Read, time::Duration};
 
-#[derive(Clone, Copy, Debug, ValueEnum, serde::Serialize, serde::Deserialize)]
-pub enum BackendKind {
-    #[serde(alias = "local")]
-    Local,
-    #[value(name = "whisper_cpp")]
-    #[serde(rename = "whisper_cpp")]
-    WhisperCpp,
-    #[value(name = "python_whisper")]
-    #[serde(rename = "python_whisper")]
-    PythonWhisper,
-    #[value(
-        name = "openai_compatible",
-        alias = "explicit-open-ai",
-        alias = "openai"
-    )]
-    #[serde(
-        rename = "openai_compatible",
-        alias = "ExplicitOpenAi",
-        alias = "explicit-open-ai",
-        alias = "openai"
-    )]
-    ExplicitOpenAi,
-}
+#[cfg(test)]
+use crate::service::operation_requests::asr::BackendKind;
 
-impl BackendKind {
-    pub fn identity(self, entry: Entry) -> BackendId {
-        let name = match self {
-            Self::Local => "local",
-            Self::WhisperCpp => "whisper_cpp",
-            Self::PythonWhisper => "python_whisper",
-            Self::ExplicitOpenAi => "openai_compatible",
-        };
-        BackendId::parse(name, entry).expect("known backend name")
-    }
-}
-
-#[derive(Args, Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BackendArgs {
-    #[arg(long, value_enum, default_value = "local")]
-    pub backend: BackendKind,
-    /// 显式 whisper.cpp 可执行文件路径
-    #[arg(long)]
-    pub whisper_binary: Option<PathBuf>,
-    /// 显式本地模型路径；不自动下载
-    #[arg(long)]
-    pub whisper_model: Option<PathBuf>,
-    #[arg(long, default_value = "auto")]
-    pub language: String,
-    #[arg(long)]
-    pub threads: Option<usize>,
-    #[arg(long, default_value_t = 120)]
-    pub timeout_seconds: u64,
-    /// 明确允许本次单文件或整个聊天批次上传音频
-    #[arg(long)]
-    pub allow_upload: bool,
-    #[arg(long)]
-    pub openai_base_url: Option<String>,
-    #[arg(long)]
-    pub openai_model: Option<String>,
-    /// 显式 UTF-8 凭证文件；不读取环境变量或默认密钥
-    #[arg(long)]
-    pub api_key_file: Option<PathBuf>,
-    /// 本地后端临时 WAV 和结果文件根目录
-    #[arg(long)]
-    pub temp_root: Option<PathBuf>,
-}
-
-impl Default for BackendArgs {
-    fn default() -> Self {
-        Self {
-            backend: BackendKind::Local,
-            whisper_binary: None,
-            whisper_model: None,
-            language: "auto".into(),
-            threads: None,
-            timeout_seconds: 120,
-            allow_upload: false,
-            openai_base_url: None,
-            openai_model: None,
-            api_key_file: None,
-            temp_root: None,
-        }
-    }
-}
+pub use crate::service::operation_requests::asr::BackendArgs;
 
 impl BackendArgs {
-    pub fn validate_for(&self, backend: BackendId) -> Result<()> {
-        Options {
-            cloud: self.openai_base_url.is_some()
-                || self.openai_model.is_some()
-                || self.api_key_file.is_some(),
-            cpp_paths: self.whisper_binary.is_some() || self.whisper_model.is_some(),
-            threads: self.threads,
-            temp_root: self.temp_root.is_some(),
-            allow_upload: self.allow_upload,
-        }
-        .validate(backend, &self.language, self.timeout_seconds)
-    }
-
-    /// Pure preflight, before host paths, credentials or audio are read.
-    pub fn validate_explicit(&self) -> Result<BackendId> {
-        let id = self.backend.identity(Entry::Native);
-        self.validate_for(id)?;
-        match id {
-            BackendId::WhisperCpp => ensure!(
-                self.whisper_binary.is_some() && self.whisper_model.is_some(),
-                "--whisper-binary and --whisper-model are required"
-            ),
-            BackendId::OpenAiCompatible => ensure!(
-                self.openai_base_url.is_some()
-                    && self.openai_model.is_some()
-                    && self.api_key_file.is_some(),
-                "--openai-base-url, --openai-model and --api-key-file are required"
-            ),
-            BackendId::PythonWhisper => {
-                anyhow::bail!("python_whisper requires a configured batch or configured MCP entry")
-            }
-        }
-        Ok(id)
-    }
-
     pub fn build(self) -> Result<Backend> {
         let backend = self.validate_explicit()?;
         match backend {
@@ -179,7 +65,7 @@ mod backend_selection_tests {
     use super::*;
 
     #[test]
-    fn cli_and_wire_aliases_preserve_native_identity() {
+    fn wire_aliases_preserve_native_identity() {
         for (names, expected) in [
             (vec!["local", "whisper_cpp"], BackendId::WhisperCpp),
             (
@@ -189,8 +75,6 @@ mod backend_selection_tests {
             (vec!["python_whisper"], BackendId::PythonWhisper),
         ] {
             for name in names {
-                let kind = BackendKind::from_str(name, false).unwrap();
-                assert_eq!(kind.identity(Entry::Native), expected);
                 let kind: BackendKind = serde_json::from_value(serde_json::json!(name)).unwrap();
                 assert_eq!(kind.identity(Entry::Native), expected);
             }
@@ -233,26 +117,9 @@ mod backend_selection_tests {
     }
 }
 
-#[derive(Args, serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TranscribeAudioNativeArgs {
-    /// 单个 SILK_V3 或 PCM16 单声道 WAV 文件
-    pub input: PathBuf,
-    #[command(flatten)]
-    pub backend: BackendArgs,
-}
+pub use crate::service::operation_requests::asr::TranscribeAudioNativeArgs;
 
-#[derive(Args, serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TranscribeChatNativeArgs {
-    pub input: PathBuf,
-    pub output: PathBuf,
-    /// 完整 username/source/local_id 到相对音频路径的 JSON 清单
-    #[arg(long)]
-    pub media_manifest: PathBuf,
-    #[arg(long)]
-    pub media_root: PathBuf,
-    #[command(flatten)]
-    pub backend: BackendArgs,
-}
+pub use crate::service::operation_requests::asr::TranscribeChatNativeArgs;
 
 pub fn cmd_transcribe_audio_native(args: TranscribeAudioNativeArgs) -> Result<()> {
     let backend = args.backend.build()?;

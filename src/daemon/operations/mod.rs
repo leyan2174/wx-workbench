@@ -33,7 +33,6 @@ pub(crate) mod task_worker;
 pub(crate) mod toolkit;
 pub(crate) mod toolkit_run_prepare;
 pub(crate) mod transport;
-pub(crate) mod validation;
 pub(crate) mod voices;
 
 pub(crate) fn execute(operation: Operation) -> Result<()> {

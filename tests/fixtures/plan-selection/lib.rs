@@ -1,3 +1,11 @@
+#[path = "../../../src/service/operation_requests/plan.rs"]
+pub mod plan_request;
+pub mod service {
+    pub mod operation_requests {
+        pub use crate::plan_request as plan;
+    }
+}
+
 #[path = "../../../src/toolkit/chat_plan_selection.rs"]
 pub mod selection;
 

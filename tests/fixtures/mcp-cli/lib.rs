@@ -27,7 +27,7 @@ pub mod service {
     pub mod config_pin { include!(concat!(env!("OUT_DIR"), "/service_config_pin.rs")); }
     pub mod plan { include!(concat!(env!("OUT_DIR"), "/service_plan.rs")); }
     pub mod settings { include!(concat!(env!("OUT_DIR"), "/service_settings.rs")); }
-    pub mod mcp { pub use crate::mcp_service::Call; }
+    pub use mcp_voice_host::service::{mcp, operation_requests};
     pub mod protocol { include!(concat!(env!("OUT_DIR"), "/service_protocol.rs")); }
     pub mod client { include!(concat!(env!("OUT_DIR"), "/service_client.rs")); }
     pub mod transport { include!(concat!(env!("OUT_DIR"), "/service_transport.rs")); }
@@ -37,3 +37,6 @@ pub mod cli {
 }
 #[path = "../mcp-auth/mock.rs"]
 pub mod authenticated_mock;
+
+#[path = "../../support/mcp_argument_parsers.rs"]
+pub mod operation_args;

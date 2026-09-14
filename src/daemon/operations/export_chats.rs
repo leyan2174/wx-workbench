@@ -1,39 +1,15 @@
 //! 原生批量导出编排；计划 CSV 只选择 username，不串联语音转录。
 use crate::runtime::RuntimeContext;
-use crate::toolkit::chat_plan_selection::{Mode, Plan};
+#[cfg(test)]
+use crate::toolkit::chat_plan_selection::Mode;
+use crate::toolkit::chat_plan_selection::Plan;
 use crate::{ipc::Request, message::export::Target, toolkit::chat_index::ChatIndex};
 use anyhow::{ensure, Result};
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{Local, TimeZone};
 use serde::Serialize;
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 
-#[derive(Debug, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    /// 输出目录
-    pub output_dir: PathBuf,
-    /// 仅导出指定 username，逗号分隔；也可设 WECHAT_EXPORT_USERS
-    #[arg(long)]
-    pub users: Option<String>,
-    /// 保留旧消息并按分片来源和 local_id 追加；身份歧义时拒绝覆盖
-    #[arg(short = 'i', long)]
-    pub incremental: bool,
-    /// 起始本地时间（含端点）：日期、日期时间或 Unix 秒
-    #[arg(long)]
-    pub start: Option<String>,
-    /// 结束本地时间（含端点）；仅日期表示当天零点
-    #[arg(long)]
-    pub end: Option<String>,
-    /// 只列出会话，不创建输出目录或索引
-    #[arg(long)]
-    pub dry_run: bool,
-    /// 读取计划 CSV，以 username 精确选择会话
-    #[arg(long)]
-    pub from_plan_csv: Option<PathBuf>,
-    /// blacklist 仅跳过 export=0（默认）；whitelist 仅选择 export=1
-    #[arg(long, value_enum, requires = "from_plan_csv")]
-    #[serde(with = "crate::service::operations::optional_plan_mode")]
-    pub plan_mode: Option<Mode>,
-}
+pub use crate::service::operation_requests::export_chats::Args;
 
 #[derive(Default)]
 struct TimeRange {
@@ -41,33 +17,7 @@ struct TimeRange {
     end: Option<i64>,
 }
 
-pub(super) fn parse_timestamp(raw: &str) -> Result<i64> {
-    let raw = raw.trim();
-    let date = NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .ok()
-        .and_then(|d| d.and_hms_opt(0, 0, 0));
-    let datetime = date.or_else(|| {
-        ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]
-            .into_iter()
-            .find_map(|format| NaiveDateTime::parse_from_str(raw, format).ok())
-    });
-    if let Some(datetime) = datetime {
-        // 夏令时跳变或重叠不能静默猜测；用户可改用 Unix 秒明确指定。
-        return Local
-            .from_local_datetime(&datetime)
-            .single()
-            .map(|d| d.timestamp())
-            .ok_or_else(|| anyhow::anyhow!("本地时间不存在或有歧义，请使用 Unix 秒: {raw}"));
-    }
-    let value: i64 = raw
-        .parse()
-        .map_err(|_| anyhow::anyhow!("无法解析时间: {raw}"))?;
-    ensure!(
-        Local.timestamp_opt(value, 0).single().is_some(),
-        "时间超出支持范围: {raw}"
-    );
-    Ok(value)
-}
+pub use crate::service::time::parse_timestamp;
 
 impl TimeRange {
     fn parse(start: Option<&str>, end: Option<&str>) -> Result<Self> {
@@ -535,7 +485,7 @@ mod tests {
         #[derive(Parser)]
         struct Cli {
             #[command(flatten)]
-            args: Args,
+            args: crate::cli::operation_args::export_chats::Args,
         }
         let defaults = Cli::try_parse_from(["wx", "out", "--dry-run"]).unwrap();
         assert!(defaults.args.from_plan_csv.is_none());

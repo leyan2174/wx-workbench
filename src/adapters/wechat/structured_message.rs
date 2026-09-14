@@ -1,8 +1,9 @@
-//! Read-only metadata matching monitor_web._parse_rich_content; never resolves media.
+//! WeChat structured message decoding; metadata only, never resolves media.
+use crate::business::structured_message::{
+    ChatItem, ContentIssue, StructuredMessage as RichMessage,
+};
 use crate::message::{export_content::refer_summary, split_group_content, transfer, xml};
 use roxmltree::Node;
-use serde::Serialize;
-use serde_json::Value;
 
 const MAX_INPUT_BYTES: usize = 131_072;
 const MAX_TITLE: usize = 512;
@@ -11,72 +12,19 @@ const MAX_ITEMS: usize = 20;
 // JSON consumers must not lose integer precision.
 const MAX_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum RichMessage {
-    Link {
-        title: String,
-        des: String,
-        url: String,
-        source: String,
-    },
-    File {
-        title: String,
-        file_ext: String,
-        file_size: u64,
-    },
-    Miniapp {
-        title: String,
-        source: String,
-        url: String,
-    },
-    Channels {
-        title: String,
-    },
-    Chatlog {
-        title: String,
-        des: String,
-        items: Vec<ChatItem>,
-    },
-    Quote {
-        title: String,
-        ref_name: String,
-        ref_content: String,
-    },
-    Transfer {
-        title: String,
-        direction: String,
-        paysubtype: String,
-        fee_desc: String,
-        pay_memo: String,
-    },
-    Voice {
-        duration: f64,
-    },
-    Video {
-        duration: u64,
-    },
-    Emoji {
-        emoji_url: String,
-        md5: String,
-    },
-}
-
-#[derive(Serialize)]
-struct ChatItem {
-    name: String,
-    text: String,
-}
-
-/// Accept only already bounded/decompressed message text. None means keep the
-/// caller's ordinary content fallback, not a failed query or an empty rich card.
-pub(super) fn parse(local_type: i64, content: &str, is_group: bool) -> Option<Value> {
-    if local_type < 0 || content.len() > MAX_INPUT_BYTES {
-        return None;
+/// Decode metadata without conflating an unsupported kind with malformed input.
+/// Existing projections may retain their ordinary summary for any preview issue.
+pub(crate) fn decode(
+    local_type: i64,
+    content: &str,
+    is_group: bool,
+) -> Result<RichMessage, ContentIssue> {
+    if content.len() > MAX_INPUT_BYTES {
+        return Err(ContentIssue::InputTooLarge);
     }
     let base = local_type & 0xffff_ffff;
-    if !matches!(base, 34 | 43 | 47 | 49) {
-        return None;
+    if local_type < 0 || !matches!(base, 34 | 43 | 47 | 49) {
+        return Err(ContentIssue::UnsupportedKind);
     }
     let body = if is_group {
         split_group_content(content).1
@@ -84,42 +32,45 @@ pub(super) fn parse(local_type: i64, content: &str, is_group: bool) -> Option<Va
         content
     }
     .trim();
-    let doc = xml::parse(body)?;
+    let doc = xml::parse(body).ok_or(ContentIssue::MalformedContent)?;
     let root = doc.root_element();
-    let rich = match base {
-        49 => parse_app(body, message_node(root, "appmsg")?, local_type >> 32)?,
-        34 => {
-            let voice = message_node(root, "voicemsg")?;
-            let millis = integer(voice.attribute("voicelength")?)?;
-            // Same one-decimal conversion as the native voice summary.
-            let duration = format!("{:.1}", millis as f64 / 1000.0).parse().ok()?;
-            RichMessage::Voice { duration }
-        }
-        43 => RichMessage::Video {
-            duration: integer(message_node(root, "videomsg")?.attribute("playlength")?)?,
-        },
-        47 => {
-            let emoji = message_node(root, "emoji")?;
-            let emoji_url = ["thumburl", "externurl", "cdnurl"]
-                .into_iter()
-                .filter_map(|key| emoji.attribute(key))
-                .find_map(|value| safe_url(value, false))
-                .unwrap_or_default();
-            let md5 = emoji
-                .attribute("md5")
-                .filter(|value| {
-                    value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-                })
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            if emoji_url.is_empty() && md5.is_empty() {
-                return None;
+    let preview = (|| {
+        let rich = match base {
+            49 => parse_app(body, message_node(root, "appmsg")?, local_type >> 32)?,
+            34 => {
+                let voice = message_node(root, "voicemsg")?;
+                let millis = integer(voice.attribute("voicelength")?)?;
+                // Same one-decimal conversion as the native voice summary.
+                let duration = format!("{:.1}", millis as f64 / 1000.0).parse().ok()?;
+                RichMessage::Voice { duration }
             }
-            RichMessage::Emoji { emoji_url, md5 }
-        }
-        _ => return None,
-    };
-    serde_json::to_value(rich).ok()
+            43 => RichMessage::Video {
+                duration: integer(message_node(root, "videomsg")?.attribute("playlength")?)?,
+            },
+            47 => {
+                let emoji = message_node(root, "emoji")?;
+                let emoji_url = ["thumburl", "externurl", "cdnurl"]
+                    .into_iter()
+                    .filter_map(|key| emoji.attribute(key))
+                    .find_map(|value| safe_url(value, false))
+                    .unwrap_or_default();
+                let md5 = emoji
+                    .attribute("md5")
+                    .filter(|value| {
+                        value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if emoji_url.is_empty() && md5.is_empty() {
+                    return None;
+                }
+                RichMessage::Emoji { emoji_url, md5 }
+            }
+            _ => return None,
+        };
+        Some(rich)
+    })();
+    preview.ok_or(ContentIssue::NoSafePreview)
 }
 
 // Only the message root or its immediate payload may select a card type; a
@@ -337,7 +288,37 @@ fn parse_app(body: &str, app: Node<'_, '_>, subtype: i64) -> Option<RichMessage>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
+
+    fn parse(local_type: i64, content: &str, is_group: bool) -> Option<Value> {
+        super::decode(local_type, content, is_group)
+            .ok()
+            .map(|message| serde_json::to_value(message).expect("message projection"))
+    }
+
+    #[test]
+    fn preview_issues_keep_distinct_causes_and_do_not_guess_call_media() {
+        assert_eq!(
+            super::decode(50, "<voip><msg>Video call</msg></voip>", false),
+            Err(ContentIssue::UnsupportedKind)
+        );
+        assert_eq!(
+            super::decode(49, "<msg>", false),
+            Err(ContentIssue::MalformedContent)
+        );
+        assert_eq!(
+            super::decode(34, "<msg><voicemsg/></msg>", false),
+            Err(ContentIssue::NoSafePreview)
+        );
+        assert_eq!(
+            super::decode(49, &"x".repeat(MAX_INPUT_BYTES + 1), false),
+            Err(ContentIssue::InputTooLarge)
+        );
+        assert!(matches!(
+            super::decode(34, "<msg><voicemsg voicelength='1000'/></msg>", false),
+            Ok(RichMessage::Voice { duration: 1.0 })
+        ));
+    }
 
     fn app(kind: u64, body: &str) -> String {
         format!("<msg><appmsg><type>{kind}</type>{body}</appmsg></msg>")

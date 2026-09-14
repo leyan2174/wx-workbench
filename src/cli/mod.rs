@@ -22,13 +22,15 @@ pub mod favorites;
 pub mod history;
 mod image_keys;
 mod init;
+mod key_migration;
+mod key_provider;
 mod launcher;
 mod mcp;
 mod mcp_tasks;
-mod mcp_voice;
 pub mod members;
 mod monitor_native;
 pub mod new_messages;
+pub(crate) mod operation_args;
 pub mod output;
 pub mod search;
 pub mod sessions;
@@ -190,7 +192,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Explicitly migrate this account's legacy keys into current-user DPAPI storage.
-    MigrateKeys(crate::daemon::operations::key_migration::Args),
+    MigrateKeys(key_migration::Args),
     /// 原生 MCP stdio 入口：只读查询及受控图片导出，调用需显式 WX_CLI_CONFIG
     Mcp(mcp::McpArgs),
     /// 初始化：检测数据目录并扫描加密密钥
@@ -203,7 +205,7 @@ enum Commands {
         db_dir: Option<String>,
         /// 密钥来源：自动复用已保存密钥、只读扫描、或账号级捕获
         #[arg(long, value_enum, default_value = "auto")]
-        key_provider: crate::scanner::KeyProvider,
+        key_provider: key_provider::KeyProvider,
         /// 允许账号级捕获关闭并重新启动微信，需要再次登录
         #[arg(long, requires = "force")]
         restart_wechat: bool,
@@ -570,7 +572,7 @@ fn dispatch(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Mcp(args) => mcp::cmd(args),
         Commands::MigrateKeys(args) => crate::service::operation_client::run(
-            crate::service::operations::Operation::MigrateKeys { args },
+            crate::service::operations::Operation::MigrateKeys { args: args.into() },
         ),
         Commands::Init {
             force,
@@ -582,7 +584,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         } => init::cmd_init(
             force,
             db_dir,
-            key_provider,
+            key_provider.into(),
             restart_wechat,
             wechat_exe,
             capture_timeout,
@@ -782,3 +784,6 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Daemon { cmd } => daemon_cmd::cmd_daemon(cmd),
     }
 }
+
+#[cfg(test)]
+mod request_conversion_tests;

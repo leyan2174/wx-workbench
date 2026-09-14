@@ -1,7 +1,7 @@
 //! Daemon-owned MCP voice authorization, cache, ASR and WAV publication.
-use crate::daemon::operations::asr::BackendArgs;
+use crate::service::operation_requests::asr::BackendArgs;
 #[cfg(test)]
-use crate::daemon::operations::asr::BackendKind;
+use crate::service::operation_requests::asr::BackendKind;
 use crate::toolkit::asr::backend::{self, BackendId, Entry};
 use crate::{
     attachment::local_files::HostOutputGuard,
@@ -20,15 +20,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(clap::Args, Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Args {
-    #[command(flatten)]
-    pub backend: BackendArgs,
-    /// 显式主机转录缓存文件；省略时不持久化转录缓存。
-    #[arg(long)]
-    pub voice_cache_file: Option<PathBuf>,
-}
+pub use crate::service::mcp::VoiceSettings as Args;
 
 #[derive(Clone, Copy)]
 pub enum Operation {

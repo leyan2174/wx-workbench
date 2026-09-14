@@ -195,10 +195,10 @@ pub fn cmd_toolkit(cmd: ToolkitCommands) -> Result<()> {
             download_media,
             update,
             adopt_existing,
-            local_cache,
+            local_cache: local_cache.into(),
         },
         ToolkitCommands::ExportChatsNative(args) => return super::export_chats::cmd_export(args),
-        ToolkitCommands::ExportEmoticons(args) => ToolkitOperation::ExportEmoticons(args),
+        ToolkitCommands::ExportEmoticons(args) => ToolkitOperation::ExportEmoticons(args.into()),
         ToolkitCommands::Status { json } => ToolkitOperation::Status { json },
         ToolkitCommands::Run { command, args } => return cmd_run(command, args),
         ToolkitCommands::Decrypt {
@@ -286,7 +286,7 @@ fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
         )
         .unwrap_or_else(|error| error.exit());
         return crate::service::operation_client::run(Operation::ExportAll {
-            args: parsed,
+            args: parsed.into(),
             prepare: command != "export-all",
             announce: command == "all",
         });
@@ -311,7 +311,9 @@ fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
         }
         return match invocation.command {
             ToolkitCommands::ExportEmoticons(args) => {
-                crate::service::operation_client::run(Operation::PreparedEmoticons { args })
+                crate::service::operation_client::run(Operation::PreparedEmoticons {
+                    args: args.into(),
+                })
             }
             ToolkitCommands::Decrypt {
                 incremental,
@@ -388,7 +390,7 @@ fn export_chats(output: Option<String>, transcribe: bool, extra: Vec<String>) ->
     argv.extend(extra);
     let args = super::export_all::Args::try_parse_from(argv).unwrap_or_else(|error| error.exit());
     crate::service::operation_client::run(Operation::ExportAll {
-        args,
+        args: args.into(),
         prepare: false,
         announce: false,
     })

@@ -1,11 +1,11 @@
 use super::cache::{self, CacheIndex, CacheKeys, MediaRecovery, RecoveryOptions};
 pub(crate) use super::download::Options as DownloadOptions;
 use super::{download, publish};
-use super::{parse_timeline, timestamp_filename, Comment, Content, Post, TimeZone};
+use super::{timestamp_filename, Comment, Post, TimeZone};
 use crate::attachment::local_files::HostOutputGuard;
 use anyhow::{bail, ensure, Context, Result};
 use chrono::Utc;
-use rusqlite::{types::ValueRef, Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -111,57 +111,18 @@ pub fn safe_dirname(name: &str) -> String {
 
 /// 只使用调用者提供的连接；None 等价于未提供联系人数据库。
 pub fn load_contacts(conn: Option<&Connection>) -> Result<BTreeMap<String, String>> {
-    let mut map = BTreeMap::new();
     let Some(conn) = conn else {
-        return Ok(map);
+        return Ok(BTreeMap::new());
     };
-    let mut statement = conn.prepare("SELECT username, remark, nick_name FROM contact")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let username = row.get::<_, Option<String>>(0)?.unwrap_or_default();
-        let remark = row.get::<_, Option<String>>(1)?.unwrap_or_default();
-        let nickname = row.get::<_, Option<String>>(2)?.unwrap_or_default();
-        let display = if !remark.is_empty() {
-            &remark
-        } else if !nickname.is_empty() {
-            &nickname
-        } else {
-            &username
-        };
-        let display = safe_dirname(display);
-        map.insert(username, display);
-    }
-    Ok(map)
+    Ok(crate::adapters::wechat::contacts::display_names(conn)?
+        .into_iter()
+        .map(|(identity, display)| (identity, safe_dirname(&display)))
+        .collect())
 }
 
 /// 缺表/缺列返回错误，由 read_database 转为可见警告并继续（旧实现返回空映射）。
 pub fn load_comments(conn: &Connection, timezone: TimeZone) -> Result<BTreeMap<i64, Vec<Comment>>> {
-    let mut result = BTreeMap::<i64, Vec<Comment>>::new();
-    let mut statement = conn.prepare("SELECT feed_id, create_time, type, from_username, from_nickname, to_username, to_nickname, content FROM SnsMessage_tmp3 WHERE COALESCE(del_status, 0) = 0 ORDER BY create_time")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let feed_id: i64 = row.get(0)?;
-        let create_time: Option<i64> = row.get(1)?;
-        let kind: Option<i64> = row.get(2)?;
-        let name = match kind {
-            Some(1) => "点赞".into(),
-            Some(2) => "评论".into(),
-            Some(n) => format!("未知({n})"),
-            None => "未知(None)".into(),
-        };
-        result.entry(feed_id).or_default().push(Comment {
-            create_time,
-            create_time_str: timezone.display(create_time.unwrap_or(0))?,
-            kind,
-            type_name: name,
-            from_username: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            from_nickname: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            to_username: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
-            to_nickname: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
-            content: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
-        });
-    }
-    Ok(result)
+    crate::adapters::wechat::moments::export_comments(conn, timezone)
 }
 
 /// 内存连接可直接用于合成测试；只发出 SELECT，不读取配置或磁盘上的默认数据库。
@@ -183,43 +144,46 @@ pub fn read_database(
     });
     let mut groups = BTreeMap::<String, Vec<Post>>::new();
     let mut nicknames = BTreeMap::<String, String>::new();
-    let mut statement =
-        sns.prepare("SELECT tid, user_name, content FROM SnsTimeLine WHERE content IS NOT NULL")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        data.rows_seen += 1;
-        let username: Option<String> = row.get(1)?;
-        if !options.contacts.is_empty()
-            && !username
-                .as_ref()
-                .is_some_and(|u| options.contacts.contains(u))
-        {
-            data.filtered += 1;
-            continue;
-        }
-        let parsed = match row.get_ref(2)? {
-            ValueRef::Text(bytes) => std::str::from_utf8(bytes)
-                .map_err(anyhow::Error::from)
-                .and_then(|s| parse_timeline(Content::Text(s), options.timezone)),
-            ValueRef::Blob(bytes) => parse_timeline(Content::Blob(bytes), options.timezone),
-            _ => parse_timeline(Content::Null, options.timezone),
-        };
-        let mut post = match parsed {
-            Ok(Some(post)) => post,
-            _ => {
-                data.invalid += 1;
-                data.warnings
-                    .push(format!("SNS row {} could not be parsed", data.rows_seen));
-                continue;
-            }
-        };
-        let tid: i64 = row.get(0)?;
-        post.tid = Some(tid);
-        post.db_user_name = Some(username.clone().unwrap_or_default());
+    use crate::{adapters::wechat::moments as adapter, business::moments};
+    let mut source = adapter::Timeline::new(
+        sns,
+        adapter::ReadPolicy::ExportCompatibility(options.timezone),
+    );
+    let page = moments::query(
+        &mut source,
+        &moments::Query {
+            authors: options.contacts.clone(),
+            author_policy: moments::AuthorPolicy::RecordedCompatibility,
+            time: moments::TimeRange::default(),
+            keyword: None,
+            limit: usize::MAX,
+            scan_limit: usize::MAX,
+        },
+    )?;
+    data.rows_seen = page.scanned;
+    data.filtered = page.filtered;
+    data.invalid = page.unreadable.len();
+    for evidence in &page.unreadable {
+        data.warnings.push(format!(
+            "SNS row {} could not be parsed",
+            source.row_number(evidence)?
+        ));
+    }
+    if !page.author_conflicts.is_empty() {
+        data.warnings.push(format!(
+            "{} SNS author conflicts; recorded-author compatibility retained",
+            page.author_conflicts.len()
+        ));
+    }
+    for moment in page.moments {
+        let mut post = source.export_projection(&moment)?;
+        let tid = adapter::legacy_record_id(&moment.evidence)?;
         post.comments = Some(comments.get(&tid).cloned().unwrap_or_default());
-        let key = username
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "unknown".into());
+        let key = moment
+            .author
+            .identity(moments::AuthorPolicy::RecordedCompatibility)
+            .unwrap_or("unknown")
+            .to_owned();
         if !post.nickname.is_empty() {
             nicknames
                 .entry(key.clone())

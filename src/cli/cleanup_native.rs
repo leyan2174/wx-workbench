@@ -1,8 +1,8 @@
-//! Argument adaptation and authenticated daemon operation forwarding only.
-pub use crate::daemon::operations::cleanup_native::Args;
+pub use super::operation_args::cleanup_native::*;
+// Argument adaptation and authenticated daemon operation forwarding only.
 use crate::service::operations::Operation;
 use anyhow::Result;
 
 pub fn cmd(args: Args) -> Result<()> {
-    crate::service::operation_client::run(Operation::Cleanup { args })
+    crate::service::operation_client::run(Operation::Cleanup { args: args.into() })
 }

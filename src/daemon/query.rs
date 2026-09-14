@@ -23,10 +23,12 @@ pub use export_directory::{q_export_directory_by_username, q_export_directory_ca
 #[path = "../../tests/fixtures/encrypted_cache.rs"]
 pub(crate) mod encrypted_cache;
 mod export_delta;
+#[cfg(test)]
+mod favorites_source_tests;
 mod history_selection;
 #[cfg(test)]
 mod message_source_tests;
-mod rich_message;
+use crate::adapters::wechat::structured_message;
 pub use export_delta::q_export_delta_username;
 pub(super) mod mcp_attachments;
 pub(super) mod mcp_audio;
@@ -55,24 +57,13 @@ fn msg_table_re() -> &'static Regex {
 /// 3. username 前缀兜底（`gh_*` / `biz_*` / `@*` 等）—— 在 contact 表未加载或没记录时
 ///    仍能给出正确结果
 pub fn chat_type_of(username: &str, names: &Names) -> &'static str {
-    if username.contains("@chatroom") {
-        return "group";
+    use crate::business::contacts::ContactKind;
+    match crate::adapters::wechat::contacts::kind(username, names.is_verified(username)) {
+        ContactKind::Group => "group",
+        ContactKind::Folded => "folded",
+        ContactKind::Official => "official_account",
+        ContactKind::Person => "private",
     }
-    if username == "brandsessionholder" || username == "@placeholder_foldgroup" {
-        return "folded";
-    }
-    if names.is_verified(username) {
-        return "official_account";
-    }
-    if username.starts_with("gh_") || username.starts_with("biz_") {
-        return "official_account";
-    }
-    // `@` 开头的剩余 username（如 `@opencustomerservicemsg`）是微信内部系统账号，
-    // 通常不落在 contact 表里，verify_flag 兜不住，按前缀兜底。
-    if username.starts_with('@') {
-        return "official_account";
-    }
-    "private"
 }
 
 /// 联系人名称缓存
@@ -318,49 +309,32 @@ async fn session_last_timestamp(db: &DbCache, username: &str) -> Option<i64> {
 
 /// 加载联系人缓存（从 contact/contact.db）
 pub async fn load_names(db: &DbCache) -> Result<Names> {
+    use crate::business::contacts::ContactSource;
     let path = db
         .get(CONTACT_DB_KEY)
         .await?
-        .context("找不到 contact/contact.db 的密钥或数据库文件")?;
-    let mut map = HashMap::new();
-    let mut verify_flags: HashMap<String, i64> = HashMap::new();
-    let rows: Vec<(String, String, String, i64)> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path).context("打开 contact.db 失败")?;
-        let mut stmt =
-            conn.prepare("SELECT username, nick_name, remark, verify_flag FROM contact")?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1).unwrap_or_default(),
-                    row.get::<_, String>(2).unwrap_or_default(),
-                    row.get::<_, i64>(3).unwrap_or(0),
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok::<_, anyhow::Error>(rows)
+        .context("contact database unavailable")?;
+    let directory = tokio::task::spawn_blocking(move || {
+        crate::adapters::wechat::contacts::SqliteContacts::new(path).contacts()
     })
     .await??;
-
-    anyhow::ensure!(!rows.is_empty(), "contact 表没有返回任何联系人");
-
-    for (uname, nick, remark, vf) in rows {
-        let display = if !remark.is_empty() {
-            remark
-        } else if !nick.is_empty() {
-            nick
-        } else {
-            uname.clone()
-        };
-        verify_flags.insert(uname.clone(), vf);
-        map.insert(uname, display);
+    anyhow::ensure!(
+        directory.capabilities.classification,
+        "unsupported contact classification"
+    );
+    let mut map = HashMap::new();
+    let mut verify_flags = HashMap::new();
+    for contact in directory.contacts {
+        verify_flags.insert(
+            contact.id.0.clone(),
+            i64::from(contact.verified.unwrap_or(false)),
+        );
+        map.insert(contact.id.0.clone(), contact.display().to_owned());
     }
-
-    let md5_to_uname: HashMap<String, String> = map
+    let md5_to_uname = map
         .keys()
         .map(|u| (format!("{:x}", md5::compute(u.as_bytes())), u.clone()))
         .collect();
-
     Ok(Names {
         map,
         md5_to_uname,
@@ -1089,53 +1063,30 @@ pub async fn q_search(
 
 /// 查询联系人
 ///
-/// 只返回真实联系人（`chat_type_of == "private"`）。`names.map` 是从 `contact` 表
-/// 全量加载的，里面同时包含群（`@chatroom`）、公众号（`gh_*` / `biz_*` / verify_flag != 0）、
-/// 折叠入口（`brandsessionholder` / `@placeholder_foldgroup`）以及微信内部 `@xxx` 系统账号。
-/// 这些都不应该出现在 `wx contacts` 输出里，统一走 `chat_type_of` 这条同样的真相判定。
+/// 普通协议投影只列真人；筛选与分页由联系人业务用例执行，分类由微信适配器解释。
 pub async fn q_contacts(names: &Names, query: Option<&str>, limit: usize) -> Result<Value> {
+    use crate::business::contacts::{self, ContactQuery, ContactView};
     anyhow::ensure!(
         !names.map.is_empty(),
         "联系人缓存不可用，请执行 `wx daemon reload` 后重试"
     );
-
-    let mut contacts: Vec<Value> = names
-        .map
-        .iter()
-        .filter(|(u, _)| chat_type_of(u, names) == "private")
-        .map(|(u, d)| json!({ "username": u, "display": d }))
-        .collect();
-
-    if let Some(q) = query {
-        let low = q.to_lowercase();
-        contacts.retain(|c| {
-            c["display"]
-                .as_str()
-                .map(|s| s.to_lowercase().contains(&low))
-                .unwrap_or(false)
-                || c["username"]
-                    .as_str()
-                    .map(|s| s.to_lowercase().contains(&low))
-                    .unwrap_or(false)
-        });
-    }
-
-    contacts.sort_by(|a, b| {
-        a["display"]
-            .as_str()
-            .unwrap_or("")
-            .cmp(b["display"].as_str().unwrap_or(""))
-    });
-
-    let total = contacts.len();
-    contacts.truncate(limit);
-    Ok(json!({ "contacts": contacts, "total": total }))
+    let source =
+        crate::adapters::wechat::contacts::cached_directory(&names.map, &names.verify_flags);
+    let page = contacts::list(
+        &source,
+        ContactQuery {
+            text: query,
+            view: ContactView::People,
+            offset: 0,
+            limit,
+        },
+    )?;
+    contact_rows::project_page(page, ContactView::People)
 }
 
 #[cfg(test)]
 mod contact_tests {
     use super::*;
-
     #[tokio::test]
     async fn empty_contact_cache_is_an_error() {
         let names = Names {
@@ -1150,7 +1101,7 @@ mod contact_tests {
     }
 }
 
-// ─── 内部辅助函数 ────────────────────────────────────────────────────────────
+// Internal query helpers for the remaining, not-yet-migrated domains.
 
 fn resolve_username(chat_name: &str, names: &Names) -> Option<String> {
     if names.map.contains_key(chat_name)
@@ -1182,15 +1133,6 @@ fn resolve_username(chat_name: &str, names: &Names) -> Option<String> {
         .into_iter()
         .next()
         .map(|(uname, _)| uname.clone())
-}
-
-async fn find_msg_tables(
-    db: &DbCache,
-    names: &Names,
-    username: &str,
-) -> Result<Vec<(std::path::PathBuf, String)>> {
-    let (shards, _) = find_msg_shards(db, names, username).await?;
-    Ok(shards.into_iter().map(|s| (s.path, s.table)).collect())
 }
 
 async fn find_msg_shards(
@@ -1358,8 +1300,9 @@ fn render_history_rows(
             "type": fmt_type(local_type),
             "local_id": local_id,
         });
-        if let Some(rich) = rich_message::parse(local_type, &content, is_group) {
-            msg["rich"] = rich;
+        if let Ok(rich) = structured_message::decode(local_type, &content, is_group) {
+            msg["rich"] = serde_json::to_value(rich)
+                .expect("structured message fields are JSON serializable");
         }
         add_sender_identity(
             &mut msg,
@@ -1579,329 +1522,9 @@ async fn load_group_nickname_maps(
     .await?
 }
 
-fn load_group_nickname_map_from_conn(
-    conn: &Connection,
-    chat_username: &str,
-    targets: Option<&HashSet<String>>,
-) -> HashMap<String, String> {
-    if !chat_username.contains("@chatroom") {
-        return HashMap::new();
-    }
-    let ext = load_group_ext_buffer(conn, chat_username);
-
-    let owned_targets = if targets.is_none() {
-        load_group_member_username_set(conn, chat_username)
-    } else {
-        None
-    };
-    let targets = targets.or(owned_targets.as_ref());
-
-    ext.as_deref()
-        .map(|buf| parse_group_nickname_map(buf, targets))
-        .unwrap_or_default()
-}
-
-fn load_group_ext_buffer(conn: &Connection, chat_username: &str) -> Option<Vec<u8>> {
-    [
-        "SELECT ext_buffer FROM chat_room WHERE username = ? LIMIT 1",
-        "SELECT ext_buffer FROM chat_room WHERE chat_room_name = ? LIMIT 1",
-        "SELECT ext_buffer FROM chat_room WHERE name = ? LIMIT 1",
-    ]
-    .iter()
-    .find_map(|sql| {
-        conn.query_row(sql, [chat_username], |row| row.get::<_, Option<Vec<u8>>>(0))
-            .ok()
-            .flatten()
-    })
-}
-
-fn load_group_member_username_set(
-    conn: &Connection,
-    chat_username: &str,
-) -> Option<HashSet<String>> {
-    let room_id: i64 = [
-        "SELECT id FROM chat_room WHERE username = ?",
-        "SELECT id FROM chat_room WHERE chat_room_name = ?",
-        "SELECT id FROM chat_room WHERE name = ?",
-    ]
-    .iter()
-    .find_map(|sql| {
-        conn.query_row(sql, [chat_username], |row| row.get::<_, i64>(0))
-            .ok()
-    })
-    .unwrap_or(0);
-
-    if room_id == 0 {
-        return None;
-    }
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT c.username
-         FROM chatroom_member cm
-         LEFT JOIN contact c ON c.id = cm.member_id
-         WHERE cm.room_id = ?",
-        )
-        .ok()?;
-    let usernames: HashSet<String> = stmt
-        .query_map([room_id], |row| row.get::<_, String>(0))
-        .ok()?
-        .filter_map(|r| r.ok())
-        .filter(|uid| !uid.is_empty())
-        .collect();
-
-    if usernames.is_empty() {
-        None
-    } else {
-        Some(usernames)
-    }
-}
-
-fn decode_proto_varint(raw: &[u8], offset: usize) -> Option<(u64, usize)> {
-    let mut value = 0u64;
-    let mut shift = 0u32;
-    let mut pos = offset;
-    while pos < raw.len() {
-        let byte = raw[pos];
-        pos += 1;
-        // u64 的第十字节只能携带最低一位；其余位不能被移位静默丢弃。
-        if shift == 63 && byte > 1 {
-            return None;
-        }
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Some((value, pos));
-        }
-        shift += 7;
-        if shift > 63 {
-            return None;
-        }
-    }
-    None
-}
-
-fn proto_len_fields(raw: &[u8]) -> Vec<(u64, &[u8])> {
-    let mut fields = Vec::new();
-    let mut idx = 0usize;
-    while idx < raw.len() {
-        let Some((tag, next)) = decode_proto_varint(raw, idx) else {
-            break;
-        };
-        if next <= idx {
-            break;
-        }
-        idx = next;
-        let field_no = tag >> 3;
-        let wire_type = tag & 0x07;
-        match wire_type {
-            0 => {
-                let Some((_, next)) = decode_proto_varint(raw, idx) else {
-                    break;
-                };
-                if next <= idx {
-                    break;
-                }
-                idx = next;
-            }
-            1 => {
-                let Some(next) = idx.checked_add(8) else {
-                    break;
-                };
-                if next > raw.len() {
-                    break;
-                }
-                idx = next;
-            }
-            2 => {
-                let Some((size, next)) = decode_proto_varint(raw, idx) else {
-                    break;
-                };
-                if next <= idx {
-                    break;
-                }
-                idx = next;
-                let Ok(size) = usize::try_from(size) else {
-                    break;
-                };
-                let Some(end) = idx.checked_add(size) else {
-                    break;
-                };
-                if end > raw.len() {
-                    break;
-                }
-                fields.push((field_no, &raw[idx..end]));
-                idx = end;
-            }
-            5 => {
-                let Some(next) = idx.checked_add(4) else {
-                    break;
-                };
-                if next > raw.len() {
-                    break;
-                }
-                idx = next;
-            }
-            _ => break,
-        }
-    }
-    fields
-}
-
-fn proto_string_fields(raw: &[u8]) -> Vec<(u64, String)> {
-    proto_len_fields(raw)
-        .into_iter()
-        .filter_map(|(field_no, value)| {
-            if value.is_empty() || value.len() > 256 {
-                return None;
-            }
-            let text = std::str::from_utf8(value).ok()?.trim().to_string();
-            if text.is_empty() || text.chars().any(char::is_control) {
-                return None;
-            }
-            Some((field_no, text))
-        })
-        .collect()
-}
-
-fn is_strong_username_hint(value: &str) -> bool {
-    value.starts_with("wxid_")
-        || value.ends_with("@chatroom")
-        || value.starts_with("gh_")
-        || value.contains('@')
-}
-
-fn looks_like_username(value: &str) -> bool {
-    let value = value.trim();
-    if value.is_empty() {
-        return false;
-    }
-    if is_strong_username_hint(value) {
-        return true;
-    }
-    if value.len() < 6 || value.len() > 32 || value.chars().any(char::is_whitespace) {
-        return false;
-    }
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_alphabetic() && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-fn pick_member_username(
-    strings: &[(u64, String)],
-    targets: Option<&HashSet<String>>,
-) -> Option<String> {
-    if let Some(targets) = targets {
-        return strings
-            .iter()
-            .find(|(_, value)| targets.contains(value))
-            .map(|(_, value)| value.clone());
-    }
-
-    for field_no in [1u64, 4u64] {
-        if let Some((_, value)) = strings
-            .iter()
-            .find(|(f, value)| *f == field_no && looks_like_username(value))
-        {
-            return Some(value.clone());
-        }
-    }
-
-    strings
-        .iter()
-        .find(|(_, value)| is_strong_username_hint(value))
-        .or_else(|| strings.iter().find(|(_, value)| looks_like_username(value)))
-        .map(|(_, value)| value.clone())
-}
-
-fn pick_group_nickname(strings: &[(u64, String)], username: &str) -> Option<String> {
-    let mut best_score = i64::MIN;
-    let mut best = String::new();
-
-    for (idx, (field_no, value)) in strings.iter().enumerate() {
-        // In current WeChat 4.x ext_buffer member chunks, field 2 is the group
-        // card/nickname. Field 4 is often another username-like value such as an
-        // inviter/owner and must not be promoted to a nickname.
-        if *field_no != 2 {
-            continue;
-        }
-        let value = value.trim();
-        if value.is_empty()
-            || value == username
-            || is_strong_username_hint(value)
-            || value.contains('\n')
-            || value.contains('\r')
-            || value.len() > 64
-        {
-            continue;
-        }
-
-        let mut score = 0i64;
-        if !looks_like_username(value) {
-            score += 20;
-        }
-        score += (32usize.saturating_sub(value.len())) as i64;
-        score = score * 1000 - idx as i64;
-
-        if score > best_score {
-            best_score = score;
-            best = value.to_string();
-        }
-    }
-
-    if best.is_empty() {
-        None
-    } else {
-        Some(best)
-    }
-}
-
-fn parse_group_nickname_map(
-    ext_buffer: &[u8],
-    targets: Option<&HashSet<String>>,
-) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    if ext_buffer.is_empty() {
-        return out;
-    }
-
-    for (_, chunk) in proto_len_fields(ext_buffer) {
-        let strings = proto_string_fields(chunk);
-        if strings.is_empty() {
-            continue;
-        }
-        let Some(username) = pick_member_username(&strings, targets) else {
-            continue;
-        };
-        if out.contains_key(&username) {
-            continue;
-        }
-        if let Some(nickname) = pick_group_nickname(&strings, &username) {
-            out.insert(username, nickname);
-        }
-    }
-
-    out
-}
-
-fn contact_display(
-    uid: &str,
-    nick: &str,
-    remark: &str,
-    names_map: &HashMap<String, String>,
-) -> String {
-    if !remark.is_empty() {
-        remark.to_string()
-    } else if !nick.is_empty() {
-        nick.to_string()
-    } else {
-        names_map
-            .get(uid)
-            .cloned()
-            .unwrap_or_else(|| uid.to_string())
-    }
-}
+use crate::adapters::wechat::contacts::nicknames::load_group_nickname_map_from_conn;
+#[cfg(test)]
+use crate::adapters::wechat::contacts::nicknames::{decode_proto_varint, parse_group_nickname_map};
 
 fn sender_display(
     username: &str,
@@ -2525,14 +2148,10 @@ fn format_decimal_unit(value: f64, unit: &str) -> String {
     format!("{} {}", s, unit)
 }
 
-fn extract_xml_text(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}>", tag);
-    let close = format!("</{}>", tag);
-    let start = xml.find(&open)?;
-    let content_start = start + open.len();
-    let end = xml[content_start..].find(&close)?;
-    Some(xml[content_start..content_start + end].trim().to_string())
-}
+use crate::adapters::wechat::legacy_text::{
+    element_text as extract_xml_text, strip_cdata as strip_xml_cdata,
+    unescape_entities as unescape_html,
+};
 
 fn appmsg_url_for_message(local_type: i64, content: &str) -> Option<String> {
     if (local_type as u64 & 0xFFFFFFFF) != 49 {
@@ -2541,19 +2160,8 @@ fn appmsg_url_for_message(local_type: i64, content: &str) -> Option<String> {
     extract_appmsg_url(content)
 }
 
-fn extract_favorite_url(content: &str) -> Option<String> {
-    let url = extract_xml_text(content, "link").map(|s| unescape_html(strip_xml_cdata(&s)))?;
-    if url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://")) {
-        return None;
-    }
-    Some(url)
-}
-
-fn strip_xml_cdata(s: &str) -> &str {
-    s.strip_prefix("<![CDATA[")
-        .and_then(|inner| inner.strip_suffix("]]>"))
-        .unwrap_or(s)
-}
+#[cfg(test)]
+use crate::adapters::wechat::favorites::extract_url as extract_favorite_url;
 
 /// 从 appmsg XML 中提取链接 URL（优先取 <url>，fallback 到 <url1>）
 fn extract_appmsg_url(text: &str) -> Option<String> {
@@ -2571,29 +2179,6 @@ fn extract_appmsg_url(text: &str) -> Option<String> {
         return None;
     }
     Some(url)
-}
-
-fn extract_xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
-    let open = format!("<{}", tag);
-    let start = xml.find(&open)?;
-    let tag_end = start + xml[start..].find('>')?;
-    let attr_pat = format!(r#"{}=""#, attr);
-    let attr_start = start + xml[start..tag_end].find(&attr_pat)? + attr_pat.len();
-    let attr_end = attr_start + xml[attr_start..tag_end].find('"')?;
-    let value = xml[attr_start..attr_end].trim();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value.to_string())
-    }
-}
-
-fn unescape_html(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
 }
 
 #[cfg(test)]
@@ -3155,209 +2740,50 @@ pub async fn q_unread(
 /// 查询群成员：优先从 contact.db 的 chatroom_member/chat_room 表获取完整列表，
 /// 若表不存在则退化为从消息记录聚合有发言记录的成员
 pub async fn q_members(db: &DbCache, names: &Names, chat: &str) -> Result<Value> {
-    let username =
-        resolve_username(chat, names).with_context(|| format!("找不到联系人: {}", chat))?;
-
-    if !username.contains("@chatroom") {
-        anyhow::bail!("'{}' 不是群聊，无法查看群成员", names.display(&username));
-    }
-
-    let display = names.display(&username);
-    let names_map = names.map.clone();
-
-    // 优先路径：contact.db → chatroom_member + chat_room（完整成员列表）
-    if let Some(contact_p) = db.get("contact/contact.db").await? {
-        let uname2 = username.clone();
-        let names_map2 = names_map.clone();
-
-        let members_opt: Option<Vec<Value>> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&contact_p)?;
-
-            let has_table: bool = conn
-                .query_row(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chatroom_member'",
-                    [],
-                    |_| Ok(true),
-                )
-                .unwrap_or(false);
-
-            if !has_table {
-                return Ok::<_, anyhow::Error>(None);
+    use crate::adapters::wechat::contacts::SqliteContacts;
+    use crate::business::contacts::{self as contacts, Error, MembershipCoverage};
+    contacts::validate_query(chat)?;
+    let path = db
+        .get(CONTACT_DB_KEY)
+        .await?
+        .context("contact database unavailable")?;
+    let mut source = SqliteContacts::new(path);
+    source.display_names = names.map.clone();
+    let query = chat.to_owned();
+    let (mut source, first) = tokio::task::spawn_blocking(move || {
+        let result = contacts::members(&source, &query);
+        (source, result)
+    })
+    .await?;
+    let (group, membership) = match first {
+        Err(Error::Unsupported("group membership")) => {
+            ensure_complete_message_inventory(db, names)?;
+            for key in &names.msg_db_keys {
+                source
+                    .message_paths
+                    .push(db.get(key).await?.context("message source unavailable")?);
             }
-
-            // 从 chat_room 表获取整数 room_id 和群主
-            // WeChat 不同版本列名可能不同：username / chat_room_name / name
-            let (room_id, owner): (i64, String) = [
-                "SELECT id, owner FROM chat_room WHERE username = ?",
-                "SELECT id, owner FROM chat_room WHERE chat_room_name = ?",
-                "SELECT id, owner FROM chat_room WHERE name = ?",
-            ]
-            .iter()
-            .find_map(|sql| {
-                conn.query_row(sql, [&uname2], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1).unwrap_or_default(),
-                    ))
-                })
-                .ok()
-            })
-            .unwrap_or((0, String::new()));
-
-            if room_id == 0 {
-                return Ok::<_, anyhow::Error>(None);
-            }
-
-            let mut stmt = conn.prepare(
-                "SELECT c.username, c.nick_name, c.remark
-                 FROM chatroom_member cm
-                 LEFT JOIN contact c ON c.id = cm.member_id
-                 WHERE cm.room_id = ?",
-            )?;
-            let raw: Vec<(String, String, String)> = stmt
-                .query_map([room_id], |row| {
-                    Ok((
-                        row.get::<_, String>(0).unwrap_or_default(),
-                        row.get::<_, String>(1).unwrap_or_default(),
-                        row.get::<_, String>(2).unwrap_or_default(),
-                    ))
-                })?
-                .filter_map(|r| r.ok())
-                .filter(|(uid, _, _)| !uid.is_empty())
-                .collect();
-
-            if raw.is_empty() {
-                return Ok(None);
-            }
-
-            let target_usernames: HashSet<String> =
-                raw.iter().map(|(uid, _, _)| uid.clone()).collect();
-            let group_nicknames =
-                load_group_nickname_map_from_conn(&conn, &uname2, Some(&target_usernames));
-
-            let mut members: Vec<Value> = raw
-                .iter()
-                .map(|(uid, nick, remark)| {
-                    let contact_display = contact_display(uid, nick, remark, &names_map2);
-                    let group_nickname = group_nicknames.get(uid).cloned().unwrap_or_default();
-                    let disp = if group_nickname.is_empty() {
-                        contact_display.clone()
-                    } else {
-                        group_nickname.clone()
-                    };
-                    let is_owner = uid == &owner && !owner.is_empty();
-                    json!({
-                        "username": uid,
-                        "display": disp,
-                        "contact_display": contact_display,
-                        "group_nickname": group_nickname,
-                        "is_owner": is_owner,
-                    })
-                })
-                .collect();
-
-            // 群主排首位，其余按 display 字典序
-            members.sort_by(|a, b| {
-                let ao = a["is_owner"].as_bool().unwrap_or(false);
-                let bo = b["is_owner"].as_bool().unwrap_or(false);
-                if ao != bo {
-                    return bo.cmp(&ao);
-                }
-                a["display"]
-                    .as_str()
-                    .unwrap_or("")
-                    .cmp(b["display"].as_str().unwrap_or(""))
-            });
-
-            Ok(Some(members))
-        })
-        .await??;
-
-        if let Some(members) = members_opt {
-            return Ok(json!({
-                "chat": display,
-                "username": username,
-                "count": members.len(),
-                "members": members,
-            }));
+            let query = chat.to_owned();
+            tokio::task::spawn_blocking(move || contacts::members(&source, &query)).await??
         }
-    }
-
-    // 降级路径：从消息记录中聚合发言过的成员
-    let tables = find_msg_tables(db, names, &username).await?;
-    if tables.is_empty() {
-        return Ok(json!({
-            "chat": display,
-            "username": username,
-            "count": 0,
-            "members": [],
-        }));
-    }
-
-    let mut sender_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (db_path, table_name) in &tables {
-        let path = db_path.clone();
-        let tname = table_name.clone();
-        let uname = username.clone();
-
-        let senders: Vec<String> = tokio::task::spawn_blocking(move || {
-            let conn = Connection::open(&path)?;
-            let id2u = load_id2u(&conn);
-            let mut stmt = conn.prepare(&format!(
-                "SELECT DISTINCT real_sender_id FROM [{}] WHERE real_sender_id > 0",
-                tname
-            ))?;
-            let ids: Vec<i64> = stmt
-                .query_map([], |row| row.get(0))?
-                .filter_map(|r| r.ok())
-                .collect();
-            let senders: Vec<String> = ids
-                .iter()
-                .filter_map(|id| id2u.get(id))
-                .filter(|u| *u != &uname)
-                .cloned()
-                .collect();
-            Ok::<_, anyhow::Error>(senders)
-        })
-        .await??;
-
-        sender_set.extend(senders);
-    }
-
-    let group_nicknames = load_group_nicknames(db, &username)
-        .await
-        .unwrap_or_default();
-    let mut members: Vec<Value> = sender_set
+        other => other?,
+    };
+    let members: Vec<_> = membership
+        .members
         .iter()
-        .map(|u| {
-            let contact_display = names_map.get(u).cloned().unwrap_or_else(|| u.clone());
-            let group_nickname = group_nicknames.get(u).cloned().unwrap_or_default();
-            let display = if group_nickname.is_empty() {
-                contact_display.clone()
-            } else {
-                group_nickname.clone()
-            };
+        .map(|member| {
             json!({
-                "username": u,
-                "display": display,
-                "contact_display": contact_display,
-                "group_nickname": group_nickname,
-                "is_owner": false,
+                "username": member.id.0, "display": member.display(),
+                "contact_display": member.contact_display,
+                "group_nickname": member.group_nickname.as_deref().unwrap_or(""),
+                "is_owner": member.is_owner,
             })
         })
         .collect();
-    members.sort_by(|a, b| {
-        a["display"]
-            .as_str()
-            .unwrap_or("")
-            .cmp(b["display"].as_str().unwrap_or(""))
-    });
-
     Ok(json!({
-        "chat": display,
-        "username": username,
-        "count": members.len(),
-        "members": members,
+        "chat": group.display(), "username": group.id.0, "count": members.len(), "members": members,
+        "membership_complete": membership.coverage == MembershipCoverage::Complete,
+        "membership_source": match membership.coverage { MembershipCoverage::Complete => "member_directory", MembershipCoverage::ObservedSenders => "observed_senders" },
     }))
 }
 
@@ -3542,8 +2968,9 @@ pub async fn q_new_messages(
                         "content": text,
                         "type": fmt_type(local_type),
                     });
-                    if let Some(rich) = rich_message::parse(local_type, &content, is_group) {
-                        msg["rich"] = rich;
+                    if let Ok(rich) = structured_message::decode(local_type, &content, is_group) {
+                        msg["rich"] = serde_json::to_value(rich)
+                            .expect("structured message fields are JSON serializable");
                     }
                     add_sender_identity(
                         &mut msg,
@@ -3642,112 +3069,63 @@ pub async fn q_new_messages(
     }))
 }
 
-/// 查询收藏内容（favorite/favorite.db 的 fav_db_item 表）
+/// Project the shared account-scoped favorite query into the legacy wire shape.
 pub async fn q_favorites(
     db: &DbCache,
     limit: usize,
     fav_type: Option<i64>,
     query: Option<String>,
 ) -> Result<Value> {
-    let path = db
-        .get("favorite/favorite.db")
-        .await?
-        .context("找不到 favorite.db，请确认微信数据目录")?;
-
-    let rows: Vec<Value> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path)?;
-
-        let mut clauses: Vec<&'static str> = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-        if let Some(t) = fav_type {
-            clauses.push("type = ?");
-            params.push(Box::new(t));
-        }
-        let like_str: Option<String> = query.map(|q| {
-            let esc = q
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            format!("%{}%", esc)
-        });
-        if let Some(ref s) = like_str {
-            clauses.push("content LIKE ? ESCAPE '\\'");
-            params.push(Box::new(s.clone()));
-        }
-
-        let where_clause = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", clauses.join(" AND "))
-        };
-        params.push(Box::new(limit as i64));
-
-        let sql = format!(
-            "SELECT local_id, type, update_time, content, fromusr, realchatname
-             FROM fav_db_item {} ORDER BY update_time DESC LIMIT ?",
-            where_clause
-        );
-
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows: Vec<Value> = stmt
-            .query_map(params_ref.as_slice(), |row| {
-                Ok((
-                    row.get::<_, i64>(0).unwrap_or(0),
-                    row.get::<_, i64>(1).unwrap_or(0),
-                    row.get::<_, i64>(2).unwrap_or(0),
-                    row.get::<_, String>(3).unwrap_or_default(),
-                    row.get::<_, String>(4).unwrap_or_default(),
-                    row.get::<_, String>(5).unwrap_or_default(),
-                ))
-            })?
-            .filter_map(|r| r.ok())
-            .map(|(local_id, ftype, ts, content, fromusr, chatname)| {
-                let type_str = match ftype {
-                    1 => "文本",
-                    2 => "图片",
-                    5 => "文章",
-                    19 => "名片",
-                    20 => "视频",
-                    _ => "其他",
+    use crate::{adapters::wechat::favorites as adapter, business::favorites as business};
+    use business::FavoriteKind;
+    let path = adapter::source_path(db).await?;
+    let (rows, has_more) = tokio::task::spawn_blocking(move || {
+        let mut source = adapter::Source::open(&path, fav_type)?;
+        let page = business::list(&mut source, &business::Query { limit, text: query })?;
+        let has_more = page.has_more;
+        let rows = page
+            .items
+            .into_iter()
+            .map(|favorite| {
+                let legacy = source
+                    .legacy_fields(&favorite.evidence)
+                    .context("favorite provenance unavailable")?;
+                let label = match favorite.kind {
+                    FavoriteKind::Text => "文本",
+                    FavoriteKind::Image => "图片",
+                    FavoriteKind::Article => "文章",
+                    FavoriteKind::ContactCard => "名片",
+                    FavoriteKind::Video => "视频",
+                    FavoriteKind::Other => "其他",
                 };
-                // 安全截断（按 Unicode 字符而非字节）
-                let preview: String = content.chars().take(100).collect();
-                let preview = if content.chars().count() > 100 {
-                    format!("{}...", preview)
-                } else {
-                    preview
-                };
-                // WeChat 部分版本的 update_time 为毫秒，10位以上判定为毫秒后转秒
-                let ts_secs = if ts > 9_999_999_999 { ts / 1000 } else { ts };
+                let preview = favorite
+                    .text
+                    .as_deref()
+                    .map(|text| business::preview(text, 100))
+                    .unwrap_or(legacy.preview);
                 let mut item = json!({
-                    "id": local_id,
-                    "type": type_str,
-                    "type_num": ftype,
-                    "time": fmt_time(ts_secs, "%Y-%m-%d %H:%M"),
-                    "timestamp": ts_secs,
+                    "id": legacy.id, "type": label, "type_num": legacy.kind,
+                    "favorite_id": favorite.id.0,
+                    "time": fmt_time(favorite.updated_at, "%Y-%m-%d %H:%M"),
+                    "timestamp": favorite.updated_at,
                     "preview": preview,
-                    "from": fromusr,
-                    "chat": chatname,
+                    "from": favorite.author.unwrap_or_default(),
+                    "chat": favorite.conversation.unwrap_or_default(),
                 });
-                if ftype == 5 {
-                    if let Some(url) = extract_favorite_url(&content) {
-                        item["url"] = Value::String(url);
-                    }
+                if let Some(url) = favorite.article_url {
+                    item["url"] = Value::String(url);
                 }
-                item
+                Ok::<_, anyhow::Error>(item)
             })
-            .collect();
-
-        Ok::<_, anyhow::Error>(rows)
+            .collect::<Result<Vec<_>>>()?;
+        Ok::<_, anyhow::Error>((rows, has_more))
     })
     .await??;
 
     Ok(json!({
         "count": rows.len(),
         "items": rows,
+        "has_more": has_more,
     }))
 }
 
@@ -3959,152 +3337,51 @@ pub async fn q_sns_notifications(
     until: Option<i64>,
     include_read: bool,
 ) -> Result<Value> {
-    let path = db.get("sns/sns.db").await?.context("无法解密 sns.db")?;
-
-    let path2 = path.clone();
-    type Row = (i64, i64, i64, i64, String, String, String);
-    let rows: Vec<Row> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path2)?;
-        let mut clauses: Vec<&str> = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        if !include_read {
-            clauses.push("is_unread = 1");
-        }
-        if let Some(s) = since {
-            clauses.push("create_time >= ?");
-            params.push(Box::new(s));
-        }
-        if let Some(u) = until {
-            clauses.push("create_time <= ?");
-            params.push(Box::new(u));
-        }
-        let where_clause = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", clauses.join(" AND "))
-        };
-        let sql = format!(
-            "SELECT local_id, create_time, type, feed_id, from_username, from_nickname, content
-             FROM SnsMessage_tmp3 {} ORDER BY create_time DESC LIMIT ?",
-            where_clause
-        );
-        params.push(Box::new(limit as i64));
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
-            .query_map(params_ref.as_slice(), |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2).unwrap_or(0),
-                    row.get::<_, i64>(3).unwrap_or(0),
-                    row.get::<_, String>(4).unwrap_or_default(),
-                    row.get::<_, String>(5).unwrap_or_default(),
-                    row.get::<_, String>(6).unwrap_or_default(),
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok::<_, anyhow::Error>(rows)
+    use crate::{adapters::wechat::moments as adapter, business::moments};
+    let path = adapter::database_path(db).await?;
+    let rows = tokio::task::spawn_blocking(move || {
+        let connection = adapter::open(&path)?;
+        moments::notifications(
+            &mut adapter::Notifications(&connection),
+            &moments::InteractionQuery {
+                time: moments::TimeRange { since, until },
+                include_read,
+                limit,
+            },
+        )
     })
     .await??;
-
-    // 一次性取出涉及的 feed 原帖，避免 N+1 查询
-    let feed_ids: Vec<i64> = {
-        let mut v: Vec<i64> = rows.iter().map(|r| r.3).collect();
-        v.sort_unstable();
-        v.dedup();
-        v
-    };
-    let path3 = path.clone();
-    let feed_ids_clone = feed_ids.clone();
-    let feeds: HashMap<i64, (String, String)> = tokio::task::spawn_blocking(move || {
-        if feed_ids_clone.is_empty() {
-            return Ok::<_, anyhow::Error>(HashMap::new());
-        }
-        let conn = Connection::open(&path3)?;
-        let placeholders = std::iter::repeat_n("?", feed_ids_clone.len())
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT tid, user_name, content FROM SnsTimeLine WHERE tid IN ({})",
-            placeholders
-        );
-        let params: Vec<&dyn rusqlite::types::ToSql> = feed_ids_clone
-            .iter()
-            .map(|id| id as &dyn rusqlite::types::ToSql)
-            .collect();
-        let mut stmt = conn.prepare(&sql)?;
-        let mut map = HashMap::new();
-        let mut rows2 = stmt.query(params.as_slice())?;
-        while let Some(row) = rows2.next()? {
-            let tid: i64 = row.get(0)?;
-            let author: String = row.get::<_, String>(1).unwrap_or_default();
-            let content: String = row.get::<_, String>(2).unwrap_or_default();
-            let preview = extract_xml_text(&content, "contentDesc")
-                .map(|s| s.chars().take(60).collect::<String>())
-                .unwrap_or_default();
-            // 原帖 user_name 偶尔为空（转发帖），再从 XML 兜一下
-            let author = if author.is_empty() {
-                extract_xml_text(&content, "username").unwrap_or_default()
-            } else {
-                author
-            };
-            map.insert(tid, (author, preview));
-        }
-        Ok(map)
-    })
-    .await??;
-
     let mut out = Vec::with_capacity(rows.len());
-    for (_local_id, ct, _typ, fid, from_u, from_nick, content) in rows {
-        let kind = if content.trim().is_empty() {
-            "like"
-        } else {
-            "comment"
+    for row in rows {
+        let kind = match row.kind {
+            moments::InteractionKind::Like => "like",
+            moments::InteractionKind::Comment => "comment",
+            moments::InteractionKind::Unknown => "unknown",
         };
-        let display = if !from_nick.is_empty() {
-            from_nick.clone()
+        let display = if row.actor_name.is_empty() {
+            names.display(&row.actor)
         } else {
-            names.display(&from_u)
+            row.actor_name
         };
-        let (feed_author_u, feed_preview) = feeds.get(&fid).cloned().unwrap_or_default();
-        let feed_author_display = if feed_author_u.is_empty() {
+        let author = row.original_author.unwrap_or_default();
+        let author_display = if author.is_empty() {
             String::new()
         } else {
-            names.display(&feed_author_u)
+            names.display(&author)
         };
         out.push(json!({
-            "type": kind,
-            "time": fmt_time(ct, "%m-%d %H:%M"),
-            "timestamp": ct,
-            "from_username": from_u,
-            "from_nickname": display,
-            "content": content,
-            "feed_id": fid,
-            "feed_author_username": feed_author_u,
-            "feed_author": feed_author_display,
-            "feed_preview": feed_preview,
+            "type": kind, "time": fmt_time(row.created_at, "%m-%d %H:%M"), "timestamp": row.created_at,
+            "from_username": row.actor, "from_nickname": display, "content": row.text,
+            "feed_id": adapter::legacy_record_id(&row.moment)?,
+            "feed_author_username": author, "feed_author": author_display,
+            "feed_preview": row.original_preview.unwrap_or_default(),
         }));
     }
     let total = out.len();
-    Ok(json!({ "notifications": out, "total": total }))
+    Ok(json!({"notifications":out,"total":total}))
 }
 
-// 朋友圈扫描的硬上限：单次查询最多解析这么多行 SnsTimeLine，
-// 防止用户传超大 limit 或者底层数据异常时把 daemon 卡住。
-// 当前账号单个联系人已有 10k+ 帖子，返回上限与扫描上限保持一致，
-// 避免完整导出时在结果阶段被二次截断。
-const SNS_MAX_LIMIT: usize = 50_000;
-const SNS_MAX_SCAN: usize = 50_000;
-
-/// 转义 SQL LIKE 模式中的元字符。配合 `ESCAPE '\\'` 使用。
-/// 反斜杠必须最先转义，否则后续替换出的 `\%` / `\_` 会被再次吞掉。
-fn escape_like_pattern(s: &str) -> String {
-    s.replace('\\', r"\\")
-        .replace('%', r"\%")
-        .replace('_', r"\_")
-}
+use crate::adapters::wechat::moments::query_xml::ParsedPost;
 
 fn xml_child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'input>> {
     node.children()
@@ -4116,187 +3393,6 @@ fn xml_text<'a, 'input>(node: Option<Node<'a, 'input>>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-}
-
-fn xml_attr<'a, 'input>(node: Option<Node<'a, 'input>>, attr: &str) -> Option<String> {
-    node.and_then(|n| n.attribute(attr))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-}
-
-fn insert_media_string(out: &mut serde_json::Map<String, Value>, key: &str, value: Option<String>) {
-    if let Some(value) = value {
-        out.insert(key.to_string(), Value::String(value));
-    }
-}
-
-fn insert_media_i64(out: &mut serde_json::Map<String, Value>, key: &str, value: Option<i64>) {
-    if let Some(value) = value {
-        out.insert(key.to_string(), Value::from(value));
-    }
-}
-
-/// 从已经定位到的 `<TimelineObject>` 节点里抽 `<mediaList>/<media>` 数组。
-/// 字段名与 artifacts 仓库 `wechat_sns_dump.py::_parse_media` 对齐，
-/// 便于跨实现 diff。缺失字段直接省略（不输出 null），供下游代理图片 / 离线渲染。
-fn parse_media_from_timeline(timeline: Node) -> Vec<Value> {
-    let Some(media_list) =
-        xml_child(timeline, "ContentObject").and_then(|node| xml_child(node, "mediaList"))
-    else {
-        return Vec::new();
-    };
-
-    media_list
-        .children()
-        .filter(|node| node.is_element() && node.has_tag_name("media"))
-        .map(|media| {
-            let url_el = xml_child(media, "url");
-            let thumb_el = xml_child(media, "thumb");
-            let size_el = xml_child(media, "size");
-            let enc_el = xml_child(media, "enc");
-            let mut out = serde_json::Map::new();
-
-            insert_media_string(&mut out, "id", xml_text(xml_child(media, "id")));
-            insert_media_string(&mut out, "type", xml_text(xml_child(media, "type")));
-            insert_media_string(&mut out, "sub_type", xml_text(xml_child(media, "sub_type")));
-            insert_media_string(&mut out, "url", xml_text(url_el));
-            insert_media_string(&mut out, "thumb", xml_text(thumb_el));
-            insert_media_string(&mut out, "md5", xml_attr(url_el, "md5"));
-            insert_media_string(&mut out, "url_key", xml_attr(url_el, "key"));
-            insert_media_string(&mut out, "url_token", xml_attr(url_el, "token"));
-            insert_media_string(&mut out, "url_enc_idx", xml_attr(url_el, "enc_idx"));
-            insert_media_string(&mut out, "thumb_key", xml_attr(thumb_el, "key"));
-            insert_media_string(&mut out, "thumb_token", xml_attr(thumb_el, "token"));
-            insert_media_string(&mut out, "thumb_enc_idx", xml_attr(thumb_el, "enc_idx"));
-            insert_media_string(&mut out, "enc_key", xml_attr(enc_el, "key"));
-            insert_media_i64(
-                &mut out,
-                "width",
-                xml_attr(size_el, "width").and_then(|v| v.parse::<i64>().ok()),
-            );
-            insert_media_i64(
-                &mut out,
-                "height",
-                xml_attr(size_el, "height").and_then(|v| v.parse::<i64>().ok()),
-            );
-            insert_media_i64(
-                &mut out,
-                "total_size",
-                xml_attr(size_el, "totalSize").and_then(|v| v.parse::<i64>().ok()),
-            );
-            insert_media_string(
-                &mut out,
-                "video_md5",
-                xml_text(xml_child(media, "videomd5")).or_else(|| xml_attr(url_el, "videomd5")),
-            );
-            insert_media_i64(
-                &mut out,
-                "video_duration",
-                xml_text(xml_child(media, "videoDuration")).and_then(|v| v.parse::<i64>().ok()),
-            );
-
-            Value::Object(out)
-        })
-        .collect()
-}
-
-/// 从 `SnsTimeLine.content` 整段 XML 抽 media[]。仅供单测使用 —— 生产路径走
-/// `parse_post_xml`，那边已经把整份 doc parse 一次直接复用 timeline 节点。
-#[cfg(test)]
-fn parse_post_media(xml: &str) -> Vec<Value> {
-    let Ok(doc) = Document::parse(xml) else {
-        return Vec::new();
-    };
-    let Some(timeline) = doc.descendants().find(|n| n.has_tag_name("TimelineObject")) else {
-        return Vec::new();
-    };
-    parse_media_from_timeline(timeline)
-}
-
-/// SnsTimeLine 行解析产物。不含 display name（依赖 Names，需要出 spawn_blocking 再补）。
-struct ParsedPost {
-    tid: i64,
-    post_id: String,
-    create_time: i64,
-    author_username: String,
-    content: String,
-    media: Vec<Value>,
-    location: String,
-}
-
-fn parse_post_xml_fallback(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
-    let create_time = extract_xml_text(content, "createTime")
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(0);
-    let text = extract_xml_text(content, "contentDesc")
-        .map(|s| unescape_html(&s))
-        .unwrap_or_default();
-    let author_username = if user_name_column.is_empty() {
-        extract_xml_text(content, "username")
-            .map(|s| unescape_html(&s))
-            .unwrap_or_default()
-    } else {
-        user_name_column.to_string()
-    };
-    let location = extract_xml_attr(content, "location", "poiName")
-        .map(|s| unescape_html(&s))
-        .unwrap_or_default();
-
-    ParsedPost {
-        tid,
-        post_id: extract_xml_text(content, "id").unwrap_or_default(),
-        create_time,
-        author_username,
-        content: text,
-        media: Vec::new(),
-        location,
-    }
-}
-
-/// 纯 XML 解析，无 Names 依赖，可以在 spawn_blocking 里跑。
-/// user_name_column 为空时从 TimelineObject/<username> 兜底（转发帖）。
-///
-/// 单 roxmltree DOM 解析一次出全部字段（createTime / contentDesc / username / media / location），
-/// 取代旧版 regex + DOM 双解析。XML entity 解码（`&lt;` / `&amp;` 等）由 roxmltree 自动处理，
-/// 旧版 `extract_xml_text` 是字符串扫描不解码 —— 因此 `content` / `location` / `username` 字段
-/// 现在会输出解码后的文本，对下游是更正确的语义。
-/// 如果 XML 已损坏到无法 DOM parse，或缺少 `TimelineObject`，则退回轻量 string
-/// fallback，尽量保住 createTime / contentDesc / username / location，避免一条帖子
-/// 因为局部坏 XML 被整体打成零值，影响排序 / 搜索 / 作者过滤语义。
-fn parse_post_xml(tid: i64, user_name_column: &str, content: &str) -> ParsedPost {
-    let Ok(doc) = Document::parse(content) else {
-        return parse_post_xml_fallback(tid, user_name_column, content);
-    };
-    let Some(timeline) = doc.descendants().find(|n| n.has_tag_name("TimelineObject")) else {
-        return parse_post_xml_fallback(tid, user_name_column, content);
-    };
-
-    let create_time = xml_text(xml_child(timeline, "createTime"))
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(0);
-    let text = xml_text(xml_child(timeline, "contentDesc")).unwrap_or_default();
-    let post_id = xml_text(xml_child(timeline, "id")).unwrap_or_default();
-    let author_username = if user_name_column.is_empty() {
-        xml_text(xml_child(timeline, "username")).unwrap_or_default()
-    } else {
-        user_name_column.to_string()
-    };
-    let media = parse_media_from_timeline(timeline);
-    let location = xml_child(timeline, "location")
-        .and_then(|n| n.attribute("poiName"))
-        .map(str::to_string)
-        .unwrap_or_default();
-
-    ParsedPost {
-        tid,
-        post_id,
-        create_time,
-        author_username,
-        content: text,
-        media,
-        location,
-    }
 }
 
 fn post_to_value(p: ParsedPost, names: &Names) -> Value {
@@ -4319,7 +3415,92 @@ fn post_to_value(p: ParsedPost, names: &Names) -> Value {
     })
 }
 
-/// 查询朋友圈时间线：按时间/作者筛选。用于浏览自己或好友的朋友圈。
+#[derive(serde::Serialize)]
+struct SnsReadStatus {
+    scanned: usize,
+    scan_truncated: bool,
+    has_more: bool,
+    unreadable: usize,
+    author_conflicts: usize,
+    coverage: &'static str,
+}
+
+impl From<&crate::business::moments::Page> for SnsReadStatus {
+    fn from(page: &crate::business::moments::Page) -> Self {
+        Self {
+            scanned: page.scanned,
+            scan_truncated: page.scan_truncated,
+            has_more: page.more_matches,
+            unreadable: page.unreadable.len(),
+            author_conflicts: page.author_conflicts.len(),
+            coverage: match page.coverage {
+                crate::business::moments::Coverage::LocalCacheOnly => "local_cache_only",
+            },
+        }
+    }
+}
+
+fn resolve_sns_author(query: &str, names: &Names) -> Result<String> {
+    if names.map.contains_key(query) || query.starts_with("wxid_") || query.contains("@chatroom") {
+        return Ok(query.to_owned());
+    }
+    let source =
+        crate::adapters::wechat::contacts::cached_directory(&names.map, &names.verify_flags);
+    crate::business::contacts::resolve(&source, query)
+        .map(|contact| contact.id.0)
+        .map_err(|error| match error {
+            crate::business::contacts::Error::Ambiguous => {
+                anyhow::anyhow!("ambiguous contact name: {query}")
+            }
+            crate::business::contacts::Error::NotFound => anyhow::anyhow!("找不到联系人: {query}"),
+            other => other.into(),
+        })
+}
+
+async fn sns_moments(
+    db: &DbCache,
+    names: &Names,
+    limit: usize,
+    since: Option<i64>,
+    until: Option<i64>,
+    user: Option<&str>,
+    keyword: Option<&str>,
+) -> Result<(Vec<Value>, Option<String>, SnsReadStatus)> {
+    use crate::{adapters::wechat::moments as adapter, business::moments};
+    let path = adapter::database_path(db).await?;
+    let author = user.map(|q| resolve_sns_author(q, names)).transpose()?;
+    let resolved = author.clone();
+    let query = moments::Query {
+        authors: author.into_iter().collect(),
+        author_policy: moments::AuthorPolicy::Effective,
+        time: moments::TimeRange { since, until },
+        keyword: keyword.map(str::to_owned),
+        limit: limit.min(adapter::MAX_QUERY_LIMIT),
+        scan_limit: adapter::MAX_QUERY_SCAN,
+    };
+    let (posts, status) = tokio::task::spawn_blocking(move || {
+        let connection = adapter::open(&path)?;
+        let mut source =
+            adapter::Timeline::new(&connection, adapter::ReadPolicy::QueryCompatibility);
+        let page = moments::query(&mut source, &query)?;
+        let posts = page
+            .moments
+            .iter()
+            .map(|moment| source.query_projection(moment))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok::<_, moments::SourceError>((posts, SnsReadStatus::from(&page)))
+    })
+    .await??;
+    Ok((
+        posts
+            .into_iter()
+            .map(|post| post_to_value(post, names))
+            .collect(),
+        resolved,
+        status,
+    ))
+}
+
 pub async fn q_sns_feed(
     db: &DbCache,
     names: &Names,
@@ -4328,72 +3509,15 @@ pub async fn q_sns_feed(
     until: Option<i64>,
     user: Option<&str>,
 ) -> Result<Value> {
-    let path = db.get("sns/sns.db").await?.context("无法解密 sns.db")?;
-
-    let limit = limit.min(SNS_MAX_LIMIT);
-    let user_uname = match user {
-        Some(q) => {
-            Some(resolve_username(q, names).with_context(|| format!("找不到联系人: {}", q))?)
-        }
-        None => None,
-    };
-    let resolved_user = user_uname.clone();
-
-    // user 过滤不在 SQL 层做：SnsTimeLine.user_name 列对部分（转发）帖子是空，
-    // 真正作者只在 XML <username> 里。SQL 层 `user_name = ?` 会把这部分提前漏掉，
-    // 让 parse_post_xml 的 fallback 失效。所以扫全表 → parse → 用 ParsedPost.author_username 过滤。
-    // (createTime 也不是列，本来就要扫全表 parse XML 才能正确按时间排序。)
-    let path2 = path.clone();
-    let (parsed, scanned, scan_truncated): (Vec<ParsedPost>, usize, bool) = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path2)?;
-        let sql = "SELECT tid, user_name, content FROM SnsTimeLine ORDER BY tid DESC";
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([], |row| Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1).unwrap_or_default(),
-            row.get::<_, String>(2).unwrap_or_default(),
-        )))?;
-
-        let mut scanned = 0usize;
-        let mut scan_truncated = false;
-        let mut out: Vec<ParsedPost> = Vec::new();
-        for row in rows {
-            scanned += 1;
-            if scanned > SNS_MAX_SCAN {
-                scan_truncated = true;
-                eprintln!(
-                    "[sns_feed] scan 超过硬上限 {}，结果可能不完整。建议加 --user / --since 缩小范围。",
-                    SNS_MAX_SCAN
-                );
-                break;
-            }
-            let (tid, uname, content) = row?;
-            let p = parse_post_xml(tid, &uname, &content);
-            if let Some(u) = user_uname.as_ref() { if &p.author_username != u { continue; } }
-            if let Some(s) = since { if p.create_time < s { continue; } }
-            if let Some(u) = until { if p.create_time > u { continue; } }
-            out.push(p);
-        }
-        // tid DESC 不严格等于 createTime DESC（不同账号 tid 生成算法不同），
-        // 所以要先收齐全部匹配的、按 create_time 排序，再 truncate —— 否则会丢帖。
-        out.sort_by_key(|p| std::cmp::Reverse(p.create_time));
-        out.truncate(limit);
-        Ok::<_, anyhow::Error>((out, scanned.min(SNS_MAX_SCAN), scan_truncated))
-    }).await??;
-
-    let posts: Vec<Value> = parsed
-        .into_iter()
-        .map(|p| post_to_value(p, names))
-        .collect();
+    let (posts, resolved_user, status) =
+        sns_moments(db, names, limit, since, until, user, None).await?;
     let total = posts.len();
-    // 空结果也携带精确作者；扫描截断不能被相册误报为完整覆盖。
     Ok(
-        json!({ "posts": posts, "total": total, "resolved_user": resolved_user,
-        "scanned": scanned, "scan_truncated": scan_truncated }),
+        json!({"posts":posts,"total":total,"resolved_user":resolved_user,
+            "scanned":status.scanned,"scan_truncated":status.scan_truncated,"meta":status}),
     )
 }
 
-/// 搜索朋友圈全文：在 contentDesc（正文）里匹配 keyword，可叠加时间 / 作者过滤。
 pub async fn q_sns_search(
     db: &DbCache,
     names: &Names,
@@ -4406,67 +3530,60 @@ pub async fn q_sns_search(
     if keyword.trim().is_empty() {
         anyhow::bail!("搜索关键词不能为空");
     }
-    let path = db.get("sns/sns.db").await?.context("无法解密 sns.db")?;
-
-    let limit = limit.min(SNS_MAX_LIMIT);
-    let user_uname = match user {
-        Some(q) => {
-            Some(resolve_username(q, names).with_context(|| format!("找不到联系人: {}", q))?)
-        }
-        None => None,
-    };
-
-    // SQL LIKE 在 content 上粗筛 keyword（这步省掉绝大多数行的 XML parse 开销）。
-    // user 不在 SQL 层过滤，原因同 q_sns_feed：SnsTimeLine.user_name 列对部分（转发）
-    // 帖子为空，真实作者只在 XML <username> 里。
-    let like_pattern = format!("%{}%", escape_like_pattern(keyword));
-    let keyword_owned = keyword.to_string();
-
-    let path2 = path.clone();
-    let parsed: Vec<ParsedPost> = tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&path2)?;
-        let sql = "SELECT tid, user_name, content FROM SnsTimeLine \
-                   WHERE content LIKE ? ESCAPE '\\' ORDER BY tid DESC";
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map([&like_pattern], |row| Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1).unwrap_or_default(),
-            row.get::<_, String>(2).unwrap_or_default(),
-        )))?;
-
-        let needle = keyword_owned.to_lowercase();
-        let mut scanned = 0usize;
-        let mut out: Vec<ParsedPost> = Vec::new();
-        for row in rows {
-            scanned += 1;
-            if scanned > SNS_MAX_SCAN {
-                eprintln!(
-                    "[sns_search] scan 超过硬上限 {}，结果可能不完整。建议缩小 keyword 或加 --user / --since。",
-                    SNS_MAX_SCAN
-                );
-                break;
-            }
-            let (tid, uname, content) = row?;
-            let desc = extract_xml_text(&content, "contentDesc").unwrap_or_default();
-            if !desc.to_lowercase().contains(&needle) { continue; }
-
-            let p = parse_post_xml(tid, &uname, &content);
-            if let Some(u) = user_uname.as_ref() { if &p.author_username != u { continue; } }
-            if let Some(s) = since { if p.create_time < s { continue; } }
-            if let Some(u) = until { if p.create_time > u { continue; } }
-            out.push(p);
-        }
-        out.sort_by_key(|p| std::cmp::Reverse(p.create_time));
-        out.truncate(limit);
-        Ok::<_, anyhow::Error>(out)
-    }).await??;
-
-    let posts: Vec<Value> = parsed
-        .into_iter()
-        .map(|p| post_to_value(p, names))
-        .collect();
+    let (posts, _, status) =
+        sns_moments(db, names, limit, since, until, user, Some(keyword)).await?;
     let total = posts.len();
-    Ok(json!({ "keyword": keyword, "posts": posts, "total": total }))
+    Ok(json!({"keyword":keyword,"posts":posts,"total":total,"meta":status}))
+}
+
+#[cfg(test)]
+mod sns_business_projection_tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_local_scan_and_author_conflicts_survive_projection() {
+        use crate::business::moments::{Coverage, EvidenceRef, Page};
+        let page = Page {
+            moments: vec![],
+            scanned: 3,
+            filtered: 0,
+            unreadable: vec![EvidenceRef("unreadable".into())],
+            author_conflicts: vec![EvidenceRef("conflict".into())],
+            scan_truncated: true,
+            more_matches: false,
+            coverage: Coverage::LocalCacheOnly,
+        };
+        let projected = serde_json::to_value(SnsReadStatus::from(&page)).unwrap();
+        assert_eq!(
+            projected,
+            json!({"scanned":3,"scan_truncated":true,
+            "has_more":false,"unreadable":1,"author_conflicts":1,"coverage":"local_cache_only"})
+        );
+    }
+
+    #[test]
+    fn author_display_ambiguity_is_not_resolved_by_iteration_order() {
+        let names = Names {
+            map: HashMap::from([
+                ("wxid_a".into(), "Same".into()),
+                ("wxid_b".into(), "Same".into()),
+            ]),
+            md5_to_uname: HashMap::new(),
+            msg_db_keys: vec![],
+            biz_msg_db_keys: vec![],
+            verify_flags: HashMap::new(),
+        };
+        assert!(resolve_sns_author("Same", &names)
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous"));
+        assert_eq!(resolve_sns_author("wxid_a", &names).unwrap(), "wxid_a");
+        assert_eq!(
+            resolve_sns_author("wxid_unlisted", &names).unwrap(),
+            "wxid_unlisted"
+        );
+        assert!(resolve_sns_author("missing display name", &names).is_err());
+    }
 }
 
 // ─── 公众号文章查询 ───────────────────────────────────────────────────────────
@@ -5543,138 +4660,6 @@ mod group_nickname_tests {
 mod sns_tests {
     use super::*;
 
-    fn make_post_xml(
-        create_time: &str,
-        desc: &str,
-        username_tag: Option<&str>,
-        media: usize,
-        location: Option<&str>,
-    ) -> String {
-        let username = username_tag
-            .map(|u| format!("<username>{}</username>", u))
-            .unwrap_or_default();
-        let media_tags = "<media><type>2</type></media>".repeat(media);
-        let content_object = if media > 0 {
-            format!(
-                "<ContentObject><mediaList>{}</mediaList></ContentObject>",
-                media_tags
-            )
-        } else {
-            String::new()
-        };
-        let loc = location
-            .map(|p| format!(r#"<location poiName="{}" longitude="0" latitude="0" />"#, p))
-            .unwrap_or_default();
-        format!(
-            "<TimelineObject>{}<createTime>{}</createTime><contentDesc>{}</contentDesc>{}{}</TimelineObject>",
-            username, create_time, desc, content_object, loc
-        )
-    }
-
-    #[test]
-    fn parse_uses_user_name_column_when_present() {
-        let xml = make_post_xml("1700000000", "hello", Some("wxid_xml"), 0, None);
-        let p = parse_post_xml(1, "wxid_column", &xml);
-        assert_eq!(p.author_username, "wxid_column");
-        assert_eq!(p.create_time, 1700000000);
-        assert_eq!(p.content, "hello");
-        assert_eq!(p.media.len(), 0);
-        assert_eq!(p.location, "");
-    }
-
-    #[test]
-    fn parse_falls_back_to_xml_username_when_column_empty() {
-        let xml = make_post_xml("1700000001", "world", Some("wxid_xml_only"), 0, None);
-        let p = parse_post_xml(2, "", &xml);
-        assert_eq!(p.author_username, "wxid_xml_only");
-    }
-
-    #[test]
-    fn parse_handles_missing_create_time() {
-        let xml = "<TimelineObject><contentDesc>x</contentDesc></TimelineObject>";
-        let p = parse_post_xml(3, "wxid", xml);
-        assert_eq!(p.create_time, 0);
-        assert_eq!(p.content, "x");
-    }
-
-    #[test]
-    fn parse_counts_media_and_extracts_location() {
-        let xml = make_post_xml("1700000002", "post", None, 3, Some("Wuxi"));
-        let p = parse_post_xml(4, "wxid", &xml);
-        assert_eq!(p.media.len(), 3);
-        assert_eq!(p.location, "Wuxi");
-    }
-
-    #[test]
-    fn parse_when_both_column_and_xml_username_empty_returns_empty_author() {
-        let xml = "<TimelineObject><createTime>1700000003</createTime><contentDesc>orphan</contentDesc></TimelineObject>";
-        let p = parse_post_xml(5, "", xml);
-        assert_eq!(p.author_username, "");
-    }
-
-    #[test]
-    fn parse_decodes_xml_entities_in_content() {
-        // 单 DOM 解析的副作用：roxmltree 自动把 &lt; / &amp; / &quot; 等还原成原字符；
-        // 旧版 extract_xml_text 字符串扫描不解码，会把 "&lt;world&gt;" 原样输出。
-        // 新版语义对下游更正确（拿到的就是用户真实内容），把这个行为锁进测试。
-        let xml = "<TimelineObject><contentDesc>Hello &lt;world&gt; &amp; friends</contentDesc></TimelineObject>";
-        let p = parse_post_xml(6, "wxid", xml);
-        assert_eq!(p.content, "Hello <world> & friends");
-    }
-
-    #[test]
-    fn parse_malformed_xml_falls_back_to_string_fields_when_column_present() {
-        let xml = "<TimelineObject><createTime>1700000007</createTime><contentDesc>A &amp; B</contentDesc><location poiName=\"Wuxi &amp; Lake\" /><not valid xml";
-        let p = parse_post_xml(7, "wxid_fallback", xml);
-        assert_eq!(p.create_time, 1700000007);
-        assert_eq!(p.content, "A & B");
-        assert_eq!(p.author_username, "wxid_fallback");
-        assert!(p.media.is_empty());
-        assert_eq!(p.location, "Wuxi & Lake");
-    }
-
-    #[test]
-    fn parse_malformed_xml_can_still_use_xml_username_when_column_empty() {
-        let xml = "<TimelineObject><createTime>1700000008</createTime><contentDesc>broken</contentDesc><username>wxid_xml_only</username><not valid xml";
-        let p = parse_post_xml(8, "", xml);
-        assert_eq!(p.create_time, 1700000008);
-        assert_eq!(p.content, "broken");
-        assert_eq!(p.author_username, "wxid_xml_only");
-        assert!(p.media.is_empty());
-    }
-
-    #[test]
-    fn parse_without_timeline_object_falls_back_to_string_fields() {
-        let xml = "<SnsDataItem><createTime>1700000009</createTime><contentDesc>still here</contentDesc><username>wxid_outer</username></SnsDataItem>";
-        let p = parse_post_xml(9, "", xml);
-        assert_eq!(p.create_time, 1700000009);
-        assert_eq!(p.content, "still here");
-        assert_eq!(p.author_username, "wxid_outer");
-        assert!(p.media.is_empty());
-    }
-
-    #[test]
-    fn escape_like_pattern_escapes_backslash_first() {
-        // 反斜杠必须在 % / _ 之前转义；否则后面塞进去的 \% / \_ 会被再次双转义吃掉
-        assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
-        assert_eq!(escape_like_pattern("100%"), "100\\%");
-        assert_eq!(escape_like_pattern("foo_bar"), "foo\\_bar");
-    }
-
-    #[test]
-    fn escape_like_pattern_combined() {
-        // \%_ 三个元字符同时出现
-        let escaped = escape_like_pattern("a\\b%c_d");
-        assert_eq!(escaped, "a\\\\b\\%c\\_d");
-    }
-
-    #[test]
-    fn escape_like_pattern_no_special_chars_unchanged() {
-        assert_eq!(escape_like_pattern("hello world"), "hello world");
-        assert_eq!(escape_like_pattern("中文关键词"), "中文关键词");
-        assert_eq!(escape_like_pattern(""), "");
-    }
-
     #[test]
     fn extract_appmsg_url_unescapes_html_entities() {
         let xml = concat!(
@@ -5763,242 +4748,5 @@ mod sns_tests {
             "</favitem>"
         );
         assert_eq!(extract_favorite_url(xml), None);
-    }
-
-    fn media_object(value: &Value) -> &serde_json::Map<String, Value> {
-        value.as_object().expect("media entry should be an object")
-    }
-
-    #[test]
-    fn single_image_media() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <mediaList>
-        <media>
-          <type>2</type>
-          <url enc_idx="1" key="placeholder-key" token="placeholder-token" md5="placeholder-md5">https://szmmsns.qpic.cn/&lt;redacted&gt;/image.jpg</url>
-          <thumb enc_idx="0" key="placeholder-thumb-key" token="placeholder-thumb-token">https://szmmsns.qpic.cn/&lt;redacted&gt;/thumb.jpg</thumb>
-          <size width="1440" height="1080" totalSize="123456" />
-        </media>
-      </mediaList>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        let media = parse_post_media(xml);
-        assert_eq!(media.len(), 1);
-
-        let item = media_object(&media[0]);
-        assert_eq!(item.get("type").and_then(Value::as_str), Some("2"));
-        assert_eq!(
-            item.get("url").and_then(Value::as_str),
-            Some("https://szmmsns.qpic.cn/<redacted>/image.jpg")
-        );
-        assert_eq!(
-            item.get("thumb").and_then(Value::as_str),
-            Some("https://szmmsns.qpic.cn/<redacted>/thumb.jpg")
-        );
-        assert_eq!(item.get("url_enc_idx").and_then(Value::as_str), Some("1"));
-        assert_eq!(
-            item.get("url_key").and_then(Value::as_str),
-            Some("placeholder-key")
-        );
-        assert_eq!(
-            item.get("url_token").and_then(Value::as_str),
-            Some("placeholder-token")
-        );
-        assert_eq!(
-            item.get("md5").and_then(Value::as_str),
-            Some("placeholder-md5")
-        );
-        assert_eq!(item.get("width").and_then(Value::as_i64), Some(1440));
-        assert_eq!(item.get("height").and_then(Value::as_i64), Some(1080));
-        assert_eq!(item.get("total_size").and_then(Value::as_i64), Some(123456));
-    }
-
-    #[test]
-    fn three_images_media() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <mediaList>
-        <media>
-          <type>2</type>
-          <sub_type>10</sub_type>
-          <url enc_idx="1" key="placeholder-key-1" token="placeholder-token-1">https://szmmsns.qpic.cn/&lt;redacted&gt;/image-1.jpg</url>
-          <thumb>https://szmmsns.qpic.cn/&lt;redacted&gt;/thumb-1.jpg</thumb>
-          <size width="100" height="200" totalSize="111" />
-        </media>
-        <media>
-          <type>2</type>
-          <sub_type>11</sub_type>
-          <url enc_idx="0" key="placeholder-key-2" token="placeholder-token-2">https://szmmsns.qpic.cn/&lt;redacted&gt;/image-2.jpg</url>
-          <thumb>https://szmmsns.qpic.cn/&lt;redacted&gt;/thumb-2.jpg</thumb>
-          <size width="300" height="400" totalSize="222" />
-        </media>
-        <media>
-          <type>6</type>
-          <url>https://szmmsns.qpic.cn/&lt;redacted&gt;/image-3.jpg</url>
-          <thumb enc_idx="1" key="placeholder-thumb-key-3" token="placeholder-thumb-token-3">https://szmmsns.qpic.cn/&lt;redacted&gt;/thumb-3.jpg</thumb>
-          <size width="500" height="600" totalSize="333" />
-        </media>
-      </mediaList>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        let media = parse_post_media(xml);
-        assert_eq!(media.len(), 3);
-
-        let first = media_object(&media[0]);
-        assert_eq!(first.get("sub_type").and_then(Value::as_str), Some("10"));
-        assert_eq!(
-            first.get("url_key").and_then(Value::as_str),
-            Some("placeholder-key-1")
-        );
-
-        let second = media_object(&media[1]);
-        assert_eq!(second.get("sub_type").and_then(Value::as_str), Some("11"));
-        assert_eq!(second.get("width").and_then(Value::as_i64), Some(300));
-
-        let third = media_object(&media[2]);
-        assert_eq!(third.get("type").and_then(Value::as_str), Some("6"));
-        assert_eq!(
-            third.get("thumb_key").and_then(Value::as_str),
-            Some("placeholder-thumb-key-3")
-        );
-    }
-
-    #[test]
-    fn video_media() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <id>18446744073709551610</id>
-    <ContentObject>
-      <mediaList>
-        <media>
-          <id>12345678901234567890</id>
-          <type>15</type>
-          <url enc_idx="1" key="placeholder-video-key" token="placeholder-video-token">https://szmmsns.qpic.cn/&lt;redacted&gt;/video.mp4</url>
-          <thumb>https://szmmsns.qpic.cn/&lt;redacted&gt;/video-thumb.jpg</thumb>
-          <size width="720" height="1280" />
-          <videomd5>&lt;placeholder-video-md5&gt;</videomd5>
-          <videoDuration>37</videoDuration>
-          <enc key="9876543210">1</enc>
-        </media>
-      </mediaList>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        let media = parse_post_media(xml);
-        assert_eq!(media.len(), 1);
-
-        let item = media_object(&media[0]);
-        assert_eq!(
-            item.get("video_md5").and_then(Value::as_str),
-            Some("<placeholder-video-md5>")
-        );
-        assert_eq!(item.get("video_duration").and_then(Value::as_i64), Some(37));
-        assert_eq!(
-            item.get("id").and_then(Value::as_str),
-            Some("12345678901234567890")
-        );
-        assert_eq!(
-            item.get("enc_key").and_then(Value::as_str),
-            Some("9876543210")
-        );
-        assert!(!item.contains_key("total_size"));
-    }
-
-    #[test]
-    fn parse_exposes_timeline_post_id() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <id>18446744073709551610</id>
-    <createTime>1700000000</createTime>
-    <contentDesc>hello</contentDesc>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        let post = parse_post_xml(-6, "wxid_test", xml);
-        assert_eq!(post.post_id, "18446744073709551610");
-    }
-
-    #[test]
-    fn text_only_post() {
-        let without_media_list = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <type>1</type>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-        let empty_media_list = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <mediaList />
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        assert!(parse_post_media(without_media_list).is_empty());
-        assert!(parse_post_media(empty_media_list).is_empty());
-    }
-
-    #[test]
-    fn malformed_xml() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <mediaList>
-        <media>
-          <type>2</type>
-      </mediaList>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        assert!(parse_post_media(xml).is_empty());
-    }
-
-    #[test]
-    fn size_without_total_size_omits_total_size_key() {
-        let xml = r#"
-<SnsDataItem>
-  <TimelineObject>
-    <ContentObject>
-      <mediaList>
-        <media>
-          <type>2</type>
-          <size width="640" height="480" />
-        </media>
-      </mediaList>
-    </ContentObject>
-  </TimelineObject>
-</SnsDataItem>
-        "#;
-
-        let media = parse_post_media(xml);
-        assert_eq!(media.len(), 1);
-        let item = media_object(&media[0]);
-        assert_eq!(item.get("width").and_then(Value::as_i64), Some(640));
-        assert_eq!(item.get("height").and_then(Value::as_i64), Some(480));
-        assert!(!item.contains_key("total_size"));
     }
 }

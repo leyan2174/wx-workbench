@@ -7,12 +7,7 @@ use zeroize::Zeroize;
 use super::toolkit_run_prepare::{save_keys, snapshot_keys, validate_keys};
 use crate::{attachment::local_files::HostOutputGuard, runtime::RuntimeContext};
 
-#[derive(Debug, clap::Args, serde::Serialize, serde::Deserialize, Clone)]
-pub struct Args {
-    /// 明确授权只读扫描配置中微信进程的内存
-    #[arg(long, required = true)]
-    pub authorize_memory_scan: bool,
-}
+pub use crate::service::operation_requests::database_keys::Args;
 
 pub fn cmd(args: Args) -> Result<()> {
     ensure!(

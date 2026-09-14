@@ -1,7 +1,8 @@
 use super::*;
 use clap::Parser;
 
-use crate::cli::asr as cli;
+use crate::cli::operation_args::asr as cli;
+use crate::service::operation_requests::asr as requests;
 
 #[derive(Parser)]
 struct AudioCli {
@@ -20,8 +21,10 @@ fn cli_registration_contract() {
     use clap::CommandFactory;
     AudioCli::command().debug_assert();
     ChatCli::command().debug_assert();
-    let _: fn(cli::TranscribeAudioNativeArgs) -> Result<()> = cli::cmd_transcribe_audio_native;
-    let _: fn(cli::TranscribeChatNativeArgs) -> Result<()> = cli::cmd_transcribe_chat_native;
+    let _: fn(requests::TranscribeAudioNativeArgs) -> Result<()> =
+        crate::daemon::operations::asr::cmd_transcribe_audio_native;
+    let _: fn(requests::TranscribeChatNativeArgs) -> Result<()> =
+        crate::daemon::operations::asr::cmd_transcribe_chat_native;
 }
 
 #[test]
@@ -76,7 +79,10 @@ fn upload_denied_before_input_or_key_access() {
         "missing.key",
     ])
     .unwrap();
-    let error = parsed.args.backend.build().unwrap_err().to_string();
+    let error = crate::service::operation_requests::asr::BackendArgs::from(parsed.args.backend)
+        .build()
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("--allow-upload"));
     let config = openai::OpenAiConfig {
         base_url: "invalid".into(),
@@ -105,7 +111,11 @@ fn cli_local_configuration_and_no_cloud_defaults() {
         "3",
     ])
     .unwrap();
-    let Backend::Local(config) = args.args.backend.build().unwrap() else {
+    let Backend::Local(config) =
+        crate::service::operation_requests::asr::BackendArgs::from(args.args.backend)
+            .build()
+            .unwrap()
+    else {
         panic!()
     };
     assert_eq!(config.threads, 3);
@@ -118,13 +128,13 @@ fn cli_local_configuration_and_no_cloud_defaults() {
         "--allow-upload",
     ])
     .unwrap();
-    assert!(args
-        .args
-        .backend
-        .build()
-        .unwrap_err()
-        .to_string()
-        .contains("--openai-base-url"));
+    assert!(
+        crate::service::operation_requests::asr::BackendArgs::from(args.args.backend)
+            .build()
+            .unwrap_err()
+            .to_string()
+            .contains("--openai-base-url")
+    );
 }
 
 fn manifest(dir: &Path, entries: serde_json::Value) -> PathBuf {

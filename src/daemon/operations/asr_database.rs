@@ -1,33 +1,10 @@
 //! 显式静态快照中的单条语音转录；不认证账号来源、不猜分片、不创建 SILK 中转文件。
 use crate::toolkit::asr::{cached, database_media, transcribe_audio_bytes};
 use anyhow::{ensure, Result};
-use clap::Args;
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
 
-#[derive(Args, serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct TranscribeDatabaseNativeArgs {
-    /// 显式单账号静态已解密根目录；来源由调用方保证，并非已认证账号
-    #[arg(long)]
-    pub decrypted_dir: PathBuf,
-    /// 精确 username，不按昵称或备注推断
-    #[arg(long)]
-    pub username: String,
-    /// 完整消息分片来源，例如 message/message_0.db
-    #[arg(long)]
-    pub source: String,
-    /// 此消息分片中该联系人消息表的 local_id，不是媒体库 local_id
-    #[arg(long, value_parser = clap::value_parser!(i64).range(1..))]
-    pub local_id: i64,
-    /// 可选成功转录缓存；必须位于可信、稳定且独立于数据库的目录
-    #[arg(long, requires = "cache_account")]
-    pub cache_file: Option<PathBuf>,
-    /// 调用方显式提供的缓存账号命名空间；不是账号认证
-    #[arg(long, requires = "cache_file")]
-    pub cache_account: Option<String>,
-    #[command(flatten)]
-    pub backend: super::asr::BackendArgs,
-}
+pub use crate::service::operation_requests::asr_database::TranscribeDatabaseNativeArgs;
 
 pub fn cmd_transcribe_database_native(args: TranscribeDatabaseNativeArgs) -> Result<()> {
     let output = transcribe(args)?;
@@ -180,7 +157,7 @@ mod tests {
     #[derive(Parser)]
     struct TestCli {
         #[command(flatten)]
-        args: TranscribeDatabaseNativeArgs,
+        args: crate::cli::operation_args::asr_database::TranscribeDatabaseNativeArgs,
     }
 
     fn args(root: &Path, source: &str, engine: &Path) -> TranscribeDatabaseNativeArgs {
@@ -205,7 +182,7 @@ mod tests {
             "--threads".into(),
             "2".into(),
         ];
-        TestCli::try_parse_from(input).unwrap().args
+        TestCli::try_parse_from(input).unwrap().args.into()
     }
 
     fn databases(root: &Path) {
@@ -286,7 +263,7 @@ mod tests {
             "synthetic",
         ])
         .unwrap();
-        assert!(transcribe(parsed.args)
+        assert!(transcribe(parsed.args.into())
             .unwrap_err()
             .to_string()
             .contains("--allow-upload"));

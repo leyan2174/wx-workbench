@@ -1,6 +1,6 @@
 # 系统架构
 
-wx-cli 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、输出与协议适配，daemon 持有业务状态，并按需要监督 worker。业务由 daemon 所有，不表示全部工作都运行在同一个进程或持久队列中。
+wx-cli 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、输出与协议适配；daemon 装配账号能力、管理读取快照与执行生命周期，并按需要监督 worker。业务模型和规则正逐域迁入独立业务模块，不因经过 daemon 就归执行宿主所有，也不意味着全部工作都运行在同一个进程或持久队列中。
 
 ## 调用路径
 
@@ -8,12 +8,20 @@ wx-cli 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、输出�
 | --- | --- | --- |
 | 普通查询 | `src/cli`、`src/service/query_client.rs` | daemon 查询分发、账号快照与缓存。 |
 | 前台操作 | `src/service/operation_client.rs`、类型化 Operation | `operation_service` 持有租约、输出流及 worker Job。 |
-| 持久任务 | `wx tasks`、Web 任务接口 | `src/daemon/tasks` 管理队列、记录、取消和恢复。 |
+| 持久任务 | `wx tasks`、Web 任务接口、MCP 任务工具 | `src/daemon/tasks` 管理队列、记录、取消和恢复。 |
 | MCP | stdio JSON-RPC、`Call::Mcp` | `mcp_service` 持有账号锁、会话、宿主授权和媒体执行。 |
 | Web 业务 | HTTP、`Call::Web` | `web_service` 持有监控及业务状态；HTTP 查询采用有界等待，不另维护持久任务队列。 |
 | 命令行监控 | 前台 `Operation::Monitor`、固定账号查询传输 | 小请求直接连接账号管道；大增量状态经 `Call::Monitor` 暂存，完整校验后调用一次查询。 |
 
 具体行为见[入口边界](daemon-entrypoints.md)、[后台任务](daemon-tasks.md)和[MCP 协议](../src/mcp/PROTOCOL.md)。
+
+## 业务边界迁移
+
+本阶段的源码依赖方向是：入口与执行宿主消费业务契约；`src/adapters/wechat` 实现 `src/business` 的窄数据接口；装配仍复用固定账号的 `DbCache`、查询租约和既有执行边界。业务模块不依赖 SQLite、clap、daemon、具体微信适配器或动态 JSON 值。公共 Operation 请求和 MCP Call 由 service 契约模块拥有，CLI 解析类型与执行请求在入口边界转换。
+
+当前迁移涉及联系人、群成员与标签、朋友圈查询，以及[收藏](favorites-boundary.md)和[结构化消息预览](structured-message-boundary.md)。各域保留真实来源适配与原有入口投影，不新建任务服务或通用业务总管。业务内存测试单独编译真实业务模块；语法级测试约束新增代码的依赖方向。
+
+这不是整仓完成声明。会话与消息清单、历史搜索、完整通话事件用例、严格媒体定位、公众号文章、表情与跨域归档编排仍需各自完整迁移。部分共享格式助手和执行工作流仍在 `message`、`toolkit`、旧查询及操作模块中；不能据新目录名断言微信 schema 变化已完全被适配层隔离。各阶段还必须通过合成来源、协议兼容和实际进程通道验证。
 
 ## 账号身份
 

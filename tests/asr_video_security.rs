@@ -7,7 +7,8 @@ mod production;
 use bootstrap::BootstrapCleanup;
 use production::{asr, video};
 pub use production::{
-    attachment, cli, config, crypto, daemon, ipc, key_store, runtime, toolkit, windows_process,
+    attachment, cli, config, crypto, daemon, ipc, key_store, runtime, service, toolkit,
+    windows_process,
 };
 use std::{
     collections::BTreeMap,
