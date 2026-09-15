@@ -10,10 +10,12 @@ pub mod config;
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
 #[path = "../../../src/toolkit/files.rs"]
+#[allow(dead_code)] // ASR/video uses path guards and separate, not directory collection.
 mod files;
 #[path = "../../../src/ipc.rs"]
 pub mod ipc;
 #[path = "../../../src/key_store/mod.rs"]
+#[allow(dead_code)] // Embedded store retains migration/seed APIs beyond this ASR/video fixture.
 pub mod key_store;
 #[path = "../../../src/toolkit/legacy.rs"]
 pub mod legacy;

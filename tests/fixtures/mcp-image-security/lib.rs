@@ -6,14 +6,17 @@ pub mod attachment {
     pub use native_image_fixture::resolver;
 }
 #[path = "../../../src/attachment/local_files.rs"]
+#[allow(dead_code)] // This slice uses publication guards but omits other media scan/proof APIs.
 pub(crate) mod local_files;
 pub use native_image_fixture::{decoder, resolver};
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
 #[path = "../../../src/attachment/native_image.rs"]
+#[allow(dead_code)] // The security fixture uses checked material publication, not every export wrapper.
 pub mod native_image;
 pub mod publish_probe;
 #[path = "../../../src/daemon/cache.rs"]
+#[allow(dead_code)] // The image query slice omits unrelated cache lifecycle entry points.
 pub mod real_cache;
 pub mod real_cache_query;
 #[allow(dead_code)]
@@ -26,6 +29,7 @@ pub mod daemon {
 }
 pub use mcp_readonly_security_harness::Names;
 #[path = "../../../src/message/xml.rs"]
+#[allow(dead_code)] // Only the shared XML scanner is used in this slice.
 pub mod message_xml;
 pub mod message {
     pub use crate::message_xml as xml;
@@ -87,6 +91,7 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
     Ok(())
 }
 #[path = "../../../src/daemon/query/mcp_image.rs"]
+#[allow(dead_code)] // The instrumented counterpart owns some audit-only call paths.
 pub mod mcp_image;
 
 // Integration tests cross the fixture crate boundary, not the production API.
@@ -109,6 +114,7 @@ pub mod toolkit;
 pub use native_image_fixture::{config, runtime};
 
 #[path = "../../../src/service/transport/framing.rs"]
+#[allow(dead_code)] // The audit probes bounded line reads, not all frame transports.
 mod ipc_framing;
 pub mod ipc_reader {
     pub async fn read(mut bytes: &[u8], limit: usize) -> anyhow::Result<()> {
@@ -152,6 +158,7 @@ pub mod transport {
     }
 }
 #[path = "../../../src/daemon/query/strict_message.rs"]
+#[allow(dead_code)] // Image queries do not consume every strict message getter.
 mod strict_message;
 #[path = "../../support/image_media_adapters.rs"]
 pub mod adapters;
@@ -159,8 +166,10 @@ pub mod adapters;
 pub mod business;
 
 #[path = "../../../src/toolkit/files.rs"]
+#[allow(dead_code)] // Image fixture uses publication guards, not directory collection.
 pub mod files;
 #[path = "../../../src/toolkit/setup.rs"]
+#[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;

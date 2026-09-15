@@ -7,6 +7,7 @@ use crate::{
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
+#[cfg(test)]
 pub(super) const MAX_STORED_BYTES: usize = crate::adapters::wechat::messages::MAX_STORED_BYTES;
 
 pub(super) enum Resolution<T> {
@@ -32,21 +33,6 @@ where
     F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
 {
     with_projection(db, names, chat, local_id, create_time, true, read).await
-}
-
-pub(super) async fn with_resolved_metadata<T, F>(
-    db: &DbCache,
-    names: &Names,
-    chat: &str,
-    local_id: i64,
-    create_time: i64,
-    read: F,
-) -> Result<Resolution<T>>
-where
-    T: Send + 'static,
-    F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
-{
-    with_projection(db, names, chat, local_id, create_time, false, read).await
 }
 
 async fn with_projection<T, F>(

@@ -9,6 +9,8 @@ pub mod service {
     pub use crate::message_filter;
 }
 #[path = "../../../src/business/messages/mod.rs"]
+#[allow(unfulfilled_lint_expectations)] // Public protocol-fixture types change production-only dead_code reachability.
+#[allow(dead_code)] // Protocol tests project filters without constructing message references.
 pub mod messages;
 #[path = "../../../src/business/structured_message.rs"]
 pub mod structured_message;

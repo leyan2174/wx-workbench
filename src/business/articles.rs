@@ -16,9 +16,7 @@ impl EvidenceRef {
             item_index,
         }
     }
-    pub fn message(&self) -> &super::messages::MessageRef {
-        &self.message
-    }
+    #[cfg(test)]
     pub fn item_index(&self) -> Option<u32> {
         self.item_index
     }
@@ -41,7 +39,15 @@ pub struct Article {
 pub enum IssueKind {
     UnknownPublisher,
     InvalidContent,
+    #[expect(
+        dead_code,
+        reason = "Partial inventories distinguish unavailable sources from invalid content; the current adapter fails the whole scan"
+    )]
     UnavailableSource,
+    #[expect(
+        dead_code,
+        reason = "Partial inventories retain unsupported-source semantics separately from unavailable sources"
+    )]
     UnsupportedSource,
     AmbiguousIdentity,
 }

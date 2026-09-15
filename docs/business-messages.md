@@ -40,7 +40,7 @@ The candidate budget applies to rows actually scanned, not the requested page
 size or offset. Requests must fit `i64`; ordinary reads use a 100,001-row lookahead
 and fail above 100,000 actual candidates rather than returning truncated success.
 
-`strict_message::with_resolved` and `with_resolved_metadata` execute synchronous
+`strict_message::with_resolved` executes synchronous
 callbacks while the snapshot remains alive, then check the account inventory again.
 Media callbacks return existing detached proofs, never serializable Weak handles;
 publication waits until the callback wrapper succeeds and existing output/proof

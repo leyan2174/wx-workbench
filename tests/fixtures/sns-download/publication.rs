@@ -4,6 +4,7 @@ pub mod config;
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
 #[path = "../../../src/daemon/cache.rs"]
+#[allow(unused_imports)] // The download fixture does not consume the ResourceSnapshot re-export.
 pub mod production_cache;
 #[path = "../../../src/adapters/wechat/messages/probe.rs"]
 pub mod message_probe;
@@ -20,8 +21,10 @@ pub mod daemon {
     pub use super::production_cache as cache;
 }
 #[path = "../../../src/toolkit/files.rs"]
+#[allow(dead_code)] // Download fixture uses publication guards, not directory collection.
 pub mod files;
 #[path = "../../../src/key_store/mod.rs"]
+#[allow(dead_code)] // Store is embedded for publication protection, not migration orchestration.
 pub mod key_store;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;

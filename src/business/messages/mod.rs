@@ -41,11 +41,6 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Stability {
-    SnapshotBound,
-}
-
 /// Private coordinates are meaningful only to the creating adapter read instance.
 /// No deserializer, filesystem path, content hash, or globally registered handle.
 #[derive(Clone, Debug)]
@@ -55,9 +50,6 @@ pub struct EvidenceRef {
     pub(crate) record: i64,
 }
 impl EvidenceRef {
-    pub fn stability(&self) -> Stability {
-        Stability::SnapshotBound
-    }
     pub fn is_expired(&self) -> bool {
         self.snapshot.strong_count() == 0
     }
@@ -95,9 +87,6 @@ impl MessageRef {
     pub fn evidence(&self) -> &EvidenceRef {
         &self.0
     }
-    pub fn stability(&self) -> Stability {
-        self.0.stability()
-    }
 }
 
 /// Legacy lookup conditions, deliberately not a unique message identity.
@@ -131,7 +120,15 @@ pub enum Kind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CallMedia {
     Unknown,
+    #[expect(
+        dead_code,
+        reason = "Known call audio remains distinct from Unknown; current adapter cannot prove the media type"
+    )]
     Audio,
+    #[expect(
+        dead_code,
+        reason = "Known call video remains distinct from Unknown; current adapter cannot prove the media type"
+    )]
     Video,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,6 +154,13 @@ pub struct Message {
     pub conversation: Conversation,
     pub timestamp: i64,
     pub sender: Option<String>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Typed message kind is independent of content and legacy localized type labels"
+        )
+    )]
     pub kind: Kind,
     pub call: Option<CallEvent>,
     pub content: Content,
@@ -167,6 +171,13 @@ pub struct Message {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Completeness {
     Complete,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Incomplete inventory remains representable and is rejected by strict page selection"
+        )
+    )]
     Incomplete,
 }
 
@@ -183,7 +194,21 @@ pub enum PageContinuation {
 #[derive(Clone, Debug)]
 pub struct MessagePage {
     pub messages: Vec<Message>,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Source completeness is a required typed result independent of pagination and legacy wire"
+        )
+    )]
     pub completeness: Completeness,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Typed termination distinguishes exhausted from inconclusive bounded reads without changing legacy wire"
+        )
+    )]
     pub continuation: PageContinuation,
 }
 

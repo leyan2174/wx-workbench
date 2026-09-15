@@ -1,5 +1,5 @@
 //! Media discovery and association rules; execution authority stays with the host.
-use super::messages::{Completeness, EvidenceRef, MessageRef};
+use super::messages::{Completeness, MessageRef};
 use std::{
     fmt,
     sync::{Arc, Weak},
@@ -43,18 +43,11 @@ impl Reference {
     pub fn message(&self) -> &MessageRef {
         &self.message
     }
-    pub fn evidence(&self) -> &EvidenceRef {
-        self.message.evidence()
-    }
-    pub fn kind(&self) -> Kind {
-        self.kind
-    }
-    pub fn item_index(&self) -> Option<u32> {
-        self.item_index
-    }
+    #[cfg(test)]
     pub fn association(&self) -> AssociationPolicy {
         self.association
     }
+    #[cfg(test)]
     pub fn completeness(&self) -> Completeness {
         self.completeness
     }
@@ -87,6 +80,13 @@ impl Eq for Reference {}
 pub struct Discovered {
     pub reference: Reference,
     /// Stored bytes only. Unknown is not zero and does not imply decoded size.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Unknown stored size remains distinct from decoded or exported byte counts"
+        )
+    )]
     pub stored_bytes: Option<u64>,
 }
 
@@ -114,9 +114,28 @@ pub fn message_error(error: super::messages::Error, stage: Stage) -> Error {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Image,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Discovery retains voice requests even while the strict production resolver supports images only"
+        )
+    )]
     Voice,
+    #[expect(
+        dead_code,
+        reason = "Unsupported video discovery remains a typed request, not an image fallback"
+    )]
     Video,
+    #[expect(
+        dead_code,
+        reason = "Unsupported file discovery remains a typed request, not an image fallback"
+    )]
     File,
+    #[expect(
+        dead_code,
+        reason = "Message emoticon discovery is distinct from the materialized emoticon catalog"
+    )]
     Emoticon,
 }
 
@@ -126,6 +145,13 @@ pub enum Stage {
     Association,
     Revalidation,
     Decode,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Transcription is a distinct stage; current ASR execution uses the voice domain contract"
+        )
+    )]
     Transcription,
     Publication,
     Download,
@@ -144,7 +170,15 @@ pub enum Failure {
     InvalidMaterial,
     LimitExceeded,
     Refused,
+    #[expect(
+        dead_code,
+        reason = "Cancellation remains distinct from unavailable media; execution hosts currently report it before this boundary"
+    )]
     Cancelled,
+    #[expect(
+        dead_code,
+        reason = "Deadline exhaustion remains distinct from unavailable media; execution hosts currently report it before this boundary"
+    )]
     DeadlineExceeded,
     Unavailable,
 }
@@ -197,6 +231,13 @@ mod stage_label_tests {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssociationPolicy {
     StrictMessage,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Explicit legacy association cannot be confused with strict message evidence or authorize strict fallback"
+        )
+    )]
     ExplicitLegacyMediaId,
 }
 

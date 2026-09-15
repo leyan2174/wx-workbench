@@ -147,12 +147,10 @@ pub struct RawMessage {
     pub local_id: Option<i64>,
     pub local_type: i64,
     pub timestamp: i64,
-    pub sender_id: Option<i64>,
     pub sender: Option<String>,
     pub compression: Option<i64>,
     pub content: StoredContent,
     pub server_id: StoredScalar,
-    pub sort_seq: StoredScalar,
 }
 impl RawMessage {
     pub fn detached_content(&self) -> DetachedContent {
@@ -587,13 +585,12 @@ impl Snapshot {
             }
         };
         let sender_id = row.get::<_, Option<i64>>(3)?;
-        Ok(RawMessage {
+        let message = RawMessage {
             reference: MessageRef(reference.clone()),
             logical_source: source.logical_name.clone(),
             local_id: row.get(0)?,
             local_type: row.get(1)?,
             timestamp: row.get(2)?,
-            sender_id,
             sender: sender_id
                 .and_then(|id| source.senders.get(&id))
                 .filter(|s| !s.is_empty())
@@ -605,12 +602,12 @@ impl Snapshot {
             } else {
                 StoredScalar::AbsentColumn
             },
-            sort_seq: if stream.columns.contains("sort_seq") {
-                scalar(row.get_ref(8)?)?
-            } else {
-                StoredScalar::AbsentColumn
-            },
-        })
+        };
+        // Preserve scalar validation; only the explicit export projection exposes sort_seq.
+        if stream.columns.contains("sort_seq") {
+            scalar(row.get_ref(8)?)?;
+        }
+        Ok(message)
     }
     pub fn read_page(
         &self,

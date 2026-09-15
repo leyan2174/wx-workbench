@@ -19,7 +19,6 @@ async fn exact_chat_resolution_needs_no_message_or_media_database() {
             ("wxid_b".into(), "Shared".into()),
             ("room@chatroom".into(), "Unique".into()),
         ]),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: vec![],
         biz_msg_db_keys: vec![],
         verify_flags: HashMap::new(),

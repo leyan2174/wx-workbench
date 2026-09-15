@@ -8,6 +8,7 @@ const MAX_BYTES: usize = MAX_XML_CHARS * 4;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Content<'a> {
+    #[cfg(test)]
     Null,
     Text(&'a str),
     Blob(&'a [u8]),
@@ -96,9 +97,10 @@ pub(crate) fn html_unescape(text: &str) -> String {
     .into_owned()
 }
 
-/// 支持 NULL、UTF-8/zstd BLOB、XML/hex/base64 TEXT；在解压阶段限制资源消耗。
+/// 支持 UTF-8/zstd BLOB、XML/hex/base64 TEXT；生产 SQL 排除 NULL，测试保留其旧解码契约。
 pub fn decode_content(value: Content<'_>) -> Result<String> {
     let text = match value {
+        #[cfg(test)]
         Content::Null => String::new(),
         Content::Blob(raw) => {
             if raw.len() > MAX_BYTES * 2 {

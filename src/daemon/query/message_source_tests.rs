@@ -90,10 +90,6 @@ async fn fixture_with_extra(extra: Option<(i64, i64, i64, &str)>) -> Fixture {
         .unwrap();
     let names = Names {
         map: HashMap::from([(PEER.into(), "Synthetic peer".into())]),
-        md5_to_uname: HashMap::from([(
-            format!("{:x}", md5::compute(PEER.as_bytes())),
-            PEER.into(),
-        )]),
         msg_db_keys: vec![SOURCE_1.into(), RAW_SOURCE_0.into()],
         biz_msg_db_keys: vec![],
         verify_flags: HashMap::new(),
@@ -298,7 +294,6 @@ async fn search_unknown_conversations_keep_only_explicit_legacy_diagnostics() {
             .unwrap();
     }
     f.names.map.clear();
-    f.names.md5_to_uname.clear();
     fs::remove_file(f.db.db_dir().join("session/session.db")).unwrap();
     let result = q_search(
         &f.db,

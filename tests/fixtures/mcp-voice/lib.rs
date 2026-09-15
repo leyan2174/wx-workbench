@@ -32,6 +32,7 @@ pub mod daemon {
 #[path = "../../../src/daemon/query/mcp_voice.rs"]
 pub mod mcp_voice;
 #[path = "../../../src/business/voice/mod.rs"]
+#[allow(unfulfilled_lint_expectations)] // Public fixture visibility differs from the private production domain.
 pub mod voice_business;
 pub mod business {
     pub use crate::voice_business as voice;

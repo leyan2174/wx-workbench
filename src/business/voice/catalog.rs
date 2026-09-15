@@ -10,6 +10,13 @@ pub enum Error {
     InvalidRange,
     PaginationOverflow,
     InvalidPage,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Catalog source failure remains distinct from an empty successful page"
+        )
+    )]
     Unavailable,
 }
 impl fmt::Display for Error {

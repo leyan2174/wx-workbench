@@ -1,6 +1,9 @@
 //! Seed production encrypted storage through the real explicit migration operation.
 use std::{path::Path, process::Command};
 
+// Most runtime fixtures verify source keys; decrypt/timeline fixtures explicitly
+// use migrate_with_unverified instead. Keep both entry points in shared support.
+#[allow(dead_code)]
 pub fn migrate(binary: &Path, config: &Path, home: &Path) {
     migrate_with_unverified(binary, config, home, false);
 }

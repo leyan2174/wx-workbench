@@ -166,6 +166,13 @@ pub struct ContactQuery<'a> {
 pub struct ContactPage {
     pub contacts: Vec<Contact>,
     pub total: usize,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Typed continuation offset is retained while legacy wire only projects total and items"
+        )
+    )]
     pub next_offset: Option<usize>,
 }
 

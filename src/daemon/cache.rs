@@ -12,7 +12,6 @@ pub(crate) use snapshot::ResourceSnapshot;
 
 use crate::crypto;
 use crate::crypto::wal;
-use crate::runtime::RuntimeContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MtimeEntry {
@@ -226,20 +225,7 @@ impl Drop for DbCache {
 type CommitHook = Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 
 impl DbCache {
-    pub async fn new(db_dir: PathBuf, all_keys: HashMap<String, String>) -> Result<Self> {
-        let runtime = RuntimeContext::load()?;
-        let mut cache =
-            Self::with_dirs(db_dir, runtime.cache_dir(), runtime.mtime_file(), all_keys).await?;
-        // 沿用初始化时的账号上下文，图片查询不得再加载可能已切换的配置。
-        cache.output_protected_paths = vec![
-            runtime.config_path,
-            runtime.config.keys_file,
-            runtime.config.decrypted_dir,
-        ];
-        Ok(cache)
-    }
-
-    /// 注入 `cache_dir` / `mtime_file`（测试用 + 生产 `new()` 复用）
+    /// Use explicit account paths; query generations additionally share a work lock.
     pub(crate) async fn with_dirs(
         db_dir: PathBuf,
         cache_dir: PathBuf,

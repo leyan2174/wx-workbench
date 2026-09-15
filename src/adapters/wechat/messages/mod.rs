@@ -21,7 +21,9 @@ use projection::call_event;
 pub use projection::semantic_kind;
 pub use read::{
     DetachedContent, LegacyReadPolicy, RawMessage, Snapshot, SourceFile, StoredContent,
-    StoredScalar, MAX_DECODED_BYTES, MAX_STORED_BYTES,
+    StoredScalar, MAX_DECODED_BYTES,
 };
+#[cfg(test)]
+pub use read::MAX_STORED_BYTES;
 #[cfg(test)]
 mod tests;

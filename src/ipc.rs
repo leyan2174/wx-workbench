@@ -408,6 +408,7 @@ impl Response {
         }
     }
 
+    #[cfg(test)]
     pub fn to_json_line(&self) -> anyhow::Result<String> {
         let s = serde_json::to_string(self)?;
         Ok(s + "\n")

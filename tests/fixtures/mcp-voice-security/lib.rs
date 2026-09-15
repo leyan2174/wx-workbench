@@ -39,6 +39,7 @@ pub mod business;
 mod security_tests;
 
 #[path = "../../../src/attachment/local_files.rs"]
+#[allow(dead_code)] // This slice uses publication guards but omits other media scan/proof APIs.
 pub mod local_files;
 pub mod attachment {
     pub use crate::local_files;

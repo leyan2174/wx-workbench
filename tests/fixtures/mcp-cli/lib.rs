@@ -8,14 +8,13 @@ pub mod mcp_tasks;
 #[path = "../../../src/config.rs"]
 pub mod config;
 #[path = "../../../src/attachment/local_files.rs"]
+#[allow(dead_code)] // This slice uses publication guards but omits other media scan/proof APIs.
 pub mod local_files;
 pub mod attachment {
     pub use crate::local_files;
-    pub mod native_image {
-        pub(crate) use crate::local_files::HostOutputGuard;
-    }
 }
 #[path = "../../../src/toolkit/private_file.rs"]
+#[allow(dead_code)] // The CLI transport fixture does not exercise ACL inspection.
 pub mod private_file;
 pub mod toolkit {
     pub use crate::{audio, legacy, private_file, toolkit_asr as asr};

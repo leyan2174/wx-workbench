@@ -57,7 +57,6 @@ impl Fixture {
         let db = DbCache::with_dirs(source, cache, file, keys).await.unwrap();
         let names = Names {
             map: serde_json::from_value(golden()["names"].clone()).unwrap(),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: raw_keys.iter().rev().map(|key| (*key).to_owned()).collect(),
             biz_msg_db_keys: vec![],
             verify_flags: HashMap::new(),

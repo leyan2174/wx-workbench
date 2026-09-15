@@ -65,8 +65,6 @@ pub fn chat_type_of(username: &str, names: &Names) -> &'static str {
 pub struct Names {
     /// username -> display_name
     pub map: HashMap<String, String>,
-    /// md5(username) -> username（用于从 Msg_<md5> 表名反推联系人）
-    pub md5_to_uname: HashMap<String, String>,
     /// 消息 DB 的相对路径列表（message/message_N.db）
     pub msg_db_keys: Vec<String>,
     /// 公众号推送 DB 的相对路径列表（message/biz_message_N.db）
@@ -153,7 +151,6 @@ pub struct AttachmentQuery {
 #[cfg(test)]
 struct MessageView<'a> {
     username: &'a str,
-    is_group: bool,
     names: &'a HashMap<String, String>,
     group_nicknames: &'a HashMap<String, String>,
 }
@@ -321,13 +318,8 @@ pub async fn load_names(db: &DbCache) -> Result<Names> {
         );
         map.insert(contact.id.0.clone(), contact.display().to_owned());
     }
-    let md5_to_uname = map
-        .keys()
-        .map(|u| (format!("{:x}", md5::compute(u.as_bytes())), u.clone()))
-        .collect();
     Ok(Names {
         map,
-        md5_to_uname,
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags,
@@ -509,7 +501,6 @@ mod session_tests {
                 ("demo@chatroom".into(), "示例群".into()),
                 ("wxid_demo".into(), "通讯录名称".into()),
             ]),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: Vec::new(),
             biz_msg_db_keys: Vec::new(),
             verify_flags: HashMap::new(),
@@ -620,7 +611,6 @@ mod contact_tests {
     async fn empty_contact_cache_is_an_error() {
         let names = Names {
             map: HashMap::new(),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: Vec::new(),
             biz_msg_db_keys: Vec::new(),
             verify_flags: HashMap::new(),
@@ -894,7 +884,6 @@ mod summary_regression_tests {
             "Msg_test",
             super::MessageView {
                 username: "demo",
-                is_group: false,
                 names: &empty,
                 group_nicknames: &empty
             },
@@ -1085,7 +1074,6 @@ mod appmsg_tests {
             "Msg_test",
             MessageView {
                 username: "wxid_synthetic_peer",
-                is_group: false,
                 names: &HashMap::new(),
                 group_nicknames: &HashMap::new(),
             },
@@ -1152,7 +1140,6 @@ mod appmsg_tests {
             "Msg_test",
             MessageView {
                 username: "123@chatroom",
-                is_group: true,
                 names: &names,
                 group_nicknames: &group_nicknames,
             },
@@ -1216,7 +1203,6 @@ mod appmsg_tests {
             "Msg_test",
             MessageView {
                 username: "123@chatroom",
-                is_group: true,
                 names: &names,
                 group_nicknames: &group_nicknames,
             },
@@ -1340,7 +1326,6 @@ mod appmsg_tests {
             "Msg_test",
             MessageView {
                 username: "wxid_synthetic_peer",
-                is_group: false,
                 names: &HashMap::new(),
                 group_nicknames: &HashMap::new(),
             },
@@ -1395,7 +1380,6 @@ mod appmsg_tests {
             "Msg_test",
             MessageView {
                 username: "wxid_synthetic_peer",
-                is_group: false,
                 names: &HashMap::new(),
                 group_nicknames: &HashMap::new(),
             },
@@ -1866,7 +1850,6 @@ mod sns_business_projection_tests {
                 ("wxid_a".into(), "Same".into()),
                 ("wxid_b".into(), "Same".into()),
             ]),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: vec![],
             biz_msg_db_keys: vec![],
             verify_flags: HashMap::new(),

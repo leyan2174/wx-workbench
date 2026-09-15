@@ -5,7 +5,7 @@ use crate::adapters::wechat::media::attachment_content::{
     record_media, safe_name, validate_metadata,
 };
 pub use crate::adapters::wechat::media::attachment_content::{
-    parse_file_message, parse_record_item, AttachmentMetadata, Error, ErrorKind, Identity, Kind,
+    parse_file_message, parse_record_item, AttachmentMetadata, Error, ErrorKind, Kind,
     MessageInput, Result,
 };
 use crate::business::attachment_content::AttachmentContent;

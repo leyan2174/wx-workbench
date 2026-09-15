@@ -1,14 +1,16 @@
 //! Host-controlled SNS cache reads and output writes. Private formats live in the adapter.
 use crate::adapters::wechat::moments::cache as adapter;
 use crate::business::moments::RecoveredMediaFile;
-pub use adapter::{
-    apply_media_references, build_cache_index, build_video_cache_index, decrypt_dat,
-    detect_image_format, find_cached_video, image_dimensions, match_cache_images, video_cache_key,
-    CacheIndex, CacheKeys, CacheLimits, CacheMedia, CacheRoots, ImageEntry, MediaRecovery,
-    RecoveryOptions, RecoveryReport, VideoEntry,
-};
 #[cfg(test)]
-use adapter::{build_index, scalar, V2};
+use adapter::{
+    apply_media_references, build_index, build_video_cache_index, decrypt_dat, detect_image_format,
+    find_cached_video, image_dimensions, match_cache_images, scalar, video_cache_key, CacheMedia,
+    V2,
+};
+pub use adapter::{
+    build_cache_index, CacheIndex, CacheKeys, CacheLimits, CacheRoots, ImageEntry, RecoveryOptions,
+    RecoveryReport, VideoEntry,
+};
 use adapter::{checked_source, is_link, reject_network_path};
 use anyhow::{anyhow, bail, Context, Result};
 #[cfg(test)]

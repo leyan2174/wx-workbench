@@ -70,6 +70,10 @@ pub struct Catalog {
 
 pub trait Source {
     fn catalog(&self) -> Result<Catalog, Error>;
+    #[expect(
+        dead_code,
+        reason = "Source contract requires reference revalidation; current exporter calls the concrete adapter method"
+    )]
     fn revalidate(&self, reference: &CatalogMediaRef) -> Result<(), Error>;
 }
 
@@ -93,7 +97,21 @@ pub trait Exporter {
 }
 
 pub struct ItemResult {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Per-item evidence and outcomes remain observable independently of legacy aggregate counters"
+        )
+    )]
     pub reference: CatalogMediaRef,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Per-item evidence and outcomes remain observable independently of legacy aggregate counters"
+        )
+    )]
     pub result: Result<Exported, Error>,
 }
 pub struct BatchReport {

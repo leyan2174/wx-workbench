@@ -111,7 +111,6 @@ async fn export_voices(
     .await?;
     let mut names = load_names(&db).await.unwrap_or_else(|_| Names {
         map: HashMap::new(),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
@@ -309,7 +308,6 @@ mod publication_tests {
     fn names() -> Names {
         Names {
             map: HashMap::from([("chat".into(), "name".into())]),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: Vec::new(),
             biz_msg_db_keys: Vec::new(),
             verify_flags: HashMap::new(),

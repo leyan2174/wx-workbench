@@ -15,6 +15,23 @@ fn main() {
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
         ast.attrs.retain(|a| !a.path().is_ident("doc"));
         ast.items.retain(|item| !matches!(item, syn::Item::Mod(value) if value.ident == "tests" || value.ident == "configured_local_tests"));
+        // These imports belong solely to the test modules stripped above.
+        let test_import: Option<syn::ItemUse> = match name {
+            "mcp_voice" => Some(syn::parse_quote!(use crate::service::operation_requests::asr::BackendKind;)),
+            "mcp_service" => Some(syn::parse_quote!(use crate::service::mcp::unpack;)),
+            _ => None,
+        };
+        if let Some(expected) = test_import {
+            let expected = expected.tree;
+            let expected = quote::quote!(#expected).to_string();
+            ast.items.retain(|item| match item {
+                syn::Item::Use(import) => {
+                    let tree = &import.tree;
+                    quote::quote!(#tree).to_string() != expected
+                }
+                _ => true,
+            });
+        }
         if name == "mcp_service" {
             for item in &mut ast.items {
                 if matches!(item, syn::Item::Mod(value) if value.ident == "voice") {

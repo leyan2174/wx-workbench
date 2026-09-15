@@ -236,7 +236,6 @@ mod tests {
     fn names() -> Names {
         Names {
             map: HashMap::new(),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: Vec::new(),
             biz_msg_db_keys: Vec::new(),
             verify_flags: HashMap::new(),

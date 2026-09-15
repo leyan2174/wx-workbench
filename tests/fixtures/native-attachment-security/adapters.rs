@@ -7,9 +7,12 @@ pub mod resource {
     pub use native_image_fixture::native_image::MessageIdentity;
 }
 #[path = "../../../src/adapters/wechat/media/strict_message.rs"]
+#[allow(dead_code)] // Reference audits use only a subset of the strict media capture APIs.
 pub(crate) mod strict_message;
 pub mod wechat {
     pub use super::messages;
+    // The real attachment query is embedded by the library's query_boundary tests.
+    #[cfg(test)]
     pub mod media {
         pub(crate) use super::super::strict_message;
     }

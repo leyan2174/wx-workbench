@@ -312,6 +312,9 @@ impl Account {
         self.root.path()
     }
 
+    // Used by image/plan fixtures after adding synthetic keys; the read-only
+    // runtime target shares this Account but never updates its seeded key set.
+    #[allow(dead_code)]
     pub fn migrate_keys(&self) {
         key_store_fixture::migrate(
             Path::new(env!("CARGO_BIN_EXE_wx")),

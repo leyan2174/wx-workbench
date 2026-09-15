@@ -123,6 +123,7 @@ fn failure_message(stage: BatchFailureStage) -> &'static str {
 }
 
 /// The wrapper retains the existing synchronous API. Worker cancellation is owned by its Job.
+#[cfg(test)]
 pub fn convert_database(options: &BatchOptions) -> Result<BatchReport> {
     convert_database_checked(options, &[], || false)
 }

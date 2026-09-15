@@ -42,11 +42,7 @@ pub(crate) fn parse_image_xor(value: &str) -> Result<u8> {
     images::parse_xor(value)
 }
 use serde::Serialize;
-use serde_json::Value;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 
 #[derive(Default, Serialize)]
 struct Report {
@@ -77,20 +73,11 @@ impl Report {
     }
 }
 
-fn raw_config() -> Result<(PathBuf, Value)> {
-    let path = crate::config::find_config_file()?;
-    let value = if path.exists() {
-        serde_json::from_slice(&fs::read(&path)?)?
-    } else {
-        Value::Null
-    };
-    Ok((path.parent().unwrap_or(Path::new(".")).to_path_buf(), value))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use super::{databases::*, files::*, images::*};
+    use std::fs;
     #[test]
     fn report_finish_distinguishes_partial_without_counting_missing_keys() {
         use crate::ipc::outcome::{BusinessFailure, BusinessOutcome};

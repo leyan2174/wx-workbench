@@ -13,8 +13,10 @@ pub mod messages {
     pub use read::*;
 }
 #[path = "../../src/adapters/wechat/media/mod.rs"]
+#[allow(dead_code)] // Image query fixtures omit voice, batch export and local-emoticon consumers.
 pub mod media;
 #[path = "../../src/adapters/wechat/emoticons/mod.rs"]
+#[allow(dead_code)] // Image queries use only the catalog reference lookup, not all catalog APIs.
 pub mod emoticons;
 #[path = "../../src/adapters/wechat/contacts/batch.rs"]
 pub mod contact_batch;

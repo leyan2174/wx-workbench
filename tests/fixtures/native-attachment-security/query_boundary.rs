@@ -11,6 +11,7 @@ use std::{
 #[path = "../../../src/daemon/query/mcp_attachments.rs"]
 mod attachments;
 #[path = "../../../src/daemon/query/strict_message.rs"]
+#[allow(dead_code)] // Attachment queries do not consume every strict-message getter.
 mod strict_message;
 
 // 与 query.rs 的私有 glue 同形，完整性判断仍委托真实 meta helper。

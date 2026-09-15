@@ -1,6 +1,7 @@
 pub use crate::{real_cache::DbCache, Names};
 use std::{collections::HashMap, path::PathBuf};
 #[path = "../../../src/daemon/query/mcp_image.rs"]
+#[allow(dead_code)] // This real-cache probe uses key-file decoding, not the other hosts' material entry.
 pub mod image;
 pub async fn diagnostic(db:&DbCache,names:&Names,output:&std::path::Path)->anyhow::Result<serde_json::Value> {
     let mut guard=crate::native_image::HostOutputGuard::new(output)?;
@@ -9,6 +10,7 @@ pub async fn diagnostic(db:&DbCache,names:&Names,output:&std::path::Path)->anyho
     image::q_decode_image_with_key_file(db,names,"synthetic_peer",42,100,output,None).await
 }
 #[path = "../../../src/daemon/query/strict_message.rs"]
+#[allow(dead_code)] // This image probe does not consume the username getter used by other hosts.
 mod strict_message;
 pub async fn cache(
     source: PathBuf,

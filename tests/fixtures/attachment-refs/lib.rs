@@ -14,10 +14,13 @@ pub mod business {
     pub use super::decoded_content as attachment_content;
 }
 #[path = "../../../src/adapters/wechat/media/attachment_content.rs"]
+#[allow(dead_code)] // Reference tests consume only the attachment-reference projection.
 pub mod wechat_content;
 #[path = "../../../src/adapters/wechat/media/directory_layout.rs"]
+#[allow(dead_code)] // Reference tests omit image export and video directory enumeration.
 pub mod directory_layout;
 #[path = "../../../src/adapters/wechat/media/legacy_dat.rs"]
+#[allow(dead_code)] // Reference tests omit the filesystem DAT scanner.
 pub mod legacy_dat;
 pub mod adapters {
     pub mod wechat {

@@ -1,10 +1,12 @@
 #[path = "../../../src/business/contacts.rs"]
+#[allow(unfulfilled_lint_expectations)] // Public fixture visibility differs from the private production domain.
 pub mod contact_business;
 pub mod business {
     pub use crate::contact_business as contacts;
 }
 
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
+#[allow(dead_code, unused_imports)] // This query slice omits batch/export consumers and their test-only limit re-exports.
 pub mod contact_adapter;
 pub mod adapters {
     pub mod wechat {

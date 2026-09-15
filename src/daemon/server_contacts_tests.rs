@@ -43,7 +43,6 @@ fn names() -> tokio::sync::RwLock<Arc<Names>> {
             ("group@chatroom".into(), "Group".into()),
             ("gh_public".into(), "Public".into()),
         ]),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: vec![],
         biz_msg_db_keys: vec![],
         verify_flags: HashMap::new(),

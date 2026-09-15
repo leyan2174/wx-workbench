@@ -108,7 +108,6 @@ async fn fixture() -> Fixture {
     msg_db_keys.reverse();
     let names = Names {
         map: serde_json::from_value(g["names"].clone()).unwrap(),
-        md5_to_uname: HashMap::new(),
         msg_db_keys,
         biz_msg_db_keys: vec![],
         verify_flags: HashMap::new(),

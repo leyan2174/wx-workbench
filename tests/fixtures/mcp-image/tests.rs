@@ -80,7 +80,6 @@ impl Fixture {
             .unwrap();
         let names = Names {
             map: HashMap::from([(CHAT.into(), "Image Peer".into())]),
-            md5_to_uname: HashMap::new(),
             msg_db_keys: message_keys.map(String::from).to_vec(),
             biz_msg_db_keys: Vec::new(),
             verify_flags: HashMap::new(),

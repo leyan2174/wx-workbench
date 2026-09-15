@@ -125,6 +125,7 @@ fn real_cli_selects_only_csv_usernames_and_preserves_date_incremental_and_dry_ru
     let work = tempfile::tempdir().unwrap();
     let mut account = support::Account::new(home.path(), "A");
     seed(account.root());
+    account.migrate_keys();
     let before = account.snapshot();
     account.start();
     let output = work.path().join("export");

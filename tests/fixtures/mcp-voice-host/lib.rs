@@ -1,4 +1,5 @@
 #[path = "../../../src/toolkit/audio/mod.rs"]
+#[allow(dead_code)] // The voice probe uses PCM/WAV paths, not the MP3 checked wrapper.
 pub mod audio;
 #[path = "../../../src/toolkit/legacy.rs"]
 #[allow(dead_code)]
@@ -6,14 +7,18 @@ pub mod legacy;
 #[path = "../../../src/toolkit/asr/mod.rs"]
 pub mod toolkit_asr;
 #[path = "../../../src/toolkit/setup.rs"]
+#[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;
 #[path = "../../../src/toolkit/files.rs"]
+#[allow(dead_code)] // Voice host exercises publication guards, not directory collection.
 pub mod files;
 #[path = "../../../src/key_store/mod.rs"]
+#[allow(dead_code)] // Embedded store retains legacy import/seed APIs; this host does not run migration.
 pub mod key_store;
-#[path = "../../../src/windows_process.rs"]
+// Only managed execution is used here; root tests cover Frida handle isolation.
+#[path = "../../support/managed_process.rs"]
 pub mod windows_process;
 #[path = "../../../src/service/config_pin.rs"]
 pub mod config_pin;
@@ -27,7 +32,7 @@ pub mod service {
 }
 pub mod toolkit {
     pub use super::{setup, private_file};
-    pub(crate) use super::files::{separate, validate_export_target, ExportTarget};
+    pub(crate) use super::files::{validate_export_target, ExportTarget};
     pub use super::audio;
     pub use super::legacy;
     pub use super::toolkit_asr as asr;

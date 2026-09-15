@@ -1,4 +1,5 @@
 #[path = "../../src/adapters/wechat/media/resource.rs"]
+#[allow(dead_code)] // Listing-parity fixtures use row projections without opening every resource reader.
 pub mod resource;
 #[path = "../../src/adapters/wechat/media/legacy_dat.rs"]
 pub mod legacy_dat;

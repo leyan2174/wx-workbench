@@ -79,6 +79,7 @@ pub fn decode_silk_to_pcm(data: &[u8]) -> Result<Vec<u8>> {
     Ok(pcm)
 }
 
+#[cfg(test)]
 pub fn convert_silk_to_mp3(input: &Path, output: &Path) -> Result<Conversion> {
     convert_silk_to_mp3_with_ffmpeg(input, output, Path::new("ffmpeg"))
 }
@@ -101,6 +102,7 @@ pub(crate) fn convert_silk_to_mp3_checked(
 }
 
 /// ffmpeg 可传绝对路径，便于主程序配置和测试；命令不经过 shell。
+#[cfg(test)]
 pub fn convert_silk_to_mp3_with_ffmpeg(
     input: &Path,
     output: &Path,

@@ -79,7 +79,6 @@ fn read(
     )?;
     let names = Names {
         map: view.names.clone(),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
@@ -179,7 +178,6 @@ fn unmapped_conversation_is_not_projected_as_an_empty_known_username() {
     .unwrap();
     let names = Names {
         map: HashMap::new(),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
@@ -235,7 +233,6 @@ fn malformed_structured_content_is_visible_without_changing_valid_text() {
     .unwrap();
     let names = Names {
         map: HashMap::new(),
-        md5_to_uname: HashMap::new(),
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),

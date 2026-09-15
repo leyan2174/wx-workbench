@@ -145,6 +145,7 @@ pub struct ImageSource<'a> {
 }
 
 impl<'a> ImageSource<'a> {
+    #[cfg(test)]
     pub fn open(
         messages: &'a Snapshot,
         selector: &MessageSelector<'_>,
@@ -209,6 +210,7 @@ impl<'a> ImageSource<'a> {
         })
     }
 
+    #[cfg(test)]
     pub fn message(&self) -> &MessageRef {
         &self.message
     }

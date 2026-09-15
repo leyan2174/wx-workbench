@@ -2,18 +2,24 @@ pub use mcp_voice_host::{ipc, mcp};
 #[path = "../../../src/config.rs"]
 pub mod config;
 #[path = "../../../src/runtime.rs"]
+#[allow(dead_code)] // This fixed-account fixture omits bootstrap and other operation lifecycle entry points.
 pub mod runtime;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;
 #[path = "../../../src/toolkit/setup.rs"]
+#[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
 #[path = "../../../src/toolkit/files.rs"]
+#[allow(dead_code)] // Host security exercises publication guards, not directory collection.
 pub mod files;
 #[path = "../../../src/key_store/mod.rs"]
+#[allow(dead_code)] // Embedded store keeps migration/seed APIs for other harnesses.
 pub mod key_store;
-#[path = "../../../src/windows_process.rs"]
+// Only managed execution is used here; root tests cover Frida handle isolation.
+#[path = "../../support/managed_process.rs"]
 pub mod windows_process;
 #[path = "../../../src/attachment/local_files.rs"]
+#[allow(dead_code)] // This slice uses publication guards but omits other media scan/proof APIs.
 pub mod local_files;
 pub mod attachment {
     pub use crate::local_files;
@@ -23,7 +29,7 @@ pub mod publish;
 #[path = "../../../src/toolkit/asr/mod.rs"]
 pub mod toolkit_asr;
 #[path = "../../../src/daemon/cache.rs"]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)] // Voice-only host does not consume the ResourceSnapshot re-export.
 pub mod db_cache;
 #[cfg(test)]
 #[path = "../../../src/crypto/test_support.rs"]
@@ -38,7 +44,7 @@ pub mod crypto {
 pub mod legacy;
 pub mod toolkit {
     pub use crate::setup;
-    pub(crate) use crate::files::{separate, validate_export_target, ExportTarget};
+    pub(crate) use crate::files::{validate_export_target, ExportTarget};
     pub use crate::private_file;
     pub use crate::toolkit_asr as asr;
     pub use crate::legacy;

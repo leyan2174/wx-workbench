@@ -11,6 +11,13 @@ pub struct Session {
     pub kind: ContactKind,
     pub unread: i64,
     pub timestamp: i64,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Semantic last-message kind remains separate from the legacy session preview projection"
+        )
+    )]
     pub last_kind: Kind,
     pub sender: Option<String>,
     pub sender_display_hint: Option<String>,

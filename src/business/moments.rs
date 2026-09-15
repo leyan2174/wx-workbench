@@ -192,10 +192,18 @@ pub fn query(source: &mut impl TimelineSource, query: &Query) -> Result<Page, So
 pub enum InteractionKind {
     Like,
     Comment,
+    #[expect(
+        dead_code,
+        reason = "Unknown interactions must not be relabeled as likes or comments; current adapter emits only recognized interactions"
+    )]
     Unknown,
 }
 #[derive(Clone, Debug)]
 pub struct Interaction {
+    #[expect(
+        dead_code,
+        reason = "Interaction evidence is distinct from parent moment identity although legacy notification wire omits it"
+    )]
     pub evidence: EvidenceRef,
     pub moment: EvidenceRef,
     pub created_at: i64,

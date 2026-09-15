@@ -74,6 +74,7 @@ pub(crate) fn export_from(
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn download(
     md5: &str,
     info: &EmojiInfo,

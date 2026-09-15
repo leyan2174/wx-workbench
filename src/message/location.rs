@@ -81,14 +81,6 @@ impl Location {
         }
         lines.join("\n")
     }
-
-    pub fn summary(&self) -> String {
-        crate::message::summary::location(&crate::business::structured_message::LocationSummary {
-            name: self.fields["poiname"].clone(),
-            address: self.fields["label"].clone(),
-            category: self.category_top.clone(),
-        })
-    }
 }
 
 #[cfg(test)]

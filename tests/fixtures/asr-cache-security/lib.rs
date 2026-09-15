@@ -8,10 +8,13 @@ pub mod daemon {
     pub mod operations { pub use crate::cli_asr as asr; }
 }
 #[path = "../../../src/toolkit/asr/mod.rs"]
+#[allow(dead_code)] // Cache tests omit Python host-input discovery.
 pub mod asr;
 #[path = "../../../src/toolkit/audio/mod.rs"]
+#[allow(dead_code)] // Cache tests omit MP3/WAV publication entry points.
 pub mod audio;
 #[path = "../../../src/attachment/local_files.rs"]
+#[allow(dead_code)] // Audio cache tests omit image scan and metadata guards.
 pub mod local_files;
 pub mod attachment {
     pub use super::local_files;
@@ -50,8 +53,10 @@ pub mod adapters;
 #[path = "../../support/managed_process.rs"]
 pub mod windows_process;
 #[path = "../../../src/key_store/mod.rs"]
+#[allow(dead_code)] // Cache fixture embeds the store but does not run legacy migration.
 pub mod key_store;
 #[path = "../../../src/toolkit/setup.rs"]
+#[allow(dead_code)] // Only fixed-path configuration support is needed by this slice.
 pub mod setup;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;

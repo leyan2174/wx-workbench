@@ -67,6 +67,7 @@ pub mod meta;
 #[path = "../../../src/daemon/query/mcp_refer.rs"]
 pub mod refer;
 #[path = "../../../src/daemon/query/strict_message.rs"]
+#[allow(dead_code)] // Reply queries consume only strict message capture, not all getters.
 mod strict_message;
 
 pub use daemon::cache::DbCache;
@@ -75,7 +76,6 @@ use std::{collections::HashMap, sync::atomic::Ordering};
 #[derive(Clone, Default)]
 pub struct Names {
     pub map: HashMap<String, String>,
-    pub md5_to_uname: HashMap<String, String>,
     pub msg_db_keys: Vec<String>,
     pub biz_msg_db_keys: Vec<String>,
     pub verify_flags: HashMap<String, i64>,
@@ -93,8 +93,10 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
 }
 
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
+#[allow(dead_code, unused_imports)] // This query slice omits batch/export consumers and their test-only limit re-exports.
 pub mod contact_adapter;
 #[path = "../../../src/business/contacts.rs"]
+#[allow(unfulfilled_lint_expectations)] // Public fixture visibility differs from the private production domain.
 pub mod contact_business;
 #[path = "../../support/media_business.rs"]
 mod media_business;
