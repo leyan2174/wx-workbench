@@ -2,10 +2,13 @@
 pub(crate) mod attachment_content;
 pub(crate) mod attachment_kind;
 pub(crate) mod directory_layout;
+pub(crate) mod image_batch;
 pub(crate) mod legacy_dat;
 pub(crate) mod local_emoticon;
 pub(crate) mod local_read;
 pub mod resource;
+pub(crate) mod strict_image;
+pub(crate) mod strict_message;
 pub mod voice;
 pub mod voice_catalog;
 pub mod voice_export;

@@ -97,14 +97,18 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
             output_dir,
         } => native::batch_images(input_dir, output_dir),
         ToolkitOperation::VoiceToMp3 { input, output } => {
+            let context = native::export_context::ExportContext::current()?;
             let output = output.unwrap_or_else(|| {
                 let mut path = PathBuf::from(&input);
                 path.set_extension("mp3");
                 path.to_string_lossy().into_owned()
             });
-            let result = native::audio::convert_silk_to_mp3(
+            let protected = context.protected(std::path::Path::new(&input))?;
+            let result = native::audio::convert_silk_to_mp3_checked(
                 std::path::Path::new(&input),
                 std::path::Path::new(&output),
+                &protected,
+                || context.verify(),
             )?;
             println!("{}", serde_json::to_string(&result)?);
             Ok(())

@@ -3,6 +3,7 @@ pub mod attachment {
     pub(crate) use crate::local_files;
     pub use crate::native_image;
     pub use native_image_fixture::decoder;
+    pub use native_image_fixture::resolver;
 }
 #[path = "../../../src/attachment/local_files.rs"]
 pub(crate) mod local_files;

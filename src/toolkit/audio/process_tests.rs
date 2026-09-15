@@ -69,6 +69,52 @@ fn run_failure(mode: &str, cancel: bool) {
 }
 
 #[test]
+fn encoder_staging_parent_is_locked_through_conversion() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.silk");
+    fs::copy(tests::fixtures().join("tone.silk"), &source).unwrap();
+    let parent = temp.path().join("output");
+    let output = parent.join("result.mp3");
+    let executable = temp.path().join("parent_swap.exe");
+    fs::copy(fake_ffmpeg().join("helper.exe"), &executable).unwrap();
+    convert_silk_to_mp3_with_ffmpeg(&source, &output, &executable).unwrap();
+    assert_eq!(fs::read(&output).unwrap(), b"synthetic encoded audio");
+    assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+    assert!(!temp.path().join("moved-output").exists());
+    crate::toolkit::private_file::assert_private_acl(&output);
+}
+
+#[test]
+fn checked_conversion_revalidates_host_after_encoder_success() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.silk");
+    fs::copy(tests::fixtures().join("tone.silk"), &source).unwrap();
+    let output = temp.path().join("valid.mp3");
+    fs::write(&output, b"old valid output").unwrap();
+    let executable = temp.path().join("success.exe");
+    fs::copy(fake_ffmpeg().join("helper.exe"), &executable).unwrap();
+    let mut checks = 0;
+    let error = convert_controlled_checked(
+        &source,
+        &output,
+        &executable,
+        Instant::now() + Duration::from_secs(10),
+        || false,
+        &[],
+        || {
+            checks += 1;
+            ensure!(checks == 1, "synthetic host binding changed");
+            Ok(())
+        },
+    )
+    .unwrap_err();
+    assert_eq!(checks, 2);
+    assert!(format!("{error:#}").contains("synthetic host binding changed"));
+    assert_eq!(fs::read(&output).unwrap(), b"old valid output");
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 3);
+}
+
+#[test]
 fn direct_ffmpeg_hang_preserves_old_output() {
     run_failure("hang", false);
 }

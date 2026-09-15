@@ -134,7 +134,8 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
         }
         Step::DecodeImages { config, output } => {
             selected(runtime, &config)?;
-            toolkit::decode_images(
+            toolkit::decode_images_for(
+                runtime,
                 None,
                 Some(
                     output

@@ -352,7 +352,7 @@ fn export_with(
             serde_json::json!({"engine":"rust","total":0,"written":0,"messages":0,"added_messages":0,"incremental":incremental,"failures":[]}),
         );
     }
-    let mut index = ChatIndex::open_for(&output, &runtime.id)?;
+    let mut index = ChatIndex::open_for_runtime(&output, runtime)?;
     let legacy_unverified = index.legacy_unverified();
     let usernames: Vec<_> = targets
         .iter()

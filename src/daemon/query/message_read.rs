@@ -1,7 +1,10 @@
 //! Account host preparation and compatibility projections; message storage lives in the adapter.
 use super::*;
 use crate::{
-    adapters::wechat::messages::{LegacyReadPolicy, RawMessage, Snapshot, SourceFile},
+    adapters::wechat::messages::{
+        pages::{LegacyMessageProjection, PageDiagnostics},
+        LegacyReadPolicy, Snapshot, SourceFile,
+    },
     business::messages as domain,
 };
 use std::{collections::BTreeMap, path::PathBuf};
@@ -9,6 +12,70 @@ use std::{collections::BTreeMap, path::PathBuf};
 pub(super) struct Prepared {
     pub files: Vec<SourceFile>,
     origins: BTreeMap<String, (PathBuf, CacheMode)>,
+}
+
+impl Prepared {
+    fn open(&self, identities: impl IntoIterator<Item = String>) -> Result<Snapshot> {
+        Snapshot::open(self.files.clone(), identities)
+    }
+
+    // Explicit legacy diagnostics only; page selection never consumes host paths.
+    fn history_metadata(
+        &self,
+        diagnostics: &PageDiagnostics,
+        session_ts: Option<i64>,
+        windowed: bool,
+        options: MetaOptions,
+    ) -> Result<Meta> {
+        let shards = diagnostics
+            .shards
+            .iter()
+            .map(|shard| {
+                let (path, mode) = self
+                    .origins
+                    .get(&shard.logical_source)
+                    .context("message origin unavailable")?;
+                Ok(MessageShard {
+                    rel_key: shard.logical_source.clone(),
+                    path: path.clone(),
+                    table: shard.table.clone(),
+                    max_ts: shard.latest_timestamp,
+                    cache_mode: *mode,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(meta_for_shards(
+            self.files.len(),
+            &shards,
+            diagnostics.hits,
+            Vec::new(),
+            session_ts,
+            windowed,
+            options,
+        ))
+    }
+
+    fn global_metadata(&self, diagnostics: &PageDiagnostics, options: MetaOptions) -> Meta {
+        let modes = self
+            .origins
+            .iter()
+            .map(|(key, (_, mode))| (key.clone(), mode.as_str().to_owned()))
+            .collect();
+        let paths = self
+            .origins
+            .iter()
+            .map(|(key, (path, _))| (key.clone(), path.to_string_lossy().into_owned()))
+            .collect();
+        meta_for_global_query(
+            self.files.len(),
+            diagnostics.hits,
+            Vec::new(),
+            true,
+            options,
+            Some(modes),
+            Some(paths),
+        )
+    }
 }
 
 pub(super) async fn find_shards(
@@ -225,68 +292,42 @@ pub(super) async fn new_messages(
     )
     .await?;
     let names_copy = names.clone();
-    let scanned = prepared.files.len();
-    let modes = prepared
-        .origins
-        .iter()
-        .map(|(k, (_, m))| (k.clone(), m.as_str().to_owned()))
-        .collect();
-    let paths = prepared
-        .origins
-        .iter()
-        .map(|(k, (p, _))| (k.clone(), p.to_string_lossy().into_owned()))
-        .collect();
     let result = tokio::task::spawn_blocking(move || -> Result<_> {
         let mut identities: Vec<_> = names_copy.map.keys().cloned().collect();
         identities.extend(changed.iter().map(|(name, _)| name.clone()));
-        let snapshot = Snapshot::open(prepared.files, identities)?;
-        let mut candidates = Vec::new();
-        let mut hits = HashSet::new();
+        let snapshot = prepared.open(identities)?;
+        let read = snapshot.new_messages_page(&changed, &page)?;
         let empty = HashMap::new();
-        for (username, since) in changed {
-            let filter = domain::Filter {
-                since: Some(since.checked_add(1).context("subscription time overflow")?),
-                until: None,
-                kinds: Vec::new(),
+        let mut messages = Vec::new();
+        let mut delivered = Vec::new();
+        for message in &read.page.messages {
+            let domain::Conversation::Known(username) = &message.conversation else {
+                anyhow::bail!(domain::Error::InvalidData);
             };
-            for stream in snapshot.streams_for(&username, domain::SourceKind::Ordinary) {
-                for raw in snapshot.read_page(stream, &filter, limit, true)? {
-                    anyhow::ensure!(candidates.len() < 100_000, domain::Error::Limit);
-                    hits.insert(raw.logical_source.clone());
-                    let mut value = project(
-                        &snapshot,
-                        &raw,
-                        &names_copy,
-                        nicknames.get(&username).unwrap_or(&empty),
-                    )?;
-                    value["username"] = Value::String(username.clone());
-                    value["chat"] = Value::String(names_copy.display(&username));
-                    value["is_group"] = Value::Bool(username.ends_with("@chatroom"));
-                    value["chat_type"] = Value::String(chat_type_of(&username, &names_copy).into());
-                    candidates.push(domain::Candidate {
-                        order: snapshot.order_key(&raw)?,
-                        reference: raw.reference.clone(),
-                        value: (value, username.clone(), raw.timestamp),
-                    });
-                }
-            }
+            let mut value = project(
+                message,
+                read.legacy.message(&message.reference)?,
+                &names_copy,
+                nicknames.get(username).unwrap_or(&empty),
+            )?;
+            value["username"] = Value::String(username.clone());
+            value["chat"] = Value::String(names_copy.display(username));
+            value["is_group"] = Value::Bool(username.ends_with("@chatroom"));
+            value["chat_type"] = Value::String(chat_type_of(username, &names_copy).into());
+            delivered.push((username.clone(), message.timestamp));
+            messages.push(value);
         }
         Ok((
-            page.select(candidates, domain::Completeness::Complete)?,
-            hits.len(),
+            messages,
+            delivered,
+            prepared.global_metadata(&read.diagnostics, options),
         ))
     })
     .await?;
     check_inventory(db, names, domain::SourceKind::Ordinary)?;
-    let (rows, hits) = result?;
-    let delivered: Vec<_> = rows
-        .iter()
-        .map(|(_, name, timestamp)| (name.clone(), *timestamp))
-        .collect();
-    let messages: Vec<_> = rows.into_iter().map(|(value, _, _)| value).collect();
-    Ok(
-        json!({"count": messages.len(), "messages": messages, "new_state": subscription.advance(&delivered), "meta": meta_for_global_query(scanned, hits, Vec::new(), true, options, Some(modes), Some(paths))}),
-    )
+    let (messages, delivered, meta) = result?;
+    Ok(json!({"count": messages.len(), "messages": messages,
+        "new_state": subscription.advance(&delivered), "meta": meta}))
 }
 
 pub(super) async fn prepare(
@@ -331,44 +372,40 @@ pub(super) fn check_inventory(db: &DbCache, names: &Names, kind: domain::SourceK
 }
 
 pub(super) fn project(
-    snapshot: &Snapshot,
-    raw: &RawMessage,
+    message: &domain::Message,
+    legacy: &LegacyMessageProjection,
     names: &Names,
     nicknames: &HashMap<String, String>,
 ) -> Result<Value> {
-    let message = snapshot.message(raw)?;
     let username = match &message.conversation {
         domain::Conversation::Known(name) => name.as_str(),
         _ => "",
     };
     let is_group = username.ends_with("@chatroom");
     let sender = message.sender.as_deref().unwrap_or("");
-    let mut value = json!({
-        "local_id": raw.local_id.context("ordinary message identity unavailable")?,
-        "source": raw.logical_source.replace('\\', "/"),
-        "timestamp": message.timestamp,
-        "time": fmt_time(message.timestamp, "%Y-%m-%d %H:%M"),
-        "sender": if sender.is_empty() { String::new() } else { sender_display(sender, "", &names.map, nicknames) },
-        "content": message.preview,
-        "type": fmt_type(raw.local_type),
+    let mut value = serde_json::to_value(legacy)?;
+    value["timestamp"] = json!(message.timestamp);
+    value["time"] = json!(fmt_time(message.timestamp, "%Y-%m-%d %H:%M"));
+    value["sender"] = json!(if sender.is_empty() {
+        String::new()
+    } else {
+        sender_display(sender, "", &names.map, nicknames)
     });
+    value["content"] = json!(message.preview);
     match &message.conversation {
         domain::Conversation::Known(username) => {
             value["identity_status"] = json!("mapped");
             value["username"] = json!(username);
         }
-        domain::Conversation::Unmapped(key) => {
+        domain::Conversation::Unmapped(_) => {
             value["identity_status"] = json!("unmapped");
             value["username"] = Value::Null;
-            value["unmapped_conversation"] = json!(
-                crate::adapters::wechat::messages::read::diagnostics::legacy_unmapped_key(key)
-            );
         }
     }
     add_sender_identity(&mut value, is_group, sender, &names.map, nicknames);
-    match message.content {
+    match &message.content {
         domain::Content::Structured(rich) => {
-            value["rich"] = crate::message::structured_message::project(&rich);
+            value["rich"] = crate::message::structured_message::project(rich);
         }
         domain::Content::Unavailable(issue) => {
             use crate::business::structured_message::ContentIssue;
@@ -381,10 +418,10 @@ pub(super) fn project(
         }
         _ => {}
     }
-    if let Some(url) = message.url {
-        value["url"] = Value::String(url);
+    if let Some(url) = &message.url {
+        value["url"] = Value::String(url.clone());
     }
-    if let Some(call) = message.call {
+    if let Some(call) = &message.call {
         value["call"] = json!({"media": "unknown", "status_text": call.status_text, "duration_text": call.duration_text});
     }
     Ok(value)
@@ -426,7 +463,7 @@ pub(super) async fn history(
     chat: &str,
     options: HistoryQuery<'_>,
 ) -> Result<Value> {
-    let per_stream = validate_history(&options)?;
+    validate_history(&options)?;
     let page = domain::Page {
         limit: options.page.limit,
         offset: options.page.offset,
@@ -453,82 +490,44 @@ pub(super) async fn history(
         HashMap::new()
     };
     let session_ts = session_last_timestamp(db, &username).await;
-    let names_copy = names.clone();
-    let username_copy = username.clone();
-    let files = prepared.files;
-    let scanned = files.len();
-    let origins = prepared.origins;
-    let result = tokio::task::spawn_blocking(move || -> Result<_> {
-        let mut identities: Vec<_> = names_copy.map.keys().cloned().collect();
-        identities.push(username_copy.clone());
-        let snapshot = Snapshot::open(files, identities)?;
-        let mut candidates = Vec::new();
-        let mut shards = Vec::new();
-        let mut hits = 0;
-        let mut streams = snapshot
-            .streams_for(&username_copy, domain::SourceKind::Ordinary)
-            .into_iter()
-            .map(|stream| Ok((stream, snapshot.latest_timestamp(stream)?.unwrap_or(0))))
-            .collect::<Result<Vec<_>>>()?;
-        streams.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        for (rank, (stream, max_ts)) in streams.into_iter().enumerate() {
-            let source = snapshot.source_name(stream)?.to_owned();
-            let (path, mode) = origins.get(&source).context("message origin unavailable")?;
-            shards.push(MessageShard {
-                rel_key: source,
-                path: path.clone(),
-                table: snapshot.streams()[stream].table_name().into(),
-                max_ts,
-                cache_mode: *mode,
-            });
-            let rows = snapshot.read_legacy_page(
-                stream,
-                &filter,
-                &legacy,
-                per_stream,
-                page.oldest_first,
-            )?;
-            if !rows.is_empty() {
-                hits += 1;
-            }
-            for raw in rows {
-                anyhow::ensure!(candidates.len() < 100_000, domain::Error::Limit);
-                let mut order = snapshot.order_key(&raw)?;
-                order.1 = rank;
-                candidates.push(domain::Candidate {
-                    order,
-                    reference: raw.reference.clone(),
-                    value: project(&snapshot, &raw, &names_copy, &nicknames)?,
-                });
-            }
-        }
-        shards.sort_by(|a, b| b.max_ts.cmp(&a.max_ts).then(a.rel_key.cmp(&b.rel_key)));
-        Ok((
-            page.select(candidates, domain::Completeness::Complete)?,
-            shards,
-            hits,
-        ))
-    })
-    .await?;
-    check_inventory(db, names, domain::SourceKind::Ordinary)?;
-    let (messages, shards, hits) = result?;
     let windowed = options.page.offset > 0
         || options.filter.since.is_some()
         || options.filter.until.is_some()
         || options.filter.msg_type.is_some()
         || options.msg_types.is_some_and(|v| !v.is_empty())
         || options.oldest_first;
-    let meta = meta_for_shards(
-        scanned,
-        &shards,
-        hits,
-        Vec::new(),
-        session_ts,
-        windowed,
-        options.meta,
-    );
+    let meta_options = options.meta;
+    let names_copy = names.clone();
+    let username_copy = username.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<_> {
+        let mut identities: Vec<_> = names_copy.map.keys().cloned().collect();
+        identities.push(username_copy.clone());
+        let snapshot = prepared.open(identities)?;
+        let read = snapshot.history_page(&username_copy, &filter, &legacy, &page)?;
+        let messages = read
+            .page
+            .messages
+            .iter()
+            .map(|message| {
+                project(
+                    message,
+                    read.legacy.message(&message.reference)?,
+                    &names_copy,
+                    &nicknames,
+                )
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let meta =
+            prepared.history_metadata(&read.diagnostics, session_ts, windowed, meta_options)?;
+        Ok((messages, meta))
+    })
+    .await?;
+    check_inventory(db, names, domain::SourceKind::Ordinary)?;
+    let (messages, meta) = result?;
     Ok(
-        json!({"chat": names.display(&username), "username": username, "is_group": username.ends_with("@chatroom"), "chat_type": chat_type_of(&username, names), "count": messages.len(), "messages": messages, "meta": meta}),
+        json!({"chat": names.display(&username), "username": username,
+        "is_group": username.ends_with("@chatroom"), "chat_type": chat_type_of(&username, names),
+        "count": messages.len(), "messages": messages, "meta": meta}),
     )
 }
 
@@ -577,87 +576,52 @@ pub(super) async fn search(
         kinds: Vec::new(),
     };
     filter.validate()?;
-    let scanned = prepared.files.len();
-    let cache_modes = prepared
-        .origins
-        .iter()
-        .map(|(k, (_, m))| (k.clone(), m.as_str().to_owned()))
-        .collect();
-    let paths = prepared
-        .origins
-        .iter()
-        .map(|(k, (p, _))| (k.clone(), p.to_string_lossy().into_owned()))
-        .collect();
     let result = tokio::task::spawn_blocking(move || -> Result<_> {
         let mut identities: Vec<_> = names_copy.map.keys().cloned().collect();
         if let Some(targets) = &targets {
             identities.extend(targets.iter().cloned());
         }
-        let snapshot = Snapshot::open(prepared.files, identities)?;
-        let mut candidates = Vec::new();
-        let mut hits = HashSet::new();
+        let snapshot = prepared.open(identities)?;
+        let read =
+            snapshot.search_page(targets.as_ref(), &filter, &legacy, &keyword_copy, &page)?;
+        let unresolved = read.page.unresolved_conversations();
         let empty = HashMap::new();
-        for (stream, entry) in snapshot.streams().iter().enumerate() {
-            if snapshot.source_kind(stream)? != domain::SourceKind::Ordinary {
-                continue;
-            }
-            let username = match &entry.conversation {
-                domain::Conversation::Known(name) => name.as_str(),
-                _ => "",
-            };
-            if targets.as_ref().is_some_and(|set| !set.contains(username)) {
-                continue;
-            }
-            for raw in
-                snapshot.search_legacy_page(stream, &filter, &legacy, &keyword_copy, limit)?
-            {
-                anyhow::ensure!(candidates.len() < 100_000, domain::Error::Limit);
-                hits.insert(raw.logical_source.clone());
+        let results = read
+            .page
+            .messages
+            .iter()
+            .map(|message| {
+                let wire = read.legacy.message(&message.reference)?;
+                let username = match &message.conversation {
+                    domain::Conversation::Known(name) => name.as_str(),
+                    domain::Conversation::Unmapped(_) => "",
+                };
                 let mut value = project(
-                    &snapshot,
-                    &raw,
+                    message,
+                    wire,
                     &names_copy,
                     nicknames.get(username).unwrap_or(&empty),
                 )?;
-                value["chat"] = Value::String(if username.is_empty() {
-                    entry.table_name().into()
-                } else {
-                    names_copy.display(username)
+                value["chat"] = Value::String(match &message.conversation {
+                    domain::Conversation::Known(name) => names_copy.display(name),
+                    domain::Conversation::Unmapped(_) => wire
+                        .unmapped_chat_label()
+                        .context("legacy unresolved chat display unavailable")?
+                        .to_owned(),
                 });
-                if !username.is_empty() {
-                    value["username"] = Value::String(username.into());
-                }
-                candidates.push(domain::Candidate {
-                    order: snapshot.order_key(&raw)?,
-                    reference: raw.reference.clone(),
-                    value: (
-                        value,
-                        matches!(&entry.conversation, domain::Conversation::Known(_)),
-                    ),
-                });
-            }
-        }
-        let mut page = page.select(candidates, domain::Completeness::Complete)?;
-        page.reverse();
-        let unresolved = page.iter().filter(|(_, mapped)| !mapped).count();
+                Ok(value)
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok((
-            page.into_iter().map(|(value, _)| value).collect::<Vec<_>>(),
-            hits.len(),
+            results,
             unresolved,
+            prepared.global_metadata(&read.diagnostics, options),
         ))
     })
     .await?;
     check_inventory(db, names, domain::SourceKind::Ordinary)?;
-    let (results, hits, unresolved) = result?;
-    let mut meta = serde_json::to_value(meta_for_global_query(
-        scanned,
-        hits,
-        Vec::new(),
-        true,
-        options,
-        Some(cache_modes),
-        Some(paths),
-    ))?;
+    let (results, unresolved, meta) = result?;
+    let mut meta = serde_json::to_value(meta)?;
     meta["identity_complete"] = json!(unresolved == 0);
     meta["unresolved_identities"] = json!(unresolved);
     Ok(json!({"keyword": keyword, "count": results.len(), "results": results, "meta": meta}))

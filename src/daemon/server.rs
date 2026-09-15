@@ -363,9 +363,9 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                     "语音查询分页超出范围"
                 );
                 let username = query::mcp_voice::resolve_exact_chat(&chat, &names_arc.map)?;
-                let rows = query::mcp_voice::q_voice_messages(
+                let page = query::mcp_voice::q_voice_messages(
                     db,
-                    &query::mcp_voice::VoiceQuery {
+                    &crate::business::voice::catalog::Query {
                         username,
                         limit,
                         offset,
@@ -374,6 +374,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                     },
                 )
                 .await?;
+                let rows = crate::adapters::wechat::media::voice_catalog::legacy_rows(&page)?;
                 Ok::<_, anyhow::Error>(serde_json::json!({"voices": rows, "count": rows.len()}))
             }
             .await;

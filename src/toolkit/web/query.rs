@@ -1,11 +1,10 @@
 //! 固定账号的查询与监测适配；在有限槽位内等待，不重放已经发出的请求。
 use super::server_types::Shared;
-use crate::ipc::{Request, Response};
+use crate::ipc::Request;
 use crate::service::web::Call;
 use anyhow::{ensure, Result};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 #[derive(Debug)]
@@ -97,18 +96,11 @@ async fn raw(state: &Shared, request: Request, maximum: usize) -> Result<Value> 
         20
     };
     let result = tokio::time::timeout(Duration::from_secs(timeout), async {
-        use interprocess::local_socket::{tokio::prelude::*, GenericNamespaced};
-        let pipe = state.runtime.pipe_name();
-        let name = pipe.to_ns_name::<GenericNamespaced>()?;
-        let mut stream = interprocess::local_socket::tokio::Stream::connect(name).await?;
-        stream
-            .write_all((serde_json::to_string(&request)? + "\n").as_bytes())
-            .await?;
-        let mut reader = BufReader::new(stream).take(maximum as u64 + 1);
-        let mut line = String::new();
-        reader.read_line(&mut line).await?;
-        ensure!(line.len() <= maximum, "查询响应超过限额");
-        let response: Response = serde_json::from_str(&line)?;
+        use crate::service::{query_client, transport::framing};
+        let mut reader = query_client::connect_query(&state.runtime).await?;
+        query_client::write_query(&mut reader, &state.runtime, request, maximum).await?;
+        let bytes = framing::line(&mut reader, maximum).await?;
+        let response = query_client::decode_query_response(&bytes, &state.runtime)?;
         response.require_success()?;
         Ok::<_, anyhow::Error>(response.data)
     })

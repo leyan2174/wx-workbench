@@ -188,3 +188,25 @@ fn rejects_source_alias_and_preserves_outputs_on_failure() {
     assert_eq!(fs::read(&target).unwrap(), b"existing output");
     assert_eq!(fs::read(&source).unwrap(), b"not silk");
 }
+
+#[test]
+fn checked_conversion_rejects_protected_output_before_decoding() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("input.silk");
+    let protected = temp.path().join("keys.synthetic");
+    fs::write(&source, b"not silk").unwrap();
+    fs::write(&protected, b"synthetic protected material").unwrap();
+    let error = convert_silk_to_mp3_checked(
+        &source,
+        &protected,
+        std::slice::from_ref(&protected),
+        || Ok(()),
+    )
+    .unwrap_err();
+    assert!(!format!("{error:#}").contains("SILK"), "{error:#}");
+    assert_eq!(
+        fs::read(&protected).unwrap(),
+        b"synthetic protected material"
+    );
+    assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
+}

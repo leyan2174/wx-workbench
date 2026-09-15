@@ -1,6 +1,6 @@
 //! 独立朋友圈缓存图片归档，不要求时间线、联系人库或媒体 ID。
 //! CacheIndex 的图片列表会丢弃失败项和缩略图，不能充当本模块的完整清单。
-use super::cache::{CacheKeys, CacheLimits, CacheRoots};
+use crate::adapters::wechat::moments::cache::{CacheKeys, CacheLimits, CacheRoots};
 use crate::attachment::{
     decoder::{dispatch, V2KeyMaterial},
     local_files::HostOutputGuard,

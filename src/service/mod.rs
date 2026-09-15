@@ -15,3 +15,4 @@ pub mod settings;
 pub mod time;
 pub mod transport;
 pub mod web;
+pub mod favorite_filter;

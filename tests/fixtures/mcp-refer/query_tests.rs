@@ -1,9 +1,12 @@
-use super::super::strict_message::{locate, Resolution, MAX_STORED_BYTES};
+use super::super::strict_message::{with_resolved, Resolution, MAX_STORED_BYTES};
 use super::*;
 use crate::daemon::query::encrypted_cache;
 use rusqlite::Connection;
 use std::fs;
 use std::path::PathBuf;
+
+// Public reply endpoint budget, independent of the adapter's private constant.
+const MAX_DECODED_BYTES: usize = 131_072;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("golden.json")).unwrap()
@@ -111,17 +114,28 @@ async fn shared_lookup_supports_attachment_decode_limits() {
     .enumerate()
     {
         f.insert(0, "wxid_peer", index as i64, 123, 49, body, 4);
-        let Resolution::Found(message) = locate(&f.db, &f.names, "wxid_peer", index as i64, 0)
-            .await
-            .unwrap()
-        else {
+        let Resolution::Found(message) = with_resolved(
+            &f.db,
+            &f.names,
+            "wxid_peer",
+            index as i64,
+            0,
+            move |snapshot, raw| {
+                assert_eq!(
+                    snapshot.conversation(&raw.reference)?,
+                    &crate::business::messages::Conversation::Known("wxid_peer".into())
+                );
+                assert_eq!(raw.logical_source, "message/message_0.db");
+                assert_eq!(raw.local_id, Some(index as i64));
+                assert_eq!(raw.timestamp, 123);
+                assert_eq!(raw.local_type, 49);
+                Ok(raw.detached_content())
+            },
+        )
+        .await
+        .unwrap() else {
             panic!("expected unique message");
         };
-        assert_eq!(message.username, "wxid_peer");
-        assert_eq!(message.source, "message/message_0.db");
-        assert_eq!(message.local_id, index as i64);
-        assert_eq!(message.create_time, 123);
-        assert_eq!(message.kind, 49);
         assert_eq!(
             message.bounded_decode(500_000).unwrap(),
             vec![b'x'; 500_000]
@@ -142,7 +156,9 @@ async fn ambiguous_lookup_does_not_hide_later_shard_errors() {
     f.insert(0, "wxid_peer", 7, 123, 1, text("not a reply"), 0);
     f.insert(1, "wxid_peer", 7, 123, 49, text(&body()), 0);
     assert!(matches!(
-        locate(&f.db, &f.names, "wxid_peer", 7, 0).await.unwrap(),
+        with_resolved(&f.db, &f.names, "wxid_peer", 7, 0, |_, _| Ok(()))
+            .await
+            .unwrap(),
         Resolution::AmbiguousMessage
     ));
     let table = format!("Msg_{:x}", md5::compute("wxid_peer"));
@@ -152,7 +168,11 @@ async fn ambiguous_lookup_does_not_hide_later_shard_errors() {
             "DROP TABLE [{table}]; CREATE VIEW [{table}] AS SELECT 1"
         ))
         .unwrap();
-    assert!(locate(&f.db, &f.names, "wxid_peer", 7, 0).await.is_err());
+    assert!(
+        with_resolved(&f.db, &f.names, "wxid_peer", 7, 0, |_, _| Ok(()))
+            .await
+            .is_err()
+    );
 }
 fn text(value: &str) -> rusqlite::types::Value {
     rusqlite::types::Value::Text(value.into())
@@ -190,6 +210,28 @@ async fn vendor_ast_cases_match_structured_fields_and_rendered_text() {
         assert_eq!(result["exit_code"], 0, "{result}");
         assert_eq!(result["refer"], case["expected"], "{}", case["name"]);
         assert_eq!(result["text"], case["text"], "{}", case["name"]);
+        let mut fields: Vec<_> = result
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
+        assert_eq!(
+            fields,
+            [
+                "create_time",
+                "exit_code",
+                "local_id",
+                "refer",
+                "source",
+                "text",
+                "username"
+            ]
+        );
+        assert_eq!(result["username"], case["username"]);
+        assert_eq!(result["local_id"], index as i64 + 1);
+        assert_eq!(result["create_time"], 100);
         assert_eq!(
             result["source"],
             format!("message/message_{}.db", index % 2)

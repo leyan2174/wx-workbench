@@ -121,6 +121,27 @@ async fn sql_ambiguity_precedes_type_and_record_index() {
 }
 
 #[tokio::test]
+async fn typed_attachment_selection_preserves_high_type_bits_and_rejects_other_formats() {
+    for kind in [49, (6_i64 << 32) | 49, 3, 1, -1] {
+        let f = Account::new(1);
+        f.insert(0, kind, SqlValue::Text(body()), 0);
+        f.file(b"abc");
+        let before = f.snapshot();
+        let value = f.query(None).await.unwrap();
+        if kind == 49 || kind == ((6_i64 << 32) | 49) {
+            assert_eq!(value["exit_code"], 0, "{value}");
+            assert_eq!(value["status"], "found");
+            assert_eq!(value["metadata"]["identity"]["local_id"], 7);
+        } else {
+            assert_eq!(value["exit_code"], 1, "{value}");
+            assert_eq!(value["text"], "expected app message base_type=49");
+            assert!(value.get("reference").is_none());
+        }
+        assert_eq!(f.snapshot(), before);
+    }
+}
+
+#[tokio::test]
 async fn missing_unloaded_and_invalid_inventory_never_become_missing_attachment() {
     for mode in ["missing", "unloaded", "corrupt", "unknown", "late"] {
         let mut f = Account::new(2);

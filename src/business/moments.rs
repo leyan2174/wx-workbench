@@ -4,6 +4,12 @@ use std::{collections::BTreeSet, error::Error, fmt};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EvidenceRef(pub String);
 
+/// A host-published local media file, independent of cache layout and source format.
+pub struct RecoveredMediaFile {
+    pub relative_path: String,
+    pub bytes: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthorOrigin {
     Recorded,

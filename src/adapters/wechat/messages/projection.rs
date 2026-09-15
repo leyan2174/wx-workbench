@@ -1,4 +1,5 @@
 //! Semantic message decoding and legacy search preview policy, separate from storage reads.
+pub mod pages;
 use super::{
     legacy,
     read::{LegacyReadPolicy, RawMessage, Snapshot, StoredContent, MAX_DECODED_BYTES},

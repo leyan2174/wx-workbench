@@ -3,9 +3,10 @@ use super::history::{parse_time, parse_time_end};
 use crate::service::query_client as transport;
 use crate::toolkit::directory_publish as publish;
 use crate::{
+    adapters::wechat::moments::cache,
     ipc::Request,
     runtime::RuntimeContext,
-    toolkit::sns::{album, album_render, cache},
+    toolkit::sns::{album, album_render},
 };
 use anyhow::{ensure, Context, Result};
 use std::{fs, path::Path, time::Duration};
@@ -73,21 +74,8 @@ pub fn cmd_sns_album(args: Args) -> Result<()> {
     let runtime = RuntimeContext::load()?;
     super::export_chat::validate_output_for(&runtime, &output)?;
     crate::toolkit::separate(&runtime.root, &output)?;
-    let account = if runtime
-        .config
-        .db_dir
-        .file_name()
-        .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("db_storage"))
-    {
-        runtime
-            .config
-            .db_dir
-            .parent()
-            .context("账号数据库缺少父目录")?
-    } else {
-        &runtime.config.db_dir
-    };
-    let cache_root = account.join("cache");
+    let account = cache::account_root(&runtime.config.db_dir)?;
+    let cache_root = cache::account_cache_root(account);
     crate::toolkit::separate(&cache_root, &output)?;
 
     let response = feed(&runtime, &args, since, until)?;

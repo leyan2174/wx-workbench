@@ -70,10 +70,7 @@ pub mod refer;
 mod strict_message;
 
 pub use daemon::cache::DbCache;
-use std::{
-    collections::HashMap,
-    sync::atomic::Ordering,
-};
+use std::{collections::HashMap, sync::atomic::Ordering};
 
 #[derive(Clone, Default)]
 pub struct Names {
@@ -95,16 +92,18 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
     Ok(())
 }
 
-#[path = "../../support/message_read_adapters.rs"]
-mod message_read_adapters;
-#[path = "../../support/media_business.rs"]
-mod media_business;
-#[path = "../../../src/business/contacts.rs"]
-pub mod contact_business;
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
 pub mod contact_adapter;
+#[path = "../../../src/business/contacts.rs"]
+pub mod contact_business;
+#[path = "../../support/media_business.rs"]
+mod media_business;
+#[path = "../../support/message_read_adapters.rs"]
+mod message_read_adapters;
 #[path = "../../../src/adapters/wechat/messages/reply.rs"]
 pub mod reply_adapter;
+#[path = "../../../src/adapters/wechat/messages/reply_read.rs"]
+pub mod reply_read_adapter;
 #[path = "../../support/structured_content_adapters.rs"]
 pub mod structured_content_adapters;
 
@@ -114,10 +113,11 @@ pub mod adapters {
         pub use crate::contact_adapter as contacts;
         pub mod messages {
             pub use crate::message_read_adapters::inventory;
-            pub use crate::structured_content_adapters::*;
-            pub use crate::message_read_adapters::messages::*;
             pub use crate::message_read_adapters::messages as read;
+            pub use crate::message_read_adapters::messages::*;
             pub use crate::reply_adapter as reply;
+            pub use crate::reply_read_adapter as reply_read;
+            pub use crate::structured_content_adapters::*;
         }
     }
 }

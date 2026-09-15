@@ -109,28 +109,29 @@ fn read_selected(
         offset: page.offset,
         oldest_first: false,
     };
-    let mut result = Vec::new();
-    for stream in snapshot.streams_for(view.username, domain::SourceKind::Ordinary) {
-        let rows = if let Some(keyword) = keyword {
-            snapshot.search_legacy_page(
-                stream,
-                &filter,
-                &policy,
-                keyword,
-                page.candidate_limit()?,
-            )?
-        } else {
-            snapshot.read_legacy_page(stream, &filter, &policy, page.candidate_limit()?, false)?
-        };
-        for raw in rows {
-            result.push(domain::Candidate {
-                order: snapshot.order_key(&raw)?,
-                reference: raw.reference.clone(),
-                value: message_read::project(snapshot, &raw, names, view.group_nicknames)?,
-            });
-        }
+    let mut read = if let Some(keyword) = keyword {
+        let targets = HashSet::from([view.username.to_owned()]);
+        snapshot.search_page(Some(&targets), &filter, &policy, keyword, &page)?
+    } else {
+        snapshot.history_page(view.username, &filter, &policy, &page)?
+    };
+    // This fixture helper represents a single-table legacy read, whose output
+    // remains chronological before the production search's final reversal.
+    if keyword.is_some() {
+        read.page.messages.reverse();
     }
-    Ok(page.select(result, domain::Completeness::Complete)?)
+    read.page
+        .messages
+        .iter()
+        .map(|message| {
+            message_read::project(
+                message,
+                read.legacy.message(&message.reference)?,
+                names,
+                view.group_nicknames,
+            )
+        })
+        .collect()
 }
 
 pub(super) fn query_messages(
@@ -183,13 +184,29 @@ fn unmapped_conversation_is_not_projected_as_an_empty_known_username() {
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
     };
-    let raw = snapshot
-        .read_page(0, &domain::Filter::default(), 1, true)
-        .unwrap()
-        .remove(0);
-    let value = message_read::project(&snapshot, &raw, &names, &HashMap::new()).unwrap();
+    let read = snapshot
+        .search_page(
+            None,
+            &domain::Filter::default(),
+            &LegacyReadPolicy::default(),
+            "synthetic",
+            &domain::Page {
+                limit: 1,
+                offset: 0,
+                oldest_first: false,
+            },
+        )
+        .unwrap();
+    let message = &read.page.messages[0];
+    let value = message_read::project(
+        message,
+        read.legacy.message(&message.reference).unwrap(),
+        &names,
+        &HashMap::new(),
+    )
+    .unwrap();
     assert_eq!(value["source"], "message/message_0.db");
-    assert_eq!(raw.logical_source, "message\\message_0.db");
+    assert_eq!(snapshot.source_name(0).unwrap(), "message\\message_0.db");
     assert!(value["username"].is_null());
     assert_eq!(value["identity_status"], "unmapped");
     assert_eq!(
@@ -223,14 +240,36 @@ fn malformed_structured_content_is_visible_without_changing_valid_text() {
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
     };
-    let rows = snapshot
-        .read_page(0, &domain::Filter::default(), 10, true)
+    let read = snapshot
+        .history_page(
+            "wxid_content",
+            &domain::Filter::default(),
+            &LegacyReadPolicy::default(),
+            &domain::Page {
+                limit: 10,
+                offset: 0,
+                oldest_first: true,
+            },
+        )
         .unwrap();
-    let bad = message_read::project(&snapshot, &rows[0], &names, &HashMap::new()).unwrap();
+    let rows = &read.page.messages;
+    let bad = message_read::project(
+        &rows[0],
+        read.legacy.message(&rows[0].reference).unwrap(),
+        &names,
+        &HashMap::new(),
+    )
+    .unwrap();
     assert_eq!(bad["content_issue"], "malformed_content");
     assert!(bad.get("rich").is_none());
     assert_ne!(bad["content"], "<msg>");
-    let valid = message_read::project(&snapshot, &rows[1], &names, &HashMap::new()).unwrap();
+    let valid = message_read::project(
+        &rows[1],
+        read.legacy.message(&rows[1].reference).unwrap(),
+        &names,
+        &HashMap::new(),
+    )
+    .unwrap();
     assert_eq!(valid["content"], "literal text");
     assert!(valid.get("content_issue").is_none());
 }

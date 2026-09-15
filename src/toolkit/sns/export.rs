@@ -1,7 +1,10 @@
-use super::cache::{self, CacheIndex, CacheKeys, MediaRecovery, RecoveryOptions};
+use super::cache;
 use super::download;
 pub(crate) use super::download::Options as DownloadOptions;
 use super::{timestamp_filename, Comment, Post, TimeZone};
+use crate::adapters::wechat::moments::cache::{
+    CacheIndex, CacheKeys, MediaRecovery, RecoveryOptions,
+};
 use crate::attachment::local_files::HostOutputGuard;
 use crate::toolkit::directory_publish as publish;
 use anyhow::{bail, ensure, Context, Result};
@@ -577,7 +580,9 @@ fn write_export_with_publication(
                             }
                         }
                     }
-                    cache::apply_media_references(&mut value, &recovery)?;
+                    crate::adapters::wechat::moments::cache::apply_media_references(
+                        &mut value, &recovery,
+                    )?;
                     (recovery.media, recovery.warnings)
                 } else {
                     (
@@ -756,7 +761,8 @@ pub(crate) fn export_database_with_publication(
     download_options: Option<&DownloadOptions>,
     publication: &TimelinePublication,
 ) -> Result<ExportReport> {
-    let sns_path = fs::canonicalize(sns_path)?;
+    let sns_path =
+        fs::canonicalize(sns_path).context(crate::business::moments::SourceError::Unavailable)?;
     let contacts_path = contacts_path.map(fs::canonicalize).transpose()?;
     let mut publication = publication.clone();
     publication.inputs.push(sns_path.clone());
@@ -782,8 +788,9 @@ fn export_database_selected(
     publication: Option<&TimelinePublication>,
 ) -> Result<ExportReport> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let sns =
-        Connection::open_with_flags(sns_path, flags).context("open SNS database read-only")?;
+    let sns = Connection::open_with_flags(sns_path, flags)
+        .context("open SNS database read-only")
+        .context(crate::business::moments::SourceError::Unavailable)?;
     let contacts = contacts_path
         .map(|p| Connection::open_with_flags(p, flags))
         .transpose()

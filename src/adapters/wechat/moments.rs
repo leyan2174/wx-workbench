@@ -1,4 +1,5 @@
 //! SQLite/XML interpretation for account-bound local moments, not remote history.
+pub mod cache;
 pub mod decode;
 pub mod legacy;
 pub(crate) mod query_xml;
@@ -15,9 +16,13 @@ use std::{
 pub const MAX_QUERY_SCAN: usize = 50_000;
 pub const MAX_QUERY_LIMIT: usize = 50_000;
 
+pub const fn source_key() -> &'static str {
+    "sns/sns.db"
+}
+
 pub async fn database_path(db: &crate::daemon::cache::DbCache) -> anyhow::Result<PathBuf> {
     use anyhow::Context;
-    db.get("sns/sns.db").await?.context("无法解密 sns.db")
+    db.get(source_key()).await?.context("无法解密 sns.db")
 }
 
 /// Recorded ownership always wins a conflict. Embedded identity is a fallback only.

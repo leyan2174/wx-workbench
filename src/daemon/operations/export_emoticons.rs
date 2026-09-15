@@ -86,7 +86,15 @@ pub(super) fn export(
         "完成: {success} 成功, {failed} 失败\n输出目录: {}",
         output.display()
     );
-    // 兼容旧脚本：单个下载失败不终止批次，也不改变批次退出码。
+    finish_report(&report)
+}
+
+fn finish_report(report: &domain::BatchReport) -> Result<()> {
+    crate::ipc::outcome::BusinessOutcome::from_counts(
+        report.succeeded as u64,
+        report.failed as u64,
+    )
+    .require_success()?;
     Ok(())
 }
 
@@ -161,6 +169,90 @@ fn preview(items: &[domain::Emoticon]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_batch_preserves_artifacts_continues_and_returns_shared_failure() {
+        use crate::ipc::outcome::{BusinessFailure, BusinessOutcome};
+        use std::{path::PathBuf, sync::Arc};
+        struct SyntheticExporter {
+            root: PathBuf,
+            calls: usize,
+            fail_all: bool,
+        }
+        impl domain::Exporter for SyntheticExporter {
+            fn export(
+                &mut self,
+                _: &domain::CatalogMediaRef,
+            ) -> Result<domain::Exported, domain::Error> {
+                self.calls += 1;
+                if self.fail_all || self.calls == 2 {
+                    return Err(domain::Error::new(
+                        domain::Stage::Publication,
+                        domain::Failure::Refused,
+                    ));
+                }
+                std::fs::write(self.root.join(format!("{}.gif", self.calls)), b"synthetic")
+                    .unwrap();
+                Ok(domain::Exported {
+                    bytes: 9,
+                    materialization: domain::Materialization::Downloaded,
+                })
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let owner = Arc::new(());
+        let items: Vec<_> = (0..3)
+            .map(|slot| domain::Emoticon {
+                reference: domain::CatalogMediaRef::new(&owner, slot),
+                id: format!("item{slot}"),
+                caption: None,
+                package: String::new(),
+                origin: domain::Origin::CatalogRecorded,
+                has_direct_resource: true,
+            })
+            .collect();
+        let mut exporter = SyntheticExporter {
+            root: root.path().into(),
+            calls: 0,
+            fail_all: false,
+        };
+        let report = domain::export_batch(&items, &mut exporter);
+        assert_eq!((report.succeeded, report.failed, exporter.calls), (2, 1, 3));
+        assert_eq!(report.items.len(), 3);
+        let error = finish_report(&report).unwrap_err();
+        let failure = error.downcast_ref::<BusinessFailure>().unwrap();
+        assert_eq!(failure.0, BusinessOutcome::Partial);
+        assert_eq!(failure.0.worker_exit_code(), 20);
+        assert_eq!(
+            std::fs::read(root.path().join("1.gif")).unwrap(),
+            b"synthetic"
+        );
+        assert_eq!(
+            std::fs::read(root.path().join("3.gif")).unwrap(),
+            b"synthetic"
+        );
+        assert!(!root.path().join("2.gif").exists());
+        exporter.fail_all = true;
+        let report = domain::export_batch(&items, &mut exporter);
+        assert_eq!(
+            finish_report(&report)
+                .unwrap_err()
+                .downcast_ref::<BusinessFailure>()
+                .unwrap()
+                .0,
+            BusinessOutcome::Failure
+        );
+        let report = domain::export_batch(
+            &items[..1],
+            &mut SyntheticExporter {
+                root: root.path().into(),
+                calls: 0,
+                fail_all: false,
+            },
+        );
+        assert!(finish_report(&report).is_ok());
+    }
+
     #[test]
     fn filtering_and_preview_preserve_order_without_disclosing_secrets() {
         let temp = tempfile::tempdir().unwrap();

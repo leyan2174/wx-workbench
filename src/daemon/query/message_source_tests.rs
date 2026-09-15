@@ -1,7 +1,7 @@
 //! 真实查询的消息身份回归；全部数据库都在独立临时目录内合成。
 use super::{
-    q_history, q_new_messages, DbCache, HistoryQuery, MessageFilter, MessagePage, MetaOptions,
-    Names,
+    q_history, q_new_messages, q_search, DbCache, HistoryQuery, MessageFilter, MessagePage,
+    MetaOptions, Names,
 };
 use rusqlite::params;
 use serde_json::Value;
@@ -226,6 +226,102 @@ async fn history_ordinary_preserves_source_and_duplicate_local_ids() {
             (44, 500, SOURCE_0),
         ],
     );
+}
+
+#[tokio::test]
+async fn search_typed_page_preserves_global_reverse_order_and_inclusive_bounds() {
+    let f = fixture().await;
+    let result = q_search(
+        &f.db,
+        &f.names,
+        "synthetic",
+        None,
+        10,
+        MessageFilter::default(),
+        MetaOptions::default(),
+    )
+    .await
+    .unwrap();
+    let rows = result["results"].as_array().unwrap();
+    let identities = rows
+        .iter()
+        .map(|row| {
+            (
+                row["local_id"].as_i64().unwrap(),
+                row["timestamp"].as_i64().unwrap(),
+                row["source"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        identities,
+        [
+            (44, BASE + 500, SOURCE_0),
+            (91, BASE + 400, SOURCE_1),
+            (29, BASE + 300, SOURCE_1),
+            (7, BASE + 200, SOURCE_1),
+            (7, BASE + 200, SOURCE_0),
+            (17, BASE + 100, SOURCE_0),
+        ]
+    );
+    assert_eq!(result["meta"]["identity_complete"], true);
+    assert!(result["meta"]["shard_paths"].is_null());
+    assert!(rows.iter().all(|row| row.get("raw_content").is_none()));
+    let bounded = q_search(
+        &f.db,
+        &f.names,
+        "synthetic",
+        Some(vec![PEER.into()]),
+        10,
+        MessageFilter {
+            since: Some(BASE + 100),
+            until: Some(BASE + 200),
+            msg_type: Some(1),
+        },
+        MetaOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bounded["count"], 2);
+    assert_eq!(bounded["results"][0]["timestamp"], BASE + 200);
+    assert_eq!(bounded["results"][1]["timestamp"], BASE + 100);
+}
+
+#[tokio::test]
+async fn search_unknown_conversations_keep_only_explicit_legacy_diagnostics() {
+    let mut f = fixture().await;
+    for source in [RAW_SOURCE_0, SOURCE_1] {
+        let path = f.db.get(source).await.unwrap().unwrap();
+        rusqlite::Connection::open(path)
+            .unwrap()
+            .execute("DELETE FROM Name2Id", [])
+            .unwrap();
+    }
+    f.names.map.clear();
+    f.names.md5_to_uname.clear();
+    fs::remove_file(f.db.db_dir().join("session/session.db")).unwrap();
+    let result = q_search(
+        &f.db,
+        &f.names,
+        "synthetic",
+        None,
+        10,
+        MessageFilter::default(),
+        MetaOptions::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["count"], 6);
+    assert_eq!(result["meta"]["identity_complete"], false);
+    assert_eq!(result["meta"]["unresolved_identities"], 6);
+    let hash = format!("{:x}", md5::compute(PEER));
+    for row in result["results"].as_array().unwrap() {
+        assert!(row["username"].is_null());
+        assert_eq!(row["identity_status"], "unmapped");
+        assert_eq!(row["unmapped_conversation"], hash);
+        assert_eq!(row["chat"], format!("Msg_{hash}"));
+        assert!(row.get("raw_content").is_none());
+    }
 }
 
 #[tokio::test]

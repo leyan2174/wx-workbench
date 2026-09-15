@@ -51,6 +51,7 @@ struct RuntimeBinding {
 
 pub(crate) struct ChatIndex {
     root: PathBuf,
+    protected: Vec<PathBuf>,
     data: Index,
     legacy_source: bool,
     // 在整个批次持锁，文件选择和发布之间不能插入另一个导出进程。
@@ -117,9 +118,21 @@ fn entry(filename: String, identity: Identity, previous_files: Vec<String>) -> E
 }
 
 impl ChatIndex {
+    pub(crate) fn open_for_runtime(
+        root: &Path,
+        runtime: &crate::runtime::RuntimeContext,
+    ) -> Result<Self> {
+        Self::open_bound(root, &runtime.id, super::export_protected(runtime))
+    }
+
+    #[cfg(test)]
     pub(crate) fn open_for(root: &Path, runtime_id: &str) -> Result<Self> {
+        Self::open_bound(root, runtime_id, Vec::new())
+    }
+
+    fn open_bound(root: &Path, runtime_id: &str, protected: Vec<PathBuf>) -> Result<Self> {
         ensure!(!runtime_id.is_empty(), "导出运行上下文不能为空");
-        let mut index = Self::load(root, Some(runtime_id))?;
+        let mut index = Self::load(root, Some(runtime_id), protected)?;
         if index.data.runtime_binding.is_none() {
             let next = Index {
                 version: index.data.version,
@@ -145,10 +158,11 @@ impl ChatIndex {
 
     #[cfg(test)]
     pub(crate) fn open(root: &Path) -> Result<Self> {
-        Self::load(root, None)
+        Self::load(root, None, Vec::new())
     }
 
-    fn load(root: &Path, runtime_id: Option<&str>) -> Result<Self> {
+    fn load(root: &Path, runtime_id: Option<&str>, protected: Vec<PathBuf>) -> Result<Self> {
+        super::files::validate_export_paths(root, &protected)?;
         fs::create_dir_all(root)?;
         let root = root.canonicalize()?;
         let lock_path = root.join(".wx-export.lock");
@@ -257,6 +271,7 @@ impl ChatIndex {
         }
         Ok(Self {
             root,
+            protected,
             legacy_source: saved.is_some() || !data.chats.is_empty(),
             data,
             _lock: lock,
@@ -339,16 +354,20 @@ impl ChatIndex {
     }
 
     fn persist(&self, next: &Index) -> Result<()> {
-        super::atomic_output(&self.root.join(INDEX_FILE), |temporary| {
-            serde_json::to_writer_pretty(
-                fs::OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(temporary)?,
-                next,
-            )?;
-            Ok(())
-        })
+        super::ExportTarget::capture_paths(&self.root.join(INDEX_FILE), &self.protected)?
+            .write_with_checked(
+                |temporary| {
+                    serde_json::to_writer_pretty(
+                        fs::OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .open(temporary)?,
+                        next,
+                    )?;
+                    Ok(())
+                },
+                || super::files::validate_export_paths(&self.root, &self.protected),
+            )
     }
 }
 
@@ -392,6 +411,25 @@ mod tests {
         assert_eq!(third.file_name().unwrap(), "single_same__beta__2.json");
         assert_eq!(fs::read(second).unwrap(), b"not JSON");
         assert_eq!(index.choose("alpha", "same", false).unwrap(), first);
+    }
+
+    #[test]
+    fn protected_inputs_are_checked_before_index_lock_or_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("output");
+        let future_config = output.join(INDEX_FILE);
+        assert!(ChatIndex::open_bound(&output, "synthetic-account", vec![future_config]).is_err());
+        assert!(!output.exists());
+        let protected = dir.path().join("account");
+        fs::create_dir(&protected).unwrap();
+        assert!(
+            ChatIndex::open_bound(&protected, "synthetic-account", vec![protected.clone()])
+                .is_err()
+        );
+        assert_eq!(fs::read_dir(&protected).unwrap().count(), 0);
+        let index = ChatIndex::open_bound(&output, "synthetic-account", vec![protected]).unwrap();
+        assert!(index.data.chats.is_empty());
+        assert!(output.join(INDEX_FILE).is_file());
     }
 
     #[test]

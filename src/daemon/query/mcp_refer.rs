@@ -5,11 +5,11 @@ use super::{
     DbCache, Names,
 };
 use crate::adapters::wechat::messages::reply::integer;
+use crate::adapters::wechat::messages::reply_read::{self, Outcome};
 use anyhow::Result;
 use serde_json::{json, Value};
+#[cfg(test)]
 use std::collections::HashMap;
-
-const MAX_DECODED_BYTES: usize = 131_072;
 
 /// create_time=0 沿用旧契约，表示不按时间筛选，不是只查询时间戳为零的消息。
 /// Ok 中 exit_code=0 表示成功，1 表示未找到或结构错误，2 表示联系人或消息歧义。
@@ -22,9 +22,21 @@ pub async fn q_decode_refer(
     local_id: i64,
     create_time: i64,
 ) -> Result<Value> {
-    let message =
-        match strict_message::locate(db, names, chat, local_id, create_time).await? {
-            Resolution::Found(message) => message,
+    let database = db.db_dir().to_path_buf();
+    let display = chat.to_owned();
+    let labels = names.map.clone();
+    let outcome =
+        match strict_message::with_resolved(
+            db,
+            names,
+            chat,
+            local_id,
+            create_time,
+            move |snapshot, raw| reply_read::decode(snapshot, raw, &database, &display, &labels),
+        )
+        .await?
+        {
+            Resolution::Found(outcome) => outcome,
             Resolution::ChatNotFound => return Ok(failure(1, "chat not found")),
             Resolution::AmbiguousChat => {
                 return Ok(failure(2, "ambiguous chat; specify exact username"))
@@ -35,40 +47,27 @@ pub async fn q_decode_refer(
                 "ambiguous local_id; specify create_time (duplicate timestamps remain ambiguous)",
             )),
         };
-    let kind = message.kind;
-    let base = if kind > u32::MAX as i64 {
-        kind & 0xffff_ffff
-    } else {
-        kind
-    };
-    if base != 49 {
-        return Ok(failure(1, "not a reply: expected base_type=49"));
-    }
-    let account = db
-        .db_dir()
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    let me = crate::message::identity::self_username(account, &names.map);
-    let username = &message.username;
-    let parsed = (|| -> Result<Value> {
-        let bytes = message.bounded_decode(MAX_DECODED_BYTES)?;
-        let text = String::from_utf8_lossy(&bytes);
-        let body = if username.ends_with("@chatroom") {
-            crate::message::split_group_content(&text).1
-        } else {
-            &text
-        };
-        parse_refer(body, username, chat, &me, &names.map)
-    })();
-    match parsed {
-        Ok(refer) => Ok(
-            json!({"exit_code": 0, "text": render(&refer), "refer": refer,
-            "username": username, "local_id": message.local_id, "create_time": message.create_time, "source": message.source}),
-        ),
+    match outcome {
+        Outcome::NotReply => Ok(failure(1, "not a reply: expected base_type=49")),
+        Outcome::Found { parsed, source } => {
+            #[derive(serde::Serialize)]
+            struct ReplyResponse {
+                exit_code: i32,
+                text: String,
+                refer: Value,
+                #[serde(flatten)]
+                source: reply_read::LegacySource,
+            }
+            let refer = project_refer(parsed);
+            Ok(serde_json::to_value(ReplyResponse {
+                exit_code: 0,
+                text: render(&refer),
+                refer,
+                source,
+            })?)
+        }
         // 错误信息不得包含原始 XML、压缩字节或内层 CDN/密钥数据。
-        Err(_) => Ok(failure(
+        Outcome::InvalidContent => Ok(failure(
             1,
             "invalid reply content: expected safe appmsg type=57 with refermsg",
         )),
@@ -79,6 +78,7 @@ fn failure(code: i32, text: &str) -> Value {
     json!({"exit_code": code, "text": text})
 }
 
+#[cfg(test)]
 fn parse_refer(
     body: &str,
     username: &str,
@@ -88,7 +88,11 @@ fn parse_refer(
 ) -> Result<Value> {
     let parsed =
         crate::adapters::wechat::messages::reply::parse_refer(body, username, display, me, names)?;
-    Ok(json!({
+    Ok(project_refer(parsed))
+}
+
+fn project_refer(parsed: crate::adapters::wechat::messages::reply::ParsedReply) -> Value {
+    json!({
         "reply_text": parsed.reply.text,
         "refer_sender": parsed.reply.sender_label,
         "refer_summary": parsed.reply.summary,
@@ -99,7 +103,7 @@ fn parse_refer(
         "refer_fromusr": parsed.author,
         "refer_chatusr": parsed.conversation_author,
         "refer_displayname": parsed.display_name,
-    }))
+    })
 }
 
 fn render(refer: &Value) -> String {

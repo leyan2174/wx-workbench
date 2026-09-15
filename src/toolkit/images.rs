@@ -1,7 +1,12 @@
-//! 图片批处理的目录布局、重复跳过及结果发布；解码算法复用 attachment 模块。
-
-use super::{files::*, raw_config, Failure, Report};
+//! Pinned image input/configuration and protected publication; WeChat rules live in the adapter.
+use super::{export_context::ExportContext as ImageScope, files::*, Failure, Report};
+#[cfg(test)]
 use crate::attachment::decoder::{dispatch, V2KeyMaterial, V2_MAGIC};
+use crate::{
+    adapters::wechat::media::image_batch::{self, DecodeMode, Decoded, KeyMaterial, Layout},
+    attachment::local_files::{HostOutputGuard, Pin},
+    runtime::RuntimeContext,
+};
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;
 use std::{
@@ -17,11 +22,6 @@ pub(super) fn parse_aes(value: &str) -> Result<[u8; 16]> {
     Ok(value.as_bytes()[..16].try_into().unwrap())
 }
 
-fn formatted_path(base: &Path, extension: &str) -> PathBuf {
-    let mut path = base.as_os_str().to_os_string();
-    path.push(format!(".{extension}"));
-    path.into()
-}
 pub(super) fn parse_xor(value: &str) -> Result<u8> {
     if let Some(hex) = value
         .strip_prefix("0x")
@@ -50,45 +50,117 @@ fn image_keys(
     Ok((aes.or(stored.0), xor.unwrap_or(stored.1)))
 }
 
+fn image_keys_scoped(
+    scope: &ImageScope,
+    aes: Option<String>,
+    xor: Option<String>,
+) -> Result<(Option<[u8; 16]>, u8)> {
+    scope.verify()?;
+    let keys = match scope.account() {
+        Some(runtime) => image_keys(&runtime.config, aes, xor)?,
+        None => (
+            aes.as_deref().map(parse_aes).transpose()?,
+            xor.as_deref().map(parse_xor).transpose()?.unwrap_or(0x88),
+        ),
+    };
+    scope.verify()?;
+    Ok(keys)
+}
+
+fn raw_config(scope: &ImageScope) -> Result<Value> {
+    scope.verify()?;
+    let value = serde_json::from_slice(&fs::read(scope.config_path())?)?;
+    scope.verify()?;
+    Ok(value)
+}
+
+fn publish(
+    scope: &ImageScope,
+    input: &ImageInput,
+    root: &Path,
+    target: &Path,
+    bytes: &[u8],
+) -> Result<()> {
+    scope.verify()?;
+    input.verify()?;
+    let mut protected = scope.protected(root)?;
+    protected.push(input.path.clone());
+    ExportTarget::capture_paths(target, &protected)?.write_bytes_checked(bytes, || {
+        #[cfg(test)]
+        publication_probe();
+        scope.verify()?;
+        input.verify()
+    })
+}
+
+struct ImageInput {
+    path: PathBuf,
+    parent: HostOutputGuard,
+    pin: Pin,
+}
+impl ImageInput {
+    fn read(path: &Path) -> Result<(Self, Vec<u8>)> {
+        let path = std::path::absolute(path)?;
+        let parent = HostOutputGuard::new(path.parent().context("Image input has no parent")?)?;
+        let pin = Pin::open(&path, false)?;
+        let input = Self { path, parent, pin };
+        input.verify()?;
+        // The pinned handle denies writes/deletes; the path identity is checked around the read.
+        let bytes = fs::read(&input.path)?;
+        input.verify()?;
+        Ok((input, bytes))
+    }
+
+    fn verify(&self) -> Result<()> {
+        self.parent.verify()?;
+        self.pin.verify()
+    }
+}
+
+#[cfg(test)]
 fn explicit_path_image_keys(
     config_path: &Path,
     aes: Option<String>,
     xor: Option<String>,
 ) -> Result<(Option<[u8; 16]>, u8)> {
-    match fs::symlink_metadata(config_path) {
-        Ok(_) => image_keys(&crate::config::load_config_at(config_path)?, aes, xor),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((
-            aes.as_deref().map(parse_aes).transpose()?,
-            xor.as_deref().map(parse_xor).transpose()?.unwrap_or(0x88),
-        )),
-        Err(error) => Err(error.into()),
-    }
+    let scope = ImageScope::at(
+        config_path,
+        config_path
+            .parent()
+            .context("Missing config parent")?
+            .join("runtime"),
+    )?;
+    image_keys_scoped(&scope, aes, xor)
 }
 
 pub fn decode_image(input: String, output: Option<String>) -> Result<()> {
-    let cfg = crate::config::load_config()?;
-    let (aes, xor) = image_keys(&cfg, None, None)?;
-    let input = PathBuf::from(input);
-    let decoded = dispatch(
-        &fs::read(&input)?,
-        V2KeyMaterial {
-            aes_key: aes.as_ref(),
-            xor_key: xor,
+    decode_image_scoped(&ImageScope::current()?, input, output)
+}
+
+fn decode_image_scoped(scope: &ImageScope, input: String, output: Option<String>) -> Result<()> {
+    scope.runtime()?;
+    let input = std::path::absolute(input)?;
+    if let Some(output) = &output {
+        validate_export_paths(Path::new(output), &scope.protected(&input)?)?;
+    }
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, None)?);
+    let (source, bytes) = ImageInput::read(&input)?;
+    let Decoded::Image(decoded) = image_batch::decode(
+        &bytes,
+        KeyMaterial {
+            aes_key: material.0.as_ref(),
+            xor_key: material.1,
         },
-    )?;
-    let output = output.map(PathBuf::from).unwrap_or_else(|| {
-        let stem = input.file_stem().unwrap_or_default().to_string_lossy();
-        let stem = stem
-            .strip_suffix("_t")
-            .or_else(|| stem.strip_suffix("_h"))
-            .unwrap_or(&stem);
-        formatted_path(&input.with_file_name(stem), decoded.format)
-    });
-    ensure!(
-        resolved(&input)? != resolved(&output)?,
-        "Output would overwrite source"
-    );
-    atomic_output(&output, |tmp| Ok(fs::write(tmp, &decoded.data)?))?;
+        DecodeMode::Single,
+    )?
+    else {
+        anyhow::bail!("Single image decoding requires key material")
+    };
+    let output = match output {
+        Some(path) => PathBuf::from(path),
+        None => image_batch::single_output(&input, decoded.format)?,
+    };
+    publish(scope, &source, &input, &output, &decoded.data)?;
     println!(
         "{}",
         serde_json::json!({"output":output,"format":decoded.format,"bytes":decoded.data.len(),"engine":"rust"})
@@ -103,53 +175,92 @@ pub fn decode_images(
     xor: Option<String>,
     force: bool,
 ) -> Result<()> {
-    if let (Some(input), Some(output)) = (&input, &output) {
-        let material = zeroize::Zeroizing::new(explicit_path_image_keys(
-            &crate::config::find_config_file()?,
-            aes,
-            xor,
-        )?);
-        return batch(
-            Path::new(input),
-            Path::new(output),
-            material.0.as_ref(),
-            material.1,
-            force,
-            true,
-        )?
-        .finish();
-    }
-    let (base, cfg) = raw_config()?;
+    decode_images_scoped(&ImageScope::current()?, input, output, aes, xor, force)
+}
+
+/// Task hosts pass their already selected runtime, rather than discovering configuration again.
+pub(crate) fn decode_images_for(
+    runtime: &RuntimeContext,
+    input: Option<String>,
+    output: Option<String>,
+    aes: Option<String>,
+    xor: Option<String>,
+    force: bool,
+) -> Result<()> {
+    decode_images_scoped(
+        &ImageScope::for_runtime(runtime)?,
+        input,
+        output,
+        aes,
+        xor,
+        force,
+    )
+}
+
+fn decode_images_scoped(
+    scope: &ImageScope,
+    input: Option<String>,
+    output: Option<String>,
+    aes: Option<String>,
+    xor: Option<String>,
+    force: bool,
+) -> Result<()> {
     let input = match input {
-        Some(p) => PathBuf::from(p),
+        Some(path) => PathBuf::from(path),
+        None => image_batch::default_input(&scope.runtime()?.config.db_dir)?,
+    };
+    let output = match output {
+        Some(path) => PathBuf::from(path),
         None => {
-            let db = crate::config::load_config()?.db_dir;
-            db.parent()
-                .context("Database has no account parent")?
-                .join("msg/attach")
+            scope.runtime()?;
+            let raw = raw_config(scope)?;
+            scope
+                .config_path()
+                .parent()
+                .context("Missing configuration parent")?
+                .join(
+                    raw.get("decoded_image_dir")
+                        .and_then(Value::as_str)
+                        .unwrap_or("decoded_images"),
+                )
         }
     };
-    let output = output.map(PathBuf::from).unwrap_or_else(|| {
-        base.join(
-            cfg.get("decoded_image_dir")
-                .and_then(Value::as_str)
-                .unwrap_or("decoded_images"),
-        )
-    });
-    let (aes, xor) = image_keys(&crate::config::load_config()?, aes, xor)?;
-    batch(&input, &output, aes.as_ref(), xor, force, true)?.finish()
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, aes, xor)?);
+    batch_scoped(
+        scope,
+        &input,
+        &output,
+        material.0.as_ref(),
+        material.1,
+        force,
+        Layout::Album,
+    )?
+    .finish()
 }
 
 pub fn batch_images(input: String, output: Option<String>) -> Result<()> {
-    let cfg = crate::config::load_config()?;
-    let (aes, xor) = image_keys(&cfg, None, None)?;
+    batch_images_scoped(&ImageScope::current()?, input, output)
+}
+
+fn batch_images_scoped(scope: &ImageScope, input: String, output: Option<String>) -> Result<()> {
+    scope.runtime()?;
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, None)?);
     let output = output.map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(format!("{}_decoded", input.trim_end_matches(['\\', '/'])))
     });
-    batch(Path::new(&input), &output, aes.as_ref(), xor, false, false)?.finish()
+    batch_scoped(
+        scope,
+        Path::new(&input),
+        &output,
+        material.0.as_ref(),
+        material.1,
+        false,
+        Layout::Mirror,
+    )?
+    .finish()
 }
 
-fn existing_output(target: &Path, album_layout: bool) -> Result<bool> {
+fn existing_output(target: &Path, layout: Layout) -> Result<bool> {
     let parent = target.parent().context("Missing output directory")?;
     if !parent.exists() {
         return Ok(false);
@@ -163,79 +274,60 @@ fn existing_output(target: &Path, album_layout: bool) -> Result<bool> {
     )
     .to_lowercase();
     for entry in fs::read_dir(parent)? {
-        let name = entry?.file_name().to_string_lossy().to_lowercase();
-        if name.starts_with(&prefix) && !(album_layout && name.ends_with(".tmp")) {
+        if layout.existing_name(&prefix, &entry?.file_name().to_string_lossy()) {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-pub(super) fn batch(
+fn batch_scoped(
+    scope: &ImageScope,
     input: &Path,
     output: &Path,
     aes: Option<&[u8; 16]>,
     xor: u8,
     force: bool,
-    album_layout: bool,
+    layout: Layout,
 ) -> Result<Report> {
     enum Outcome {
         Written(&'static str),
         Existing,
         NoKey,
     }
-    separate(input, output)?;
-    let files = collect(input, "dat", false)?;
+    scope.verify()?;
+    let input = std::path::absolute(input)?;
+    let output = std::path::absolute(output)?;
+    validate_export_paths(&output, &scope.protected(&input)?)?;
+    let input_guard = HostOutputGuard::new(&input)?;
+    let files = collect(&input, image_batch::INPUT_EXTENSION, false)?;
     let mut report = Report::default();
     for file in files {
-        let rel = file.strip_prefix(input)?;
-        let mut target = output.join(rel);
-        if album_layout {
-            let parts: Vec<_> = rel.components().collect();
-            if parts.len() != 4 || !parts[2].as_os_str().eq_ignore_ascii_case("Img") {
-                continue;
-            }
-            let stem = file
-                .file_stem()
-                .context("Missing image filename")?
-                .to_string_lossy();
-            let stem = stem
-                .strip_suffix("_t")
-                .or_else(|| stem.strip_suffix("_h"))
-                .unwrap_or(&stem);
-            target = output.join(parts[0]).join(parts[1]).join(stem);
-        } else {
-            let stem = file
-                .file_stem()
-                .context("Missing image filename")?
-                .to_string_lossy();
-            let stem = stem
-                .strip_suffix("_t")
-                .or_else(|| stem.strip_suffix("_h"))
-                .unwrap_or(&stem);
-            target.set_file_name(stem);
-        }
+        let rel = file.strip_prefix(&input)?;
+        let Some(target) = layout.target(rel, &output)? else {
+            continue;
+        };
         report.total += 1;
         let result = (|| -> Result<Outcome> {
-            separate(input, &target)?;
-            if !force && existing_output(&target, album_layout)? {
+            scope.verify()?;
+            input_guard.verify()?;
+            if !force && existing_output(&target, layout)? {
                 return Ok(Outcome::Existing);
             }
-            let bytes = fs::read(&file)?;
-            // 与旧批处理一致：只跳过缺 AES 的 V2，V1 固定密钥和旧 XOR 仍继续解码。
-            if aes.is_none() && bytes.starts_with(&V2_MAGIC) {
-                return Ok(Outcome::NoKey);
-            }
-            let decoded = dispatch(
+            let (source, bytes) = ImageInput::read(&file)?;
+            let decoded = match image_batch::decode(
                 &bytes,
-                V2KeyMaterial {
+                KeyMaterial {
                     aes_key: aes,
                     xor_key: xor,
                 },
-            )?;
-            let target = formatted_path(&target, decoded.format);
-            separate(input, &target)?;
-            atomic_output(&target, |tmp| Ok(fs::write(tmp, decoded.data)?))?;
+                DecodeMode::Batch,
+            )? {
+                Decoded::MissingKey => return Ok(Outcome::NoKey),
+                Decoded::Image(image) => image,
+            };
+            let target = image_batch::with_format(&target, decoded.format);
+            publish(scope, &source, &input, &target, &decoded.data)?;
             Ok(Outcome::Written(decoded.format))
         })();
         match result {
@@ -245,9 +337,9 @@ pub(super) fn batch(
             }
             Ok(Outcome::Existing) => report.skipped += 1,
             Ok(Outcome::NoKey) => report.skipped_no_key += 1,
-            Err(e) => report.failures.push(Failure {
+            Err(error) => report.failures.push(Failure {
                 path: rel.into(),
-                error: e.to_string(),
+                error: error.to_string(),
             }),
         }
         if report.total % 200 == 0 {
@@ -261,7 +353,304 @@ pub(super) fn batch(
             );
         }
     }
+    scope.verify()?;
+    input_guard.verify()?;
     Ok(report)
+}
+
+#[cfg(test)]
+pub(super) fn batch(
+    input: &Path,
+    output: &Path,
+    aes: Option<&[u8; 16]>,
+    xor: u8,
+    force: bool,
+    album_layout: bool,
+) -> Result<Report> {
+    let parent = input.parent().context("Synthetic input needs a parent")?;
+    let scope = ImageScope::at(
+        &parent.join("absent-image-test-config.json"),
+        parent.join("runtime"),
+    )?;
+    batch_scoped(
+        &scope,
+        input,
+        output,
+        aes,
+        xor,
+        force,
+        if album_layout {
+            Layout::Album
+        } else {
+            Layout::Mirror
+        },
+    )
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static BEFORE_IMAGE_PUBLISH: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = Default::default();
+}
+#[cfg(test)]
+fn publication_probe() {
+    BEFORE_IMAGE_PUBLISH.with(|hook| {
+        if let Some(callback) = hook.borrow_mut().take() {
+            callback();
+        }
+    });
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use crate::key_store::{Store, Update, Verification};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nsynthetic publication image";
+
+    fn put(path: &Path) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, PNG.iter().map(|byte| byte ^ 0x37).collect::<Vec<_>>()).unwrap();
+    }
+
+    fn fixture() -> (tempfile::TempDir, RuntimeContext) {
+        let root = tempfile::tempdir().unwrap();
+        let config = crate::config::Config {
+            db_dir: root.path().join("account/db_storage"),
+            keys_file: root.path().join("all_keys.json"),
+            decrypted_dir: root.path().join("decrypted"),
+            key_store: Some(root.path().join("keys.dpapi")),
+            wechat_process: "SyntheticNeverLaunched.exe".into(),
+        };
+        fs::create_dir_all(&config.db_dir).unwrap();
+        fs::create_dir_all(&config.decrypted_dir).unwrap();
+        fs::write(&config.keys_file, b"synthetic protected keys").unwrap();
+        let path = root.path().join("config.json");
+        let mut raw = serde_json::to_value(&config).unwrap();
+        raw["decoded_image_dir"] = "custom-decoded".into();
+        fs::write(&path, serde_json::to_vec(&raw).unwrap()).unwrap();
+        let runtime =
+            RuntimeContext::from_config(path, config, root.path().join("runtime")).unwrap();
+        Store::for_config(&runtime.config)
+            .unwrap()
+            .update(Some(0), &[Update::ImageXor(0x88, Verification::Verified)])
+            .unwrap();
+        (root, runtime)
+    }
+
+    struct ProbeReset;
+    impl Drop for ProbeReset {
+        fn drop(&mut self) {
+            BEFORE_IMAGE_PUBLISH.with(|hook| *hook.borrow_mut() = None);
+        }
+    }
+    fn probe(callback: impl FnOnce() + 'static) -> ProbeReset {
+        BEFORE_IMAGE_PUBLISH.with(|hook| {
+            assert!(hook.borrow().is_none());
+            *hook.borrow_mut() = Some(Box::new(callback));
+        });
+        ProbeReset
+    }
+
+    #[test]
+    fn single_decode_cannot_replace_config_keys_store_account_cache_runtime_or_input() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("source.dat");
+        put(&input);
+        let scope = ImageScope::for_runtime(&runtime).unwrap();
+        let protected = [
+            runtime.config_path.clone(),
+            runtime.config.keys_file.clone(),
+            runtime.config.key_store.clone().unwrap(),
+            runtime.config.db_dir.join("image.png"),
+            runtime.config.decrypted_dir.join("image.png"),
+            runtime.cache_dir().join("image.png"),
+            runtime.directory.join("image.png"),
+            input.clone(),
+        ];
+        let before: Vec<_> = protected.iter().map(|path| fs::read(path).ok()).collect();
+        for (target, before) in protected.iter().zip(&before) {
+            assert!(
+                decode_image_scoped(
+                    &scope,
+                    input.to_string_lossy().into_owned(),
+                    Some(target.to_string_lossy().into_owned())
+                )
+                .is_err(),
+                "{}",
+                target.display()
+            );
+            assert_eq!(&fs::read(target).ok(), before);
+        }
+    }
+
+    #[test]
+    fn album_mirror_and_task_entries_reject_protected_output_roots() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("input");
+        put(&input.join("peer/2026-09/Img/photo.dat"));
+        let scope = ImageScope::for_runtime(&runtime).unwrap();
+        for output in [
+            runtime.config_path.clone(),
+            runtime.config.keys_file.clone(),
+            runtime.config.key_store.clone().unwrap(),
+            runtime.config.db_dir.clone(),
+            runtime.config.decrypted_dir.clone(),
+            runtime.directory.clone(),
+        ] {
+            let source = input.to_string_lossy().into_owned();
+            let target = output.to_string_lossy().into_owned();
+            assert!(decode_images_scoped(
+                &scope,
+                Some(source.clone()),
+                Some(target.clone()),
+                None,
+                None,
+                true
+            )
+            .is_err());
+            assert!(batch_images_scoped(&scope, source.clone(), Some(target.clone())).is_err());
+            assert!(
+                decode_images_for(&runtime, Some(source), Some(target), None, None, true).is_err()
+            );
+        }
+        assert_eq!(
+            fs::read(&runtime.config.keys_file).unwrap(),
+            b"synthetic protected keys"
+        );
+    }
+
+    #[test]
+    fn normal_single_mirror_and_task_defaults_preserve_paths_and_exact_bytes() {
+        let (root, runtime) = fixture();
+        let scope = ImageScope::for_runtime(&runtime).unwrap();
+        let single = root.path().join("single_t.dat");
+        put(&single);
+        decode_image_scoped(&scope, single.to_string_lossy().into_owned(), None).unwrap();
+        assert_eq!(fs::read(root.path().join("single.png")).unwrap(), PNG);
+        let mirror = root.path().join("mirror");
+        put(&mirror.join("nested/photo_h.dat"));
+        batch_images_scoped(&scope, mirror.to_string_lossy().into_owned(), None).unwrap();
+        assert_eq!(
+            fs::read(root.path().join("mirror_decoded/nested/photo.png")).unwrap(),
+            PNG
+        );
+        let album = image_batch::default_input(&runtime.config.db_dir).unwrap();
+        put(&album.join("peer/2026-09/Img/photo_t.dat"));
+        decode_images_for(&runtime, None, None, None, None, false).unwrap();
+        assert_eq!(
+            fs::read(root.path().join("custom-decoded/peer/2026-09/photo.png")).unwrap(),
+            PNG
+        );
+    }
+
+    #[test]
+    fn explicit_album_paths_and_aes_remain_usable_without_configuration() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("absent.json");
+        let scope = ImageScope::at(&config, root.path().join("runtime")).unwrap();
+        let input = root.path().join("input");
+        let output = root.path().join("output");
+        put(&input.join("peer/2026-09/Img/photo.dat"));
+        decode_images_scoped(
+            &scope,
+            Some(input.to_string_lossy().into_owned()),
+            Some(output.to_string_lossy().into_owned()),
+            Some("synthetic-key-16".into()),
+            Some("0x88".into()),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(output.join("peer/2026-09/photo.png")).unwrap(),
+            PNG
+        );
+        assert!(!config.exists());
+        assert!(decode_images_scoped(
+            &scope,
+            None,
+            Some(output.to_string_lossy().into_owned()),
+            None,
+            None,
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn configuration_appearing_at_final_publication_preserves_previous_output() {
+        let root = tempfile::tempdir().unwrap();
+        let config = root.path().join("absent.json");
+        let scope = ImageScope::at(&config, root.path().join("runtime")).unwrap();
+        let input = root.path().join("input");
+        let source = input.join("peer/2026-09/Img/photo.dat");
+        put(&source);
+        let output = root.path().join("output");
+        let previous = output.join("peer/2026-09/photo.png");
+        fs::create_dir_all(previous.parent().unwrap()).unwrap();
+        fs::write(&previous, b"previous output").unwrap();
+        let _probe = probe(move || fs::write(&config, b"configuration appeared").unwrap());
+        assert!(batch_scoped(&scope, &input, &output, None, 0x88, true, Layout::Album).is_err());
+        assert_eq!(fs::read(&previous).unwrap(), b"previous output");
+        assert_eq!(fs::read_dir(previous.parent().unwrap()).unwrap().count(), 1);
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn configured_publication_pins_source_and_config_against_write_delete_and_rename() {
+        let (root, runtime) = fixture();
+        let scope = ImageScope::for_runtime(&runtime).unwrap();
+        let input = root.path().join("source.dat");
+        let output = root.path().join("published.png");
+        put(&input);
+        let config = runtime.config_path.clone();
+        let source = input.clone();
+        let called = Arc::new(AtomicBool::new(false));
+        let observed = Arc::clone(&called);
+        let _probe = probe(move || {
+            assert!(fs::write(&source, b"changed source").is_err());
+            assert!(fs::rename(&source, source.with_extension("moved")).is_err());
+            assert!(fs::write(&config, b"changed configuration").is_err());
+            assert!(fs::remove_file(&config).is_err());
+            observed.store(true, Ordering::SeqCst);
+        });
+        decode_image_scoped(
+            &scope,
+            input.to_string_lossy().into_owned(),
+            Some(output.to_string_lossy().into_owned()),
+        )
+        .unwrap();
+        assert!(called.load(Ordering::SeqCst));
+        assert_eq!(fs::read(output).unwrap(), PNG);
+        scope.verify().unwrap();
+    }
+
+    #[test]
+    fn task_runtime_cannot_be_rebound_to_changed_configuration() {
+        let (root, runtime) = fixture();
+        let mut changed = serde_json::to_value(&runtime.config).unwrap();
+        changed["keys_file"] = root
+            .path()
+            .join("different-keys.json")
+            .to_string_lossy()
+            .into_owned()
+            .into();
+        fs::write(&runtime.config_path, serde_json::to_vec(&changed).unwrap()).unwrap();
+        let output = root.path().join("output");
+        assert!(decode_images_for(
+            &runtime,
+            None,
+            Some(output.to_string_lossy().into_owned()),
+            Some("synthetic-key-16".into()),
+            Some("0x88".into()),
+            false
+        )
+        .is_err());
+        assert!(!output.exists());
+    }
 }
 
 #[cfg(test)]

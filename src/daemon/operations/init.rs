@@ -73,7 +73,11 @@ pub fn cmd_init(
         Err(crate::key_store::Error::Missing) => None,
         Err(error) => return Err(error.into()),
     };
-    if !force && existing.is_some_and(|snapshot| !snapshot.database_keys().is_empty()) {
+    if !force
+        && existing
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.database_keys().is_empty())
+    {
         println!("已初始化，数据目录: {}", db_dir.display());
         println!("如需重新扫描密钥，使用 --force");
         return Ok(());
@@ -90,15 +94,18 @@ pub fn cmd_init(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("Weixin.exe");
     let account_key_file = paths.account_key_file.clone();
-    let mut entries = scanner::scan_with_provider(
+    let acquired = scanner::scan_with_provider(
         &db_dir,
         process_name,
         provider,
         restart,
         executable.as_deref(),
         timeout,
-        &store,
+        existing
+            .as_ref()
+            .and_then(|snapshot| snapshot.account_key()),
     )?;
+    let mut entries = acquired.entries;
     if entries.is_empty() {
         anyhow::bail!("未验证到任何数据库密钥，已保留现有密钥存储；请确认微信已登录且数据目录正确");
     }
@@ -114,12 +121,19 @@ pub fn cmd_init(
         );
         keys.insert(entry.db_name.clone(), std::mem::take(&mut entry.enc_key));
     }
-    let saved = store.update(
-        None,
-        &[crate::key_store::Update::Databases(
-            &keys,
+    let mut updates = vec![crate::key_store::Update::Databases(
+        &keys,
+        crate::key_store::Verification::Verified,
+    )];
+    if let Some(key) = &acquired.account_key {
+        updates.push(crate::key_store::Update::Account(
+            key,
             crate::key_store::Verification::Verified,
-        )],
+        ));
+    }
+    let saved = store.update(
+        Some(existing.as_ref().map_or(0, |value| value.revision())),
+        &updates,
     );
     keys.values_mut().for_each(Zeroize::zeroize);
     saved?;

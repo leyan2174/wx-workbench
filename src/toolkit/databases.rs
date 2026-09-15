@@ -98,7 +98,10 @@ pub fn decrypt(
                 crate::crypto::verify_page1(&key, &page),
                 "数据库首页认证失败"
             );
+            let config_pin = crate::service::config_pin::ConfigPin::new(runtime)?;
+            let source_pin = crate::attachment::local_files::Pin::open(&source, false)?;
             no_sidecars(&output)?;
+            let target = ExportTarget::capture_paths(&output, &decryption_protected(runtime))?;
             let parent = output
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("解密目标没有父目录"))?;
@@ -113,18 +116,24 @@ pub fn decrypt(
             // Keep the legacy pathname protected after explicit migration removed its file.
             guard.protect(&cfg.keys_file)?;
             guard.verify_replaceable_file(&output)?;
-            atomic_output(&output, |tmp| {
-                crate::crypto::full_decrypt(&source, tmp, &key)?;
-                let db = rusqlite::Connection::open_with_flags(
-                    tmp,
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                )?;
-                let check: String = db.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
-                ensure!(check == "ok", "解密数据库未通过 SQLite 完整性检查");
-                no_sidecars(&output)?;
-                guard.verify_replaceable_file(&output)?;
-                Ok(())
-            })?;
+            target.write_with_checked(
+                |tmp| {
+                    crate::crypto::full_decrypt(&source, tmp, &key)?;
+                    let db = rusqlite::Connection::open_with_flags(
+                        tmp,
+                        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                    )?;
+                    let check: String = db.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+                    ensure!(check == "ok", "解密数据库未通过 SQLite 完整性检查");
+                    Ok(())
+                },
+                || {
+                    config_pin.verify(runtime)?;
+                    source_pin.verify()?;
+                    no_sidecars(&output)?;
+                    guard.verify_replaceable_file(&output)
+                },
+            )?;
             Ok("written")
         })();
         match result {
@@ -189,25 +198,5 @@ fn no_sidecars(output: &Path) -> Result<()> {
 }
 
 fn validate_target(runtime: &RuntimeContext, output: &Path) -> Result<()> {
-    separate(&runtime.config.db_dir, output)?;
-    separate(&runtime.directory, output)?;
-    let target = resolved(output)?;
-    for source in [&runtime.config_path, &runtime.config.keys_file]
-        .into_iter()
-        .chain(runtime.config.key_store.iter())
-    {
-        ensure!(
-            !target
-                .as_os_str()
-                .eq_ignore_ascii_case(resolved(source)?.as_os_str()),
-            "解密目标不得覆盖配置或密钥文件"
-        );
-        if output.exists() && source.exists() {
-            ensure!(
-                !same_file::is_same_file(output, source)?,
-                "解密目标不得覆盖配置或密钥文件别名"
-            );
-        }
-    }
-    Ok(())
+    validate_export_paths(output, &decryption_protected(runtime))
 }

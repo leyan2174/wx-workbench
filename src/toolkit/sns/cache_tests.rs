@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn golden() -> Value {
@@ -6,6 +7,80 @@ fn golden() -> Value {
         "../../../tests/fixtures/sns/cache_golden.json"
     ))
     .unwrap()
+}
+
+#[test]
+fn adapter_recovery_uses_typed_writer_and_preserves_partial_failure() {
+    struct Writer {
+        calls: usize,
+    }
+    impl adapter::RecoveryWriter for Writer {
+        fn image(&mut self, _: &ImageEntry, _: &str, _: usize) -> Result<RecoveredMediaFile> {
+            panic!("video-only fixture must not dispatch an image")
+        }
+        fn video(&mut self, _: &VideoEntry, _: &str, index: usize) -> Result<RecoveredMediaFile> {
+            self.calls += 1;
+            if self.calls == 1 {
+                bail!("synthetic controlled write failure");
+            }
+            Ok(RecoveredMediaFile {
+                relative_path: format!("videos/synthetic_{index}.mp4"),
+                bytes: 23,
+            })
+        }
+    }
+    let (_temp, _, index) = fixture();
+    let golden = golden();
+    let case = golden["video_copies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|case| !case["legacy_status"].is_null())
+        .unwrap();
+    let video = json!({"type":6, "id":case["media_id"]});
+    let post = json!({"id":case["post_id"], "create_time":1700000000,
+        "media":[video.clone(), video, {"type":"unknown"}, {"type":6}, {"type":6,"width":true}]});
+    let mut writer = Writer { calls: 0 };
+    let report = adapter::recover_post_media(
+        &index,
+        &post,
+        "synthetic",
+        RecoveryOptions {
+            allow_partial_video: true,
+        },
+        &mut writer,
+    )
+    .unwrap();
+    assert_eq!(writer.calls, 2);
+    assert_eq!(
+        report
+            .media
+            .iter()
+            .map(|m| m.status.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "failed",
+            "recovered",
+            "unsupported_media_type",
+            "missing_media_id",
+            "invalid_metadata"
+        ]
+    );
+    assert_eq!(
+        report.media[1].match_method.as_deref(),
+        Some("post_media_md5")
+    );
+    assert_eq!(
+        report.media[1].reference.as_ref().unwrap()["local_file"],
+        "videos/synthetic_1.mp4"
+    );
+    assert_eq!(report.media[1].bytes, 23);
+    assert_eq!(report.warnings.len(), 1);
+    let mut updated = post.clone();
+    adapter::apply_media_references(&mut updated, &report).unwrap();
+    assert_eq!(updated["media"][0], post["media"][0]);
+    assert_eq!(updated["media"][1]["video_source"], "cache");
+    assert!(adapter::apply_media_references(&mut updated, &report).is_err());
 }
 fn unhex(text: &str) -> Vec<u8> {
     assert_eq!(text.len() % 2, 0);
@@ -125,7 +200,7 @@ fn image_headers_match_legacy() {
 fn cache_index_matches_legacy_scan_and_skips_thumbnails() {
     let (temp, _, index) = fixture();
     let images: Vec<_> = index.images().iter().map(|entry| {
-        let restored = decrypt_dat(&fs::read(&entry.path).unwrap(), &keys(), index.limits.max_image_bytes);
+        let restored = decrypt_dat(&fs::read(&entry.path).unwrap(), &keys(), index.limits().max_image_bytes);
         let decoded = restored.ok().map(|data| data.iter().map(|b| format!("{b:02x}")).collect::<String>());
         json!({"path": relative(&temp, &entry.path), "mtime": entry.mtime, "estimated_size": entry.estimated_size,
             "format": entry.format, "width": entry.width, "height": entry.height, "decoded_hex": decoded})
@@ -491,7 +566,7 @@ fn video_only_does_not_scan_images_or_require_legacy_root() {
     // 无密钥模式连旧图片根的规范化也跳过；完整模式保留缺失根错误。
     let index = build_index(&roots, None, limits).unwrap();
     assert_eq!(index.scanned, 1);
-    assert_eq!(index.roots.len(), 1);
+    assert_eq!(index.roots().len(), 1);
     assert!(build_cache_index(&roots, &CacheKeys::default(), limits).is_err());
     let roots = CacheRoots {
         file_storage_sns: None,
@@ -516,8 +591,8 @@ fn video_only_matches_original_candidates_and_lookup() {
         let actual = &index.videos()[key];
         assert_eq!(actual.path, expected.path);
         assert_eq!(actual.complete, expected.complete);
-        assert_eq!(actual.source_size, expected.source_size);
-        assert_eq!(actual.modified, expected.modified);
+        assert_eq!(actual.source_size(), expected.source_size());
+        assert_eq!(actual.modified(), expected.modified());
     }
     for case in golden()["video_lookups"].as_array().unwrap() {
         let entry = find_cached_video(
@@ -565,8 +640,8 @@ fn video_only_preserves_limits_and_root_guards() {
         .iter()
         .any(|w| w.contains("video exceeds size limit")));
     let index = build_video_cache_index(&root.join("."), CacheLimits::default()).unwrap();
-    assert_eq!(index.roots, vec![fs::canonicalize(root).unwrap()]);
-    assert!(checked_source(&file, &index.roots).is_err());
+    assert_eq!(index.roots(), vec![fs::canonicalize(root).unwrap()]);
+    assert!(checked_source(&file, index.roots()).is_err());
     let inside = root.join("must-not-be-created");
     assert!(output_directory(&inside, "videos", &index).is_err());
     assert!(!inside.exists());

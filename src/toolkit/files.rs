@@ -78,6 +78,7 @@ pub(super) fn collect(root: &Path, extension: &str, skip_migrate: bool) -> Resul
     Ok(files)
 }
 
+#[cfg(test)]
 pub(crate) fn atomic_output(path: &Path, write: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
     let path = std::path::absolute(path)?;
     let before = fingerprint(&path)?;
@@ -86,11 +87,19 @@ pub(crate) fn atomic_output(path: &Path, write: impl FnOnce(&Path) -> Result<()>
 
 /// Account resources remain protected even when their final files do not exist yet.
 pub(crate) fn export_protected(runtime: &crate::runtime::RuntimeContext) -> Vec<PathBuf> {
+    let mut paths = decryption_protected(runtime);
+    if !runtime.config.decrypted_dir.as_os_str().is_empty() {
+        paths.push(runtime.config.decrypted_dir.clone());
+    }
+    paths
+}
+
+/// Database snapshot publication may write into its cache, never account inputs.
+pub(super) fn decryption_protected(runtime: &crate::runtime::RuntimeContext) -> Vec<PathBuf> {
     let mut paths = vec![
         runtime.config_path.clone(),
         runtime.config.keys_file.clone(),
         runtime.config.db_dir.clone(),
-        runtime.config.decrypted_dir.clone(),
         runtime.directory.clone(),
     ];
     paths.extend(runtime.config.key_store.iter().cloned());
@@ -406,6 +415,24 @@ mod export_tests {
             .unwrap();
         assert_eq!(fs::read(&output).unwrap(), b"synthetic");
         crate::toolkit::private_file::assert_private_acl(&output);
+    }
+
+    #[test]
+    fn database_snapshot_policy_allows_only_the_cache_exception() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = runtime(dir.path());
+        let protected = decryption_protected(&runtime);
+        for path in &protected {
+            assert!(ExportTarget::capture_paths(path, &protected).is_err());
+            assert!(ExportTarget::capture_paths(&path.join("new.db"), &protected).is_err());
+        }
+        let output = runtime.config.decrypted_dir.join("message/message_0.db");
+        assert!(ExportTarget::capture(&runtime, &output).is_err());
+        ExportTarget::capture_paths(&output, &protected)
+            .unwrap()
+            .write_bytes(b"synthetic database snapshot")
+            .unwrap();
+        assert_eq!(fs::read(output).unwrap(), b"synthetic database snapshot");
     }
 
     #[test]

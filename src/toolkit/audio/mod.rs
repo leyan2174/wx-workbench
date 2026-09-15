@@ -83,6 +83,23 @@ pub fn convert_silk_to_mp3(input: &Path, output: &Path) -> Result<Conversion> {
     convert_silk_to_mp3_with_ffmpeg(input, output, Path::new("ffmpeg"))
 }
 
+pub(crate) fn convert_silk_to_mp3_checked(
+    input: &Path,
+    output: &Path,
+    protected: &[PathBuf],
+    check: impl FnMut() -> Result<()>,
+) -> Result<Conversion> {
+    convert_controlled_checked(
+        input,
+        output,
+        Path::new("ffmpeg"),
+        std::time::Instant::now() + std::time::Duration::from_secs(120),
+        || false,
+        protected,
+        check,
+    )
+}
+
 /// ffmpeg 可传绝对路径，便于主程序配置和测试；命令不经过 shell。
 pub fn convert_silk_to_mp3_with_ffmpeg(
     input: &Path,
@@ -103,8 +120,21 @@ fn convert_controlled(
     output: &Path,
     ffmpeg: &Path,
     deadline: std::time::Instant,
-    mut cancelled: impl FnMut() -> bool,
+    cancelled: impl FnMut() -> bool,
 ) -> Result<Conversion> {
+    convert_controlled_checked(input, output, ffmpeg, deadline, cancelled, &[], || Ok(()))
+}
+
+fn convert_controlled_checked(
+    input: &Path,
+    output: &Path,
+    ffmpeg: &Path,
+    deadline: std::time::Instant,
+    cancelled: impl FnMut() -> bool,
+    protected: &[PathBuf],
+    mut check: impl FnMut() -> Result<()>,
+) -> Result<Conversion> {
+    check()?;
     ensure!(input.is_file(), "input is not a file: {}", input.display());
     ensure!(
         fs::metadata(input)?.len() <= MAX_INPUT_BYTES as u64,
@@ -112,76 +142,84 @@ fn convert_controlled(
     );
     let output = std::path::absolute(output)?;
     protect_source(input, &output)?;
+    let mut protected = protected.to_vec();
+    protected.push(input.to_path_buf());
+    // Capture the destination before decoding or starting the encoder.
+    let target = crate::toolkit::ExportTarget::capture_paths(&output, &protected)?;
     let input_pin = crate::attachment::local_files::Pin::open(input, false)?;
     let pcm = decode_silk_to_pcm(&fs::read(input).context("read SILK input")?)?;
-    let parent = output.parent().context("output has no parent")?;
-    fs::create_dir_all(parent).context("create audio output directory")?;
-    let mut pcm_file = tempfile::NamedTempFile::new_in(parent)?;
-    pcm_file.write_all(&pcm)?;
-    pcm_file.flush()?;
-    // 先关闭输出临时文件句柄，让 Windows 上的 ffmpeg 独占打开它。
-    let encoded = tempfile::NamedTempFile::new_in(parent)?.into_temp_path();
-    let target = crate::toolkit::ExportTarget::capture_paths(
-        &output,
-        &[input.to_path_buf(), encoded.to_path_buf()],
-    )?;
-    let mut command = Command::new(ffmpeg);
-    command
-        .args([
-            "-nostdin",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-f",
-            "s16le",
-            "-ar",
-            "24000",
-            "-ac",
-            "1",
-            "-i",
-        ])
-        .arg(pcm_file.path())
-        .args(["-f", "mp3"])
-        .arg(&encoded);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW：禁止弹出控制台。
-    }
-    let result = crate::windows_process::managed::output(
-        &mut command,
-        deadline,
-        1024 * 1024,
-        &mut cancelled,
-    )
-    .context("start ffmpeg or complete bounded execution")?;
-    if !result.status.success() {
-        bail!("ffmpeg failed ({}); process output withheld", result.status);
-    }
-    let size = fs::metadata(&encoded)?.len();
-    ensure!(size > 0, "ffmpeg produced an empty MP3");
-    fs::OpenOptions::new()
-        .write(true)
-        .open(&encoded)?
-        .sync_all()?;
-    protect_source(input, &output)?;
-    ensure!(!cancelled(), "Audio conversion cancelled");
-    ensure!(
-        std::time::Instant::now() < deadline,
-        "Audio conversion deadline expired"
+    let cancelled = std::cell::RefCell::new(cancelled);
+    let mut size = 0;
+    let mut encoded_ready = false;
+    // The shared publisher pins the parent before either plaintext staging or encoding.
+    let publication = target.write_with_checked(
+        |encoded| {
+            let parent = encoded.parent().context("output has no parent")?;
+            let mut pcm_file = tempfile::NamedTempFile::new_in(parent)?;
+            crate::toolkit::private_file::restrict(pcm_file.as_file())?;
+            pcm_file.write_all(&pcm)?;
+            pcm_file.flush()?;
+            let mut command = Command::new(ffmpeg);
+            command
+                .args([
+                    "-nostdin",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "s16le",
+                    "-ar",
+                    "24000",
+                    "-ac",
+                    "1",
+                    "-i",
+                ])
+                .arg(pcm_file.path())
+                .args(["-f", "mp3"])
+                .arg(encoded);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW：禁止弹出控制台。
+            }
+            let result = crate::windows_process::managed::output(
+                &mut command,
+                deadline,
+                1024 * 1024,
+                || (*cancelled.borrow_mut())(),
+            )
+            .context("start ffmpeg or complete bounded execution")?;
+            if !result.status.success() {
+                bail!("ffmpeg failed ({}); process output withheld", result.status);
+            }
+            size = fs::metadata(encoded)?.len();
+            ensure!(size > 0, "ffmpeg produced an empty MP3");
+            ensure!(size <= 64 * 1024 * 1024, "MP3 staging exceeds 64 MiB limit");
+            fs::OpenOptions::new()
+                .write(true)
+                .open(encoded)?
+                .sync_all()?;
+            encoded_ready = true;
+            Ok(())
+        },
+        || {
+            check()?;
+            input_pin.verify()?;
+            protect_source(input, &output)?;
+            ensure!(!(*cancelled.borrow_mut())(), "Audio conversion cancelled");
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "Audio conversion deadline expired"
+            );
+            Ok(())
+        },
     );
-    publish_encoded(&encoded, target, || {
-        input_pin.verify()?;
-        protect_source(input, &output)?;
-        ensure!(!cancelled(), "Audio conversion cancelled");
-        ensure!(
-            std::time::Instant::now() < deadline,
-            "Audio conversion deadline expired"
-        );
-        Ok(())
-    })
-    .context("publish MP3 atomically")?;
+    if encoded_ready {
+        publication.context("publish MP3 atomically")?;
+    } else {
+        publication?;
+    }
     Ok(Conversion {
         input: input.to_path_buf(),
         output,

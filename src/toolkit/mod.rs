@@ -12,13 +12,14 @@ pub(crate) mod chat_plan_selection;
 mod databases;
 pub(crate) mod directory_publish;
 pub(crate) mod emoticons;
+pub(crate) mod export_context;
 mod files;
 pub(crate) mod private_file;
 pub(crate) mod sns;
 pub(crate) mod web;
-pub(crate) use files::{
-    atomic_output, export_protected, separate, validate_export_target, ExportTarget,
-};
+#[cfg(test)]
+pub(crate) use files::atomic_output;
+pub(crate) use files::{export_protected, separate, validate_export_target, ExportTarget};
 pub(crate) mod cleanup;
 mod images;
 pub(crate) mod legacy;
@@ -28,6 +29,7 @@ pub(crate) mod setup;
 
 use anyhow::Result;
 pub use databases::{decrypt, Mode as DecryptMode};
+pub(crate) use images::decode_images_for;
 pub use images::{batch_images, decode_image, decode_images};
 
 /// 显式图片密钥入口复用 CLI 的 AES 字节解析规则，不读取全局配置。

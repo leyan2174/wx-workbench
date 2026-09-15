@@ -1,16 +1,17 @@
 //! Account inventory and async cache boundary for the media catalog adapter.
-use crate::adapters::wechat::media::voice_catalog::{discover_media, source_key};
-pub use crate::adapters::wechat::media::voice_catalog::{
-    query_voice_shards, resolve_exact_chat, MediaShard, VoiceMessage, VoiceQuery,
+use crate::adapters::wechat::media::voice_catalog::{
+    discover_media, source_key, validate_query, Catalog, MediaShard,
 };
+pub use crate::business::voice::catalog::resolve_exact_chat;
+use crate::business::voice::catalog::{self as domain, Page, Query};
 use crate::daemon::cache::DbCache;
 use anyhow::{ensure, Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// 从账号级 DbCache 只读枚举原始媒体键；不读取密钥文件。
 /// 磁盘上额外媒体片或 get 返回 None 均失败，不返回已查询的部分结果。
-pub async fn q_voice_messages(db: &DbCache, query: &VoiceQuery) -> Result<Vec<VoiceMessage>> {
-    query.candidate_limit()?;
+pub async fn q_voice_messages(db: &DbCache, query: &Query) -> Result<Page> {
+    validate_query(query)?;
     let media_keys = db.media_db_keys();
     // DbCache 精确匹配原始键；只规范化证据，不能改变传给 get 的键。
     let mut original_keys = BTreeMap::new();
@@ -41,10 +42,10 @@ pub async fn q_voice_messages(db: &DbCache, query: &VoiceQuery) -> Result<Vec<Vo
             .with_context(|| format!("media shard unavailable or undecrypted: {source}"))?;
         shards.push(MediaShard { source, path });
     }
-    let rows = query_voice_shards(&shards, query)?;
+    let page = domain::list(&Catalog::new(&shards), query)?;
     ensure!(
         discover_media(db.db_dir())? == discovered,
         "media inventory changed during query"
     );
-    Ok(rows)
+    Ok(page)
 }

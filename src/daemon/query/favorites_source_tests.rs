@@ -53,6 +53,16 @@ async fn favorite_query_uses_real_account_caches_and_preserves_public_projection
     }
     let missing = q_favorites(&first, 10, Some(2), None).await.unwrap();
     assert_eq!(missing["count"], 0);
+    assert_eq!(missing["items"], serde_json::json!([]));
+    assert_eq!(missing["has_more"], false);
+    let empty_page = q_favorites(&first, 0, Some(5), None).await.unwrap();
+    assert_eq!(empty_page["count"], 0);
+    assert_eq!(empty_page["items"], serde_json::json!([]));
+    assert_eq!(empty_page["has_more"], true);
+    assert_eq!(
+        q_favorites(&first, 1, Some(5), None).await.unwrap()["has_more"],
+        false
+    );
     assert_eq!(
         q_favorites(&first, 10, Some(5), None).await.unwrap(),
         first_result

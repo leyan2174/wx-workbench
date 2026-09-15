@@ -1,7 +1,7 @@
 //! 引用与附件查询共享的严格消息定位，仅使用显式账号缓存。
 use super::{ensure_complete_message_inventory, DbCache, Names};
 use crate::{
-    adapters::wechat::messages::{DetachedContent, RawMessage, Snapshot, SourceFile},
+    adapters::wechat::messages::{RawMessage, Snapshot, SourceFile},
     business::messages::{Error, MessageSelector, SourceKind},
 };
 use anyhow::{Context, Result};
@@ -9,63 +9,12 @@ use std::path::PathBuf;
 
 pub(super) const MAX_STORED_BYTES: usize = crate::adapters::wechat::messages::MAX_STORED_BYTES;
 
-pub(super) enum Resolution<T = StrictMessage> {
+pub(super) enum Resolution<T> {
     ChatNotFound,
     AmbiguousChat,
     MessageNotFound,
     AmbiguousMessage,
     Found(T),
-}
-
-pub(super) struct StrictMessage {
-    pub(super) username: String,
-    pub(super) source: String,
-    pub(super) local_id: i64,
-    pub(super) create_time: i64,
-    pub(super) kind: i64,
-    evidence: DetachedContent,
-}
-
-impl StrictMessage {
-    pub(super) fn bounded_decode(&self, limit: usize) -> Result<Vec<u8>> {
-        self.evidence.bounded_decode(limit)
-    }
-}
-
-/// 先确定消息身份唯一，再由调用方检查消息类型和解码消息体。
-/// create_time 为零时不按时间筛选；完整性错误直接传播。
-/// 数据库查询返回错误时，也会执行查询后的完整清单检查。
-pub(super) async fn locate(
-    db: &DbCache,
-    names: &Names,
-    chat: &str,
-    local_id: i64,
-    create_time: i64,
-) -> Result<Resolution> {
-    with_resolved(
-        db,
-        names,
-        chat,
-        local_id,
-        create_time,
-        |snapshot, evidence| {
-            let username = match snapshot.conversation(&evidence.reference)? {
-                crate::business::messages::Conversation::Known(username) => username.clone(),
-                _ => anyhow::bail!(Error::InvalidData),
-            };
-            Ok(StrictMessage {
-                username,
-                source: evidence.logical_source.clone(),
-                local_id: evidence
-                    .local_id
-                    .context("message local identity unavailable")?,
-                create_time: evidence.timestamp,
-                kind: evidence.local_type,
-                evidence: evidence.detached_content(),
-            })
-        },
-    )
-    .await
 }
 
 /// The synchronous callback runs before the read snapshot closes. Return only detached

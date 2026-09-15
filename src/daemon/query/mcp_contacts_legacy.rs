@@ -4,10 +4,11 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 pub async fn q_contacts_legacy(db: &DbCache, query: Option<&str>, limit: usize) -> Result<Value> {
-    let path = match db.get("contact/contact.db").await? {
+    let [primary, compatibility] = crate::adapters::wechat::contacts::source_keys();
+    let path = match db.get(primary).await? {
         Some(path) => path,
         None => db
-            .get("contact\\contact.db")
+            .get(compatibility)
             .await?
             .context("contact database unavailable")?,
     };
@@ -16,3 +17,6 @@ pub async fn q_contacts_legacy(db: &DbCache, query: Option<&str>, limit: usize) 
         .await
         .context("contact query task failed")?
 }
+
+#[cfg(test)]
+mod tests;

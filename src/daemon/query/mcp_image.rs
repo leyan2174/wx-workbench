@@ -1,19 +1,15 @@
 //! 图片查询适配：先核验唯一消息和账号资源清单，再执行本地无覆盖导出。
 use super::{strict_message, DbCache, Names};
-use crate::attachment::{
-    decoder::V2KeyMaterial,
-    native_image::{self, ImageRequest, MessageIdentity},
+use crate::{
+    adapters::wechat::media::{
+        strict_image::{AccountSources, Proof},
+        strict_message::Message,
+    },
+    attachment::{decoder::V2KeyMaterial, native_image},
 };
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
-
-const RESOURCE_KEY: &str = "message/message_resource.db";
-const MAX_INVENTORY_ENTRIES: usize = 20_000;
+use std::path::Path;
 
 fn resource_discovery_error(error: crate::business::media::Error) -> anyhow::Error {
     use crate::business::media::{Failure, Stage};
@@ -165,47 +161,32 @@ async fn q_decode_image_guarded(
     ensure!(local_id > 0, "local_id must be positive");
     ensure!(create_time >= 0, "create_time must not be negative");
     use strict_message::Resolution;
-    let message = match strict_message::locate(db, names, chat, local_id, create_time).await? {
+    let message = match strict_message::with_resolved(
+        db,
+        names,
+        chat,
+        local_id,
+        create_time,
+        Message::capture,
+    )
+    .await?
+    {
         Resolution::Found(message) => message,
         Resolution::ChatNotFound => return Ok(failure(1, "chat not found")),
         Resolution::MessageNotFound => return Ok(failure(1, "message not found")),
         Resolution::AmbiguousChat => return Ok(failure(2, "ambiguous chat")),
         Resolution::AmbiguousMessage => return Ok(failure(2, "ambiguous message identity")),
     };
-    if message.kind <= 0 || message.kind & 0xffff_ffff != 3 {
+    if !message.is_image() {
         return Ok(failure(1, "expected image base_type=3"));
     }
-    let identity = MessageIdentity {
-        username: message.username,
-        source: message.source,
-        local_id: message.local_id,
-        create_time: message.create_time,
-        local_type: message.kind,
-    };
-    let db_dir = db.db_dir().to_path_buf();
-    let attach_root = db_dir
-        .parent()
-        .context("missing account root")?
-        .join("msg/attach");
-    // 匹配时规范化，缓存查找仍使用原名；重复别名也拒绝，不能随意挑一个 key。
-    let raw_keys: Vec<_> = db
-        .raw_db_keys()
-        .into_iter()
-        .filter(|key| normalize(key) == RESOURCE_KEY)
-        .collect();
-    ensure!(
-        raw_keys.len() == 1,
-        "resource key must be present and unique"
-    );
-    let raw_key = &raw_keys[0];
-    let before = Inventory::capture(&db_dir, &names.msg_db_keys, raw_key)?;
+    let sources = AccountSources::capture(db.db_dir(), &names.msg_db_keys, &db.raw_db_keys())?;
     let resource_db = db
-        .get(raw_key)
+        .get(sources.resource_key())
         .await?
         .context("current account resource database unavailable")?;
-    // Snapshot-bound references never escape this callback; only the old resource proof does.
     let discovery_db = resource_db.clone();
-    let expected = identity.clone();
+    // The host owns snapshot lifetime; only opaque adapter evidence leaves this callback.
     let proof = strict_message::with_resolved(
         db,
         names,
@@ -213,26 +194,13 @@ async fn q_decode_image_guarded(
         local_id,
         create_time,
         move |messages, raw| {
-            use crate::business::media::{Error, Failure, Kind, Source, Stage};
-            ensure!(
-                raw.logical_source == expected.source
-                    && raw.local_id == Some(expected.local_id)
-                    && raw.timestamp == expected.create_time
-                    && raw.local_type == expected.local_type,
-                Error::new(Stage::Revalidation, Failure::StaleEvidence)
-            );
             let resource = crate::daemon::cache::ResourceSnapshot::new(&discovery_db)?;
-            let mut source = crate::adapters::wechat::media::ImageSource::from_reference(
-                messages,
-                &raw.reference,
-                &resource.path(),
-            )?;
-            let discovered = source
-                .discover(&raw.reference, Kind::Image)
-                .map_err(resource_discovery_error)?;
-            let item = discovered.first().context("image reference unavailable")?;
-            let (rowid, digest) = source.resource_evidence(&item.reference)?;
-            Ok((rowid, digest.to_owned()))
+            Proof::prepare(message, messages, raw, &resource.path()).map_err(|error| {
+                match error.downcast::<crate::business::media::Error>() {
+                    Ok(error) => resource_discovery_error(error),
+                    Err(error) => error,
+                }
+            })
         },
     )
     .await?;
@@ -251,29 +219,20 @@ async fn q_decode_image_guarded(
             ))
         }
     };
-    let output_root = guard.output_root().to_path_buf();
-    let message_keys = names.msg_db_keys.clone();
-    let raw_key = raw_key.clone();
-    // 密钥只为阻塞任务临时复制，并在任务结束时清零；不序列化或记录密钥。
+    // Copy key material only for the blocking task; never serialize it.
     let aes = key.aes_key.map(|value| zeroize::Zeroizing::new(*value));
     let xor_key = key.xor_key;
     tokio::task::spawn_blocking(move || -> Result<Value> {
-        before.verify(&db_dir, &message_keys, &raw_key)?;
+        sources.verify()?;
         let snapshot = crate::daemon::cache::ResourceSnapshot::new(&resource_db)?;
-        let result = native_image::export_image_with_proof(
-            ImageRequest {
-                message: &identity,
-                resource_db: &snapshot.path(),
-                attach_root: &attach_root,
-                output_root: &output_root,
-                key: V2KeyMaterial {
-                    aes_key: aes.as_deref(),
-                    xor_key,
-                },
-            },
+        let result = proof.export(
+            &sources,
+            &snapshot.path(),
             &guard,
-            (proof.0, &proof.1),
-            || before.verify(&db_dir, &message_keys, &raw_key),
+            V2KeyMaterial {
+                aes_key: aes.as_deref(),
+                xor_key,
+            },
         )?;
         // 成功发布后不再做清单检查、路径打开或其他可预见的失败操作。
         // 路径编码已由导出核心校验，以下字段均可直接序列化。
@@ -284,125 +243,6 @@ async fn q_decode_image_guarded(
 
 fn failure(code: i32, text: &str) -> Value {
     json!({"exit_code":code, "text":text})
-}
-
-fn normalize(key: &str) -> String {
-    key.replace('\\', "/").to_ascii_lowercase()
-}
-
-struct SourceState {
-    path: PathBuf,
-    identity: same_file::Handle,
-    size: u64,
-    modified: SystemTime,
-}
-
-impl SourceState {
-    fn read(path: PathBuf) -> Result<Self> {
-        let metadata = fs::symlink_metadata(&path)?;
-        ensure!(
-            metadata.is_file() && !metadata.file_type().is_symlink(),
-            "inventory source must be a regular file"
-        );
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::MetadataExt;
-            ensure!(
-                metadata.file_attributes() & 0x400 == 0,
-                "inventory reparse point rejected"
-            );
-        }
-        Ok(Self {
-            identity: same_file::Handle::from_path(&path)?,
-            path,
-            size: metadata.len(),
-            modified: metadata.modified()?,
-        })
-    }
-
-    fn unchanged(&self, other: &Self) -> bool {
-        self.path == other.path
-            && self.identity == other.identity
-            && self.size == other.size
-            && self.modified == other.modified
-    }
-}
-
-struct Inventory {
-    files: Vec<SourceState>,
-}
-
-impl Inventory {
-    fn capture(db_dir: &Path, message_keys: &[String], resource_key: &str) -> Result<Self> {
-        let unknown = crate::daemon::meta::discover_unknown_shards_checked(db_dir, message_keys)?;
-        ensure!(
-            unknown.is_empty(),
-            "unknown message shards; complete inventory required"
-        );
-        let mut resource_paths = Vec::new();
-        for (index, entry) in fs::read_dir(db_dir.join("message"))?.enumerate() {
-            ensure!(
-                index < MAX_INVENTORY_ENTRIES,
-                "resource inventory entry limit exceeded"
-            );
-            let entry = entry?;
-            let name = entry.file_name();
-            let name = name
-                .to_str()
-                .context("invalid resource inventory filename")?
-                .to_ascii_lowercase();
-            if name.starts_with("message_") && name.contains("resource") && name.ends_with(".db") {
-                ensure!(
-                    name == "message_resource.db",
-                    "unknown resource database; complete inventory required"
-                );
-                resource_paths.push(entry.path());
-            }
-        }
-        ensure!(
-            resource_paths.len() == 1,
-            "resource source must be present and unique"
-        );
-        let resource = db_dir.join(resource_key.replace('\\', "/"));
-        ensure!(
-            same_file::is_same_file(&resource, &resource_paths[0])?,
-            "resource key does not identify account source"
-        );
-        let mut paths: Vec<PathBuf> = message_keys
-            .iter()
-            .map(|key| db_dir.join(key.replace('\\', "/")))
-            .collect();
-        paths.push(resource);
-        paths.sort();
-        paths.dedup();
-        let mut files = Vec::new();
-        for path in paths {
-            files.push(SourceState::read(path.clone())?);
-            let mut wal = path.into_os_string();
-            wal.push("-wal");
-            let wal = PathBuf::from(wal);
-            match fs::symlink_metadata(&wal) {
-                Ok(_) => files.push(SourceState::read(wal)?),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Ok(Self { files })
-    }
-
-    fn verify(&self, db_dir: &Path, message_keys: &[String], resource_key: &str) -> Result<()> {
-        let current = Self::capture(db_dir, message_keys, resource_key)?;
-        ensure!(
-            self.files.len() == current.files.len()
-                && self
-                    .files
-                    .iter()
-                    .zip(&current.files)
-                    .all(|(a, b)| a.unchanged(b)),
-            "account source inventory changed before image publication"
-        );
-        Ok(())
-    }
 }
 
 #[cfg(test)]

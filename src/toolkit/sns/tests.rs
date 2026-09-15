@@ -303,7 +303,7 @@ fn read_only_path_entry_and_missing_path() {
     assert_eq!(report.posts, 1);
     assert_eq!(fs::read(&path).unwrap(), before);
     let missing = temp.0.join("missing.db");
-    assert!(export_database_with_media(
+    let error = export_database_with_media(
         &missing,
         None,
         &temp.0.join("other"),
@@ -311,8 +311,14 @@ fn read_only_path_entry_and_missing_path() {
         None,
         None,
     )
-    .is_err());
+    .err()
+    .expect("missing source must fail");
+    assert!(matches!(
+        error.downcast_ref::<crate::business::moments::SourceError>(),
+        Some(crate::business::moments::SourceError::Unavailable)
+    ));
     assert!(!missing.exists());
+    assert!(!temp.0.join("other").exists());
     let html = fs::read_to_string(temp.0.join("out/synthetic/SNS/timeline.html")).unwrap();
     assert!(html.contains("&lt;script&gt;") && !html.contains("<script>"));
 }

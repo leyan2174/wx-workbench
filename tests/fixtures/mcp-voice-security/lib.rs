@@ -31,9 +31,15 @@ pub mod database_media;
 #[path = "../../../src/daemon/query/mcp_voice.rs"]
 pub mod mcp_voice;
 
-#[cfg(test)]
-mod security_tests;
-#[path = "../../support/media_business.rs"]
-pub mod business;
 #[path = "../../support/voice_media_adapters.rs"]
 pub mod adapters;
+#[path = "../../support/media_business.rs"]
+pub mod business;
+#[cfg(test)]
+mod security_tests;
+
+#[path = "../../../src/attachment/local_files.rs"]
+pub mod local_files;
+pub mod attachment {
+    pub use crate::local_files;
+}

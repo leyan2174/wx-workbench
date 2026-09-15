@@ -1,10 +1,8 @@
 //! standalone decrypt_sns.py 的账号固定宿主，不加载时间线或自动发现其他账号。
 use crate::{
+    adapters::wechat::moments::cache::{CacheKeys, CacheLimits, CacheRoots},
     runtime::RuntimeContext,
-    toolkit::sns::{
-        archive::{self, ArchiveOptions, ArchiveReport},
-        cache::{CacheKeys, CacheLimits, CacheRoots},
-    },
+    toolkit::sns::archive::{self, ArchiveOptions, ArchiveReport},
 };
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;
@@ -43,14 +41,7 @@ pub fn export_for(runtime: &RuntimeContext, raw: &Value, args: Args) -> Result<A
     ensure!(raw.is_object(), "选中账号配置必须为 JSON 对象");
     let base = runtime.config_path.parent().context("选中配置缺少父目录")?;
     let db = resolve(base, &runtime.config.db_dir)?;
-    let account = if db
-        .file_name()
-        .is_some_and(|n| n.eq_ignore_ascii_case("db_storage"))
-    {
-        db.parent().context("选中数据库缺少账号目录")?
-    } else {
-        db.as_path()
-    };
+    let account = crate::adapters::wechat::moments::cache::account_root(&db)?;
     let account_name = account
         .file_name()
         .and_then(|n| n.to_str())
@@ -58,15 +49,12 @@ pub fn export_for(runtime: &RuntimeContext, raw: &Value, args: Args) -> Result<A
     let legacy = match raw.get("wechat_files_dir") {
         None | Some(Value::Null) => None,
         Some(Value::String(s)) if s.is_empty() => None,
-        Some(Value::String(s)) => Some(resolve(base, Path::new(s))?.join("FileStorage/Sns/Cache")),
+        Some(Value::String(s)) => Some(resolve(base, Path::new(s))?),
         Some(_) => anyhow::bail!("wechat_files_dir 必须为路径字符串"),
     };
     // 与 config.py 一样忽略被无条件覆盖的 sns_cache_dir/xwechat_cache_dir/output_base_dir。
     // 唯一不复刻的发现逻辑是 Documents/WeChat Files 下的账号前缀模糊匹配。
-    let roots = CacheRoots {
-        xwechat: Some(account.join("cache")),
-        file_storage_sns: legacy,
-    };
+    let roots = CacheRoots::for_account(account, legacy.as_deref());
     let output_base = match args.output_dir {
         Some(path) => std::path::absolute(path)?,
         None => base.join("wechat_files").join(account_name),

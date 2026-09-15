@@ -27,6 +27,12 @@ pub struct SqliteContacts {
     pub display_names: HashMap<String, String>,
     preserve_directory_duplicates: bool,
 }
+
+/// Ordered source descriptor for legacy cache lookup; only absence permits fallback.
+pub const fn source_keys() -> [&'static str; 2] {
+    ["contact/contact.db", "contact\\contact.db"]
+}
+
 impl SqliteContacts {
     pub fn new(path: PathBuf) -> Self {
         Self {

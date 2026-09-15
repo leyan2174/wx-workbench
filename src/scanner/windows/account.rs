@@ -229,12 +229,11 @@ fn executable(override_path: Option<&Path>) -> Result<PathBuf> {
     bail!("无法找到 Weixin.exe，请使用 --wechat-exe 指定")
 }
 
-pub(crate) fn capture_and_save(
+pub(crate) fn capture(
     db_dir: &Path,
     override_path: Option<&Path>,
     timeout: u64,
-    store: &crate::key_store::Store,
-) -> Result<Vec<KeyEntry>> {
+) -> Result<crate::scanner::AcquiredKeys> {
     let pages = collect_db_pages(db_dir)?;
     let target = pages
         .iter()
@@ -340,15 +339,10 @@ pub(crate) fn capture_and_save(
         .map(|(_, name)| name)
         .collect();
     let entries = verified_entries(&raw, &collect_db_pages(db_dir)?, &targets)?;
-    store.update(
-        None,
-        &[crate::key_store::Update::Account(
-            &raw,
-            crate::key_store::Verification::Verified,
-        )],
-    )?;
-    eprintln!("账号密钥已使用 Windows DPAPI 加密保存");
-    Ok(entries)
+    Ok(crate::scanner::AcquiredKeys {
+        entries,
+        account_key: Some(raw),
+    })
 }
 
 #[cfg(test)]
@@ -399,6 +393,39 @@ mod tests {
         assert_ne!(entries[0].enc_key, entries[1].enc_key);
         assert!(verified_entries(&[0x43; 32], &pages, &targets).is_err());
         assert!(verified_entries(&raw, &pages[..1], &targets).is_err());
+    }
+
+    #[test]
+    fn supplied_account_material_is_revalidated_without_persistence() {
+        let root = tempfile::tempdir().unwrap();
+        let db = root.path().join("db_storage");
+        std::fs::create_dir_all(db.join("message")).unwrap();
+        let raw = [0x42; 32];
+        std::fs::write(db.join("message/message_0.db"), page(&raw, 1)).unwrap();
+        let acquired = crate::scanner::scan_with_provider(
+            &db,
+            "SyntheticNeverLaunched.exe",
+            crate::scanner::KeyProvider::Auto,
+            false,
+            None,
+            1,
+            Some(&raw),
+        )
+        .unwrap();
+        assert_eq!(acquired.entries.len(), 1);
+        assert!(acquired.account_key.is_none());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        assert!(crate::scanner::scan_with_provider(
+            &db,
+            "SyntheticNeverLaunched.exe",
+            crate::scanner::KeyProvider::Auto,
+            false,
+            None,
+            1,
+            Some(&[0x43; 32]),
+        )
+        .is_err());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     }
 
     #[test]

@@ -1,7 +1,13 @@
 use super::*;
 use crate::daemon::query::encrypted_cache;
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, path::PathBuf};
+
+const RESOURCE_KEY: &str = crate::adapters::wechat::media::resource::source_key();
+
+fn normalize(key: &str) -> String {
+    key.replace('\\', "/").to_ascii_lowercase()
+}
 
 const CHAT: &str = "wxid_image_peer";
 const HASH: &str = "0123456789abcdef0123456789abcdef";
@@ -310,7 +316,9 @@ async fn mismatched_resource_time_and_duplicate_resource_records_fail() {
 async fn inventory_changes_are_detected_before_export_call() {
     for mutation in 0..4 {
         let f = Fixture::new(&[RESOURCE_KEY]).await;
-        let before = Inventory::capture(f.db.db_dir(), &f.names.msg_db_keys, RESOURCE_KEY).unwrap();
+        let before =
+            AccountSources::capture(f.db.db_dir(), &f.names.msg_db_keys, &f.db.raw_db_keys())
+                .unwrap();
         match mutation {
             0 => fs::write(f.db.db_dir().join("message/message_7.db"), b"new").unwrap(),
             1 => fs::write(
@@ -321,11 +329,82 @@ async fn inventory_changes_are_detected_before_export_call() {
             2 => fs::write(f.db.db_dir().join(RESOURCE_KEY), b"changed resource size").unwrap(),
             _ => fs::remove_file(f.db.db_dir().join("message/message_1.db")).unwrap(),
         }
-        assert!(before
-            .verify(f.db.db_dir(), &f.names.msg_db_keys, RESOURCE_KEY)
-            .is_err());
+        assert!(before.verify().is_err());
         f.empty_output();
     }
+}
+
+#[tokio::test]
+async fn opaque_media_evidence_rejects_changed_kind_before_resource_proof() {
+    let f = Fixture::new(&[RESOURCE_KEY]).await;
+    let message = strict_message::with_resolved(&f.db, &f.names, CHAT, 42, 0, Message::capture)
+        .await
+        .unwrap();
+    let strict_message::Resolution::Found(message) = message else {
+        panic!("unique message required")
+    };
+    assert!(message.is_image());
+    Connection::open(&f.messages[0])
+        .unwrap()
+        .execute(
+            &format!(
+                "UPDATE Msg_{:x} SET local_type=49 WHERE local_id=42",
+                md5::compute(CHAT)
+            ),
+            [],
+        )
+        .unwrap();
+    let resource = f.resource.clone();
+    let result =
+        strict_message::with_resolved(&f.db, &f.names, CHAT, 42, 0, move |snapshot, raw| {
+            Proof::prepare(message, snapshot, raw, &resource)
+        })
+        .await;
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("changed evidence accepted"),
+    };
+    let typed = error
+        .downcast_ref::<crate::business::media::Error>()
+        .unwrap();
+    assert_eq!(typed.stage, crate::business::media::Stage::Revalidation);
+    assert_eq!(
+        typed.failure,
+        crate::business::media::Failure::StaleEvidence
+    );
+    f.empty_output();
+}
+
+#[tokio::test]
+async fn strict_media_rejects_unbound_attachment_root() {
+    let f = Fixture::new(&[RESOURCE_KEY]).await;
+    let account = f.db.db_dir().parent().unwrap();
+    let strict = account.join("msg/attach");
+    let unbound = account.join("attach");
+    let source = unbound.join(f.dat.strip_prefix(&strict).unwrap());
+    let before = fs::read(&f.dat).unwrap();
+    fs::rename(&strict, &unbound).unwrap();
+    assert!(f.query(0).await.is_err());
+    f.empty_output();
+    assert_eq!(fs::read(source).unwrap(), before);
+    assert!(!strict.exists());
+}
+
+#[tokio::test]
+async fn strict_media_rejects_cross_month_ties_that_legacy_lookup_selects() {
+    let f = Fixture::new(&[RESOURCE_KEY]).await;
+    let attach = f.db.db_dir().parent().unwrap().join("msg/attach");
+    let duplicate = attach
+        .join(format!("{:x}", md5::compute(CHAT)))
+        .join("2023-10/Img")
+        .join(format!("{HASH}.dat"));
+    fs::create_dir_all(duplicate.parent().unwrap()).unwrap();
+    fs::copy(&f.dat, &duplicate).unwrap();
+    let legacy = crate::attachment::resolver::find_dat_file(&attach, CHAT, HASH, 1700000000);
+    assert_eq!(legacy, Some(duplicate.clone()));
+    assert!(f.query(0).await.is_err());
+    f.empty_output();
+    assert_eq!(fs::read(&duplicate).unwrap(), fs::read(&f.dat).unwrap());
 }
 
 #[tokio::test]

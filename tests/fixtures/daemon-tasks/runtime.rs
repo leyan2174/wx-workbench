@@ -1,6 +1,8 @@
 use super::{success, Fixture};
 #[path = "mcp.rs"]
 mod mcp;
+#[path = "web_query.rs"]
+mod web_query;
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -229,7 +231,7 @@ struct Web {
 impl Web {
     fn start(fixture: &Fixture, account: &Path) -> Self {
         use std::os::windows::process::CommandExt;
-        let log = fixture.root.join("web-process.log");
+        let log = account.join("web-process.log");
         let stdout = fs::File::create(&log).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_wx"))
             .args(["toolkit", "web", "--port", "0"])

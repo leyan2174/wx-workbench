@@ -12,6 +12,13 @@
   XML parser, whitespace normalization, type labels and summary algorithm.
 - `daemon/query/mcp_refer.rs` projects the typed result into the unchanged
   protocol object and renders the existing text output.
+- `adapters/wechat/messages/reply_read.rs` now performs base-kind checks,
+  bounded decoding, group-prefix handling and account-directory interpretation
+  while the strict snapshot is live. Its `LegacySource` is serialized only at
+  the response boundary; ordinary host code does not inspect its coordinates.
+  The replaced daemon-owned `StrictMessage` and `locate` materialization are
+  removed; the host retains the shared live-snapshot callback and inventory
+  checks. Not-reply and invalid-content outcomes remain distinct and sanitized.
 - `messages/read/layout.rs::valid_voice_source` is the shared physical
   source-name and username/table ownership check. Prepared-audio and receipt
   callers no longer implement source naming or table hashing themselves.
@@ -51,6 +58,10 @@ Hashes and receipts are not signatures; no authentication claim is added.
   compatibility differences, request mismatch and persistent source conflict.
 - The readonly-security fixture explicitly registers the production reply
   adapter; existing audio fixtures already register the production read layout.
+- The real encrypted-cache query fixtures retain every old field/rendering
+  assertion and additionally check the exact seven-field response shape.
+  Decode-limit tests use the live-snapshot callback and the same detached
+  content implementation, without restoring the deleted host record.
 
 No Cargo command or real-account access was performed for this slice.
 Compilation, formatting and execution of root and standalone fixture tests

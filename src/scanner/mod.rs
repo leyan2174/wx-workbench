@@ -10,6 +10,12 @@ pub(crate) use windows::account::{
 
 pub use crate::service::operation_requests::key_provider::KeyProvider;
 
+/// Verified acquisition result. The execution host owns storage and publication.
+pub struct AcquiredKeys {
+    pub entries: Vec<KeyEntry>,
+    pub account_key: Option<zeroize::Zeroizing<Vec<u8>>>,
+}
+
 pub fn scan_with_provider(
     db_dir: &Path,
     process_name: &str,
@@ -17,29 +23,29 @@ pub fn scan_with_provider(
     restart: bool,
     executable: Option<&Path>,
     timeout: u64,
-    store: &crate::key_store::Store,
-) -> Result<Vec<KeyEntry>> {
+    saved_account_key: Option<&[u8]>,
+) -> Result<AcquiredKeys> {
     #[cfg(target_os = "windows")]
     {
         if provider == KeyProvider::Account {
             anyhow::ensure!(restart, "账号级捕获会重启微信，请显式添加 --restart-wechat");
-            return windows::account::capture_and_save(db_dir, executable, timeout, store);
+            return windows::account::capture(db_dir, executable, timeout);
         }
         if provider == KeyProvider::Auto {
-            match store.load() {
-                Ok(snapshot) => {
-                    if let Some(key) = snapshot.account_key() {
-                        let entries = windows::account::verify_material(db_dir, key)?;
-                        eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
-                        return Ok(entries);
-                    }
-                }
-                Err(crate::key_store::Error::Missing) => {}
-                Err(error) => return Err(error.into()),
+            if let Some(key) = saved_account_key {
+                let entries = windows::account::verify_material(db_dir, key)?;
+                eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
+                return Ok(AcquiredKeys {
+                    entries,
+                    account_key: None,
+                });
             }
         }
     }
-    scan_keys_with_options(db_dir, process_name)
+    Ok(AcquiredKeys {
+        entries: scan_keys_with_options(db_dir, process_name)?,
+        account_key: None,
+    })
 }
 
 /// 扫描到的一条密钥记录

@@ -135,11 +135,15 @@ fn unsafe_output_is_rejected_before_creating_nested_database_directory() {
 }
 
 #[test]
-fn per_item_failure_retains_legacy_success_exit_and_missing_keys_fail() {
+fn per_item_failure_reports_failure_and_missing_keys_fail() {
     let root = tempfile::tempdir().unwrap();
     let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     fixture(root.path());
-    assert!(success(run(root.path(), &["out"])).contains("0 成功, 1 失败"));
+    let output = run(root.path(), &["out"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("0 成功, 1 失败"));
     assert_eq!(fs::read_dir(root.path().join("out")).unwrap().count(), 0);
     fs::remove_file(root.path().join("keys.dpapi")).unwrap();
     assert!(!run(root.path(), &["--dry-run"]).status.success());

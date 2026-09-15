@@ -115,8 +115,14 @@ impl QueryState {
         })
         .await??;
 
-        let msg_db_keys = super::collect_db_keys(&all_keys, super::is_msg_db_key);
-        let biz_msg_db_keys = super::collect_db_keys(&all_keys, super::is_biz_msg_db_key);
+        use crate::adapters::wechat::messages::inventory::configured_sources;
+        use crate::business::messages::SourceKind;
+        let msg_db_keys =
+            configured_sources(all_keys.keys().map(String::as_str), SourceKind::Ordinary);
+        let biz_msg_db_keys = configured_sources(
+            all_keys.keys().map(String::as_str),
+            SourceKind::OfficialPush,
+        );
         let db = DbCache::with_dirs_coordinated(
             runtime.config.db_dir.clone(),
             runtime.cache_dir(),
@@ -129,7 +135,9 @@ impl QueryState {
             query::load_names_with_retry(&db, 5, std::time::Duration::from_millis(300)).await?;
         names.msg_db_keys = msg_db_keys;
         names.biz_msg_db_keys = biz_msg_db_keys;
-        let _ = db.get("session/session.db").await;
+        let _ = db
+            .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
+            .await;
         let _ = db.get("sns/sns.db").await;
         Ok(QuerySnapshot {
             key_revision,

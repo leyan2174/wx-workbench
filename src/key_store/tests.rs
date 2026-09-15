@@ -64,6 +64,42 @@ fn real_dpapi_roundtrip_preserves_all_materials_and_private_acl() {
 }
 
 #[test]
+fn account_and_derived_databases_publish_in_one_revision_or_not_at_all() {
+    let fixture = Fixture::new();
+    let databases = HashMap::from([("message/message_0.db".into(), "31".repeat(32))]);
+    let account = [0x17; 32];
+    let saved = fixture
+        .store
+        .update(
+            Some(0),
+            &[
+                Update::Databases(&databases, Verification::Verified),
+                Update::Account(&account, Verification::Verified),
+            ],
+        )
+        .unwrap();
+    assert_eq!(saved.revision(), 1);
+    assert_eq!(saved.database_keys(), databases);
+    assert_eq!(saved.account_key(), Some(account.as_slice()));
+    let before = fs::read(fixture.store.path()).unwrap();
+    assert!(fixture
+        .store
+        .update(
+            Some(1),
+            &[
+                Update::Account(&[0x42; 32], Verification::Verified),
+                Update::Databases(
+                    &HashMap::from([("../bad.db".into(), "41".repeat(32))]),
+                    Verification::Verified
+                ),
+            ]
+        )
+        .is_err());
+    assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
+    assert_eq!(fixture.store.load().unwrap().revision(), 1);
+}
+
+#[test]
 fn stale_revision_and_conflicting_import_preserve_ciphertext() {
     let fixture = Fixture::new();
     let key = [0x51; 32];

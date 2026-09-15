@@ -44,10 +44,11 @@ fn project(tag: domain::Tag) -> ContactTag {
     }
 }
 async fn source(db: &DbCache, names: &HashMap<String, String>) -> Result<wechat::SqliteContacts> {
-    let path = match db.get("contact/contact.db").await? {
+    let [primary, compatibility] = wechat::source_keys();
+    let path = match db.get(primary).await? {
         Some(path) => path,
         None => db
-            .get("contact\\contact.db")
+            .get(compatibility)
             .await?
             .context("contact database unavailable")?,
     };

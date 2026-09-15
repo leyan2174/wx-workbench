@@ -264,6 +264,30 @@ fn rejected(o: Output) {
     assert!(!o.stderr.is_empty(), "拒绝必须提供诊断");
 }
 
+#[test]
+fn missing_source_reports_unavailable_and_nonzero_without_touching_output() {
+    let f = Fixture::new();
+    let account = f.account("missing-sns");
+    let source = account.join("decrypted/sns/sns.db");
+    fs::remove_file(&source).unwrap();
+    let output = f.root.path().join("untouched-output");
+    fs::create_dir(&output).unwrap();
+    fs::write(output.join("sentinel"), b"unchanged").unwrap();
+    let before = tree(&output);
+    let result = f.alias(&account, Some(&output), ALICE, &["--no-remote"]);
+    assert!(!result.status.success(), "{}", diagnostic(&result));
+    let report: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["engine"], "rust");
+    assert_eq!(report["status"], "unavailable");
+    assert_eq!(report["exit_code"], 1);
+    assert_eq!(report["coverage"], "local_cache_only");
+    assert_eq!(report["posts"], 0);
+    assert_eq!(report["files"], json!([]));
+    assert!(!report["warnings"].as_array().unwrap().is_empty());
+    assert_eq!(tree(&output), before);
+    assert!(!source.exists());
+}
+
 // 仅允许发布器增加空锁；既有文件、目录及绑定逐字节不变。
 fn preserved(root: &Path, before: &BTreeMap<PathBuf, Option<Vec<u8>>>) {
     let mut after = tree(root);

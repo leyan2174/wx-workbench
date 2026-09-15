@@ -170,6 +170,32 @@ pub enum Completeness {
     Incomplete,
 }
 
+/// Pagination knowledge, independent of whether the source inventory is complete.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageContinuation {
+    Exhausted,
+    /// The bounded read does not establish whether another page exists.
+    MayHaveMore,
+}
+
+/// A selected page of semantic messages. Physical source and wire compatibility
+/// fields belong to the creating adapter, indexed by the opaque references.
+#[derive(Clone, Debug)]
+pub struct MessagePage {
+    pub messages: Vec<Message>,
+    pub completeness: Completeness,
+    pub continuation: PageContinuation,
+}
+
+impl MessagePage {
+    pub fn unresolved_conversations(&self) -> usize {
+        self.messages
+            .iter()
+            .filter(|message| matches!(message.conversation, Conversation::Unmapped(_)))
+            .count()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Filter {
     pub since: Option<i64>,
@@ -202,6 +228,16 @@ pub struct Page {
     pub oldest_first: bool,
 }
 impl Page {
+    /// Call after successful selection. A full page is deliberately inconclusive;
+    /// a short page proves exhaustion only when all candidate reads exhausted.
+    pub fn continuation(&self, returned: usize, candidates_exhausted: bool) -> PageContinuation {
+        if candidates_exhausted && returned < self.limit {
+            PageContinuation::Exhausted
+        } else {
+            PageContinuation::MayHaveMore
+        }
+    }
+
     pub fn candidate_limit(&self) -> Result<usize> {
         if self.limit == 0 {
             return Err(Error::Limit);
@@ -325,6 +361,52 @@ impl TimestampSubscription {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn continuation_is_not_source_completeness_or_pre_dedup_count() {
+        let page = Page {
+            limit: 2,
+            offset: 0,
+            oldest_first: true,
+        };
+        for (count, exhausted, expected) in [
+            (0, true, PageContinuation::Exhausted),
+            (1, true, PageContinuation::Exhausted),
+            (2, true, PageContinuation::MayHaveMore),
+            (0, false, PageContinuation::MayHaveMore),
+            (1, false, PageContinuation::MayHaveMore),
+            (2, false, PageContinuation::MayHaveMore),
+        ] {
+            assert_eq!(page.continuation(count, exhausted), expected);
+        }
+        let owner = Arc::new(());
+        let candidates = [0, 0]
+            .into_iter()
+            .map(|record| Candidate {
+                order: OrderKey(100, 0, record),
+                reference: MessageRef(EvidenceRef {
+                    snapshot: Arc::downgrade(&owner),
+                    stream: 0,
+                    record,
+                }),
+                value: record,
+            })
+            .collect();
+        let selected = page.select(candidates, Completeness::Complete).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(
+            page.continuation(selected.len(), false),
+            PageContinuation::MayHaveMore
+        );
+        assert_eq!(
+            page.continuation(selected.len(), true),
+            PageContinuation::Exhausted
+        );
+        assert_eq!(
+            page.select::<()>(vec![], Completeness::Incomplete),
+            Err(Error::Unavailable)
+        );
+    }
+
     #[test]
     fn same_time_records_remain_distinct_and_repeated_reads_do_not() {
         let owner = Arc::new(());

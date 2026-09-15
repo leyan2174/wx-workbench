@@ -32,6 +32,13 @@ pub enum ContainerKind {
     Record,
 }
 
+/// Select a standalone attachment or an item in a forwarded collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Selection {
+    File,
+    RecordItem(i64),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedMedia {
     pub kind: NamedKind,

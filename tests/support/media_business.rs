@@ -10,3 +10,5 @@ pub mod messages;
 pub mod structured_message;
 #[path = "../../src/business/voice_export.rs"]
 pub mod voice_export;
+#[path = "../../src/business/voice/mod.rs"]
+pub mod voice;

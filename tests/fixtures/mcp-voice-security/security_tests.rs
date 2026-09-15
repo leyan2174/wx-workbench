@@ -1,3 +1,13 @@
+use crate::adapters::wechat::media::voice_catalog as catalog;
+use crate::business::voice::catalog as domain;
+
+fn legacy_query(
+    shards: &[catalog::MediaShard],
+    query: &domain::Query,
+) -> anyhow::Result<Vec<catalog::LegacyVoiceMessage>> {
+    catalog::legacy_rows(&domain::list(&catalog::Catalog::new(shards), query)?)
+}
+
 use crate::{daemon::cache::DbCache, database_media as dm, mcp_voice as mv};
 use rusqlite::{params, Connection};
 use std::{
@@ -8,8 +18,8 @@ use std::{
 
 const SILK: &[u8] = b"#!SILK_V3synthetic-not-decoded";
 
-fn query() -> mv::VoiceQuery {
-    mv::VoiceQuery {
+fn query() -> domain::Query {
+    domain::Query {
         username: "alice".into(),
         limit: 100,
         offset: 0,
@@ -18,7 +28,7 @@ fn query() -> mv::VoiceQuery {
     }
 }
 
-fn media(root: &Path, name: &str, alice: i64, bob: i64) -> mv::MediaShard {
+fn media(root: &Path, name: &str, alice: i64, bob: i64) -> catalog::MediaShard {
     fs::create_dir_all(root.join("message")).unwrap();
     let path = root.join("message").join(name);
     let c = Connection::open(&path).unwrap();
@@ -29,13 +39,20 @@ fn media(root: &Path, name: &str, alice: i64, bob: i64) -> mv::MediaShard {
         params![alice, bob],
     )
     .unwrap();
-    mv::MediaShard {
+    catalog::MediaShard {
         source: format!("message/{}", name.to_lowercase()),
         path,
     }
 }
 
-fn voice(shard: &mv::MediaShard, owner: i64, id: i64, time: i64, server: i64, data: Option<&[u8]>) {
+fn voice(
+    shard: &catalog::MediaShard,
+    owner: i64,
+    id: i64,
+    time: i64,
+    server: i64,
+    data: Option<&[u8]>,
+) {
     Connection::open(&shard.path)
         .unwrap()
         .execute(
@@ -87,7 +104,7 @@ fn security_library_local_name_ids_and_binary_names_do_not_cross_contacts() {
     voice(&b, 1, 802, 100, 900, Some(b"bob-b"));
     message(d.path());
     let before = snapshot(d.path());
-    let rows = mv::query_voice_shards(&[b.clone(), a], &query()).unwrap();
+    let rows = legacy_query(&[b.clone(), a], &query()).unwrap();
     assert_eq!(
         rows.iter()
             .map(|r| (r.local_id, r.chat_name_id))
@@ -97,7 +114,7 @@ fn security_library_local_name_ids_and_binary_names_do_not_cross_contacts() {
     assert_eq!(resolve(d.path()).unwrap().evidence.media_local_id, 701);
     let mut q = query();
     q.username = "ALICE".into();
-    assert!(mv::query_voice_shards(&[b], &q).unwrap().is_empty());
+    assert!(legacy_query(&[b], &q).unwrap().is_empty());
     assert_eq!(before, snapshot(d.path()));
 }
 
@@ -150,7 +167,7 @@ fn security_pagination_matches_independent_oracle_for_ties_ranges_and_permutatio
         ] {
             for limit in [1, 2, 7, 40] {
                 for offset in [0, 1, 6, 26, 27, 40] {
-                    let q = mv::VoiceQuery {
+                    let q = domain::Query {
                         since,
                         until,
                         limit,
@@ -166,7 +183,7 @@ fn security_pagination_matches_independent_oracle_for_ties_ranges_and_permutatio
                         .take(limit)
                         .cloned()
                         .collect();
-                    let actual: Vec<_> = mv::query_voice_shards(&selected, &q)
+                    let actual: Vec<_> = legacy_query(&selected, &q)
                         .unwrap()
                         .into_iter()
                         .map(|r| (r.create_time, r.source, r.local_id, r.media_rowid))
@@ -188,12 +205,12 @@ fn security_null_length_empty_blob_and_inclusive_zero_time_are_distinct() {
     voice(&s, 1, 2, 0, 2, None);
     voice(&s, 1, 3, 0, 3, Some(b""));
     voice(&s, 1, 4, 1, 4, Some(b"\0\xff\0"));
-    let q = mv::VoiceQuery {
+    let q = domain::Query {
         since: Some(0),
         until: Some(0),
         ..query()
     };
-    let rows = mv::query_voice_shards(&[s.clone()], &q).unwrap();
+    let rows = legacy_query(&[s.clone()], &q).unwrap();
     assert_eq!(
         rows.iter()
             .map(|r| (r.local_id, r.voice_data_bytes))
@@ -201,7 +218,7 @@ fn security_null_length_empty_blob_and_inclusive_zero_time_are_distinct() {
         [(3, Some(0)), (2, None)]
     );
     assert_eq!(
-        mv::query_voice_shards(&[s], &query()).unwrap()[0].voice_data_bytes,
+        legacy_query(&[s], &query()).unwrap()[0].voice_data_bytes,
         Some(3)
     );
 }
@@ -216,10 +233,7 @@ fn security_old_listing_schema_without_server_id_remains_listable_only() {
         .execute_batch("ALTER TABLE VoiceInfo DROP COLUMN svr_id")
         .unwrap();
     message(d.path());
-    assert_eq!(
-        mv::query_voice_shards(&[s], &query()).unwrap()[0].local_id,
-        700
-    );
+    assert_eq!(legacy_query(&[s], &query()).unwrap()[0].local_id, 700);
     assert_eq!(
         resolve(d.path()).unwrap_err().kind,
         dm::ErrorKind::UnsupportedSchema
@@ -272,7 +286,7 @@ fn security_shadowed_name_rowid_is_rejected_before_cross_contact_attribution() {
     message(d.path());
     let before = snapshot(d.path());
     // 威胁模型：普通 rowid 列伪装内部行号，企图把 Bob 的记录归给 Alice。
-    let error = mv::query_voice_shards(&[s], &query()).unwrap_err();
+    let error = legacy_query(&[s], &query()).unwrap_err();
     assert!(format!("{error:#}").contains("unsupported rowid schema"));
     assert_eq!(
         resolve(d.path()).unwrap_err().kind,
@@ -290,12 +304,7 @@ fn security_uppercase_media_shard_cannot_hide_asr_ambiguity_on_windows() {
     voice(&a, 1, 700, 100, 900, Some(SILK));
     voice(&b, 9, 701, 100, 900, Some(SILK));
     message(d.path());
-    assert_eq!(
-        mv::query_voice_shards(&[a, b.clone()], &query())
-            .unwrap()
-            .len(),
-        2
-    );
+    assert_eq!(legacy_query(&[a, b.clone()], &query()).unwrap().len(), 2);
     // 威胁模型：仅改变重复媒体片文件名大小写，不能绕过全片唯一性验证。
     let before = snapshot(d.path());
     assert_eq!(
@@ -323,12 +332,7 @@ async fn security_documented_incomplete_offline_inventory_cannot_prove_uniquenes
         resolve(d.path()).unwrap_err().kind,
         dm::ErrorKind::AmbiguousMedia
     );
-    assert_eq!(
-        mv::query_voice_shards(&[a.clone()], &query())
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(legacy_query(&[a.clone()], &query()).unwrap().len(), 1);
     fs::remove_file(&b.path).unwrap();
     assert!(resolve(d.path()).is_ok());
     let db = DbCache {
@@ -352,7 +356,10 @@ async fn security_adapter_preserves_raw_keys_and_rejects_canonical_duplicates() 
         paths: HashMap::from([(raw, s.path)]),
     };
     let rows = mv::q_voice_messages(&db, &query()).await.unwrap();
-    assert_eq!(rows[0].source, "message/media_0.db");
+    assert_eq!(
+        catalog::legacy_rows(&rows).unwrap()[0].source,
+        "message/media_0.db"
+    );
     db.keys.push("message/media_0.db".into());
     assert!(mv::q_voice_messages(&db, &query()).await.is_err());
 }

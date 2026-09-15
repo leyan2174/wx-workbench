@@ -13,36 +13,9 @@ pub(crate) mod tasks;
 pub(crate) mod web_service;
 
 use anyhow::Result;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::runtime::RuntimeContext;
-
-fn normalized_rel_key(rel_key: &str) -> String {
-    rel_key.replace('\\', "/")
-}
-
-fn is_msg_db_key(rel_key: &str) -> bool {
-    let rel_key = normalized_rel_key(rel_key);
-    rel_key.starts_with("message/message_")
-        && rel_key.ends_with(".db")
-        && !rel_key.contains("_fts")
-        && !rel_key.contains("_resource")
-}
-
-fn is_biz_msg_db_key(rel_key: &str) -> bool {
-    let rel_key = normalized_rel_key(rel_key);
-    rel_key.starts_with("message/biz_message_")
-        && rel_key.ends_with(".db")
-        && !rel_key.contains("_fts")
-        && !rel_key.contains("_resource")
-}
-
-fn collect_db_keys(all_keys: &HashMap<String, String>, predicate: fn(&str) -> bool) -> Vec<String> {
-    let mut keys: Vec<String> = all_keys.keys().filter(|k| predicate(k)).cloned().collect();
-    keys.sort();
-    keys
-}
 
 /// daemon 入口
 ///
@@ -208,34 +181,4 @@ async fn async_run() -> Result<()> {
     }
     query.shutdown().await;
     result
-}
-
-/// 从 all_keys.json 提取 rel_key -> enc_key 映射
-///
-/// 兼容两种格式：
-/// - `{ "rel/path.db": { "enc_key": "hex" } }`（Python 版原生格式）
-/// - `{ "rel/path.db": "hex" }`（简化格式）
-#[cfg(test)]
-mod tests {
-    use super::{is_biz_msg_db_key, is_msg_db_key};
-
-    #[test]
-    fn message_db_key_filter_ignores_biz_and_auxiliary_files() {
-        assert!(is_msg_db_key("message/message_0.db"));
-        assert!(is_msg_db_key("message\\message_12.db"));
-        assert!(!is_msg_db_key("message/biz_message_0.db"));
-        assert!(!is_msg_db_key("message/message_0.db-wal"));
-        assert!(!is_msg_db_key("message/message_0_fts.db"));
-        assert!(!is_msg_db_key("message/message_0_resource.db"));
-    }
-
-    #[test]
-    fn biz_message_db_key_filter_matches_only_biz_shards() {
-        assert!(is_biz_msg_db_key("message/biz_message_0.db"));
-        assert!(is_biz_msg_db_key("message\\biz_message_3.db"));
-        assert!(!is_biz_msg_db_key("message/message_0.db"));
-        assert!(!is_biz_msg_db_key("message/biz_message_0.db-wal"));
-        assert!(!is_biz_msg_db_key("message/biz_message_0_fts.db"));
-        assert!(!is_biz_msg_db_key("message/biz_message_0_resource.db"));
-    }
 }

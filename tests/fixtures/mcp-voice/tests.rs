@@ -1,4 +1,89 @@
 use super::*;
+use crate::business::voice::catalog::{resolve_exact_chat, Query};
+use std::collections::HashMap;
+
+// Exercise the real typed source, then explicitly inspect the legacy wire view.
+fn legacy_query(shards: &[MediaShard], query: &Query) -> Result<Vec<LegacyVoiceMessage>> {
+    legacy_rows(&domain::list(&Catalog::new(shards), query)?)
+}
+
+#[test]
+fn typed_previews_and_legacy_wire_golden_preserve_duplicate_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = shard(dir.path(), 0, &[(7, 0, None), (7, 0, Some(b""))]);
+    let mut b = shard(dir.path(), 1, &[(7, 0, Some(b"abc"))]);
+    b.source = "MESSAGE\\MEDIA_1.DB".into();
+    let shards = [b, a];
+    let q = Query {
+        since: Some(0),
+        until: Some(0),
+        ..query()
+    };
+    let page = domain::list(&Catalog::new(&shards), &q).unwrap();
+    assert_eq!(page.entries.len(), 3);
+    assert_eq!(
+        page.entries.iter().map(|v| v.byte_len).collect::<Vec<_>>(),
+        vec![Some(0), None, Some(3)]
+    );
+    for a in 0..3 {
+        for b in a + 1..3 {
+            assert_ne!(page.entries[a].source, page.entries[b].source);
+        }
+    }
+    assert!(!format!("{page:?}").contains("media_"));
+    let wire = serde_json::to_value(legacy_rows(&page).unwrap()).unwrap();
+    let golden = serde_json::json!([
+        {"username":"alice","source":"message/media_0.db","chat_name_id":1,
+         "media_rowid":2,"local_id":7,"create_time":0,"voice_data_bytes":0},
+        {"username":"alice","source":"message/media_0.db","chat_name_id":1,
+         "media_rowid":1,"local_id":7,"create_time":0,"voice_data_bytes":null},
+        {"username":"alice","source":"message/media_1.db","chat_name_id":1,
+         "media_rowid":1,"local_id":7,"create_time":0,"voice_data_bytes":3}
+    ]);
+    assert_eq!(wire, golden);
+    let paged = domain::list(
+        &Catalog::new(&shards),
+        &Query {
+            limit: 1,
+            offset: 1,
+            ..q
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(legacy_rows(&paged).unwrap()).unwrap(),
+        serde_json::json!([golden[1].clone()])
+    );
+}
+
+#[test]
+fn legacy_projection_rejects_foreign_or_changed_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    let shards = [shard(dir.path(), 0, &[(7, 0, None)])];
+    let page = domain::list(&Catalog::new(&shards), &query()).unwrap();
+    for defect in 0..4 {
+        let mut changed = page.clone();
+        match defect {
+            0 => changed.entries[0].source = SourceRef::new(()),
+            1 => changed.entries[0].username = "bob".into(),
+            2 => changed.entries[0].timestamp += 1,
+            _ => changed.entries[0].byte_len = Some(0),
+        }
+        assert!(legacy_rows(&changed).is_err());
+    }
+}
+
+#[test]
+fn sqlite_pagination_range_is_adapter_owned_and_checked_before_io() {
+    let q = Query {
+        limit: i64::MAX as usize,
+        offset: 1,
+        ..query()
+    };
+    assert!(q.candidate_limit().is_ok());
+    let error = domain::list(&Catalog::new(&[]), &q).unwrap_err();
+    assert_eq!(error.to_string(), "pagination exceeds SQLite integer range");
+}
 
 #[test]
 fn shadowed_rowid_aliases_are_rejected_before_attribution() {
@@ -11,14 +96,14 @@ fn shadowed_rowid_aliases_are_rejected_before_attribution() {
             conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN \"{alias}\" INTEGER; UPDATE {table} SET \"{alias}\"=2;")).unwrap();
             drop(conn);
             let before = std::fs::read(&media.path).unwrap();
-            let error = query_voice_shards(std::slice::from_ref(&media), &query()).unwrap_err();
+            let error = legacy_query(std::slice::from_ref(&media), &query()).unwrap_err();
             assert!(
                 format!("{error:#}").contains("shadows SQLite rowid"),
                 "{table}/{alias}: {error:#}"
             );
             let mut absent = query();
             absent.username = "absent".into();
-            assert!(query_voice_shards(std::slice::from_ref(&media), &absent).is_err());
+            assert!(legacy_query(std::slice::from_ref(&media), &absent).is_err());
             assert_eq!(std::fs::read(media.path).unwrap(), before);
         }
     }
@@ -34,7 +119,7 @@ fn generated_rowid_column_is_also_rejected() {
             "ALTER TABLE Name2Id ADD COLUMN rowid INTEGER GENERATED ALWAYS AS (2) VIRTUAL;",
         )
         .unwrap();
-    let error = query_voice_shards(&[media], &query()).unwrap_err();
+    let error = legacy_query(&[media], &query()).unwrap_err();
     assert!(format!("{error:#}").contains("shadows SQLite rowid"));
 }
 
@@ -55,7 +140,7 @@ fn views_and_without_rowid_tables_are_not_identity_evidence() {
             conn.execute_batch(&ddl).unwrap();
             drop(conn);
             assert!(
-                format!("{:#}", query_voice_shards(&[media], &query()).unwrap_err())
+                format!("{:#}", legacy_query(&[media], &query()).unwrap_err())
                     .contains("ordinary rowid table")
             );
         }
@@ -73,7 +158,7 @@ fn ordinary_tables_and_nonreserved_integer_primary_keys_stay_supported() {
         CREATE TABLE VoiceInfo(id INTEGER PRIMARY KEY,chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,voice_data BLOB);
         INSERT INTO VoiceInfo VALUES(101,10,701,100,zeroblob(5)),(102,20,802,200,zeroblob(9));").unwrap();
     drop(conn);
-    let result = query_voice_shards(&[media], &query()).unwrap();
+    let result = legacy_query(&[media], &query()).unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(
         (
@@ -115,10 +200,10 @@ fn missing_name_table_bad_blob_and_aliases_fail_with_source() {
         [],
     )
     .unwrap();
-    let error = query_voice_shards(std::slice::from_ref(&a), &query()).unwrap_err();
+    let error = legacy_query(std::slice::from_ref(&a), &query()).unwrap_err();
     assert!(error.to_string().contains("message/media_0.db"));
     conn.execute("DROP TABLE Name2Id", []).unwrap();
-    assert!(query_voice_shards(std::slice::from_ref(&a), &query())
+    assert!(legacy_query(std::slice::from_ref(&a), &query())
         .unwrap_err()
         .to_string()
         .contains("message/media_0.db"));
@@ -127,7 +212,7 @@ fn missing_name_table_bad_blob_and_aliases_fail_with_source() {
         source: "message/media_2.db".into(),
         path: b.path.clone(),
     };
-    assert!(query_voice_shards(&[b, alias], &query()).is_err());
+    assert!(legacy_query(&[b, alias], &query()).is_err());
 }
 
 #[test]
@@ -135,17 +220,17 @@ fn absent_username_is_empty_not_another_chat_and_empty_blob_is_zero() {
     let dir = tempfile::tempdir().unwrap();
     let a = shard(dir.path(), 0, &[(1, 100, Some(b""))]);
     let mut q = query();
-    let result = query_voice_shards(std::slice::from_ref(&a), &q).unwrap();
+    let result = legacy_query(std::slice::from_ref(&a), &q).unwrap();
     assert_eq!(result[0].voice_data_bytes, Some(0));
     q.username = "Alice".into();
-    assert!(query_voice_shards(std::slice::from_ref(&a), &q)
+    assert!(legacy_query(std::slice::from_ref(&a), &q)
         .unwrap()
         .is_empty());
     q.username = "missing".into();
-    assert!(query_voice_shards(&[a], &q).unwrap().is_empty());
+    assert!(legacy_query(&[a], &q).unwrap().is_empty());
 }
-fn query() -> VoiceQuery {
-    VoiceQuery {
+fn query() -> Query {
+    Query {
         username: "alice".into(),
         limit: 20,
         offset: 0,
@@ -185,7 +270,7 @@ fn global_desc_pagination_and_exact_lengths() {
     let mut q = query();
     q.limit = 2;
     q.offset = 1;
-    let result = query_voice_shards(&[b.clone(), a.clone()], &q).unwrap();
+    let result = legacy_query(&[b.clone(), a.clone()], &q).unwrap();
     assert_eq!(
         (
             result[0].create_time,
@@ -203,7 +288,7 @@ fn global_desc_pagination_and_exact_lengths() {
     q.until = Some(200);
     q.offset = 0;
     assert_eq!(
-        query_voice_shards(&[a, b], &q)
+        legacy_query(&[a, b], &q)
             .unwrap()
             .iter()
             .map(|r| r.create_time)
@@ -219,15 +304,15 @@ fn missing_corrupt_or_ambiguous_shards_fail_whole_query() {
         source: "message/media_1.db".into(),
         path: dir.path().join("bad.db"),
     };
-    assert!(query_voice_shards(&[a.clone(), bad.clone()], &query()).is_err());
+    assert!(legacy_query(&[a.clone(), bad.clone()], &query()).is_err());
     assert!(!bad.path.exists());
     std::fs::write(&bad.path, b"encrypted synthetic not SQLite").unwrap();
-    assert!(query_voice_shards(&[a.clone(), bad], &query()).is_err());
+    assert!(legacy_query(&[a.clone(), bad], &query()).is_err());
     Connection::open(&a.path)
         .unwrap()
         .execute("INSERT INTO Name2Id VALUES ('alice')", [])
         .unwrap();
-    assert!(query_voice_shards(&[a], &query()).is_err());
+    assert!(legacy_query(&[a], &query()).is_err());
 }
 #[test]
 fn exact_chat_and_invalid_pagination() {
@@ -259,5 +344,5 @@ fn schema_failure_is_not_hidden_by_missing_contact() {
         .unwrap();
     let mut q = query();
     q.username = "absent".into();
-    assert!(query_voice_shards(&[a], &q).is_err());
+    assert!(legacy_query(&[a], &q).is_err());
 }

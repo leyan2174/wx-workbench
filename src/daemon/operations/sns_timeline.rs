@@ -1,12 +1,9 @@
 //! 选中配置的 SNS 生产宿主；不发现其他账号，不启动旧 Python。
 use crate::toolkit::directory_publish::ExistingPolicy;
 use crate::{
+    adapters::wechat::moments::cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
     runtime::RuntimeContext,
-    toolkit::sns::{
-        self,
-        cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
-        export_database_with_publication, TimelinePublication,
-    },
+    toolkit::sns::{self, export_database_with_publication, TimelinePublication},
 };
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
@@ -48,14 +45,7 @@ fn options(
 fn paths(runtime: &RuntimeContext, raw: &Value, args: &Args) -> Result<(PathBuf, CacheRoots)> {
     let base = runtime.config_path.parent().context("选中配置缺少父目录")?;
     let db = &runtime.config.db_dir;
-    let account = if db
-        .file_name()
-        .is_some_and(|s| s.eq_ignore_ascii_case("db_storage"))
-    {
-        db.parent().context("选中账号缺少父目录")?
-    } else {
-        db.as_path()
-    };
+    let account = crate::adapters::wechat::moments::cache::account_root(db)?;
     let name = account.file_name().context("选中账号缺少目录名")?;
     // 旧 config.py 无条件覆盖这三个派生项；原生基准为选中 config 旁，而非 vendor。
     let output = std::path::absolute(
@@ -77,13 +67,7 @@ fn paths(runtime: &RuntimeContext, raw: &Value, args: &Args) -> Result<(PathBuf,
         }
         Some(_) => anyhow::bail!("wechat_files_dir 必须是路径字符串"),
     };
-    Ok((
-        output,
-        CacheRoots {
-            xwechat: Some(account.join("cache")),
-            file_storage_sns: legacy.map(|p| p.join("FileStorage/Sns/Cache")),
-        },
-    ))
+    Ok((output, CacheRoots::for_account(account, legacy.as_deref())))
 }
 
 #[cfg(test)]
@@ -187,7 +171,10 @@ fn export_for(
     download_env: Option<&str>,
 ) -> Result<()> {
     let (options, remote) = options(&args, contacts_env, download_env)?;
-    let sns_db = runtime.config.decrypted_dir.join("sns/sns.db");
+    let sns_db = runtime
+        .config
+        .decrypted_dir
+        .join(crate::adapters::wechat::moments::source_key());
     let contact_db = runtime.config.decrypted_dir.join("contact/contact.db");
     let missing = !existing(&sns_db)?;
     let (output, mut roots) = paths(runtime, raw, &args)?;
@@ -229,23 +216,34 @@ fn export_for(
         .map(|index| sns::CacheRecovery { index, keys: &keys });
     let download = remote.then(sns::DownloadOptions::default);
     let mut report = if missing {
-        // 旧 export_sns_timeline 缺库是提示后 return，不是异常或新建空 SQLite。
+        // Keep report fields, but an absent source is not a successful empty timeline.
         Default::default()
     } else {
         export_database_with_publication(
-            &sns_db, existing(&contact_db)?.then_some(contact_db.as_path()), &output,
-            &options, recovery.as_ref(), download.as_ref(), &publication,
-        ).map_err(|error| anyhow::anyhow!("SNS 导出失败：{error}；请检查数据库、输出权限及来源绑定，未绑定旧目录须显式 --adopt-existing"))?
+            &sns_db,
+            existing(&contact_db)?.then_some(contact_db.as_path()),
+            &output,
+            &options,
+            recovery.as_ref(),
+            download.as_ref(),
+            &publication,
+        )
+        .context(
+            "SNS 导出失败；请检查数据库、输出权限及来源绑定，未绑定旧目录须显式 --adopt-existing",
+        )?
     };
     if missing {
-        report.warnings.push(
-            "朋友圈数据库不存在，请先解密选中账号数据库；未改动输出目录（兼容旧成功退出）".into(),
-        );
+        report
+            .warnings
+            .push("朋友圈数据库不可用，请先解密选中账号数据库；未改动输出目录".into());
     }
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "engine": "rust", "contacts": report.contacts, "posts": report.posts,
+            "status": if missing { "unavailable" } else if report.media_failed > 0 || report.media_download_failed > 0 || report.invalid > 0 { "partial" } else { "exported" },
+            "exit_code": if missing || report.media_failed > 0 || report.media_download_failed > 0 || report.invalid > 0 { 1 } else { 0 },
+            "coverage": "local_cache_only",
             "files": report.files, "rows_seen": report.rows_seen, "filtered": report.filtered,
             "invalid": report.invalid, "warnings": report.warnings,
             "legacy_unverified": report.legacy_unverified,
@@ -257,6 +255,9 @@ fn export_for(
             "media_download_failed": report.media_download_failed,
         }))?
     );
+    if missing {
+        return Err(crate::business::moments::SourceError::Unavailable.into());
+    }
     ensure!(
         report.media_failed == 0,
         "{} 个媒体恢复失败；详见 _media_recovery.json",
@@ -490,10 +491,14 @@ mod tests {
     }
 
     #[test]
-    fn missing_sns_db_is_legacy_success_without_creating_output() {
+    fn missing_sns_db_is_unavailable_without_creating_output() {
         let temp = tempfile::tempdir().unwrap();
         let rt = runtime(temp.path());
-        export_for(&rt, &json!({}), Args::default(), None, None).unwrap();
+        let error = export_for(&rt, &json!({}), Args::default(), None, None).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<crate::business::moments::SourceError>(),
+            Some(crate::business::moments::SourceError::Unavailable)
+        ));
         assert!(!temp.path().join("wechat_files").exists());
         assert!(!rt.config.decrypted_dir.exists());
     }
