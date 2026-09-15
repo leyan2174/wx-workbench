@@ -38,11 +38,15 @@ impl Fixture {
             let original = source.join(&key);
             let path = cache.join(format!("{:x}.db", md5::compute(&key)));
             let conn = encrypted_cache::sqlite(&path);
+            conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT)")
+                .unwrap();
             for username in [
                 "wxid_peer",
                 "room@chatroom",
                 "wxid_'; DROP TABLE contact;--",
             ] {
+                conn.execute("INSERT INTO Name2Id(user_name) VALUES(?1)", [username])
+                    .unwrap();
                 let table = format!("Msg_{:x}", md5::compute(username));
                 conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type,create_time,WCDB_CT_message_content,message_content)")).unwrap();
             }
@@ -509,11 +513,12 @@ async fn chat_resolution_requires_unique_names_and_prioritizes_exact_username() 
 }
 
 #[tokio::test]
-async fn ambiguous_or_missing_chat_returns_before_any_database_access() {
+async fn chat_resolution_checks_session_and_catalog_but_preserves_safe_refusals() {
     let mut f = Fixture::new().await;
     f.names.map.insert("wxid_peer".into(), "Same".into());
     f.names.map.insert("wxid_other".into(), "sAME".into());
-    // 精确账号查询会因缺失分片失败；昵称歧义必须先返回业务结果，不能触发缓存读取。
+    // Directory lookup may read caches; ambiguity still refuses without selecting a contact.
+    // Unknown names cannot be declared absent when the configured message sources are gone.
     for key in &f.names.msg_db_keys {
         fs::remove_file(f.db.db_dir().join(key)).unwrap();
     }
@@ -523,7 +528,12 @@ async fn ambiguous_or_missing_chat_returns_before_any_database_access() {
         assert_eq!(result["exit_code"], 2);
         assert!(result.get("refer").is_none());
     }
-    for chat in ["not present", "", "  "] {
+    let error = f.query("not present", 1, 100).await.unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<crate::business::messages::Error>(),
+        Some(crate::business::messages::Error::Unavailable)
+    ));
+    for chat in ["", "  "] {
         assert_eq!(f.query(chat, 1, 100).await.unwrap()["exit_code"], 1);
     }
     assert!(f.query("wxid_peer", 1, 100).await.is_err());

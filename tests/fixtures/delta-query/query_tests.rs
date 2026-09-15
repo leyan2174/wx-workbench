@@ -185,7 +185,7 @@ async fn start_required_and_window_is_inclusive_without_summary_limit() {
         .await
         .unwrap();
     assert!(empty["messages"].as_array().unwrap().is_empty());
-    let username = super::super::resolve_username("合成联系人", &f.names).unwrap();
+    let username = super::super::strict_message::username("合成联系人", &f.names).unwrap();
     let named = q_export_delta_username(&f.db, &f.names, username, Some(100), Some(100))
         .await
         .unwrap();

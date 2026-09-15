@@ -10,6 +10,9 @@ use std::{
 
 #[path = "../../../src/daemon/query/mcp_attachments.rs"]
 mod attachments;
+#[path = "../../../src/daemon/query/chat_identity.rs"]
+#[allow(dead_code)] // This harness exercises attachment reads, not export projections.
+mod chat_identity;
 #[path = "../../../src/daemon/query/strict_message.rs"]
 #[allow(dead_code)] // Attachment queries do not consume every strict-message getter.
 mod strict_message;

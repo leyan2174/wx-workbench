@@ -51,6 +51,10 @@ fn personal_messages(fixture: &Fixture, account: &Path, count: usize) -> PathBuf
     fs::copy(account.join("fixture.db"), &plain).unwrap();
     let mut db = rusqlite::Connection::open(&plain).unwrap();
     let table = format!("Msg_{:x}", md5::compute("task-peer"));
+    db.execute_batch(
+        "CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id(user_name) VALUES('task-peer');",
+    )
+    .unwrap();
     db.execute_batch(&format!("CREATE TABLE [{table}] (local_id INTEGER,local_type INTEGER,create_time INTEGER,real_sender_id INTEGER,message_content TEXT,WCDB_CT_message_content INTEGER)")).unwrap();
     let transaction = db.transaction().unwrap();
     {

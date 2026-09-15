@@ -58,6 +58,9 @@ pub mod daemon {
     }
 }
 
+#[path = "../../../src/daemon/query/chat_identity.rs"]
+#[allow(dead_code)] // This harness exercises strict reads, not export projections.
+mod chat_identity;
 #[path = "../../../src/daemon/query/mcp_contacts.rs"]
 pub mod contacts;
 #[path = "../../../src/message/mod.rs"]
@@ -93,10 +96,12 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
 }
 
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
-#[allow(dead_code, unused_imports)] // This query slice omits batch/export consumers and their test-only limit re-exports.
+#[allow(dead_code, unused_imports)]
+// This query slice omits batch/export consumers and their test-only limit re-exports.
 pub mod contact_adapter;
 #[path = "../../../src/business/contacts.rs"]
-#[allow(unfulfilled_lint_expectations)] // Public fixture visibility differs from the private production domain.
+#[allow(unfulfilled_lint_expectations)]
+// Public fixture visibility differs from the private production domain.
 pub mod contact_business;
 #[path = "../../support/media_business.rs"]
 mod media_business;

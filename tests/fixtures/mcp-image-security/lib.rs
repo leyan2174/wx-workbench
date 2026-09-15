@@ -1,9 +1,9 @@
 pub mod attachment {
-    pub use native_image_fixture::AttachmentKind;
     pub(crate) use crate::local_files;
     pub use crate::native_image;
     pub use native_image_fixture::decoder;
     pub use native_image_fixture::resolver;
+    pub use native_image_fixture::AttachmentKind;
 }
 #[path = "../../../src/attachment/local_files.rs"]
 #[allow(dead_code)] // This slice uses publication guards but omits other media scan/proof APIs.
@@ -12,7 +12,8 @@ pub use native_image_fixture::{decoder, resolver};
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
 #[path = "../../../src/attachment/native_image.rs"]
-#[allow(dead_code)] // The security fixture uses checked material publication, not every export wrapper.
+#[allow(dead_code)]
+// The security fixture uses checked material publication, not every export wrapper.
 pub mod native_image;
 pub mod publish_probe;
 #[path = "../../../src/daemon/cache.rs"]
@@ -105,7 +106,13 @@ pub async fn decode_with_material(
     material: decoder::V2KeyMaterial<'_>,
 ) -> anyhow::Result<serde_json::Value> {
     mcp_image::q_decode_image_with_material(
-        db, names, chat, local_id, create_time, output_root, material,
+        db,
+        names,
+        chat,
+        local_id,
+        create_time,
+        output_root,
+        material,
     )
     .await
 }
@@ -126,10 +133,10 @@ pub mod ipc_reader {
 
 #[path = "../../../src/ipc.rs"]
 pub mod ipc;
-#[path = "../../../src/mcp/protocol.rs"]
-pub mod protocol;
 #[path = "../../../src/service/message_filter.rs"]
 pub mod message_filter;
+#[path = "../../../src/mcp/protocol.rs"]
+pub mod protocol;
 pub mod service {
     pub use crate::message_filter;
 }
@@ -157,19 +164,23 @@ pub mod transport {
         ))
     }
 }
-#[path = "../../../src/daemon/query/strict_message.rs"]
-#[allow(dead_code)] // Image queries do not consume every strict message getter.
-mod strict_message;
 #[path = "../../support/image_media_adapters.rs"]
 pub mod adapters;
 #[path = "../../support/media_business.rs"]
 pub mod business;
+#[path = "../../../src/daemon/query/chat_identity.rs"]
+#[allow(dead_code)] // This harness exercises image reads, not export projections.
+mod chat_identity;
+#[path = "../../../src/daemon/query/strict_message.rs"]
+#[allow(dead_code)] // Image queries do not consume every strict message getter.
+mod strict_message;
 
 #[path = "../../../src/toolkit/files.rs"]
 #[allow(dead_code)] // Image fixture uses publication guards, not directory collection.
 pub mod files;
-#[path = "../../../src/toolkit/setup.rs"]
-#[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
-pub mod setup;
 #[path = "../../../src/toolkit/private_file.rs"]
 pub mod private_file;
+#[path = "../../../src/toolkit/setup.rs"]
+#[allow(dead_code)]
+// Only fixed-path configuration support is needed; setup orchestration is tested at root.
+pub mod setup;

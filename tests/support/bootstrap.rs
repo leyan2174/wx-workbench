@@ -30,7 +30,29 @@ extern "system" {
     fn GetNamedPipeServerProcessId(pipe: *mut std::ffi::c_void, pid: *mut u32) -> i32;
 }
 
-fn verified_process(record: &serde_json::Value) -> anyhow::Result<Option<OwnedHandle>> {
+pub(crate) fn process_image_if_running(
+    handle: &OwnedHandle,
+    query: impl FnOnce() -> std::io::Result<PathBuf>,
+) -> anyhow::Result<Option<PathBuf>> {
+    use anyhow::Context;
+    if unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } == 0 {
+        return Ok(None);
+    }
+    match query() {
+        Ok(path) => Ok(Some(path)),
+        Err(error) => {
+            // The process may exit during the image query. Only the original,
+            // opened process handle being signaled proves that it is now gone.
+            if unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } == 0 {
+                Ok(None)
+            } else {
+                Err(error).context("read bootstrap process executable failed")
+            }
+        }
+    }
+}
+
+pub(crate) fn verified_process(record: &serde_json::Value) -> anyhow::Result<Option<OwnedHandle>> {
     use anyhow::{ensure, Context};
     let pid = u32::try_from(record["pid"].as_u64().context("missing bootstrap PID")?)?;
     let raw = unsafe { OpenProcess(0x00100000 | 0x1000, 0, pid) };
@@ -51,14 +73,20 @@ fn verified_process(record: &serde_json::Value) -> anyhow::Result<Option<OwnedHa
         Some(created) == record["created"].as_u64(),
         "bootstrap PID was reused"
     );
-    let mut name = vec![0u16; 32768];
-    let mut length = name.len() as u32;
-    ensure!(
-        unsafe { QueryFullProcessImageNameW(raw, 0, name.as_mut_ptr(), &mut length) } != 0,
-        "read bootstrap process executable failed"
-    );
-    let actual =
-        PathBuf::from(std::ffi::OsString::from_wide(&name[..length as usize])).canonicalize()?;
+    let Some(actual) = process_image_if_running(&handle, || {
+        let mut name = vec![0u16; 32768];
+        let mut length = name.len() as u32;
+        if unsafe { QueryFullProcessImageNameW(raw, 0, name.as_mut_ptr(), &mut length) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(PathBuf::from(std::ffi::OsString::from_wide(
+            &name[..length as usize],
+        )))
+    })?
+    else {
+        return Ok(None);
+    };
+    let actual = actual.canonicalize()?;
     let recorded = PathBuf::from(
         record["exe"]
             .as_str()

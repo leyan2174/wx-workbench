@@ -1,21 +1,5 @@
 //! SessionTable compatibility profile; no message inventory decisions are made here.
-pub fn usernames(path: &std::path::Path) -> anyhow::Result<Vec<String>> {
-    let conn =
-        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mut statement = conn.prepare("SELECT username FROM SessionTable LIMIT 100001")?;
-    let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    anyhow::ensure!(
-        rows.len() <= 100_000,
-        crate::business::messages::Error::Limit
-    );
-    anyhow::ensure!(
-        rows.iter().all(|name| !name.is_empty()),
-        "会话表含空 username，不能静默跳过"
-    );
-    Ok(rows)
-}
+pub use super::session_identity::usernames;
 
 pub fn last_timestamp(path: &std::path::Path, username: &str) -> anyhow::Result<Option<i64>> {
     use rusqlite::OptionalExtension;

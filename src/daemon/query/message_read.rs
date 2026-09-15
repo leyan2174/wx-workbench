@@ -125,7 +125,7 @@ pub(super) async fn stats(
         kinds: Vec::new(),
     };
     filter.validate()?;
-    let username = strict_message::username(chat, names)?;
+    let username = chat_identity::resolve(db, names, chat).await?;
     let prepared = prepare(db, names, domain::SourceKind::Ordinary).await?;
     let display = names.display(&username);
     let chat_type = chat_type_of(&username, names);
@@ -226,19 +226,41 @@ pub(super) async fn sessions(
             .collect::<Vec<_>>(),
         &query,
     )?;
+    let message_usernames = if selected
+        .iter()
+        .any(|&index| chat_identity::is_folded(&records[index].session.username))
+    {
+        chat_identity::message_usernames(
+            db,
+            names,
+            records
+                .iter()
+                .map(|record| record.session.username.clone())
+                .collect(),
+        )
+        .await
+        .ok()
+    } else {
+        None
+    };
     let mut slots: Vec<_> = records.into_iter().map(Some).collect();
     let mut results = Vec::new();
     let mut nickname_cache = HashMap::new();
     for index in selected {
-        results.push(
-            session_view(
-                db,
-                names,
-                slots[index].take().context("duplicate session selection")?,
-                &mut nickname_cache,
-            )
-            .await,
-        );
+        let mut value = session_view(
+            db,
+            names,
+            slots[index].take().context("duplicate session selection")?,
+            &mut nickname_cache,
+        )
+        .await;
+        let has_message_table = message_usernames.as_ref().map(|usernames| {
+            value["username"]
+                .as_str()
+                .is_some_and(|username| usernames.contains(username))
+        });
+        chat_identity::mark_exportability(&mut value, has_message_table);
+        results.push(value);
     }
     let meta = session_meta(db, names, &results, with_details);
     let mut value = json!({"sessions": results, "meta": meta});
@@ -430,15 +452,14 @@ pub(super) fn project(
 pub(super) fn validate_history(options: &HistoryQuery<'_>) -> Result<usize> {
     let invalid =
         |message: &'static str| anyhow::Error::new(domain::Error::InvalidData).context(message);
-    let limited = |message: &'static str| anyhow::Error::new(domain::Error::Limit).context(message);
     if options.filter.msg_type.is_some() && options.msg_types.is_some_and(|v| !v.is_empty()) {
         return Err(invalid("conflicting history msg_type and msg_types"));
     }
     if options.msg_types.is_some_and(|v| v.len() > 100) {
-        return Err(limited("too many history types"));
+        return Err(invalid("too many history types"));
     }
     if options.page.limit == 0 {
-        return Err(limited("history limit must be positive"));
+        return Err(invalid("history limit must be positive"));
     }
     if options
         .filter
@@ -452,8 +473,8 @@ pub(super) fn validate_history(options: &HistoryQuery<'_>) -> Result<usize> {
         .page
         .offset
         .checked_add(options.page.limit)
-        .ok_or_else(|| limited("history page overflow"))?;
-    i64::try_from(size).map_err(|_| limited("history page exceeds SQLite integer range"))?;
+        .ok_or_else(|| invalid("history page overflow"))?;
+    i64::try_from(size).map_err(|_| invalid("history page exceeds SQLite integer range"))?;
     Ok(size)
 }
 
@@ -482,7 +503,7 @@ pub(super) async fn history(
         kinds: Vec::new(),
     };
     filter.validate()?;
-    let username = strict_message::username(chat, names)?;
+    let username = chat_identity::resolve(db, names, chat).await?;
     let prepared = prepare(db, names, domain::SourceKind::Ordinary).await?;
     let nicknames = if username.ends_with("@chatroom") {
         load_group_nicknames(db, &username).await?
@@ -546,14 +567,15 @@ pub(super) async fn search(
         oldest_first: false,
     };
     page.candidate_limit()?;
-    let targets = chats
-        .map(|chats| {
-            chats
-                .iter()
-                .map(|chat| strict_message::username(chat, names))
-                .collect::<Result<HashSet<_>>>()
-        })
-        .transpose()?;
+    let targets = if let Some(chats) = chats {
+        let mut targets = HashSet::new();
+        for chat in chats {
+            targets.insert(chat_identity::resolve(db, names, &chat).await?);
+        }
+        Some(targets)
+    } else {
+        None
+    };
     let prepared = prepare(db, names, domain::SourceKind::Ordinary).await?;
     let nicknames = load_group_nickname_maps(
         db,

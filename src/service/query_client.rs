@@ -339,9 +339,14 @@ pub fn send(req: Request) -> Result<Response> {
     send_for(&runtime, req)
 }
 
+pub fn send_with_startup_notice(req: Request, notice: bool) -> Result<Response> {
+    let runtime = RuntimeContext::load()?;
+    request(&runtime, req, notice)
+}
+
 /// 同一批次固定账号身份；配置切换不能将后续请求发往另一条账号管道。
 pub(crate) fn send_for(runtime: &RuntimeContext, req: Request) -> Result<Response> {
-    request(runtime, req)
+    request(runtime, req, true)
 }
 
 /// MCP 使用已经固定的账号上下文，并在分配完整响应前执行大小限制。
@@ -351,19 +356,29 @@ pub(crate) fn send_with_limits(
     timeout: Duration,
     max_response_bytes: usize,
 ) -> Result<Response> {
+    send_with_limits_and_notice(runtime, req, timeout, max_response_bytes, true)
+}
+
+fn send_with_limits_and_notice(
+    runtime: &RuntimeContext,
+    req: Request,
+    timeout: Duration,
+    max_response_bytes: usize,
+    notice: bool,
+) -> Result<Response> {
     super::transport::framing::budget(max_response_bytes)?;
     ensure!(
         !timeout.is_zero() && timeout <= Duration::from_secs(3600),
         "invalid query deadline"
     );
     let started = Instant::now();
-    ensure_running_until(runtime, true, started + timeout.min(STARTUP_TIMEOUT))?;
+    ensure_running_until(runtime, notice, started + timeout.min(STARTUP_TIMEOUT))?;
     let remaining = timeout.saturating_sub(started.elapsed());
     ensure!(!remaining.is_zero(), "后台启动后请求已超时");
     request_with_options(runtime, req, remaining, Some(max_response_bytes))
 }
 
-fn request(runtime: &RuntimeContext, req: Request) -> Result<Response> {
+fn request(runtime: &RuntimeContext, req: Request, notice: bool) -> Result<Response> {
     let seconds: u64 = std::env::var("WX_CLI_REQUEST_TIMEOUT_SECS")
         .map(|value| {
             value
@@ -373,7 +388,7 @@ fn request(runtime: &RuntimeContext, req: Request) -> Result<Response> {
         .unwrap_or(Ok(300))?;
     ensure!(seconds > 0, "WX_CLI_REQUEST_TIMEOUT_SECS 必须大于零");
     let limit = crate::ipc::query_response_limit(&req);
-    send_with_limits(runtime, req, Duration::from_secs(seconds), limit)
+    send_with_limits_and_notice(runtime, req, Duration::from_secs(seconds), limit, notice)
 }
 
 #[cfg(test)]
@@ -395,6 +410,8 @@ fn request_with_options(
     let max_response_bytes =
         max_response_bytes.unwrap_or_else(|| crate::ipc::query_response_limit(&req));
     framing::budget(max_response_bytes)?;
+    let effective_limit = max_response_bytes.min(crate::ipc::query_response_limit(&req));
+    let operation = req.operation_name().to_owned();
     ensure!(
         !timeout.is_zero() && timeout <= Duration::from_secs(3600),
         "invalid query deadline"
@@ -407,8 +424,39 @@ fn request_with_options(
             let result = tokio::time::timeout(timeout, async {
                 let mut reader = connect_query(runtime).await?;
                 write_query(&mut reader, runtime, req, max_response_bytes).await?;
-                let bytes = framing::line(&mut reader, max_response_bytes).await?;
-                let response = decode_query_response(&bytes, runtime)?;
+                let response = async {
+                    let bytes = framing::line(&mut reader, max_response_bytes).await?;
+                    decode_query_response(&bytes, runtime)
+                }
+                .await
+                .map_err(|error| {
+                    if matches!(
+                        error.downcast_ref::<FrameError>(),
+                        Some(FrameError::Oversize)
+                    ) {
+                        crate::ipc::outcome::QueryLimitExceeded::ResponseLimitExceeded {
+                            operation: operation.clone(),
+                            response_limit_bytes: effective_limit,
+                        }
+                        .into()
+                    } else {
+                        error
+                    }
+                })?;
+                if !response.ok
+                    && response
+                        .data
+                        .get("error_code")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("query_read_limit_exceeded")
+                {
+                    return Err(
+                        crate::ipc::outcome::QueryLimitExceeded::QueryReadLimitExceeded {
+                            operation: operation.clone(),
+                        }
+                        .into(),
+                    );
+                }
                 response.require_success()?;
                 Ok::<_, anyhow::Error>(response)
             })

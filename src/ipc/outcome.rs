@@ -1,6 +1,35 @@
 //! Internal business meaning, independent of transport and legacy JSON envelopes.
 use serde_json::Value;
 
+/// Query transport diagnostic containing only protocol metadata, never backend data.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum QueryLimitExceeded {
+    ResponseLimitExceeded {
+        operation: String,
+        response_limit_bytes: usize,
+    },
+    QueryReadLimitExceeded {
+        operation: String,
+    },
+}
+
+impl std::fmt::Display for QueryLimitExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ResponseLimitExceeded { operation, response_limit_bytes } => write!(
+                f, "response_limit_exceeded: {operation} response exceeds {response_limit_bytes} bytes"
+            )?,
+            Self::QueryReadLimitExceeded { operation } => write!(
+                f, "query_read_limit_exceeded: {operation} exceeds the message read budget; narrow --since/--until for deep pages"
+            )?,
+        }
+        f.write_str("; use --offset and a smaller --limit to paginate")
+    }
+}
+
+impl std::error::Error for QueryLimitExceeded {}
+
 /// Whitelisted diagnostics safe to carry across adapters; no underlying error chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum KeyStoreDiagnostic {

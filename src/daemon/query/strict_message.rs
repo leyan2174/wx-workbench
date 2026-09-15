@@ -48,10 +48,13 @@ where
     T: Send + 'static,
     F: FnOnce(&Snapshot, &RawMessage) -> Result<T> + Send + 'static,
 {
-    let username = match resolve_unique_username(chat, names) {
-        ChatResolution::Unique(username) => username,
-        ChatResolution::NotFound => return Ok(Resolution::ChatNotFound),
-        ChatResolution::Ambiguous => return Ok(Resolution::AmbiguousChat),
+    let username = match super::chat_identity::resolve(db, names, chat).await {
+        Ok(username) => username,
+        Err(error) => match error.downcast_ref::<Error>() {
+            Some(Error::NotFound) => return Ok(Resolution::ChatNotFound),
+            Some(Error::Ambiguous) => return Ok(Resolution::AmbiguousChat),
+            _ => return Err(error),
+        },
     };
     ensure_complete_message_inventory(db, names)?;
     let mut keys = names.msg_db_keys.clone();
@@ -98,8 +101,8 @@ fn resolve_unique_username(chat: &str, names: &Names) -> ChatResolution {
     if chat.trim().is_empty() {
         return ChatResolution::NotFound;
     }
-    // 精确账号优先；沿用显式 wxid 和群账号入口，以支持联系人表尚未收录的会话。
-    if names.map.contains_key(chat) || chat.starts_with("wxid_") || chat.contains("@chatroom") {
+    // Prefixes are not account evidence; session/table identities are checked by the host.
+    if names.map.contains_key(chat) {
         return ChatResolution::Unique(chat.to_owned());
     }
     let lower = chat.to_lowercase();

@@ -42,6 +42,11 @@ use std::{collections::HashMap, fs, path::PathBuf};
 pub struct Names {
     map: HashMap<String, String>,
 }
+// This adapter harness supplies contact-only host evidence. Account/session/table
+// resolution is exercised by daemon::query::chat_identity::tests in the binary.
+async fn q_resolve_chat(_: &DbCache, names: &Names, chat: &str) -> anyhow::Result<String> {
+    Ok(mcp_voice::resolve_exact_chat(chat, &names.map)?)
+}
 #[path = "fixtures/mcp-audio/tests.rs"]
 mod audio_tests;
 #[path = "../src/daemon/query/mcp_audio.rs"]

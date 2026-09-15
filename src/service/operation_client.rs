@@ -7,7 +7,7 @@ use super::{
 };
 use crate::runtime::RuntimeContext;
 use anyhow::{Context, Result};
-use std::io::Write;
+use std::{ffi::OsString, io::Write};
 
 #[derive(Debug)]
 pub struct OperationExit(pub i32);
@@ -26,15 +26,21 @@ pub fn run_capture(operation: Operation) -> Result<Vec<u8>> {
     run_inner(operation, true)
 }
 
+fn operation_environment(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Environment {
+    Environment(
+        vars.into_iter()
+            .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+            // cmd.exe carries per-drive working directories as pseudo variables such as =C:.
+            .filter(|(name, _)| !cfg!(windows) || !name.starts_with('='))
+            .filter(|(name, _)| !reserved_environment(name))
+            .collect(),
+    )
+}
+
 fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
     operation.validate_request()?;
     let runtime = RuntimeContext::for_operation()?;
-    let environment = Environment(
-        std::env::vars_os()
-            .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
-            .filter(|(name, _)| !reserved_environment(name))
-            .collect(),
-    );
+    let environment = operation_environment(std::env::vars_os());
     let invocation = Invocation {
         operation,
         cwd: std::env::current_dir()?.canonicalize()?,
@@ -110,4 +116,129 @@ fn new_id() -> Result<String> {
         .ok()?;
     }
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn environment(entries: &[(&str, &str)]) -> Environment {
+        operation_environment(
+            entries
+                .iter()
+                .map(|&(name, value)| (OsString::from(name), OsString::from(value))),
+        )
+    }
+
+    fn invocation(environment: Environment) -> Invocation {
+        Invocation {
+            operation: Operation::Toolkit {
+                operation: crate::service::operations::ToolkitOperation::Status { json: true },
+            },
+            cwd: std::env::temp_dir(),
+            environment,
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cmd_equivalent_environment_filters_drive_pseudo_variables() {
+        let environment = environment(&[
+            ("=C:", r"C:\synthetic\work"),
+            ("=D:", r"D:\synthetic\other"),
+            ("Path", r"C:\Windows\System32"),
+            ("ComSpec", r"C:\Windows\System32\cmd.exe"),
+            ("WX_TEST_VALUE", "value=with=equals"),
+            ("WX_TEST_EMPTY", ""),
+            ("wx_daemon_operation_worker", "1"),
+            ("WX_CLI_EXPECTED_RUNTIME", "synthetic"),
+        ]);
+        assert_eq!(environment.0.len(), 4);
+        assert_eq!(environment.0["Path"], r"C:\Windows\System32");
+        assert_eq!(environment.0["ComSpec"], r"C:\Windows\System32\cmd.exe");
+        assert_eq!(environment.0["WX_TEST_VALUE"], "value=with=equals");
+        assert_eq!(environment.0["WX_TEST_EMPTY"], "");
+        let invocation = invocation(environment);
+        invocation.validate().unwrap();
+        let wire = serde_json::to_vec(&invocation).unwrap();
+        let decoded: Invocation = serde_json::from_slice(&wire).unwrap();
+        decoded.validate().unwrap();
+        assert_eq!(decoded.environment.0, invocation.environment.0);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn non_windows_keeps_leading_equals_for_validation() {
+        let environment = environment(&[("=C:", "synthetic")]);
+        assert!(environment.0.contains_key("=C:"));
+        assert!(invocation(environment).validate().is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cmd_pseudo_variables_do_not_hide_invalid_ordinary_variables() {
+        let environment = environment(&[
+            ("=C:", r"C:\synthetic\work"),
+            ("Path", r"C:\Windows\System32"),
+            ("BAD=NAME", "synthetic"),
+        ]);
+        assert!(!environment.0.contains_key("=C:"));
+        assert!(environment.0.contains_key("BAD=NAME"));
+        assert!(invocation(environment).validate().is_err());
+    }
+
+    #[test]
+    fn ordinary_invalid_environment_is_not_silently_filtered() {
+        for (name, value) in [
+            ("", "value"),
+            ("A=B", "value"),
+            ("C:", "bad\0value"),
+            ("A\0B", "value"),
+            ("A", "bad\0value"),
+        ] {
+            let environment = environment(&[(name, value)]);
+            assert_eq!(environment.0.len(), 1);
+            assert_eq!(environment.0[name], value);
+            assert!(invocation(environment).validate().is_err());
+        }
+        let environment = environment(&[("Path", "one"), ("PATH", "two")]);
+        assert_eq!(environment.0.len(), 2);
+        assert!(invocation(environment).validate().is_err());
+    }
+
+    #[test]
+    fn collected_environment_still_obeys_count_and_byte_limits() {
+        let entries = |count| {
+            (0..count).map(|i| (OsString::from(format!("VAR_{i}")), OsString::from("value")))
+        };
+        assert!(invocation(operation_environment(entries(512)))
+            .validate()
+            .is_ok());
+        assert!(invocation(operation_environment(entries(513)))
+            .validate()
+            .is_err());
+        let at_limit = "x".repeat(48 * 1024 - 1);
+        assert!(invocation(environment(&[("A", &at_limit)]))
+            .validate()
+            .is_ok());
+        let over_limit = "x".repeat(48 * 1024);
+        assert!(invocation(environment(&[("A", &over_limit)]))
+            .validate()
+            .is_err());
+    }
+
+    #[test]
+    fn raw_invocation_still_rejects_pseudo_and_reserved_variables() {
+        for name in [
+            "=C:",
+            "=D:",
+            "WX_DAEMON_MODE",
+            "wx_daemon_operation_worker",
+            "WX_CLI_EXPECTED_RUNTIME",
+            "wx_cli_expected_runtime",
+        ] {
+            let raw = Environment([(name.into(), "synthetic".into())].into_iter().collect());
+            assert!(invocation(raw).validate().is_err());
+        }
+    }
 }

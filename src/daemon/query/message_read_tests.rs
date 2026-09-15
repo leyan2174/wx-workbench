@@ -25,7 +25,10 @@ fn history_validation_preserves_legacy_order_and_diagnostics() {
     let check = |options: &HistoryQuery<'_>, expected: &str| {
         let error = message_read::validate_history(options).unwrap_err();
         assert!(error.to_string().contains(expected), "{error:#}");
-        assert!(error.downcast_ref::<domain::Error>().is_some());
+        assert_eq!(
+            error.downcast_ref::<domain::Error>(),
+            Some(&domain::Error::InvalidData)
+        );
     };
     check(&options, "conflicting history");
     options.filter.msg_type = None;

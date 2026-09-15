@@ -135,3 +135,32 @@ fn key_diagnostics_only_accept_whitelisted_codes_not_backend_text() {
     }
     assert!(BusinessFailure::from_service_code("SYNTHETIC_PRIVATE_KEY").is_none());
 }
+#[test]
+fn query_budget_diagnostics_have_distinct_private_wire_contracts() {
+    use super::QueryLimitExceeded;
+    let response = QueryLimitExceeded::ResponseLimitExceeded {
+        operation: "history".into(),
+        response_limit_bytes: 32 * 1024 * 1024,
+    };
+    assert_eq!(
+        serde_json::to_value(&response).unwrap(),
+        serde_json::json!({
+            "code": "response_limit_exceeded", "operation": "history",
+            "response_limit_bytes": 33554432
+        })
+    );
+    let read = QueryLimitExceeded::QueryReadLimitExceeded {
+        operation: "history".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(&read).unwrap(),
+        serde_json::json!({
+            "code": "query_read_limit_exceeded", "operation": "history"
+        })
+    );
+    for error in [response, read] {
+        let text = error.to_string();
+        assert!(text.contains("--offset") && text.contains("--limit"));
+        assert!(!text.contains("Business operation failed"));
+    }
+}

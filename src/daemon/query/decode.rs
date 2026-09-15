@@ -25,8 +25,17 @@ pub async fn q_decode(
     create_time: i64,
     kind: DecodeKind,
 ) -> Result<Value> {
-    let Some(username) = resolve_username(chat, names) else {
-        return Ok(failure(1, format!("找不到聊天对象: {chat}")));
+    let username = match chat_identity::resolve(db, names, chat).await {
+        Ok(username) => username,
+        Err(error)
+            if matches!(
+                error.downcast_ref::<crate::business::messages::Error>(),
+                Some(crate::business::messages::Error::NotFound)
+            ) =>
+        {
+            return Ok(failure(1, format!("找不到聊天对象: {chat}")));
+        }
+        Err(error) => return Err(error),
     };
     let (resolved, _) = find_msg_shards(db, names, &username).await?;
     // 缓存路径用于读取；原数据库路径用于来源展示，两者不能混用。

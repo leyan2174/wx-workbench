@@ -54,7 +54,7 @@ pub(super) async fn resolve_legacy_audio(
     chat: &str,
     media_local_id: i64,
 ) -> Result<LegacyAudioResolution> {
-    let username = super::mcp_voice::resolve_exact_chat(chat, &names.map)?;
+    let username = super::q_resolve_chat(db, names, chat).await?;
     let before = inventory(db)?;
     let states = source_states(&before.paths)?;
     let mut sources = Vec::new();

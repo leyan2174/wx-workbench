@@ -11,6 +11,7 @@ pub use projection::pages;
 pub mod read;
 pub mod reply;
 pub mod reply_read;
+pub mod session_identity;
 pub mod sessions;
 pub mod sources;
 pub mod statistics;
@@ -19,11 +20,11 @@ pub mod transfer;
 #[cfg(test)]
 use projection::call_event;
 pub use projection::semantic_kind;
+#[cfg(test)]
+pub use read::MAX_STORED_BYTES;
 pub use read::{
     DetachedContent, LegacyReadPolicy, RawMessage, Snapshot, SourceFile, StoredContent,
     StoredScalar, MAX_DECODED_BYTES,
 };
-#[cfg(test)]
-pub use read::MAX_STORED_BYTES;
 #[cfg(test)]
 mod tests;

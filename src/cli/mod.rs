@@ -542,7 +542,37 @@ pub fn run_toolbox() {
 }
 
 fn finish_dispatch(cli: Cli) {
+    let json = match &cli.command {
+        Commands::History(args) => args.json,
+        Commands::Voices(args) => args.json,
+        Commands::Sessions { json, .. }
+        | Commands::Search { json, .. }
+        | Commands::Contacts { json, .. }
+        | Commands::Unread { json, .. }
+        | Commands::Members { json, .. }
+        | Commands::NewMessages { json, .. }
+        | Commands::Stats { json, .. }
+        | Commands::Favorites { json, .. }
+        | Commands::SnsNotifications { json, .. }
+        | Commands::SnsFeed { json, .. }
+        | Commands::BizArticles { json, .. }
+        | Commands::SnsSearch { json, .. }
+        | Commands::Attachments { json, .. }
+        | Commands::Extract { json, .. }
+        | Commands::DecodeLocation { json, .. }
+        | Commands::DecodeTransfer { json, .. } => *json,
+        _ => false,
+    };
     if let Err(e) = dispatch(cli) {
+        if json {
+            if let Some(limit) = e.downcast_ref::<crate::ipc::outcome::QueryLimitExceeded>() {
+                eprintln!(
+                    "{}",
+                    serde_json::to_string(limit).expect("query diagnostic JSON")
+                );
+                std::process::exit(1);
+            }
+        }
         exit_dispatch_error(e);
     }
 }

@@ -19,6 +19,7 @@ pub async fn q_export_delta_username(
 ) -> Result<Value> {
     let start = start.context("delta export requires start_ts")?;
     ensure!(!username.is_empty(), "username 不能为空");
+    super::chat_identity::require_exact(db, names, &username).await?;
     ensure!(
         current_unknown_shards(db, names).is_empty(),
         "存在未知消息分片，请先更新密钥，不能发布不完整 delta"

@@ -1,5 +1,5 @@
-use mcp_readonly_security_harness::{contacts, refer, DbCache, Names};
 use mcp_readonly_security_harness::business::contacts as contact_domain;
+use mcp_readonly_security_harness::{contacts, refer, DbCache, Names};
 use rusqlite::{params, types::Value as SqlValue, Connection};
 use serde_json::Value;
 use std::{
@@ -89,7 +89,7 @@ impl Messages {
 }
 
 #[tokio::test]
-async fn refer_contact_ambiguity_precedes_cache_and_inventory_reads() {
+async fn refer_contact_ambiguity_is_rejected_after_exact_directory_check() {
     let mut f = Messages::new(1);
     f.names.map.insert("alice".into(), "Shared North".into());
     f.names.map.insert("bob".into(), "Shared South".into());
@@ -100,8 +100,10 @@ async fn refer_contact_ambiguity_precedes_cache_and_inventory_reads() {
     }
     f.names.map.insert("bob".into(), "SHARED NORTH".into());
     assert_eq!(f.query("Shared North", 7, 0).await.unwrap()["exit_code"], 2);
-    assert!(f.db.requests.lock().unwrap().is_empty());
-    assert_eq!(f.db.scan_count(), 0);
+    // Exact session/table evidence must win over an ambiguous display name.
+    // Directory reads are permitted here, but no message is returned for ambiguity.
+    assert!(!f.db.requests.lock().unwrap().is_empty());
+    assert!(f.db.scan_count() > 0);
     insert_message(&f.paths[0], 7, 100, 49, 0, SqlValue::Text(reply()));
     assert_eq!(f.query("alice", 7, 0).await.unwrap()["exit_code"], 0);
 }
@@ -316,14 +318,22 @@ fn labels(ids: &str) -> Vec<u8> {
     buffer
 }
 
-fn load_tags(path: &Path, names: &HashMap<String, String>) -> contact_domain::Result<Vec<contact_domain::Tag>> {
+fn load_tags(
+    path: &Path,
+    names: &HashMap<String, String>,
+) -> contact_domain::Result<Vec<contact_domain::Tag>> {
     use contact_domain::ContactSource;
-    let mut source = mcp_readonly_security_harness::adapters::wechat::contacts::SqliteContacts::new(path.to_owned());
+    let mut source = mcp_readonly_security_harness::adapters::wechat::contacts::SqliteContacts::new(
+        path.to_owned(),
+    );
     source.display_names = names.clone();
     source.tags()
 }
 
-fn select_tag<'a>(tags: &'a [contact_domain::Tag], query: &str) -> contact_domain::Result<&'a contact_domain::Tag> {
+fn select_tag<'a>(
+    tags: &'a [contact_domain::Tag],
+    query: &str,
+) -> contact_domain::Result<&'a contact_domain::Tag> {
     let index = contact_domain::select_name(tags.iter().map(|tag| tag.name.as_str()), query)?;
     Ok(&tags[index])
 }
@@ -364,23 +374,10 @@ fn tags_numeric_ids_and_duplicate_associations_preserve_declared_contract() {
     .unwrap();
     assert_eq!(tags.len(), 4);
     assert_eq!(tags.iter().map(|tag| tag.members.len()).sum::<usize>(), 12);
-    assert_eq!(
-        select_tag(&tags, "numeric").unwrap().members.len(),
-        6
-    );
+    assert_eq!(select_tag(&tags, "numeric").unwrap().members.len(), 6);
     assert_eq!(select_tag(&tags, "text").unwrap().members.len(), 0);
-    assert_eq!(
-        select_tag(&tags, "large-int")
-            .unwrap()
-            .members.len(),
-        3
-    );
-    assert_eq!(
-        select_tag(&tags, "large-real")
-            .unwrap()
-            .members.len(),
-        3
-    );
+    assert_eq!(select_tag(&tags, "large-int").unwrap().members.len(), 3);
+    assert_eq!(select_tag(&tags, "large-real").unwrap().members.len(), 3);
     let members = &select_tag(&tags, "numeric").unwrap().members;
     assert_eq!(members.iter().filter(|m| m.id.0 == "bob").count(), 2);
     assert_eq!(before, fs::read(&path).unwrap());
@@ -498,14 +495,9 @@ fn tags_buffer_limit_is_inclusive_and_large_integer_ids_are_not_float_aliased() 
         .unwrap();
     let before = fs::read(&path).unwrap();
     let tags = load_tags(&path, &HashMap::new()).unwrap();
+    assert_eq!(select_tag(&tags, "max-int").unwrap().members.len(), 1);
     assert_eq!(
-        select_tag(&tags, "max-int").unwrap().members.len(),
-        1
-    );
-    assert_eq!(
-        select_tag(&tags, "too-large-real")
-            .unwrap()
-            .members.len(),
+        select_tag(&tags, "too-large-real").unwrap().members.len(),
         0
     );
     assert_eq!(before, fs::read(&path).unwrap());

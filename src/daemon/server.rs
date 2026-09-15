@@ -98,13 +98,21 @@ async fn handle_connection_windows(
         };
         let bytes = match transport::encode(&reply, limit.saturating_sub(1)) {
             Ok(bytes) => bytes,
-            Err(_) => transport::encode(
-                &crate::ipc::QueryReply::Oversize {
-                    version: QUERY_VERSION,
-                    runtime_id: runtime_id.into(),
-                },
-                limit.saturating_sub(1),
-            )?,
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<framing::FrameError>(),
+                    Some(framing::FrameError::Oversize)
+                ) =>
+            {
+                transport::encode(
+                    &crate::ipc::QueryReply::Oversize {
+                        version: QUERY_VERSION,
+                        runtime_id: runtime_id.into(),
+                    },
+                    limit.saturating_sub(1),
+                )?
+            }
+            Err(error) => return Err(error),
         };
         framing::write_line(&mut writer, &bytes, limit).await?;
         Ok::<_, anyhow::Error>(())
@@ -241,7 +249,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             },
             Err(error) => Response::err(error.to_string()),
         },
-        ResolveChat { chat } => match query::mcp_voice::resolve_exact_chat(&chat, &names_arc.map) {
+        ResolveChat { chat } => match query::q_resolve_chat(db, &names_arc, &chat).await {
             Ok(username) => Response::ok(serde_json::json!({"username": username})),
             Err(_) => Response::err("Chat has no unique exact match"),
         },
@@ -362,7 +370,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                     (1..=500).contains(&limit) && offset <= 1_000_000,
                     "语音查询分页超出范围"
                 );
-                let username = query::mcp_voice::resolve_exact_chat(&chat, &names_arc.map)?;
+                let username = query::q_resolve_chat(db, &names_arc, &chat).await?;
                 let page = query::mcp_voice::q_voice_messages(
                     db,
                     &crate::business::voice::catalog::Query {
@@ -493,6 +501,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             .await
             {
                 Ok(v) => Response::ok(v),
+                Err(e)
+                    if e.downcast_ref::<crate::business::messages::Error>()
+                        == Some(&crate::business::messages::Error::Limit) =>
+                {
+                    let mut response =
+                        Response::err("Message read budget exceeded; use a smaller page");
+                    response.data = serde_json::json!({"error_code": "query_read_limit_exceeded"});
+                    response
+                }
                 Err(e) => Response::err(e.to_string()),
             }
         }

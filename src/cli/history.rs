@@ -77,7 +77,7 @@ pub fn cmd_history(args: Args, opts: OutputOpts) -> Result<()> {
         with_meta,
         debug_source,
     };
-    let resp = transport::send(req)?;
+    let resp = transport::send_with_startup_notice(req, !opts.json)?;
     emit_warnings(&resp.data);
     print_response(&resp.data, &opts)
 }

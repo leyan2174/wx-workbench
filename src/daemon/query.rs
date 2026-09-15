@@ -8,6 +8,10 @@ use std::time::Duration;
 use super::cache::{CacheMode, DbCache};
 use super::meta::{derive_status, discover_unknown_shards, Meta};
 
+mod chat_identity;
+#[cfg(test)]
+#[path = "query/chat_identity/tests.rs"]
+mod chat_identity_tests;
 mod contact_rows;
 mod decode;
 pub(super) mod mcp_contacts_legacy;
@@ -40,6 +44,13 @@ mod strict_message;
 pub use mcp_refer::q_decode_refer;
 
 const CONTACT_DB_KEY: &str = crate::adapters::wechat::messages::sources::contacts().cache_key();
+
+pub async fn q_resolve_chat(db: &DbCache, names: &Names, chat: &str) -> Result<String> {
+    if chat_identity::exact(db, names, chat).await? {
+        return Ok(chat.to_owned());
+    }
+    Ok(mcp_voice::resolve_exact_chat(chat, &names.map)?)
+}
 
 /// 判定会话类型。返回值固定为 `group` / `official_account` / `folded` / `private` 之一。
 ///
@@ -621,38 +632,6 @@ mod contact_tests {
 }
 
 // Internal query helpers for the remaining, not-yet-migrated domains.
-
-fn resolve_username(chat_name: &str, names: &Names) -> Option<String> {
-    if names.map.contains_key(chat_name)
-        || chat_name.contains("@chatroom")
-        || chat_name.starts_with("wxid_")
-    {
-        return Some(chat_name.to_string());
-    }
-    let low = chat_name.to_lowercase();
-    // 精确匹配显示名：排序后取第一个，保证确定性
-    let mut exact: Vec<&String> = names
-        .map
-        .iter()
-        .filter(|(_, display)| display.to_lowercase() == low)
-        .map(|(uname, _)| uname)
-        .collect();
-    exact.sort();
-    if let Some(u) = exact.into_iter().next() {
-        return Some(u.clone());
-    }
-    // 模糊匹配：取 display name 最短的（最精确），相同长度取字典序最小
-    let mut candidates: Vec<(&String, &String)> = names
-        .map
-        .iter()
-        .filter(|(_, display)| display.to_lowercase().contains(&low))
-        .collect();
-    candidates.sort_by_key(|(uname, display)| (display.len(), uname.as_str()));
-    candidates
-        .into_iter()
-        .next()
-        .map(|(uname, _)| uname.clone())
-}
 
 async fn find_msg_shards(
     db: &DbCache,
@@ -1989,8 +1968,7 @@ async fn q_attachments_impl(
         anyhow::ensure!(limit <= 1000, "image metadata page limit exceeded");
     }
 
-    let username =
-        resolve_username(chat, names).with_context(|| format!("找不到联系人: {}", chat))?;
+    let username = chat_identity::resolve(db, names, chat).await?;
     let display = names.display(&username);
     let chat_type = chat_type_of(&username, names);
     let is_group = chat_type == "group";

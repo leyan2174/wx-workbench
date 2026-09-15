@@ -347,6 +347,50 @@ pub enum Request {
 #[path = "ipc/outcome.rs"]
 pub mod outcome;
 
+impl Request {
+    /// Public diagnostic metadata; never serialize query arguments to obtain it.
+    pub fn operation_name(&self) -> &'static str {
+        match self {
+            Self::Ping => "ping",
+            Self::LatencyProbe { .. } => "latency_probe",
+            Self::ResolveChat { .. } => "resolve_chat",
+            Self::ExportChatList => "export_chat_list",
+            Self::ExportDirectoryCatalog => "export_directory_catalog",
+            Self::ExportChatByUsername { .. } => "export_chat_by_username",
+            Self::ExportDirectoryByUsername { .. } => "export_directory_by_username",
+            Self::ExportDelta { .. } => "export_delta",
+            Self::ExportChat { .. } => "export_chat",
+            Self::DecodeLocation { .. } => "decode_location",
+            Self::DecodeTransfer { .. } => "decode_transfer",
+            Self::DecodeRefer { .. } => "decode_refer",
+            Self::DecodeFileMessage { .. } => "decode_file_message",
+            Self::DecodeRecordItem { .. } => "decode_record_item",
+            Self::DecodeImage { .. } => "decode_image",
+            Self::DecodeVoice { .. } => "decode_voice",
+            Self::TranscribeVoice { .. } => "transcribe_voice",
+            Self::Sessions { .. } => "sessions",
+            Self::History { .. } => "history",
+            Self::Search { .. } => "search",
+            Self::Contacts { .. } => "contacts",
+            Self::ContactTags => "contact_tags",
+            Self::TagMembers { .. } => "tag_members",
+            Self::VoiceMessages { .. } => "voice_messages",
+            Self::Unread { .. } => "unread",
+            Self::Members { .. } => "members",
+            Self::NewMessages { .. } => "new_messages",
+            Self::Stats { .. } => "stats",
+            Self::Favorites { .. } => "favorites",
+            Self::SnsNotifications { .. } => "sns_notifications",
+            Self::SnsFeed { .. } => "sns_feed",
+            Self::BizArticles { .. } => "biz_articles",
+            Self::SnsSearch { .. } => "sns_search",
+            Self::ReloadConfig => "reload_config",
+            Self::Attachments { .. } => "attachments",
+            Self::Extract { .. } => "extract",
+        }
+    }
+}
+
 /// daemon 的响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {

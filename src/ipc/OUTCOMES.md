@@ -5,6 +5,27 @@ changing the legacy `ok`, `error`, flattened-data response representation.
 `BusinessOutcome` is internal: Success, Partial, Refused, Failure. Connection,
 timeout, framing and JSON errors remain transport/protocol errors, not outcomes.
 
+Query response exhaustion is `QueryLimitExceeded::ResponseLimitExceeded`, with
+`code: "response_limit_exceeded"`, the request's protocol operation name and
+`response_limit_bytes` (the minimum of the requested and server-supported limits).
+The existing account-bound query-v3 `Oversize` reply is unchanged. Only an actual
+response encode/read overflow has this meaning; request size, malformed JSON,
+identity mismatch and other transport failures are not relabeled.
+
+History's adapter read budget can fail before response serialization, for example
+at the existing 100,000 candidate bound. This adds `error_code:
+"query_read_limit_exceeded"` to the legacy failure response; the client reports
+that separate code and operation, without claiming a response byte count.
+Malformed history parameters remain `InvalidData` with the existing validation
+order and error text; zero limits, excessive type counts and integer overflow
+are not relabeled as execution-budget exhaustion.
+Both diagnostics contain no chat text, username, database path or underlying
+error chain. CLI query commands with `--json` write one JSON diagnostic to stderr
+and exit 1; history JSON also suppresses the existing daemon startup notice.
+Other commands retain their existing startup notices. Text mode includes
+`--offset` / smaller `--limit` advice. No safe page
+size is inferred from message count, and no retry or larger-budget fallback runs.
+
 Only top-level legacy markers (`status`, `ok`, `success`, `exit_code`, `error`)
 are interpreted. Nested message text is never classified. Aggregate producers
 use `from_counts(succeeded, failed)` with their own domain counts. No alternate

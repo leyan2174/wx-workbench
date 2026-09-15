@@ -4,7 +4,7 @@ use super::*;
 use crate::message::export::{Chat, Message};
 
 pub async fn q_export_chat(db: &DbCache, names: &Names, chat: &str) -> Result<Value> {
-    let username = resolve_username(chat, names).context("找不到聊天对象")?;
+    let username = chat_identity::resolve(db, names, chat).await?;
     q_export_username(db, names, username).await
 }
 
@@ -17,14 +17,33 @@ pub async fn q_export_chat_list(db: &DbCache, names: &Names) -> Result<Value> {
         crate::adapters::wechat::messages::sessions::usernames(&path)
     })
     .await??;
+    let message_usernames = if usernames
+        .iter()
+        .any(|username| chat_identity::is_folded(username))
+    {
+        chat_identity::message_usernames(db, names, usernames.clone())
+            .await
+            .ok()
+    } else {
+        None
+    };
     let mut seen = std::collections::HashSet::new();
     let targets: Vec<_> = usernames
         .into_iter()
         .filter(|u| seen.insert(u.clone()))
-        .map(|username| crate::message::export::Target {
-            chat: names.display(&username),
-            is_group: username.ends_with("@chatroom"),
-            username,
+        .map(|username| {
+            let mut value = serde_json::json!({
+                "chat": names.display(&username),
+                "is_group": username.ends_with("@chatroom"),
+                "username": username,
+            });
+            chat_identity::mark_exportability(
+                &mut value,
+                message_usernames
+                    .as_ref()
+                    .map(|usernames| usernames.contains(&username)),
+            );
+            value
         })
         .collect();
     Ok(serde_json::json!({"chats": targets}))
@@ -43,6 +62,7 @@ pub(super) async fn q_export_username_with_shape(
     shape: ExportShape,
 ) -> Result<Value> {
     anyhow::ensure!(!username.is_empty(), "username 不能为空");
+    chat_identity::require_exact(db, names, &username).await?;
     anyhow::ensure!(
         current_unknown_shards(db, names).is_empty(),
         "存在未知消息分片，请先更新密钥，不能执行全量导出"
