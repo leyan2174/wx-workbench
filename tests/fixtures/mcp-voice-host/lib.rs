@@ -17,7 +17,10 @@ pub mod key_store;
 pub mod windows_process;
 #[path = "../../../src/service/config_pin.rs"]
 pub mod config_pin;
+#[path = "../../../src/service/message_filter.rs"]
+pub mod message_filter;
 pub mod service {
+    pub use crate::message_filter;
     pub use crate::asr_contracts as operation_requests;
     pub use crate::mcp_contract as mcp;
     pub use crate::config_pin;

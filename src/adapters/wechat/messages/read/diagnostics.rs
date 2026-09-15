@@ -2,6 +2,11 @@
 //! These values carry no stable message identity or strict-content proof.
 use super::*;
 
+/// Compatibility projection only; this value is not a portable business identity.
+pub fn legacy_unmapped_key(reference: &domain::UnmappedConversation) -> &str {
+    &reference.0
+}
+
 pub fn validate_table(name: &str) -> Result<()> {
     if !valid_table(name) {
         return Err(anyhow::Error::new(domain::Error::Unsupported).context("消息表名不合法"));

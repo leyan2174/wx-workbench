@@ -629,6 +629,48 @@ fn legacy_time_and_type_arguments_map_without_ambiguity() {
 }
 
 #[test]
+fn shared_type_projection_preserves_mcp_only_aliases_and_cli_only_rejections() {
+    for (label, expected) in [
+        (" TEXT ", 1),
+        ("IMAGE", 3),
+        ("VOICE", 34),
+        ("NAMECARD", 42),
+        ("VIDEO", 43),
+        ("EMOJI", 47),
+        ("LOCATION", 48),
+        ("APP", 49),
+        ("FILE", 49),
+        ("VOIP", 50),
+        ("SYSTEM", 10000),
+    ] {
+        let request = route(
+            "get_chat_history",
+            &json!({"chat_name":"synthetic", "msg_types":[label]}),
+        )
+        .unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap()["msg_type"], expected);
+    }
+    for label in ["sticker", "call", "link", "49"] {
+        assert!(matches!(
+            route(
+                "get_chat_history",
+                &json!({"chat_name":"synthetic", "msg_types":[label]})
+            ),
+            Err("Unknown message type")
+        ));
+    }
+    let request = route(
+        "get_chat_history",
+        &json!({"chat_name":"synthetic", "msg_type":(6_i64 << 32) | 49}),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(request).unwrap()["msg_type"],
+        (6_i64 << 32) | 49
+    );
+}
+
+#[test]
 fn image_route_never_accepts_host_paths_or_keys() {
     let input = json!({"chat_name":"peer","local_id":7});
     assert_eq!(

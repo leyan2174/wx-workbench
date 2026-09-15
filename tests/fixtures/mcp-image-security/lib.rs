@@ -1,4 +1,5 @@
 pub mod attachment {
+    pub use native_image_fixture::AttachmentKind;
     pub(crate) use crate::local_files;
     pub use crate::native_image;
     pub use native_image_fixture::decoder;
@@ -23,7 +24,13 @@ pub mod daemon {
     pub use mcp_readonly_security_harness::meta;
 }
 pub use mcp_readonly_security_harness::Names;
-use std::{path::PathBuf, sync::OnceLock};
+#[path = "../../../src/message/xml.rs"]
+pub mod message_xml;
+pub mod message {
+    pub use crate::message_xml as xml;
+    pub use mcp_readonly_security_harness::message::split_group_content;
+}
+use std::path::PathBuf;
 
 // Only the cache container is synthetic; SQLite and query code are production.
 pub struct DbCache(
@@ -71,10 +78,6 @@ impl DbCache {
         )
     }
 }
-fn msg_table_re() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
-}
 fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Result<()> {
     anyhow::ensure!(
         daemon::meta::discover_unknown_shards_checked(db.db_dir(), &names.msg_db_keys)?.is_empty(),
@@ -118,6 +121,11 @@ pub mod ipc_reader {
 pub mod ipc;
 #[path = "../../../src/mcp/protocol.rs"]
 pub mod protocol;
+#[path = "../../../src/service/message_filter.rs"]
+pub mod message_filter;
+pub mod service {
+    pub use crate::message_filter;
+}
 pub mod mcp {
     pub use crate::protocol;
 }

@@ -1,7 +1,14 @@
-//! 外层文件与合并记录的元数据及只读引用；不查询 SQL、不认证账号、不下载或解码媒体。
-//! 调用者先验证消息身份和 base_type=49，再传入已解压的原始正文；不能传展示摘要。
-use crate::message::{split_group_content, xml};
-use roxmltree::{Document, Node};
+//! Controlled attachment IO: bounded enumeration, pinned handles and verified reads.
+//! Legacy metadata projections are re-exported for existing protocol callers.
+use crate::adapters::wechat::media::attachment_content::{
+    cache_ancestors, file_match, image_match, record_collection, record_item_directory,
+    record_media, safe_name, validate_metadata,
+};
+pub use crate::adapters::wechat::media::attachment_content::{
+    parse_file_message, parse_record_item, AttachmentMetadata, Error, ErrorKind, Identity, Kind,
+    MessageInput, Result,
+};
+use crate::business::attachment_content::AttachmentContent;
 use serde::Serialize;
 use std::{
     fs::{self, File, Metadata, OpenOptions},
@@ -9,343 +16,13 @@ use std::{
     path::{Component, Path, PathBuf},
     time::SystemTime,
 };
-
 pub const MAX_HASH_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_ENTRIES: usize = 20_000;
 const MAX_DIRECTORIES: usize = 1024;
 const MAX_CANDIDATES: usize = 128;
 const MAX_DEPTH: usize = 16;
-const RECORD_XML_LIMIT: usize = 500_000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ErrorKind {
-    InvalidIdentity,
-    InvalidXml,
-    InvalidMetadata,
-    InvalidHash,
-    WrongType,
-    NotLoaded,
-    InvalidIndex,
-    UnsafePath,
-    Ambiguous,
-    HashMismatch,
-    LimitExceeded,
-    Changed,
-    Io,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Error {
-    pub kind: ErrorKind,
-    pub stage: &'static str,
-}
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.kind, self.stage)
-    }
-}
-impl std::error::Error for Error {}
-pub type Result<T> = std::result::Result<T, Error>;
 fn error(kind: ErrorKind, stage: &'static str) -> Error {
     Error { kind, stage }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct MessageInput<'a> {
-    pub username: &'a str,
-    pub source: &'a str,
-    pub local_id: i64,
-    pub create_time: i64,
-    pub body: &'a str,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Identity {
-    pub username: String,
-    pub source: String,
-    pub local_id: i64,
-    pub create_time: i64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Kind {
-    File,
-    Image,
-    Voice,
-    Video,
-    Text,
-    MetadataOnly,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct AttachmentMetadata {
-    pub identity: Identity,
-    pub kind: Kind,
-    pub item_index: Option<usize>,
-    pub item_count: Option<usize>,
-    pub datatype: Option<String>,
-    pub title: String,
-    pub extension: String,
-    pub expected_size: Option<u64>,
-    pub expected_md5: Option<String>,
-    pub sender: String,
-    pub description: String,
-}
-
-fn identity(input: &MessageInput<'_>) -> Result<Identity> {
-    let source = input.source.replace('\\', "/");
-    let parts: Vec<_> = source.split('/').collect();
-    let valid_source = parts.len() == 2
-        && parts[0].eq_ignore_ascii_case("message")
-        && parts[1]
-            .to_ascii_lowercase()
-            .strip_prefix("message_")
-            .and_then(|s| s.strip_suffix(".db"))
-            .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()));
-    if input.username.is_empty()
-        || input.username.len() > 1024
-        || input.username.chars().any(char::is_control)
-        || input.local_id <= 0
-        || input.source.len() > 1024
-        || !valid_source
-    {
-        return Err(error(
-            ErrorKind::InvalidIdentity,
-            "需要精确 username、完整消息来源与正 local_id",
-        ));
-    }
-    Ok(Identity {
-        username: input.username.into(),
-        source,
-        local_id: input.local_id,
-        create_time: input.create_time,
-    })
-}
-
-fn child<'a, 'i>(node: Node<'a, 'i>, tag: &str) -> Result<Option<Node<'a, 'i>>> {
-    unique(node.children().filter(|n| named(*n, tag)))
-}
-fn named(node: Node<'_, '_>, tag: &str) -> bool {
-    node.has_tag_name(tag) && node.tag_name().namespace().is_none()
-}
-fn unique<'a, 'i>(mut nodes: impl Iterator<Item = Node<'a, 'i>>) -> Result<Option<Node<'a, 'i>>> {
-    let first = nodes.next();
-    if nodes.next().is_some() {
-        return Err(error(ErrorKind::InvalidMetadata, "同名 XML 节点不唯一"));
-    }
-    Ok(first)
-}
-fn text<'a, 'i>(node: Node<'a, 'i>, tag: &str) -> Result<&'a str> {
-    Ok(child(node, tag)?.and_then(|n| n.text()).unwrap_or(""))
-}
-fn scalar_text(node: Option<Node<'_, '_>>) -> Result<String> {
-    let Some(node) = node else {
-        return Ok(String::new());
-    };
-    if node.children().any(|n| n.is_element()) {
-        return Err(error(ErrorKind::InvalidMetadata, "标量字段不能包含子元素"));
-    }
-    // 合并所有文本及 CDATA 片段，包括被 XML 注释分隔的文本。
-    Ok(node
-        .children()
-        .filter(|n| n.is_text())
-        .filter_map(|n| n.text())
-        .collect())
-}
-fn descendant_text<'a, 'i>(node: Node<'a, 'i>, tag: &str) -> Result<&'a str> {
-    Ok(
-        unique(node.descendants().skip(1).filter(|n| named(*n, tag)))?
-            .and_then(|n| n.text())
-            .unwrap_or(""),
-    )
-}
-
-fn parse_xml(body: &str, large_record: bool) -> Result<Document<'_>> {
-    if let Some(doc) = xml::parse(body) {
-        return Ok(doc);
-    }
-    // 待共享入口支持显式 limit 后合并；只为记录开放 500K，不扩大普通文件 XML 上限。
-    if large_record && body.chars().take(RECORD_XML_LIMIT + 1).count() <= RECORD_XML_LIMIT {
-        let upper = body.to_ascii_uppercase();
-        if !upper.contains("<!DOCTYPE") && !upper.contains("<!ENTITY") {
-            return Document::parse(body)
-                .map_err(|_| error(ErrorKind::InvalidXml, "记录 XML 无效"));
-        }
-    }
-    Err(error(
-        ErrorKind::InvalidXml,
-        "XML 无效、超限或包含 DTD/实体声明",
-    ))
-}
-fn body<'a>(input: &MessageInput<'a>) -> &'a str {
-    if input.username.ends_with("@chatroom") {
-        split_group_content(input.body).1
-    } else {
-        input.body
-    }
-}
-fn appmsg<'a, 'i>(doc: &'a Document<'i>, expected_type: u64) -> Result<Node<'a, 'i>> {
-    let node = unique(
-        doc.root_element()
-            .descendants()
-            .skip(1)
-            .filter(|n| named(*n, "appmsg")),
-    )?
-    .ok_or_else(|| error(ErrorKind::InvalidMetadata, "缺少 appmsg"))?;
-    if number(text(node, "type")?)? != Some(expected_type) {
-        return Err(error(ErrorKind::WrongType, "appmsg type 不匹配"));
-    }
-    Ok(node)
-}
-fn number(raw: &str) -> Result<Option<u64>> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    let raw = raw.strip_prefix('+').unwrap_or(raw);
-    if raw
-        .split('_')
-        .any(|s| s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()))
-    {
-        return Err(error(
-            ErrorKind::InvalidMetadata,
-            "大小或类型必须是非负整数",
-        ));
-    }
-    let value: u64 = raw
-        .replace('_', "")
-        .parse()
-        .map_err(|_| error(ErrorKind::InvalidMetadata, "整数超限"))?;
-    Ok((value != 0).then_some(value))
-}
-fn hash(raw: &str) -> Result<Option<String>> {
-    let value = xml::collapse(raw);
-    if value.is_empty() {
-        return Ok(None);
-    }
-    if value.len() != 32 || !value.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return Err(error(ErrorKind::InvalidHash, "无效 MD5 不能降级为无 hash"));
-    }
-    Ok(Some(value.to_ascii_lowercase()))
-}
-fn safe_name(name: &str) -> Result<()> {
-    let stem = name
-        .split('.')
-        .next()
-        .unwrap_or("")
-        .trim_end_matches(' ')
-        .to_uppercase();
-    let device = matches!(
-        stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
-    ) || ["COM", "LPT"].iter().any(|prefix| {
-        stem.strip_prefix(prefix).is_some_and(|s| {
-            s.chars().count() == 1 && s.chars().all(|c| "0123456789¹²³".contains(c))
-        })
-    });
-    if name.is_empty()
-        || name.encode_utf16().count() > 255
-        || name.ends_with(['.', ' '])
-        || device
-        || name
-            .chars()
-            .any(|c| c.is_control() || "<>:\"/\\|?*".contains(c))
-    {
-        return Err(error(
-            ErrorKind::UnsafePath,
-            "文件名包含路径、ADS、设备名或非法尾部",
-        ));
-    }
-    Ok(())
-}
-fn title(raw: &str) -> Result<String> {
-    if raw.is_empty() {
-        return Ok(String::new());
-    }
-    // 先检查原值，不能通过 trim/collapse 隐藏尾部空格或控制字符。
-    safe_name(raw)?;
-    let value = xml::collapse(raw);
-    safe_name(&value)?;
-    Ok(value)
-}
-
-pub fn parse_file_message(input: &MessageInput<'_>) -> Result<AttachmentMetadata> {
-    let identity = identity(input)?;
-    let doc = parse_xml(body(input), false)?;
-    let app = appmsg(&doc, 6)?;
-    child(app, "appattach")?
-        .ok_or_else(|| error(ErrorKind::InvalidMetadata, "文件缺少 appattach"))?;
-    let title = title(text(app, "title")?)?;
-    if title.is_empty() {
-        return Err(error(ErrorKind::InvalidMetadata, "文件缺少 title"));
-    }
-    Ok(AttachmentMetadata {
-        identity,
-        kind: Kind::File,
-        item_index: None,
-        item_count: None,
-        datatype: None,
-        title,
-        extension: xml::collapse(descendant_text(app, "fileext")?),
-        expected_size: number(&scalar_text(unique(
-            app.descendants().skip(1).filter(|n| named(*n, "totallen")),
-        )?)?)?,
-        expected_md5: hash(&scalar_text(child(app, "md5")?)?)?,
-        sender: String::new(),
-        description: String::new(),
-    })
-}
-
-pub fn parse_record_item(input: &MessageInput<'_>, item_index: i64) -> Result<AttachmentMetadata> {
-    let identity = identity(input)?;
-    let index = usize::try_from(item_index)
-        .map_err(|_| error(ErrorKind::InvalidIndex, "item_index 不能为负数"))?;
-    let body = body(input);
-    let doc = parse_xml(body, body.contains("<type>19</type>"))?;
-    let app = appmsg(&doc, 19)?;
-    let inner = text(app, "recorditem")?;
-    if inner.is_empty() {
-        return Err(error(ErrorKind::NotLoaded, "recorditem 尚未加载"));
-    }
-    let record = parse_xml(inner, true)?;
-    let list = child(record.root_element(), "datalist")?
-        .ok_or_else(|| error(ErrorKind::NotLoaded, "datalist 尚未加载"))?;
-    // 仅直接 dataitem，计数不受 history 的 10/50 条展示裁剪影响，不展开嵌套记录。
-    let mut count = 0;
-    let mut selected = None;
-    for item in list.children().filter(|n| named(*n, "dataitem")) {
-        if count == index {
-            selected = Some(item);
-        }
-        count += 1;
-    }
-    if count == 0 {
-        return Err(error(ErrorKind::NotLoaded, "datalist 为空"));
-    }
-    let item = selected.ok_or_else(|| error(ErrorKind::InvalidIndex, "item_index 超出范围"))?;
-    let datatype = item.attribute("datatype").unwrap_or("").trim();
-    let kind = match datatype {
-        "1" => Kind::Text,
-        "2" => Kind::Image,
-        "4" => Kind::Voice,
-        "5" => Kind::Video,
-        "8" => Kind::File,
-        _ => Kind::MetadataOnly,
-    };
-    Ok(AttachmentMetadata {
-        identity,
-        kind,
-        item_index: Some(index),
-        item_count: Some(count),
-        datatype: Some(datatype.into()),
-        title: title(text(item, "datatitle")?)?,
-        extension: xml::collapse(text(item, "datafmt")?),
-        expected_size: number(&scalar_text(child(item, "datasize")?)?)?,
-        expected_md5: hash(&scalar_text(child(item, "fullmd5")?)?)?,
-        sender: xml::collapse(text(item, "sourcename")?),
-        description: xml::collapse(text(item, "datadesc")?),
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -603,30 +280,10 @@ fn read_entries(path: &Path, left: &mut usize) -> Result<Vec<Entry>> {
     Ok(result)
 }
 
-fn file_match(name: &str, title: &str) -> bool {
-    if name == title {
-        return true;
-    }
-    let split = title.rfind('.').filter(|i| *i > 0).unwrap_or(title.len());
-    let (stem, ext) = title.split_at(split);
-    name.strip_prefix(stem)
-        .and_then(|s| s.strip_suffix(ext))
-        .map(|s| s.strip_prefix(' ').unwrap_or(s))
-        .and_then(|s| s.strip_prefix('('))
-        .and_then(|s| s.strip_suffix(')'))
-        .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-}
-fn image_match(name: &str, index: usize) -> bool {
-    let index = index.to_string();
-    name == index
-        || name
-            .strip_prefix(&index)
-            .is_some_and(|s| s.starts_with(['.', '_']))
-}
 fn candidate(
     path: &Path,
     entry: &Entry,
-    meta: &AttachmentMetadata,
+    meta: &AttachmentContent,
     out: &mut Vec<Pin>,
 ) -> Result<()> {
     if entry.stamp.directory {
@@ -652,7 +309,7 @@ fn walk_files(
     scan: &mut Scan,
     path: &Path,
     depth: usize,
-    meta: &AttachmentMetadata,
+    meta: &AttachmentContent,
     out: &mut Vec<Pin>,
 ) -> Result<()> {
     if depth > MAX_DEPTH {
@@ -674,19 +331,12 @@ fn walk_files(
 fn record_candidates(
     scan: &mut Scan,
     root: &Path,
-    meta: &AttachmentMetadata,
+    meta: &AttachmentContent,
     out: &mut Vec<Pin>,
 ) -> Result<()> {
     let index = meta
         .item_index
         .ok_or_else(|| error(ErrorKind::InvalidIndex, "记录缺少 item_index"))?;
-    let sub = match meta.kind {
-        Kind::Image => "Img",
-        Kind::Voice => "A",
-        Kind::Video => "V",
-        Kind::File => "F",
-        _ => return Ok(()),
-    };
     for month in scan.entries(root)? {
         if !month.stamp.directory {
             continue;
@@ -695,7 +345,7 @@ fn record_candidates(
         if !scan.pin_dir(&month_path)? {
             return Err(error(ErrorKind::Changed, "月份目录消失"));
         }
-        let rec = month_path.join("Rec");
+        let rec = record_collection(&month_path);
         if !scan.pin_dir(&rec)? {
             continue;
         }
@@ -707,14 +357,16 @@ fn record_candidates(
             if !scan.pin_dir(&card_path)? {
                 return Err(error(ErrorKind::Changed, "记录目录消失"));
             }
-            let media = card_path.join(sub);
+            let Some(media) = record_media(&card_path, meta.kind) else {
+                continue;
+            };
             if !scan.pin_dir(&media)? {
                 continue;
             }
             let media = if meta.kind == Kind::Image {
                 media
             } else {
-                let path = media.join(index.to_string());
+                let path = record_item_directory(&media, meta.kind, index);
                 if !scan.pin_dir(&path)? {
                     continue;
                 }
@@ -761,17 +413,7 @@ fn md5_reader(reader: &mut impl Read, left: &mut u64) -> Result<(String, u64)> {
 /// base 必须由调用者绑定到同一账号；本函数不证明账号来源。文本/metadata-only 不访问磁盘。
 /// None 表示没有本地引用。无 hash 的唯一候选仍为弱绑定，即使已计算实际 MD5。
 pub fn find_reference(base: &Path, meta: &AttachmentMetadata) -> Result<Option<FileReference>> {
-    identity(&MessageInput {
-        username: &meta.identity.username,
-        source: &meta.identity.source,
-        local_id: meta.identity.local_id,
-        create_time: meta.identity.create_time,
-        body: "",
-    })?;
-    if !meta.title.is_empty() {
-        safe_name(&meta.title)?;
-    }
-    let expected = hash(meta.expected_md5.as_deref().unwrap_or(""))?;
+    let expected = validate_metadata(meta)?;
     if matches!(meta.kind, Kind::Text | Kind::MetadataOnly) {
         return Ok(None);
     }
@@ -779,31 +421,18 @@ pub fn find_reference(base: &Path, meta: &AttachmentMetadata) -> Result<Option<F
         return Err(error(ErrorKind::InvalidMetadata, "外层文件元数据不完整"));
     }
     let mut scan = Scan::new(base)?;
-    let msg = base.join("msg");
-    if !scan.pin_dir(&msg)? {
-        return Ok(None);
+    let ancestors = cache_ancestors(base, meta);
+    for path in &ancestors {
+        if !scan.pin_dir(path)? {
+            return Ok(None);
+        }
     }
+    let root = ancestors.last().expect("adapter supplies cache ancestors");
     let mut candidates = Vec::new();
     if meta.item_index.is_some() {
-        let attach = msg.join("attach");
-        if !scan.pin_dir(&attach)? {
-            return Ok(None);
-        }
-        let root = attach.join(format!(
-            "{:x}",
-            md5::compute(meta.identity.username.as_bytes())
-        ));
-        if !scan.pin_dir(&root)? {
-            return Ok(None);
-        }
-        record_candidates(&mut scan, &root, meta, &mut candidates)?;
+        record_candidates(&mut scan, root, meta, &mut candidates)?;
     } else {
-        let root = msg.join("file");
-        if !scan.pin_dir(&root)? {
-            return Ok(None);
-        }
-        // 有限完整扫描；不保留旧月份快路径的 stem* 宽匹配或错误候选阻断兜底。
-        walk_files(&mut scan, &root, 0, meta, &mut candidates)?;
+        walk_files(&mut scan, root, 0, meta, &mut candidates)?;
     }
     if candidates.is_empty() {
         scan.verify()?;

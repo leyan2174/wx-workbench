@@ -1,6 +1,10 @@
 //! 有限本地媒体编排；只扫描显式账号根，持有路径句柄，复用现有解析及解码核心。
 use super::{Media, Options, Row};
-use crate::adapters::wechat::media::local_read::{bounded_read, hash32, Scan};
+use crate::adapters::wechat::media::{
+    attachment_content, directory_layout,
+    local_read::{bounded_read, Scan},
+};
+use crate::business::attachment_content::{ContainerKind, Kind, NamedKind};
 use crate::{
     attachment::decoder,
     message::export::Target,
@@ -144,7 +148,7 @@ impl Inputs {
             )
             .transpose()?;
         Ok(Self {
-            attach: account.join("msg/attach"),
+            attach: crate::attachment::resolver::attach_root_for(&account),
             account,
             decrypted: runtime.config.decrypted_dir.clone(),
             msgattach: configured("msgattach_dir"),
@@ -229,24 +233,30 @@ pub(super) fn prepare(
     output: &mut MediaOutput<'_>,
     images: &ImageCatalog,
 ) -> Vec<Media> {
-    let base = row.local_type & 0xffff_ffff;
+    let Some(base) = attachment_content::message_kind(row.local_type) else {
+        return Vec::new();
+    };
     let kind = match base {
-        3 => "image",
-        34 => "voice",
-        43 => "video",
-        47 => "sticker",
-        49 => "file",
+        Kind::Image => "image",
+        Kind::Voice => "voice",
+        Kind::Video => "video",
+        Kind::Emoticon => "sticker",
+        Kind::File => "file",
         _ => return Vec::new(),
     };
-    let subtype = if base == 49 { app_type(row) } else { None };
-    if base == 49 && !matches!(subtype, Some(6 | 19)) {
+    let subtype = if base == Kind::File {
+        attachment_content::legacy_container_kind(row.content.as_str().unwrap_or(""))
+    } else {
+        None
+    };
+    if base == Kind::File && subtype.is_none() {
         return Vec::new();
     }
     if !output.options.media_enabled {
         return vec![marker(kind, "disabled", "媒体导出已显式禁用")];
     }
     let result = (|| -> Result<Vec<Media>> {
-        if base == 49 {
+        if base == Kind::File {
             let input = refs::MessageInput {
                 username: &target.username,
                 source: &row.source,
@@ -254,7 +264,7 @@ pub(super) fn prepare(
                 create_time: row.create_time.context("附件缺少时间戳")?,
                 body: row.content.as_str().unwrap_or(""),
             };
-            let metadata = if subtype == Some(19) {
+            let metadata = if subtype == Some(ContainerKind::Record) {
                 let first = refs::parse_record_item(&input, 0)?;
                 let count = first.item_count.context("合并记录缺少项目数")?;
                 ensure!(count <= 1000, "合并记录超过 1000 项，不输出截断结果");
@@ -286,7 +296,7 @@ pub(super) fn prepare(
             return Ok(out);
         }
         let media = match base {
-            3 => images
+            Kind::Image => images
                 .messages
                 .get(&(
                     row.source.clone(),
@@ -296,34 +306,13 @@ pub(super) fn prepare(
                 ))
                 .cloned()
                 .unwrap_or_else(|| marker("image", "unavailable", "图片资源关联缺失")),
-            34 => voice(inputs, target, row, output)?,
-            43 | 47 => named_media(inputs, target, row, output)?,
+            Kind::Voice => voice(inputs, target, row, output)?,
+            Kind::Video | Kind::Emoticon => named_media(inputs, target, row, output)?,
             _ => unreachable!(),
         };
         Ok(vec![media])
     })();
     result.unwrap_or_else(|error| vec![failure_marker(kind, &error)])
-}
-
-fn app_type(row: &Row) -> Option<i64> {
-    let body = row.content.as_str()?;
-    let body = crate::message::split_group_content(body).1;
-    let doc = crate::message::xml::parse(body)?;
-    let app = doc.descendants().find(|n| n.has_tag_name("appmsg"))?;
-    app.children()
-        .find(|n| n.has_tag_name("type"))?
-        .text()?
-        .trim()
-        .parse()
-        .ok()
-}
-
-fn month(raw: &str) -> bool {
-    let b = raw.as_bytes();
-    b.len() == 7
-        && b[4] == b'-'
-        && b[..4].iter().all(u8::is_ascii_digit)
-        && b[5..].iter().all(u8::is_ascii_digit)
 }
 
 #[derive(Default)]
@@ -341,45 +330,29 @@ pub(super) fn image_catalog(
     if !output.options.media_enabled {
         return Ok(ImageCatalog::default());
     }
-    let username_hash = format!("{:x}", md5::compute(target.username.as_bytes()));
     let mut scan = Scan::new();
     let mut candidates = BTreeMap::<String, Vec<(u8, PathBuf, String)>>::new();
-    let mut layouts = vec![(inputs.attach.join(&username_hash), true)];
-    if let Some(root) = &inputs.msgattach {
-        layouts.push((root.join(&username_hash).join("Image"), false));
-    }
-    for (root, xwechat) in layouts {
+    for layout in directory_layout::image_layouts(
+        &inputs.attach,
+        inputs.msgattach.as_deref(),
+        &target.username,
+    ) {
+        let root = &layout.root;
         for (folder, is_dir) in scan.entries(&root)? {
             let name = folder.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if !is_dir || !month(name) {
+            if !is_dir || !directory_layout::month(name) {
                 continue;
             }
-            let image_dir = if xwechat {
-                folder.join("Img")
-            } else {
-                folder.clone()
-            };
+            let image_dir = layout.image_directory(&folder);
             for (path, is_dir) in scan.entries(&image_dir)? {
                 if is_dir {
                     continue;
                 }
-                let filename = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                let Some(hash) = filename.get(..32).filter(|s| hash32(s).is_ok()) else {
-                    continue;
-                };
-                let suffix = &filename[32..];
-                // 同时保留整个联系人图片目录；缩略图只在无较高等级来源时使用。
-                if let Some(rank) = ["_h.dat", ".dat", "_w.dat", "_t.dat", "_t_w.dat"]
-                    .iter()
-                    .position(|s| *s == suffix)
-                {
+                let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if let Some((hash, rank)) = directory_layout::image_candidate(filename) {
                     let entries = candidates.entry(hash.into()).or_default();
                     ensure!(entries.len() < 128, "单图候选超过上限");
-                    entries.push((rank as u8, path, name.into()));
+                    entries.push((rank, path, name.into()));
                 }
             }
         }
@@ -431,7 +404,7 @@ pub(super) fn image_catalog(
     scan.verify()?;
     let images: Vec<_> = rows
         .iter()
-        .filter(|r| r.local_type & 0xffff_ffff == 3)
+        .filter(|r| attachment_content::message_kind(r.local_type) == Some(Kind::Image))
         .collect();
     if images.is_empty() {
         return Ok(catalog);
@@ -673,15 +646,14 @@ fn named_media(
     row: &Row,
     output: &mut MediaOutput<'_>,
 ) -> Result<Media> {
-    let sticker = row.local_type & 0xffff_ffff == 47;
-    let body = crate::message::split_group_content(row.content.as_str().unwrap_or("")).1;
-    let doc = crate::message::xml::parse(body).context("媒体 XML 无效")?;
-    let node = doc
-        .descendants()
-        .find(|n| n.has_tag_name(if sticker { "emoji" } else { "videomsg" }))
-        .context("媒体 XML 缺少节点")?;
-    let hash = hash32(node.attribute("md5").unwrap_or(""))?;
-    if sticker {
+    let kind = if attachment_content::message_kind(row.local_type) == Some(Kind::Emoticon) {
+        NamedKind::Emoticon
+    } else {
+        NamedKind::Video
+    };
+    let content = attachment_content::named_media(row.content.as_str().unwrap_or(""), kind)?;
+    let hash = content.digest;
+    if content.kind == NamedKind::Emoticon {
         let root = inputs
             .stickers
             .as_deref()
@@ -703,26 +675,14 @@ fn named_media(
             resolved.binding.label().into(),
         );
     }
-    let roots = vec![
-        inputs.account.join("msg/video"),
-        inputs
-            .attach
-            .join(format!("{:x}", md5::compute(target.username.as_bytes()))),
-    ];
+    let roots = directory_layout::video_roots(&inputs.account, &inputs.attach, &target.username);
     let mut scan = Scan::new();
     let mut candidates = Vec::new();
     for root in roots {
         scan.walk(
             &root,
             0,
-            &|path| {
-                let stem = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
-                stem == hash || stem == format!("{hash}_raw")
-            },
+            &|path| directory_layout::video_candidate(path, &hash),
             &mut candidates,
         )?;
     }

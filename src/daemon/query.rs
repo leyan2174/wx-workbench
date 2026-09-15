@@ -1,10 +1,8 @@
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
-use regex::Regex;
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use super::cache::{CacheMode, DbCache};
@@ -42,12 +40,6 @@ mod strict_message;
 pub use mcp_refer::q_decode_refer;
 
 const CONTACT_DB_KEY: &str = crate::adapters::wechat::messages::sources::contacts().cache_key();
-
-/// 静态编译的 Msg 表名正则，避免在热路径中重复编译
-fn msg_table_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
-}
 
 /// 判定会话类型。返回值固定为 `group` / `official_account` / `folded` / `private` 之一。
 ///
@@ -680,12 +672,6 @@ async fn find_msg_shards(
     message_read::find_shards(db, names, username).await
 }
 
-fn load_id2u(conn: &Connection) -> Result<HashMap<i64, String>> {
-    Ok(crate::adapters::wechat::messages::read::read_senders(conn)?
-        .into_iter()
-        .collect())
-}
-
 async fn load_group_nicknames(
     db: &DbCache,
     chat_username: &str,
@@ -693,7 +679,7 @@ async fn load_group_nicknames(
     if !chat_username.contains("@chatroom") {
         return Ok(HashMap::new());
     }
-    let Some(contact_p) = db.get("contact/contact.db").await? else {
+    let Some(contact_p) = db.get(CONTACT_DB_KEY).await? else {
         return Ok(HashMap::new());
     };
     let chat = chat_username.to_string();
@@ -711,7 +697,7 @@ async fn load_group_nickname_maps(
     if chat_usernames.is_empty() {
         return Ok(HashMap::new());
     }
-    let Some(contact_p) = db.get("contact/contact.db").await? else {
+    let Some(contact_p) = db.get(CONTACT_DB_KEY).await? else {
         return Ok(HashMap::new());
     };
     tokio::task::spawn_blocking(move || {
@@ -1917,7 +1903,7 @@ pub async fn q_biz_articles(
     let prepared = message_read::prepare(db, names, SourceKind::OfficialPush).await?;
     let unread_publishers = if unread {
         let path = db
-            .get("session/session.db")
+            .get(crate::adapters::wechat::messages::sources::sessions().cache_key())
             .await?
             .context("unread article source unavailable")?;
         let values = tokio::task::spawn_blocking(move || {
@@ -2463,7 +2449,7 @@ pub async fn q_extract(
 
     // 1) 拿 message_resource.db
     let resource_path = db
-        .get("message/message_resource.db")
+        .get(crate::adapters::wechat::media::resource::source_key())
         .await?
         .context("无法解密 message_resource.db（请确认 all_keys.json 包含该 DB 的密钥）")?;
 

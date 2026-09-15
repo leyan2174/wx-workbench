@@ -1,7 +1,8 @@
-use super::history::{parse_msg_type, parse_time, parse_time_end};
 use super::output::{emit_warnings, print_response, OutputOpts};
 use crate::ipc::Request;
+use crate::service::message_filter::cli_type as parse_msg_type;
 use crate::service::query_client as transport;
+use crate::service::time::{parse_time, parse_time_end};
 use anyhow::Result;
 
 pub fn cmd_search(

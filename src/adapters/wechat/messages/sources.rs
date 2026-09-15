@@ -7,7 +7,7 @@ impl SourceRequest {
     }
 }
 pub const fn sessions() -> SourceRequest {
-    SourceRequest("session/session.db")
+    SourceRequest(super::probe::source_key())
 }
 pub const fn contacts() -> SourceRequest {
     SourceRequest("contact/contact.db")

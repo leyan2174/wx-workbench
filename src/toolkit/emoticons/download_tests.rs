@@ -133,8 +133,12 @@ fn shared_publication_never_overwrites_an_image_arriving_during_fetch() {
                 Err(error) => panic!("synthetic listener failed: {error}"),
             }
         };
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         let mut request = [0; 4096];
         stream.read(&mut request).unwrap();

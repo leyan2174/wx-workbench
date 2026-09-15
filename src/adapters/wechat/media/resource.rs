@@ -1,4 +1,9 @@
 //! Validated WeChat resource-table reads; no decoding or publication.
+
+/// Host cache request; the physical WeChat source name is adapter-owned.
+pub const fn source_key() -> &'static str {
+    "message/message_resource.db"
+}
 use anyhow::{ensure, Context, Result};
 use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;

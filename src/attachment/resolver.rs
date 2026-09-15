@@ -13,6 +13,7 @@
 //! - Windows: `<root>\xwechat_files\<wxid>`（root 从 `%APPDATA%\Tencent\xwechat\config\*.ini` 读）
 
 use anyhow::{anyhow, Result};
+#[cfg(test)]
 use chrono::TimeZone;
 use std::path::{Path, PathBuf};
 
@@ -57,75 +58,42 @@ pub fn find_dat_file(
     file_md5: &str,
     create_time: i64,
 ) -> Option<PathBuf> {
-    let chat_hash = format!("{:x}", md5::compute(chat.as_bytes()));
-    let chat_dir = attach_root.join(&chat_hash);
-    if !chat_dir.is_dir() {
-        return None;
-    }
-
-    // 第一步：试 create_time 当月 + 前后各一个月（共 3 个候选目录）
-    let candidates_ym: Vec<String> = three_month_candidates(create_time);
-    for ym in &candidates_ym {
-        let img_dir = chat_dir.join(ym).join("Img");
-        if let Some(p) = pick_best_in_img_dir(&img_dir, file_md5) {
-            return Some(p);
-        }
-    }
-
-    // 第二步 fallback：扫整个 chat_dir 的所有月份子目录
-    let entries = std::fs::read_dir(&chat_dir).ok()?;
-    let mut all_months: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
-    // 已经试过的 3 个候选可以跳过，但成本极小；保留全量扫
-    all_months.sort();
-    for month_dir in all_months {
-        let img_dir = month_dir.join("Img");
-        if let Some(p) = pick_best_in_img_dir(&img_dir, file_md5) {
-            return Some(p);
-        }
-    }
-    None
+    crate::adapters::wechat::media::legacy_dat::find_dat_file(
+        &LocalDatIo,
+        attach_root,
+        chat,
+        file_md5,
+        create_time,
+    )
 }
 
+struct LocalDatIo;
+impl crate::adapters::wechat::media::legacy_dat::LegacyDatIo for LocalDatIo {
+    fn is_dir(&self, path: &Path) -> bool {
+        path.is_dir()
+    }
+    fn is_file(&self, path: &Path) -> bool {
+        path.is_file()
+    }
+    fn directories(&self, path: &Path) -> Option<Vec<PathBuf>> {
+        Some(
+            std::fs::read_dir(path)
+                .ok()?
+                .filter_map(|entry| entry.ok())
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect(),
+        )
+    }
+}
+
+pub use crate::adapters::wechat::media::legacy_dat::attach_root_for;
+
+#[cfg(test)]
+use crate::adapters::wechat::media::legacy_dat::three_month_candidates;
+#[cfg(test)]
 fn pick_best_in_img_dir(img_dir: &Path, file_md5: &str) -> Option<PathBuf> {
-    if !img_dir.is_dir() {
-        return None;
-    }
-    let full = img_dir.join(format!("{}.dat", file_md5));
-    if full.is_file() {
-        return Some(full);
-    }
-    let hd = img_dir.join(format!("{}_h.dat", file_md5));
-    if hd.is_file() {
-        return Some(hd);
-    }
-    let thumb = img_dir.join(format!("{}_t.dat", file_md5));
-    if thumb.is_file() {
-        return Some(thumb);
-    }
-    None
-}
-
-fn three_month_candidates(unix_ts: i64) -> Vec<String> {
-    use chrono::{Datelike, Duration};
-    let dt = match chrono::Local.timestamp_opt(unix_ts, 0).single() {
-        Some(d) => d,
-        None => return Vec::new(),
-    };
-    let prev = dt - Duration::days(31);
-    let next = dt + Duration::days(31);
-    [prev, dt, next]
-        .iter()
-        .map(|d| format!("{:04}-{:02}", d.year(), d.month()))
-        .collect()
-}
-
-/// 把 `<wxchat_base>` （即 `db_storage` 父目录）拼成 `<base>/msg/attach`。
-pub fn attach_root_for(wxchat_base: &Path) -> PathBuf {
-    wxchat_base.join("msg").join("attach")
+    crate::adapters::wechat::media::legacy_dat::pick_best_in_img_dir(&LocalDatIo, img_dir, file_md5)
 }
 
 /// 完整流程：用 `attachment_id` 拿 md5 + 找 .dat。失败返回带具体诊断信息的 `Err`。
@@ -138,12 +106,7 @@ pub fn resolve_blocking(
     resource_db_path: &Path,
     attach_root: &Path,
 ) -> Result<ResolvedAttachment> {
-    let lo32_type: i64 = match id.kind {
-        super::AttachmentKind::Image => 3,
-        super::AttachmentKind::Voice => 34,
-        super::AttachmentKind::Video => 43,
-        super::AttachmentKind::File => 49,
-    };
+    let lo32_type = crate::adapters::wechat::media::attachment_kind::resource_type(id.kind);
 
     let meta = lookup_md5_blocking(
         resource_db_path,

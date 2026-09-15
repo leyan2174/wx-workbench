@@ -574,32 +574,21 @@ impl DbCache {
             "延迟探测行数上限须在 1..10000 内"
         );
         let resolved = self
-            .get_with_timing("session/session.db")
+            .get_with_timing(crate::adapters::wechat::messages::probe::source_key())
             .await?
             .context("延迟探测无法加载当前账号 session.db")?;
         let path = resolved.resolved.path;
-        let (rows_read, latest_timestamp, query_duration) = tokio::task::spawn_blocking(move || {
-            let started = Instant::now();
-            let (count, latest) = {
-                let conn = rusqlite::Connection::open_with_flags(&path,
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
-                conn.busy_timeout(Duration::from_secs(1))?;
-                let mut statement = conn.prepare(
-                    "SELECT last_timestamp FROM SessionTable WHERE last_timestamp > 0 ORDER BY last_timestamp DESC LIMIT ?1"
-                )?;
-                let mut rows = statement.query([limit as i64])?;
-                let mut count = 0;
-                let mut latest: Option<i64> = None;
-                while let Some(row) = rows.next()? {
-                    let timestamp: i64 = row.get(0)?;
-                    ensure!(timestamp > 0, "延迟探测查询返回无效时间戳");
-                    count += 1;
-                    latest = Some(latest.map_or(timestamp, |old| old.max(timestamp)));
-                }
-                (count, latest)
-            };
-            Ok::<_, anyhow::Error>((count, latest, started.elapsed()))
-        }).await??;
+        let (rows_read, latest_timestamp, query_duration) =
+            tokio::task::spawn_blocking(move || {
+                let started = Instant::now();
+                let observation = crate::adapters::wechat::messages::probe::observe(&path, limit)?;
+                Ok::<_, anyhow::Error>((
+                    observation.rows_read,
+                    observation.latest_timestamp,
+                    started.elapsed(),
+                ))
+            })
+            .await??;
         let db_decrypt = resolved.timing.db_decrypt.map(milliseconds);
         let wal_apply = resolved.timing.wal_apply.map(milliseconds);
         let decrypt_skipped_reason = match resolved.resolved.mode {

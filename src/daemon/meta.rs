@@ -1,13 +1,11 @@
 //! Freshness metadata appended to every q_* response.
 //!
-//! 背景：`all_keys.json` 是 `wx init` 时的快照。WeChat 在 daemon 启动后随时可能创建
-//! 新的 `message_N.db` 分片；如果只信任 init 时收到的 `msg_db_keys` 列表，新分片里
-//! 的数据对 daemon 完全不可见 → 调用方拿到的是看似正常但缺数据的结果（"stale"）。
+//! 后台持有的来源与密钥清单是快照。适配器可能发现运行期间新增的来源；
+//! 不能把旧清单的可读结果误报成完整结果。
 //!
 //! 本模块的职责：
 //! 1. 提供 `Meta` 结构体，由各 `q_*` 函数填充后塞进 response（顶层 `meta` 字段）。
-//! 2. 提供 `discover_unknown_shards(db_dir, msg_db_keys)`：扫描磁盘上当前真实存在的
-//!    `message/message_*.db` 文件，diff 出 daemon 未持有 enc_key 的"未知分片"列表。
+//! 2. 委托微信适配器发现未知来源，向既有诊断协议投影来源名称。
 //! 3. 集中 `MetaStatus` 的判定规则，避免 8 个 q_* 各自判，规则漂移。
 
 use serde::Serialize;
@@ -106,7 +104,7 @@ pub fn derive_status(
 /// 的未知分片。
 ///
 /// 契约：
-/// - 返回值一律是 `/` 分隔的 rel_key（如 `message/message_3.db`），与 `all_keys.json` 对齐
+/// - 返回值为适配器规范化的来源键，与账号密钥清单对齐
 /// - 结果按字典序排序，方便测试和 CLI 稳定显示
 /// - 排除 `_fts*` / `_resource*`，因为它们是索引/附件库，不属于消息分片真相
 pub fn discover_unknown_shards(db_dir: &Path, known: &[String]) -> Vec<String> {
@@ -118,52 +116,13 @@ pub fn discover_unknown_shards_checked(
     db_dir: &Path,
     known: &[String],
 ) -> anyhow::Result<Vec<String>> {
-    let known_set: std::collections::HashSet<String> = known
-        .iter()
-        .map(|k| k.replace('\\', "/").to_ascii_lowercase())
-        .collect();
-
-    let msg_dir = db_dir.join("message");
-    let entries = std::fs::read_dir(&msg_dir)?;
-
-    let mut unknown: Vec<String> = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name_str) = name.to_str() else {
-            continue;
-        };
-        if !is_message_shard(name_str) {
-            continue;
-        }
-        anyhow::ensure!(
-            entry.file_type()?.is_file(),
-            "message shard is not a regular file"
-        );
-        let rel = format!("message/{}", name_str.to_ascii_lowercase());
-        if !known_set.contains(&rel) {
-            unknown.push(rel);
-        }
-    }
-    unknown.sort();
-    Ok(unknown)
-}
-
-fn is_message_shard(file_name: &str) -> bool {
-    let file_name = file_name.to_ascii_lowercase();
-    if !file_name.starts_with("message_") || !file_name.ends_with(".db") {
-        return false;
-    }
-    if file_name.contains("_fts") || file_name.contains("_resource") {
-        return false;
-    }
-    let stem = &file_name["message_".len()..file_name.len() - ".db".len()];
-    !stem.is_empty() && stem.chars().all(|c| c.is_ascii_digit())
+    crate::adapters::wechat::messages::inventory::unknown_ordinary_sources(db_dir, known)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::wechat::messages::inventory::is_message_shard;
 
     #[test]
     fn is_message_shard_accepts_normal_shards() {

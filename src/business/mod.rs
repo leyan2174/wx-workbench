@@ -1,6 +1,7 @@
 //! Account-scoped business contracts, without storage or execution dependencies.
 pub mod archive;
 pub mod articles;
+pub mod attachment_content;
 pub mod chat_plan;
 pub mod contacts;
 pub mod emoticons;

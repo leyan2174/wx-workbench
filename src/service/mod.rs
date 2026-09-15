@@ -2,6 +2,7 @@
 pub mod client;
 pub mod config_pin;
 pub mod mcp;
+pub mod message_filter;
 pub mod operation_client;
 pub mod operation_protocol;
 pub mod operation_requests;

@@ -1,8 +1,9 @@
 //! WeChat structured message decoding; metadata only, never resolves media.
+use super::messages::{export_content::refer_summary, transfer};
 use crate::business::structured_message::{
     ChatItem, ContentIssue, StructuredMessage as RichMessage,
 };
-use crate::message::{export_content::refer_summary, split_group_content, transfer, xml};
+use crate::message::{split_group_content, xml};
 use roxmltree::Node;
 
 const MAX_INPUT_BYTES: usize = 131_072;
@@ -243,31 +244,26 @@ fn parse_app(body: &str, app: Node<'_, '_>, subtype: i64) -> Option<RichMessage>
         }
         2000 => {
             child(app, "wcpayinfo")?;
-            // Shared parser preserves transfer spelling/case quirks and labels.
+            // Shared parser owns transfer spelling/case quirks and status decoding.
             // Its unbounded XML entry is used only after the bounded outer parse.
             let parsed = transfer::parse(body).ok()?;
-            let info = parsed.info;
-            let paysubtype = plain(&info.paysubtype, 32);
-            let direction = if matches!(paysubtype.as_str(), "1" | "3" | "4" | "5" | "7" | "8") {
-                plain(&info.paysubtype_label, 100)
-            } else {
-                String::new()
-            };
-            let fee_desc = plain(&info.fee_desc, 100);
-            let pay_memo = plain(&info.pay_memo, 200);
+            let info = parsed.details;
+            let raw_subtype = plain(&info.raw_subtype, 32);
+            let amount_text = plain(&info.amount_text, 100);
+            let memo = plain(&info.memo, 200);
             if title.is_empty()
-                && paysubtype.is_empty()
-                && fee_desc.is_empty()
-                && pay_memo.is_empty()
+                && raw_subtype.is_empty()
+                && amount_text.is_empty()
+                && memo.is_empty()
             {
                 return None;
             }
             Some(RichMessage::Transfer {
                 title,
-                direction,
-                paysubtype,
-                fee_desc,
-                pay_memo,
+                status: info.status,
+                raw_subtype,
+                amount_text,
+                memo,
             })
         }
         _ => {
@@ -287,13 +283,46 @@ fn parse_app(body: &str, app: Node<'_, '_>, subtype: i64) -> Option<RichMessage>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn numeric_safe_previews_do_not_change_legacy_summary_or_transfer_detail_policy() {
+        use crate::adapters::wechat::messages::{summary, transfer};
+        let video = "<msg><videomsg playlength='next-format'/></msg>";
+        assert_eq!(summary::video(video), "[视频] next-format秒");
+        assert!(super::decode(43, video, false).is_err());
+        let voice = "<msg><voicemsg voicelength='1_000'/></msg>";
+        assert_eq!(summary::voice(voice), "[语音]");
+        assert_eq!(
+            super::decode(34, voice, false).unwrap(),
+            super::RichMessage::Voice { duration: 1.0 }
+        );
+        let xml = "<msg><appmsg><type>2000</type><wcpayinfo><paysubtype>99</paysubtype><feedesc>0.010 CNY</feedesc></wcpayinfo></appmsg></msg>";
+        let details = transfer::parse(xml).unwrap();
+        assert_eq!(
+            crate::message::transfer::status_label(&details.details),
+            "未知(paysubtype=99)"
+        );
+        let super::RichMessage::Transfer {
+            status,
+            amount_text,
+            ..
+        } = super::decode(49, xml, false).unwrap()
+        else {
+            panic!("expected transfer")
+        };
+        assert_eq!(
+            status,
+            crate::business::structured_message::TransferStatus::Unknown
+        );
+        assert_eq!(amount_text, "0.010 CNY");
+    }
+
     use super::*;
     use serde_json::{json, Value};
 
     fn parse(local_type: i64, content: &str, is_group: bool) -> Option<Value> {
         super::decode(local_type, content, is_group)
             .ok()
-            .map(|message| serde_json::to_value(message).expect("message projection"))
+            .map(|message| crate::message::structured_message::project(&message))
     }
 
     #[test]

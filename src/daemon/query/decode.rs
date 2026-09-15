@@ -201,7 +201,9 @@ fn lookup_selected(
         return Ok(failure(1, "消息 content 为空或无法解码".into()));
     }
     if let DecodeKind::Location = decode_kind {
-        return match crate::message::location::parse(&xml) {
+        return match crate::adapters::wechat::messages::location::parse(&xml)
+            .map(crate::message::location::Location::from)
+        {
             Some(location) => Ok(
                 json!({"exit_code":0,"text":location.render(),"location":location,"username":username,"local_id":local_id,"create_time":time,"source":path.file_name().unwrap_or_default().to_string_lossy()}),
             ),
@@ -211,7 +213,9 @@ fn lookup_selected(
             )),
         };
     }
-    match crate::message::transfer::parse(&xml) {
+    match crate::adapters::wechat::messages::transfer::parse(&xml)
+        .map(crate::message::transfer::Transfer::from)
+    {
         Ok(transfer) => Ok(
             json!({"exit_code":0,"text":transfer.render(),"transfer":transfer,"username":username,"local_id":local_id,"create_time":time,"source":path.file_name().unwrap_or_default().to_string_lossy()}),
         ),

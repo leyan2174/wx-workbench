@@ -1,4 +1,8 @@
 //! Account-bound media evidence. Paths and resource coordinates stay in this adapter.
+pub(crate) mod attachment_content;
+pub(crate) mod attachment_kind;
+pub(crate) mod directory_layout;
+pub(crate) mod legacy_dat;
 pub(crate) mod local_emoticon;
 pub(crate) mod local_read;
 pub mod resource;

@@ -1,3 +1,5 @@
+#[path = "../../src/business/attachment_content.rs"]
+pub mod attachment_content;
 #[path = "../../src/business/emoticons.rs"]
 pub mod emoticons;
 #[path = "../../src/business/media.rs"]

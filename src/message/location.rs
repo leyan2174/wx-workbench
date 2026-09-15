@@ -3,26 +3,6 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-const TEXT_FIELDS: &[&str] = &[
-    "label",
-    "poiname",
-    "poiid",
-    "poiCategoryTips",
-    "poiBusinessHour",
-    "poiPhone",
-    "poiPriceTips",
-    "isFromPoiList",
-    "cityname",
-    "adcode",
-    "buildingId",
-    "floorName",
-    "infourl",
-    "maptype",
-    "scale",
-    "fromusername",
-    "version",
-];
-
 #[derive(Debug, Serialize)]
 pub struct Location {
     #[serde(flatten)]
@@ -32,41 +12,35 @@ pub struct Location {
     pub category_top: String,
 }
 
-pub fn parse(xml: &str) -> Option<Location> {
-    let doc = super::xml::parse(xml)?;
-    let node = doc
-        .root_element()
-        .descendants()
-        .skip(1)
-        .find(|node| node.has_tag_name("location"))?;
-    let fields: BTreeMap<String, String> = TEXT_FIELDS
-        .iter()
-        .map(|name| {
-            (
-                (*name).to_owned(),
-                super::xml::collapse(node.attribute(*name).unwrap_or("")),
-            )
-        })
-        .collect();
-    let coordinate = |name| {
-        node.attribute(name)?
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|value| value.is_finite())
-    };
-    let category_top = fields["poiCategoryTips"]
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_owned();
-    Some(Location {
-        fields,
-        // 微信字段方向与常见平面坐标习惯相反，不能交换。
-        lat: coordinate("x"),
-        lng: coordinate("y"),
-        category_top,
-    })
+impl From<crate::business::structured_message::LocationContent> for Location {
+    fn from(value: crate::business::structured_message::LocationContent) -> Self {
+        Self {
+            fields: [
+                ("label".to_owned(), value.summary.address),
+                ("poiname".to_owned(), value.summary.name),
+                ("poiid".to_owned(), value.point_id),
+                ("poiCategoryTips".to_owned(), value.category_tips),
+                ("poiBusinessHour".to_owned(), value.business_hours),
+                ("poiPhone".to_owned(), value.phone),
+                ("poiPriceTips".to_owned(), value.price_tips),
+                ("isFromPoiList".to_owned(), value.from_point_list),
+                ("cityname".to_owned(), value.city),
+                ("adcode".to_owned(), value.administrative_code),
+                ("buildingId".to_owned(), value.building),
+                ("floorName".to_owned(), value.floor),
+                ("infourl".to_owned(), value.info_url),
+                ("maptype".to_owned(), value.map_type),
+                ("scale".to_owned(), value.map_scale),
+                ("fromusername".to_owned(), value.sender),
+                ("version".to_owned(), value.version),
+            ]
+            .into_iter()
+            .collect(),
+            lat: value.latitude,
+            lng: value.longitude,
+            category_top: value.summary.category,
+        }
+    }
 }
 
 impl Location {
@@ -109,31 +83,42 @@ impl Location {
     }
 
     pub fn summary(&self) -> String {
-        let head = if self.category_top.is_empty() {
-            "[位置]".to_owned()
-        } else {
-            format!("[位置·{}]", self.category_top)
-        };
-        let name = &self.fields["poiname"];
-        let label = &self.fields["label"];
-        if name.is_empty() || (name.starts_with('[') && name.ends_with(']')) {
-            return if label.is_empty() {
-                head
-            } else {
-                format!("{head} {label}")
-            };
-        }
-        if label.is_empty() || name == label {
-            format!("{head} {name}")
-        } else {
-            format!("{head} {name} @ {label}")
-        }
+        crate::message::summary::location(&crate::business::structured_message::LocationSummary {
+            name: self.fields["poiname"].clone(),
+            address: self.fields["label"].clone(),
+            category: self.category_top.clone(),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Independent wire-format expectation, not the adapter's source-field list.
+    const TEXT_FIELDS: &[&str] = &[
+        "label",
+        "poiname",
+        "poiid",
+        "poiCategoryTips",
+        "poiBusinessHour",
+        "poiPhone",
+        "poiPriceTips",
+        "isFromPoiList",
+        "cityname",
+        "adcode",
+        "buildingId",
+        "floorName",
+        "infourl",
+        "maptype",
+        "scale",
+        "fromusername",
+        "version",
+    ];
+
+    fn parse(xml: &str) -> Option<Location> {
+        crate::adapters::wechat::messages::location::parse(xml).map(Into::into)
+    }
 
     #[test]
     fn matches_legacy_structured_fields_and_detailed_rendering() {

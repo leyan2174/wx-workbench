@@ -83,7 +83,7 @@ pub(super) async fn q_export_username_with_shape(
     let names = names.map.clone();
     let result = tokio::task::spawn_blocking(move || {
         let is_group = username.ends_with("@chatroom");
-        let export_context = crate::message::export_content::ExportContext {
+        let export_context = crate::adapters::wechat::messages::export_content::ExportContext {
             is_group,
             chat_username: &username,
             chat_display_name: &display,
@@ -152,15 +152,16 @@ pub(super) async fn q_export_username_with_shape(
                 } else {
                     text
                 };
-                let extracted = crate::message::export_content::extract_with_context(
-                    kind,
-                    (!matches!(
-                        row.content,
-                        crate::adapters::wechat::messages::StoredContent::Null
-                    ))
-                    .then_some(body),
-                    &export_context,
-                )?;
+                let extracted =
+                    crate::adapters::wechat::messages::export_content::extract_with_context(
+                        kind,
+                        (!matches!(
+                            row.content,
+                            crate::adapters::wechat::messages::StoredContent::Null
+                        ))
+                        .then_some(body),
+                        &export_context,
+                    )?;
                 let mut extras = extracted.extras;
                 extras.insert("source".into(), Value::String(source.clone()));
                 if shape == ExportShape::Directory {

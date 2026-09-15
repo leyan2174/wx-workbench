@@ -126,19 +126,16 @@ impl Proof {
     fn validate(&self) -> Result<()> {
         let e = &self.evidence;
         validate_lookup(&e.username, e.media_local_id)?;
-        let source = |s: &str, prefix: &str| {
-            s.len() <= 128
-                && s.strip_prefix(prefix)
-                    .and_then(|v| v.strip_suffix(".db"))
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-        };
         ensure!(
-            source(&e.message_source, "message/message_")
-                && source(&e.media_source, "message/media_")
-                && e.message_table == format!("Msg_{:x}", md5::compute(e.username.as_bytes()))
-                && e.message_local_id > 0
-                && e.server_id != 0
-                && self.audio_bytes > 0
+            crate::adapters::wechat::messages::read::layout::valid_voice_source(
+                &e.username,
+                &e.message_source,
+                &e.media_source,
+                &e.message_table,
+                e.message_local_id,
+                e.server_id,
+                Some(128),
+            ) && self.audio_bytes > 0
                 && self.audio_bytes <= MAX_VOICE_BYTES
                 && is_digest(&self.audio_sha256),
             "invalid receipt evidence"

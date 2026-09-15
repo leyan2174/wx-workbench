@@ -4,10 +4,8 @@ use super::{
     strict_message::{self, Resolution},
     DbCache, Names,
 };
-use crate::message::export_content::{refer_label as label, refer_summary as summary};
-use crate::message::xml;
-use anyhow::{ensure, Context, Result};
-use roxmltree::Node;
+use crate::adapters::wechat::messages::reply::integer;
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -81,35 +79,6 @@ fn failure(code: i32, text: &str) -> Value {
     json!({"exit_code": code, "text": text})
 }
 
-fn child<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> Option<Node<'a, 'input>> {
-    node.children()
-        .find(|n| n.has_tag_name(tag) && n.tag_name().namespace().is_none())
-}
-
-fn text<'a, 'input>(node: Node<'a, 'input>, tag: &str) -> &'a str {
-    child(node, tag).and_then(|n| n.text()).unwrap_or("")
-}
-
-fn appmsg<'a, 'input>(node: Node<'a, 'input>) -> Option<Node<'a, 'input>> {
-    node.descendants()
-        .skip(1)
-        .find(|n| n.has_tag_name("appmsg") && n.tag_name().namespace().is_none())
-}
-
-// 沿用原生导出格式器支持的 ASCII 十进制整数子集，包括合法的下划线分隔。
-fn integer(value: &str) -> Option<i64> {
-    let value = value.trim();
-    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
-    if digits.is_empty()
-        || !digits
-            .split('_')
-            .all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
-    {
-        return None;
-    }
-    value.replace('_', "").parse().ok()
-}
-
 fn parse_refer(
     body: &str,
     username: &str,
@@ -117,48 +86,20 @@ fn parse_refer(
     me: &str,
     names: &HashMap<String, String>,
 ) -> Result<Value> {
-    let doc = xml::parse(body).context("unsafe XML")?;
-    let app = appmsg(doc.root_element()).context("missing appmsg")?;
-    ensure!(integer(text(app, "type")) == Some(57), "not type 57");
-    let refer = child(app, "refermsg").context("missing refermsg")?;
-    let field = |key| xml::collapse(text(refer, key));
-    let kind = field("type");
-    let from = field("fromusr");
-    let name = field("displayname");
-    let sender = if username.ends_with("@chatroom") {
-        if from.is_empty() {
-            name.clone()
-        } else if !me.is_empty() && from == me {
-            "me".into()
-        } else {
-            names.get(&from).unwrap_or(&from).clone()
-        }
-    } else if !from.is_empty() {
-        if from == username {
-            display.into()
-        } else if !me.is_empty() && from == me {
-            "me".into()
-        } else {
-            names.get(&from).cloned().unwrap_or_else(|| {
-                if name.is_empty() {
-                    from.clone()
-                } else {
-                    name.clone()
-                }
-            })
-        }
-    } else if name == display {
-        display.into()
-    } else if !me.is_empty() && names.get(me).map(String::as_str).unwrap_or(me) == name {
-        "me".into()
-    } else {
-        name.clone()
-    };
-    Ok(json!({"reply_text": xml::collapse(text(app, "title")),
-        "refer_sender": sender, "refer_type": kind, "refer_type_label": label(&kind).unwrap_or(""),
-        "refer_summary": summary(&kind, text(refer, "content")),
-        "refer_svrid": field("svrid"), "refer_createtime": field("createtime"),
-        "refer_fromusr": from, "refer_chatusr": field("chatusr"), "refer_displayname": name}))
+    let parsed =
+        crate::adapters::wechat::messages::reply::parse_refer(body, username, display, me, names)?;
+    Ok(json!({
+        "reply_text": parsed.reply.text,
+        "refer_sender": parsed.reply.sender_label,
+        "refer_summary": parsed.reply.summary,
+        "refer_type": parsed.kind,
+        "refer_type_label": parsed.kind_label,
+        "refer_svrid": parsed.server_id,
+        "refer_createtime": parsed.created_at,
+        "refer_fromusr": parsed.author,
+        "refer_chatusr": parsed.conversation_author,
+        "refer_displayname": parsed.display_name,
+    }))
 }
 
 fn render(refer: &Value) -> String {

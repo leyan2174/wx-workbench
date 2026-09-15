@@ -466,19 +466,8 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
     if let Some(types) = mapped.remove("msg_types") {
         let mut resolved = Vec::new();
         for item in types.as_array().into_iter().flatten() {
-            let kind = match item.as_str().unwrap().trim().to_ascii_lowercase().as_str() {
-                "text" => 1,
-                "image" => 3,
-                "voice" => 34,
-                "namecard" => 42,
-                "video" => 43,
-                "emoji" => 47,
-                "location" => 48,
-                "app" | "file" => 49,
-                "voip" => 50,
-                "system" => 10000,
-                _ => return Err("Unknown message type"),
-            };
+            let kind = crate::service::message_filter::mcp_type(item.as_str().unwrap())
+                .ok_or("Unknown message type")?;
             if !resolved.contains(&kind) {
                 resolved.push(kind);
             }

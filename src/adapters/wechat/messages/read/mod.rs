@@ -2,6 +2,8 @@
 pub mod attachments;
 pub mod diagnostics;
 pub mod export;
+#[cfg(test)]
+mod filter_tests;
 pub mod layout;
 use crate::business::messages::{
     self as domain, Conversation, EvidenceRef, MessageRef, MessageSelector, SourceKind,
@@ -57,6 +59,7 @@ pub struct SourceFile {
     pub kind: SourceKind,
 }
 /// Numeric WeChat filters are a legacy protocol policy, not business message kinds.
+/// Keep wire 43/10000 narrower than Kind::Video/System; do not normalize here.
 #[derive(Default)]
 pub struct LegacyReadPolicy {
     pub local_types: Vec<i64>,
@@ -339,7 +342,9 @@ impl Snapshot {
                 ensure!(streams.len() < MAX_STREAMS, domain::Error::Limit);
                 streams.push(Stream {
                     source: sources.len(),
-                    conversation: Conversation::Unmapped(table[4..].to_ascii_lowercase()),
+                    conversation: Conversation::Unmapped(domain::UnmappedConversation(
+                        table[4..].to_ascii_lowercase(),
+                    )),
                     table,
                     row_key,
                     columns: cols,

@@ -6,7 +6,6 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::OnceLock,
 };
 
 #[path = "../../../src/daemon/query/mcp_attachments.rs"]
@@ -14,10 +13,6 @@ mod attachments;
 #[path = "../../../src/daemon/query/strict_message.rs"]
 mod strict_message;
 
-fn msg_table_re() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
-}
 // 与 query.rs 的私有 glue 同形，完整性判断仍委托真实 meta helper。
 fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Result<()> {
     let unknown = mcp_readonly_security_harness::meta::discover_unknown_shards_checked(

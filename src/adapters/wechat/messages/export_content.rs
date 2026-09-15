@@ -98,7 +98,7 @@ fn system(content: &str) -> String {
         return "[系统消息]".into();
     }
     if content.contains("<sysmsg") {
-        if let Some(doc) = super::xml::parse(content) {
+        if let Some(doc) = crate::message::xml::parse(content) {
             if let Some(text) = descendant(doc.root_element(), "content").and_then(|n| n.text()) {
                 if !text.is_empty() {
                     return text.trim().to_owned();
@@ -110,7 +110,7 @@ fn system(content: &str) -> String {
 }
 
 fn sticker(content: &str) -> String {
-    let label = super::xml::parse(content).and_then(|doc| {
+    let label = crate::message::xml::parse(content).and_then(|doc| {
         let emoji = descendant(doc.root_element(), "emoji")?;
         decode_sticker_desc(emoji.attribute("desc")?)
     });
@@ -207,7 +207,7 @@ fn app(
         return Ok(out);
     }
     // 仅旧代码的精确 type=19 标记允许放宽外层 XML，不能扩大其他类型的解析上限。
-    let doc = super::xml::parse(content).or_else(|| {
+    let doc = crate::message::xml::parse(content).or_else(|| {
         let upper = content.to_ascii_uppercase();
         (content.contains("<type>19</type>")
             && content.chars().take(500_001).count() <= 500_000
@@ -220,7 +220,7 @@ fn app(
     let Some(node) = descendant(doc.root_element(), "appmsg") else {
         return Ok(out);
     };
-    let title = super::xml::collapse(child_text(node, "title"));
+    let title = crate::message::xml::collapse(child_text(node, "title"));
     let kind = integer(child_text(node, "type")).unwrap_or_else(|| subtype.to_string());
     let label = match kind.as_str() {
         "19" | "57" | "51" | "2001" => {
@@ -233,9 +233,14 @@ fn app(
             return Ok(out);
         }
         "2000" => {
-            out.content = Some(super::transfer::summary(node, &title));
+            out.content = Some(crate::message::transfer::summary(
+                super::transfer::extract(node).as_ref(),
+                &title,
+            ));
             // extras 检测不使用高位 subtype 回退，这是旧实现与正文分支的差异。
-            if integer(&super::xml::collapse(child_text(node, "type"))).as_deref() == Some("2000") {
+            if integer(&crate::message::xml::collapse(child_text(node, "type"))).as_deref()
+                == Some("2000")
+            {
                 // 现有转账入口采用 Rust 整数语法；仅规范化已确认的 type，保留其余字段。
                 let type_node = node
                     .children()
@@ -243,10 +248,9 @@ fn app(
                     .unwrap();
                 let mut normalized = content.to_owned();
                 normalized.replace_range(type_node.range(), "<type>2000</type>");
-                if let Some(fields) = super::transfer::parse(&normalized)
-                    .ok()
-                    .and_then(|value| value.export_fields())
-                {
+                if let Some(fields) = super::transfer::parse(&normalized).ok().and_then(|value| {
+                    crate::message::transfer::Transfer::from(value).export_fields()
+                }) {
                     out.extras.insert("type".into(), "transfer".into());
                     out.extras.insert("transfer".into(), Value::Object(fields));
                 }
@@ -287,8 +291,8 @@ fn titled(label: &str, title: &str) -> String {
 }
 
 fn finder(node: Node<'_, '_>, title: &str) -> String {
-    let nickname = super::xml::collapse(path_text(node, "finderFeed/nickname"));
-    let desc = super::xml::collapse(path_text(node, "finderFeed/desc"));
+    let nickname = crate::message::xml::collapse(path_text(node, "finderFeed/nickname"));
+    let desc = crate::message::xml::collapse(path_text(node, "finderFeed/desc"));
     if nickname.is_empty() {
         return titled("视频号", title);
     }
@@ -305,8 +309,8 @@ fn redpacket(node: Node<'_, '_>, title: &str) -> String {
     let Some(info) = child(node, "wcpayinfo") else {
         return titled("红包", title);
     };
-    let scene = super::xml::collapse(child_text(info, "scenetext"));
-    let greeting = super::xml::collapse(child_text(info, "sendertitle"));
+    let scene = crate::message::xml::collapse(child_text(info, "scenetext"));
+    let greeting = crate::message::xml::collapse(child_text(info, "sendertitle"));
     let mut parts = vec![if scene.is_empty() {
         "[红包]".into()
     } else {
@@ -344,7 +348,7 @@ fn quote_sender(user: &str, display: &str, context: &ExportContext<'_>) -> Strin
             return display.to_owned();
         }
         // 群聊账号恰等于聊天账号时仍按引用账号解析，prefix 因此也传入 user。
-        return super::identity::export_sender(
+        return crate::message::identity::export_sender(
             user,
             user,
             context.is_group,
@@ -394,18 +398,18 @@ pub(crate) fn refer_summary(kind: &str, content: &str) -> String {
         };
     }
     if kind == "1" {
-        let text = super::xml::collapse(content);
+        let text = crate::message::xml::collapse(content);
         return truncate(&text, 160);
     }
     if kind == "49" {
-        let Some(doc) = super::xml::parse(content) else {
+        let Some(doc) = crate::message::xml::parse(content) else {
             return "[卡片]".into();
         };
         let Some(inner) = descendant(doc.root_element(), "appmsg") else {
             return "[卡片]".into();
         };
-        let inner_type = super::xml::collapse(child_text(inner, "type"));
-        let title = super::xml::collapse(child_text(inner, "title"));
+        let inner_type = crate::message::xml::collapse(child_text(inner, "type"));
+        let title = crate::message::xml::collapse(child_text(inner, "title"));
         let label = match inner_type.as_str() {
             "5" => "链接",
             "6" => "文件",
@@ -435,10 +439,10 @@ fn refer(node: Node<'_, '_>, title: &str, context: &ExportContext<'_>) -> String
     let Some(info) = child(node, "refermsg") else {
         return reply.to_owned();
     };
-    let kind = super::xml::collapse(child_text(info, "type"));
+    let kind = crate::message::xml::collapse(child_text(info, "type"));
     let summary = refer_summary(&kind, child_text(info, "content"));
-    let user = super::xml::collapse(child_text(info, "fromusr"));
-    let display = super::xml::collapse(child_text(info, "displayname"));
+    let user = crate::message::xml::collapse(child_text(info, "fromusr"));
+    let display = crate::message::xml::collapse(child_text(info, "displayname"));
     let sender = quote_sender(&user, &display, context);
     let prefix = if sender.is_empty() {
         "回复: ".into()
@@ -459,8 +463,8 @@ fn truncate(text: &str, limit: usize) -> String {
 
 fn record_item(item: Node<'_, '_>) -> String {
     let kind = item.attribute("datatype").unwrap_or("").trim();
-    let title = || super::xml::collapse(child_text(item, "datatitle"));
-    let desc = || super::xml::collapse(child_text(item, "datadesc"));
+    let title = || crate::message::xml::collapse(child_text(item, "datatitle"));
+    let desc = || crate::message::xml::collapse(child_text(item, "datadesc"));
     match kind {
         "1" => {
             let text = desc();
@@ -484,7 +488,8 @@ fn record_item(item: Node<'_, '_>) -> String {
         "19" => {
             let mut text = title();
             if text.is_empty() {
-                text = super::xml::collapse(path_text(item, "appbranditem/sourcedisplayname"))
+                text =
+                    crate::message::xml::collapse(path_text(item, "appbranditem/sourcedisplayname"))
             }
             if text.is_empty() {
                 text = "小程序".into()
@@ -492,7 +497,7 @@ fn record_item(item: Node<'_, '_>) -> String {
             titled("小程序", &text)
         }
         "22" => {
-            let text = super::xml::collapse(path_text(item, "finderFeed/desc"));
+            let text = crate::message::xml::collapse(path_text(item, "finderFeed/desc"));
             titled("视频号", &text.chars().take(80).collect::<String>())
         }
         "29" => {
@@ -543,7 +548,7 @@ fn record(node: Node<'_, '_>, title: &str) -> String {
         return format!("[聊天记录] {fallback}");
     };
     let root = doc.root_element();
-    let inner_title = super::xml::collapse(child_text(root, "title"));
+    let inner_title = crate::message::xml::collapse(child_text(root, "title"));
     let title = if inner_title.is_empty() {
         fallback
     } else {
@@ -571,8 +576,8 @@ fn record(node: Node<'_, '_>, title: &str) -> String {
         items.len()
     )];
     for (index, item) in items.iter().take(50).enumerate() {
-        let sender = super::xml::collapse(child_text(*item, "sourcename"));
-        let when = super::xml::collapse(child_text(*item, "sourcetime"));
+        let sender = crate::message::xml::collapse(child_text(*item, "sourcename"));
+        let when = crate::message::xml::collapse(child_text(*item, "sourcetime"));
         let mut prefix = format!("[{index}]");
         for text in [&when, &sender] {
             if !text.is_empty() {
@@ -594,9 +599,30 @@ fn record(node: Node<'_, '_>, title: &str) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn transfer_raw_export_keeps_subtype_fallback_separate_from_strict_details() {
+        let packed_type = (2000_i64 << 32) | 49;
+        let xml = "<msg><appmsg><title>fallback</title><wcpayinfo><feedesc>raw</feedesc></wcpayinfo></appmsg></msg>";
+        let out = super::extract(packed_type, Some(xml)).unwrap();
+        assert_eq!(out.content.as_deref(), Some("[转账] raw"));
+        assert!(out.extras.is_empty());
+        assert!(super::super::transfer::parse(xml).is_err());
+
+        let xml = "<msg><appmsg><type>2_000</type><wcpayinfo><transcationId>id</transcationId><feeDesc>raw</feeDesc></wcpayinfo></appmsg></msg>";
+        assert!(super::super::transfer::parse(xml).is_err());
+        let out = super::extract(49, Some(xml)).unwrap();
+        assert_eq!(out.content.as_deref(), Some("[转账] raw"));
+        assert_eq!(out.extras["transfer"]["transcation_id"], "id");
+
+        let xml = "<msg><appmsg><type>2000</type><title>fallback</title></appmsg></msg>";
+        let out = super::extract(49, Some(xml)).unwrap();
+        assert_eq!(out.content.as_deref(), Some("[转账] fallback"));
+        assert!(out.extras.is_empty());
+    }
+
+    #[test]
     fn matches_ast_extracted_legacy_golden() {
         let cases: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/export-content-golden.json"
+            "../../../../tests/fixtures/export-content-golden.json"
         ))
         .unwrap();
         for case in cases.as_array().unwrap() {

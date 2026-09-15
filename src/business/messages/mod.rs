@@ -1,4 +1,6 @@
 //! Account-scoped message contracts. Evidence references are not transport credentials.
+pub mod filter_label;
+pub mod reply;
 pub mod statistics;
 use std::{
     collections::HashSet,
@@ -106,9 +108,13 @@ pub struct MessageSelector<'a> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnmappedConversation(pub(crate) String);
+
+/// An unresolved source reference is not a stable contact or conversation identity.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Conversation {
     Known(String),
-    Unmapped(String),
+    Unmapped(UnmappedConversation),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

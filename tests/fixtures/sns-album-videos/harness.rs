@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #[path = "../sns-download/publication.rs"]
 mod publication;
-pub use publication::{config, crypto, daemon, key_store, runtime, toolkit};
+pub use publication::{adapters, config, crypto, daemon, key_store, runtime, toolkit};
 #[path = "../../../src/attachment/local_files.rs"]
 pub(crate) mod local_files;
 mod attachment {

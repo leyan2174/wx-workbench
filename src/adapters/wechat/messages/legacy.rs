@@ -52,11 +52,11 @@ pub(crate) fn fmt_content(local_id: i64, local_type: i64, content: &str, is_grou
     };
 
     match base {
-        34 => return crate::message::summary::voice(text),
-        43 => return crate::message::summary::video(text),
-        50 => return crate::message::summary::voip(text).unwrap_or_else(|| "[通话]".into()),
-        42 => return crate::message::summary::namecard(text).unwrap_or_else(|| "[名片]".into()),
-        48 => return crate::message::summary::location(text).unwrap_or_else(|| "[位置]".into()),
+        34 => return super::summary::voice(text),
+        43 => return super::summary::video(text),
+        50 => return super::summary::voip(text).unwrap_or_else(|| "[通话]".into()),
+        42 => return super::summary::namecard(text).unwrap_or_else(|| "[名片]".into()),
+        48 => return super::summary::location(text).unwrap_or_else(|| "[位置]".into()),
         _ => {}
     }
 
@@ -115,7 +115,10 @@ pub(crate) fn parse_appmsg_dom(text: &str) -> Option<String> {
     let title = xml_text(xml_child(appmsg, "title")).unwrap_or_default();
     let atype = xml_text(xml_child(appmsg, "type")).unwrap_or_default();
     match atype.as_str() {
-        "2000" => Some(crate::message::transfer::summary(appmsg, &title)),
+        "2000" => Some(crate::message::transfer::summary(
+            super::transfer::extract(appmsg).as_ref(),
+            &title,
+        )),
         "6" => Some(format_file_appmsg(appmsg, &title)),
         "19" => Some(format_record_appmsg(appmsg, &title)),
         _ => None,

@@ -2,6 +2,9 @@
 #[path = "../../../src/attachment/attachment_id.rs"]
 pub mod attachment_id;
 pub use attachment_id::{AttachmentId, AttachmentKind};
+pub mod attachment {
+    pub use super::AttachmentKind;
+}
 #[path = "../../../src/attachment/resolver.rs"]
 pub mod resolver;
 

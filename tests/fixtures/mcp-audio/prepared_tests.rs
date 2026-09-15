@@ -27,6 +27,22 @@ fn limits() -> Limits {
 }
 
 #[test]
+fn shared_source_validation_preserves_prepared_profile_and_rejects_rebinding() {
+    let mut sample = voice();
+    sample.evidence.message_source = format!("message/message_{}.db", "0".repeat(110));
+    sample.evidence.media_local_id = 0;
+    let payload = encode(&sample, limits()).unwrap();
+    assert_eq!(decode(&payload, limits()).unwrap(), sample);
+
+    let mut value: Value = serde_json::from_slice(&payload).unwrap();
+    value["evidence"]["username"] = json!("another-peer");
+    let error = decode(&serde_json::to_vec(&value).unwrap(), limits())
+        .err()
+        .expect("foreign table must fail");
+    assert_eq!(error.to_string(), "invalid prepared audio evidence");
+}
+
+#[test]
 fn prepared_roundtrip_preserves_every_byte_and_i64_evidence() {
     let voice = voice();
     let payload = encode(&voice, limits()).unwrap();

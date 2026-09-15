@@ -1,9 +1,61 @@
 //! 微信转账消息的结构化字段与中文展示；展示金额保持原值，不做金额推算。
 
-use anyhow::{ensure, Context, Result};
+use crate::business::structured_message::{TransferContent, TransferDetails, TransferStatus};
 use chrono::{Datelike, Local, TimeZone};
-use roxmltree::{Document, Node};
 use serde::Serialize;
+
+pub fn status_label(details: &TransferDetails) -> String {
+    if details.status == TransferStatus::Unknown {
+        format!("未知(paysubtype={})", details.raw_subtype)
+    } else {
+        known_status_label(details.status).into()
+    }
+}
+
+pub fn known_status_label(status: TransferStatus) -> &'static str {
+    match status {
+        TransferStatus::Initiated => "发起转账",
+        TransferStatus::Received => "已收款",
+        TransferStatus::Returned => "已退还",
+        TransferStatus::ExpiredReturned => "过期已退还",
+        TransferStatus::PendingCollection => "待领取",
+        TransferStatus::Collected => "已领取",
+        TransferStatus::Missing | TransferStatus::Unknown => "",
+    }
+}
+
+impl From<&TransferDetails> for TransferInfo {
+    fn from(value: &TransferDetails) -> Self {
+        Self {
+            paysubtype_label: status_label(value),
+            paysubtype: value.raw_subtype.clone(),
+            fee_desc: value.amount_text.clone(),
+            pay_memo: value.memo.clone(),
+            transcation_id: value.transaction_id.clone(),
+            transfer_id: value.transfer_id.clone(),
+            pay_msg_id: value.payment_message_id.clone(),
+            begin_transfer_time: value.started_at.clone(),
+            invalid_time: value.expires_at.clone(),
+            effective_date: value.effective_date.clone(),
+            payer_username: value.payer.clone(),
+            receiver_username: value.receiver.clone(),
+        }
+    }
+}
+
+impl From<TransferContent> for Transfer {
+    fn from(value: TransferContent) -> Self {
+        Self {
+            title: if value.title.is_empty() {
+                "微信转账".into()
+            } else {
+                value.title
+            },
+            description: value.description,
+            info: TransferInfo::from(&value.details),
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct Transfer {
@@ -27,23 +79,6 @@ pub struct TransferInfo {
     pub effective_date: String,
     pub payer_username: String,
     pub receiver_username: String,
-}
-
-fn text(node: Node<'_, '_>, tags: &[&str]) -> String {
-    for tag in tags {
-        if let Some(child) = node.children().find(|child| child.has_tag_name(*tag)) {
-            let value = child
-                .text()
-                .unwrap_or_default()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            if !value.is_empty() {
-                return value;
-            }
-        }
-    }
-    String::new()
 }
 
 impl Transfer {
@@ -102,70 +137,15 @@ fn export_integer(value: &str) -> Option<serde_json::Number> {
     normalized.parse().ok()
 }
 
-fn extract(appmsg: Node<'_, '_>) -> Option<TransferInfo> {
-    let info = appmsg
-        .children()
-        .find(|child| child.has_tag_name("wcpayinfo"))?;
-    let subtype = text(info, &["paysubtype"]);
-    let label = match subtype.as_str() {
-        "1" => "发起转账".into(),
-        "3" => "已收款".into(),
-        "4" => "已退还".into(),
-        "5" => "过期已退还".into(),
-        "7" => "待领取".into(),
-        "8" => "已领取".into(),
-        "" => String::new(),
-        _ => format!("未知(paysubtype={subtype})"),
-    };
-    Some(TransferInfo {
-        paysubtype: subtype,
-        paysubtype_label: label,
-        fee_desc: text(info, &["feedesc", "feeDesc"]),
-        pay_memo: text(info, &["pay_memo", "paymemo"]),
-        // 微信原字段就是 transcationid，不能擅自改成 transactionid 而漏读旧数据。
-        transcation_id: text(info, &["transcationid", "transcationId"]),
-        transfer_id: text(info, &["transferid", "transferId"]),
-        pay_msg_id: text(info, &["paymsgid", "payMsgId"]),
-        begin_transfer_time: text(info, &["begintransfertime", "beginTransferTime"]),
-        invalid_time: text(info, &["invalidtime", "invalidTime"]),
-        effective_date: text(info, &["effectivedate", "effectiveDate"]),
-        payer_username: text(info, &["payer_username", "payerUsername"]),
-        receiver_username: text(info, &["receiver_username", "receiverUsername"]),
-    })
-}
-
-pub fn parse(xml: &str) -> Result<Transfer> {
-    let doc = Document::parse(xml.trim()).context("无法解析消息 XML")?;
-    let appmsg = doc
-        .descendants()
-        .find(|node| node.has_tag_name("appmsg"))
-        .context("消息中没有 appmsg 段（不像转账）")?;
-    let kind = text(appmsg, &["type"]).parse::<i64>().unwrap_or(0);
-    ensure!(
-        kind == 2000,
-        "不是转账消息（appmsg type={kind}）。转账要求 appmsg type=2000"
-    );
-    let info = extract(appmsg).context("消息是 type=2000 但缺 <wcpayinfo> 节点（schema 异常）")?;
-    let title = text(appmsg, &["title"]);
-    Ok(Transfer {
-        title: if title.is_empty() {
-            "微信转账".into()
-        } else {
-            title
-        },
-        description: text(appmsg, &["des"]),
-        info,
-    })
-}
-
-pub fn summary(appmsg: Node<'_, '_>, title: &str) -> String {
-    let Some(info) = extract(appmsg) else {
+pub fn summary(details: Option<&TransferDetails>, title: &str) -> String {
+    let Some(details) = details else {
         return if title.is_empty() {
             "[转账]".into()
         } else {
             format!("[转账] {title}")
         };
     };
+    let info = TransferInfo::from(details);
     let mut parts = vec![if info.paysubtype_label.is_empty() {
         "[转账]".into()
     } else {
@@ -244,13 +224,19 @@ impl Transfer {
 
 #[cfg(test)]
 mod tests {
+    use crate::adapters::wechat::messages::transfer::{extract, parse as decode, text};
+    use roxmltree::Document;
+
+    fn parse(xml: &str) -> anyhow::Result<super::Transfer> {
+        decode(xml).map(Into::into)
+    }
     #[test]
     fn export_fields_match_legacy_fixtures() {
         let cases: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/fixtures/transfer-golden.json"))
                 .unwrap();
         for case in cases.as_array().unwrap() {
-            let actual = super::parse(case["xml"].as_str().unwrap())
+            let actual = parse(case["xml"].as_str().unwrap())
                 .ok()
                 .and_then(|transfer| transfer.export_fields());
             assert_eq!(
@@ -301,11 +287,9 @@ mod tests {
 
     #[test]
     fn matches_legacy_fields_summary_and_detail_fixtures() {
-        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/transfer-golden.json"
-        )))
-        .unwrap();
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("../../tests/fixtures/transfer-golden.json"))
+                .unwrap();
         for case in cases {
             let xml = case["xml"].as_str().unwrap();
             let doc = Document::parse(xml).unwrap();
@@ -314,7 +298,7 @@ mod tests {
                 .find(|node| node.has_tag_name("appmsg"))
                 .unwrap();
             assert_eq!(
-                summary(appmsg, &text(appmsg, &["title"])),
+                summary(extract(appmsg).as_ref(), &text(appmsg, &["title"])),
                 case["summary"].as_str().unwrap(),
                 "{}",
                 case["name"]

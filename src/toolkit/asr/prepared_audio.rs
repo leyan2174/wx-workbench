@@ -153,20 +153,16 @@ fn validate_silk(silk: &[u8]) -> Result<()> {
 }
 
 fn validate_evidence(e: &VoiceEvidence) -> Result<()> {
-    let source = |s: &str, prefix: &str| {
-        s.strip_prefix(prefix)
-            .and_then(|v| v.strip_suffix(".db"))
-            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-    };
     ensure!(
-        !e.username.is_empty()
-            && e.username.len() <= 1024
-            && !e.username.chars().any(char::is_control)
-            && source(&e.message_source, "message/message_")
-            && source(&e.media_source, "message/media_")
-            && e.message_table == format!("Msg_{:x}", md5::compute(e.username.as_bytes()))
-            && e.message_local_id > 0
-            && e.server_id != 0,
+        crate::adapters::wechat::messages::read::layout::valid_voice_source(
+            &e.username,
+            &e.message_source,
+            &e.media_source,
+            &e.message_table,
+            e.message_local_id,
+            e.server_id,
+            None,
+        ),
         "invalid prepared audio evidence"
     );
     Ok(())

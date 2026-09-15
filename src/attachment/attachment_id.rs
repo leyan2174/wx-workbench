@@ -23,21 +23,6 @@ pub enum AttachmentKind {
 }
 
 impl AttachmentKind {
-    /// 从 message.local_type 推 attachment kind（只覆盖 phase 1 关心的几种）。
-    /// 高 32 bit 是版本/会话 flag，要先 mask 到低 32 bit。
-    pub fn from_local_type(local_type: i64) -> Option<Self> {
-        let lo = (local_type as u64) & 0xFFFF_FFFF;
-        match lo {
-            3 => Some(AttachmentKind::Image),
-            34 => Some(AttachmentKind::Voice),
-            43 => Some(AttachmentKind::Video),
-            // type=49 是 appmsg，里面 subtype=6 才是文件；这里偏宽松返回 File，
-            // 由 resolver 进一步根据 appmsg subtype 决定是否真的能 extract
-            49 => Some(AttachmentKind::File),
-            _ => None,
-        }
-    }
-
     pub fn as_str(&self) -> &'static str {
         match self {
             AttachmentKind::Image => "image",
@@ -125,16 +110,6 @@ mod tests {
         assert!(!s.contains('=')); // base64url no-pad
         let back = AttachmentId::decode(&s).unwrap();
         assert_eq!(back.db, Some(2));
-    }
-
-    #[test]
-    fn local_type_mask_high_bits() {
-        // monitor_web.py 里 image push 路径：高位带 flag，低 32 bit 是 3
-        let high_flag = (0xDEAD_BEEFu64 << 32) as i64 | 3;
-        assert_eq!(
-            AttachmentKind::from_local_type(high_flag),
-            Some(AttachmentKind::Image)
-        );
     }
 
     #[test]

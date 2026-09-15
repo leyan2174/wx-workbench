@@ -1,8 +1,13 @@
 //! Real metadata and voice adapters for hosts that do not project message bodies.
 #[path = "../../src/adapters/wechat/contacts/batch.rs"]
 pub mod contact_batch;
+#[path = "../../src/adapters/wechat/messages/inventory.rs"]
+pub mod message_inventory;
+#[path = "../../src/adapters/wechat/messages/probe.rs"]
+pub mod message_probe;
 #[path = "../../src/adapters/wechat/messages/read/mod.rs"]
 pub mod message_read;
+pub use message_read as read;
 #[path = "../../src/adapters/wechat/media/voice.rs"]
 pub mod voice;
 #[path = "../../src/adapters/wechat/media/voice_catalog.rs"]
@@ -15,6 +20,8 @@ pub mod wechat {
         pub use super::super::contact_batch as batch;
     }
     pub mod messages {
+        pub use super::super::message_inventory as inventory;
+        pub use super::super::message_probe as probe;
         pub use super::super::message_read as read;
         pub use read::*;
     }

@@ -3,3 +3,15 @@
 pub mod ipc;
 #[path = "../../../src/mcp/protocol.rs"]
 pub mod protocol;
+#[path = "../../../src/service/message_filter.rs"]
+pub mod message_filter;
+pub mod service {
+    pub use crate::message_filter;
+}
+#[path = "../../../src/business/messages/mod.rs"]
+pub mod messages;
+#[path = "../../../src/business/structured_message.rs"]
+pub mod structured_message;
+pub mod business {
+    pub use crate::{messages, structured_message};
+}

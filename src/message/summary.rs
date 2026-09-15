@@ -1,110 +1,77 @@
-//! 阅读摘要不包含名片认证字段；原始消息及详细解码仍由存储和工具层保留。
+//! Reading-summary projections over decoded metadata; no private XML parsing.
+use crate::business::structured_message::{CallSummary, LocationSummary, NamecardSummary};
 
-use super::xml::{collapse, parse};
-
-/// 播放时长按旧导出原样保留，不将未知格式误当作数字重写。
-pub fn video(content: &str) -> String {
-    let length = parse(content).and_then(|doc| {
-        let node = doc
-            .root_element()
-            .descendants()
-            .skip(1)
-            .find(|node| node.has_tag_name("videomsg"))?;
-        node.attribute("playlength")
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    });
-    length
+pub fn video(duration: Option<&str>) -> String {
+    duration
         .map(|value| format!("[视频] {value}秒"))
         .unwrap_or_else(|| "[视频]".into())
 }
 
-/// 保留客户端提供的通话状态，不根据文字猜测语音或视频类型。
-pub fn voip(content: &str) -> Option<String> {
-    if !content.contains("<voip") {
-        return None;
-    }
-    let raw = parse(content)
-        .and_then(|doc| {
-            let node = doc
-                .root_element()
-                .descendants()
-                .skip(1)
-                .find(|node| node.has_tag_name("msg"))?;
-            Some(collapse(node.text().unwrap_or("")))
-        })
-        .unwrap_or_default();
-    if raw.is_empty() {
-        return Some("[通话]".into());
-    }
-    if let Some(duration) = raw.strip_prefix("Duration:") {
-        return Some(if duration.trim().is_empty() {
-            "[通话]".into()
-        } else {
-            format!("[通话] 通话时长 {}", duration.trim())
-        });
-    }
-    let status = match raw.as_str() {
-        "Canceled" => "已取消",
-        "Line busy" => "对方忙线",
-        "Already answered elsewhere" => "已在其他设备接听",
-        "Declined on other device" => "已在其他设备拒接",
-        "Call canceled by caller" => "主叫已取消",
-        "Call not answered" | "Call wasn't answered" => "未接听",
-        _ => &raw,
-    };
-    Some(format!("[通话] {status}"))
-}
-
-pub fn voice(content: &str) -> String {
-    let duration = parse(content).and_then(|doc| {
-        doc.root_element()
-            .descendants()
-            .skip(1)
-            .find(|node| node.has_tag_name("voicemsg"))?
-            .attribute("voicelength")?
-            .trim()
-            .parse::<u64>()
-            .ok()
-    });
+pub fn voice(duration: Option<u64>) -> String {
     match duration {
         Some(ms) if ms > 0 => format!("[语音 {:.1}s]", ms as f64 / 1000.0),
         _ => "[语音]".into(),
     }
 }
 
-pub fn namecard(content: &str) -> Option<String> {
-    let doc = parse(content)?;
-    let root = doc.root_element();
-    let nickname = root.attribute("nickname").unwrap_or("").trim();
-    let username = root.attribute("username").unwrap_or("").trim();
-    if nickname.is_empty() && username.is_empty() {
-        return None;
-    }
-    let mut head = if nickname.is_empty() {
-        username
-    } else {
-        nickname
-    }
-    .to_owned();
-    if username.starts_with("gh_") {
-        head.push_str(&format!(" (公众号 {username})"));
-    }
-    let bio = collapse(root.attribute("certinfo").unwrap_or(""));
-    Some(if bio.is_empty() {
-        format!("[名片] {head}")
-    } else {
-        format!("[名片] {head}: {bio}")
-    })
+pub fn voip(call: &CallSummary) -> String {
+    let status = match call {
+        CallSummary::Empty => return "[通话]".into(),
+        CallSummary::Duration(value) => return format!("[通话] 通话时长 {value}"),
+        CallSummary::Canceled => "已取消",
+        CallSummary::Busy => "对方忙线",
+        CallSummary::AnsweredElsewhere => "已在其他设备接听",
+        CallSummary::DeclinedElsewhere => "已在其他设备拒接",
+        CallSummary::CanceledByCaller => "主叫已取消",
+        CallSummary::NotAnswered => "未接听",
+        CallSummary::Other(value) => value,
+    };
+    format!("[通话] {status}")
 }
 
-pub fn location(content: &str) -> Option<String> {
-    super::location::parse(content).map(|info| info.summary())
+pub fn namecard(card: &NamecardSummary) -> String {
+    let mut head = if card.nickname.is_empty() {
+        &card.username
+    } else {
+        &card.nickname
+    }
+    .clone();
+    if card.is_public_account {
+        head.push_str(&format!(" (公众号 {})", card.username));
+    }
+    if card.biography.is_empty() {
+        format!("[名片] {head}")
+    } else {
+        format!("[名片] {head}: {}", card.biography)
+    }
+}
+
+pub fn location(info: &LocationSummary) -> String {
+    let head = if info.category.is_empty() {
+        "[位置]".to_owned()
+    } else {
+        format!("[位置·{}]", info.category)
+    };
+    let name = &info.name;
+    let label = &info.address;
+    if name.is_empty() || (name.starts_with('[') && name.ends_with(']')) {
+        return if label.is_empty() {
+            head
+        } else {
+            format!("{head} {label}")
+        };
+    }
+    if label.is_empty() || name == label {
+        format!("{head} {name}")
+    } else {
+        format!("{head} {name} @ {label}")
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::adapters::wechat::messages::summary::*;
+    use crate::message::xml::parse;
 
     #[test]
     fn matches_legacy_golden() {

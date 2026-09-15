@@ -1,6 +1,6 @@
 # 附件只读引用测试
 
-本夹具引用 `src/toolkit/attachment_refs.rs` 和真实 `message` 模块；生产查询由 daemon 调用共享实现。
+本夹具引用 `src/toolkit/attachment_refs.rs`、真实 `message` 模块、业务内容类型以及 `adapters/wechat/media` 的内容解码、目录布局和 legacy DAT 实现；生产查询由 daemon 调用同一实现。XML 解码和缓存命名不在夹具中复制。宿主安全测试及适配器内存测试均由本夹具接线，阶段 5 的统一执行由父任务负责。
 
 
 ## 接入契约

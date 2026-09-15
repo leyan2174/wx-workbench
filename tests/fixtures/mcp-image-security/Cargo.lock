@@ -1015,6 +1015,7 @@ dependencies = [
  "pbkdf2",
  "quote",
  "regex",
+ "roxmltree",
  "rusqlite",
  "same-file",
  "serde",

@@ -189,8 +189,12 @@ fn encrypted_catalog_downloads_and_publishes_over_loopback_http() {
                 Err(error) => panic!("loopback test server: {error}"),
             }
         };
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         let mut request = Vec::new();
         while !request.ends_with(b"\r\n\r\n") {

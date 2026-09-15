@@ -5,6 +5,15 @@ pub mod config;
 pub mod crypto;
 #[path = "../../../src/daemon/cache.rs"]
 pub mod production_cache;
+#[path = "../../../src/adapters/wechat/messages/probe.rs"]
+pub mod message_probe;
+pub mod adapters {
+    pub mod wechat {
+        pub mod messages {
+            pub use crate::message_probe as probe;
+        }
+    }
+}
 #[path = "../../../src/runtime.rs"]
 pub mod runtime;
 pub mod daemon {

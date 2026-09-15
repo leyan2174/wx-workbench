@@ -1,5 +1,18 @@
 # 媒体读取与发布边界
 
+## 阶段 5 媒体内容与缓存布局
+
+`AttachmentKind` 保持原有 opaque ID 的 JSON 字符串形状。未被生产调用的 `from_local_type` 位掩码方法已删除；resolver 实际使用的资源类型数字映射迁至 `media::attachment_kind`，对应 fixture 使用同一个协议枚举，不复制编码规则。
+
+- `business::attachment_content` 拥有解码后的附件内容、容器种类和具名媒体结果；不依赖 XML、JSON、微信来源路径、消息分库或原始 datatype。媒体引用和严格关联仍复用 `business::media` 与既有 ImageSource，不创建替代关联实现。
+- `adapters::wechat::media::attachment_content` 复用原有文件/合并记录 XML 算法，拥有消息来源校验、私有字段映射、记录缓存命名和文件候选命名。业务内容与旧 evidence 投影分开；Identity/datatype 仅留在明确的兼容元数据包装中。
+- `toolkit::attachment_refs` 不再解析 XML 或拼接微信缓存目录；保留有界遍历、目录/文件 Pin、句柄复核、累计 hash 预算和只读引用。旧解析名称仅重导出唯一适配器实现，未保留替代解析器。旧序列化字段继续平铺，未增加 content 嵌套。
+- `directory_layout` 拥有聊天目录图片/视频缓存规则；目录宿主消费 typed 内容，继续负责启用开关、账号根约束、受限读取、解码、暂存输出与错误投影。具名媒体拒绝重复节点、命名空间伪装、缺失/无效 MD5、未知节点和超限 XML，不回退为文件名猜测。
+- `legacy_dat` 仅供显式历史 DAT 入口，文件系统能力由 resolver 宿主提供。保留本地时区的“前 31 天、当前、后 31 天”顺序，再按目录排序兜底；每个目录内 full > HD > thumbnail。这不是严格图片关联失败后的回退，也不新增账号或输出授权。
+- 聊天目录图片依旧 HD > full > wide > thumbnail > wide-thumbnail，同级候选拒绝歧义；其词法月份识别和旧 MsgAttach 布局不改成 legacy DAT 的策略。无 MD5 的附件仍仅允许单候选弱绑定，带警告；多个候选拒绝。相同 MD5 的多份副本仍明确计数，不冒充唯一物理副本。
+
+新增合成测试覆盖 typed 解码、未知/重复/无效 XML、严格拒绝与 legacy 分类的分离、平铺 wire 兼容、两种图片优先级和 legacy 月份兜底。attachment-refs、native-image、mcp-image-listing-parity 与共享 image fixture 接入真实适配器；保留原有安全/歧义/预算测试。本切片按协作要求未运行 Cargo、未提交，编译及统一测试由父任务执行，不能据此宣称通过。
+
 `business::media` 定义媒体种类、关联策略、阶段失败和不透明引用，不持有路径、SQL、密钥或进程。引用绑定消息快照和媒体读取实例；快照失效、来源不完整、歧义和证据冲突不等于未找到，也不能触发兼容回退。
 
 `adapters::wechat::media::resource` 持有资源表 SQL、ChatName2Id 校验和 packed_info 摘要解析。严格 ResourceReader 要求完整消息身份、唯一资源行、真实 INTEGER 身份列及有界 BLOB。ImageSource 绑定资源行和摘要，发现阶段不解码；发布前重新验证证据。摘要扫描仅提供关联线索，不证明明文真实性。

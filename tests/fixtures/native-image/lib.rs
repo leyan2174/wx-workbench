@@ -29,5 +29,6 @@ pub mod toolkit {
     pub(crate) use super::files::ExportTarget;
 }
 pub mod attachment {
+    pub use super::AttachmentKind;
     pub(crate) use super::local_files;
 }

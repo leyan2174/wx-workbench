@@ -18,8 +18,13 @@ pub mod daemon {
 pub mod business;
 #[path = "../../../src/adapters/wechat/emoticons/mod.rs"]
 pub mod emoticon_adapter;
+#[path = "../../../src/adapters/wechat/messages/probe.rs"]
+pub mod message_probe;
 pub mod adapters {
     pub mod wechat {
+        pub mod messages {
+            pub use crate::message_probe as probe;
+        }
         pub use crate::emoticon_adapter as emoticons;
     }
 }

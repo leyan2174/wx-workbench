@@ -72,7 +72,7 @@ mod strict_message;
 pub use daemon::cache::DbCache;
 use std::{
     collections::HashMap,
-    sync::{atomic::Ordering, OnceLock},
+    sync::atomic::Ordering,
 };
 
 #[derive(Clone, Default)]
@@ -95,10 +95,6 @@ fn ensure_complete_message_inventory(db: &DbCache, names: &Names) -> anyhow::Res
     Ok(())
 }
 
-fn msg_table_re() -> &'static regex::Regex {
-    static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^Msg_[0-9a-f]{32}$").unwrap())
-}
 #[path = "../../support/message_read_adapters.rs"]
 mod message_read_adapters;
 #[path = "../../support/media_business.rs"]
@@ -107,12 +103,22 @@ mod media_business;
 pub mod contact_business;
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
 pub mod contact_adapter;
+#[path = "../../../src/adapters/wechat/messages/reply.rs"]
+pub mod reply_adapter;
+#[path = "../../support/structured_content_adapters.rs"]
+pub mod structured_content_adapters;
 
 pub mod adapters {
     pub use crate::message_read_adapters::messages;
     pub mod wechat {
         pub use crate::contact_adapter as contacts;
-        pub use crate::message_read_adapters::wechat::*;
+        pub mod messages {
+            pub use crate::message_read_adapters::inventory;
+            pub use crate::structured_content_adapters::*;
+            pub use crate::message_read_adapters::messages::*;
+            pub use crate::message_read_adapters::messages as read;
+            pub use crate::reply_adapter as reply;
+        }
     }
 }
 pub mod business {

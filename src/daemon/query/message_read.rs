@@ -360,13 +360,15 @@ pub(super) fn project(
         domain::Conversation::Unmapped(key) => {
             value["identity_status"] = json!("unmapped");
             value["username"] = Value::Null;
-            value["unmapped_conversation"] = json!(key);
+            value["unmapped_conversation"] = json!(
+                crate::adapters::wechat::messages::read::diagnostics::legacy_unmapped_key(key)
+            );
         }
     }
     add_sender_identity(&mut value, is_group, sender, &names.map, nicknames);
     match message.content {
         domain::Content::Structured(rich) => {
-            value["rich"] = serde_json::to_value(rich)?;
+            value["rich"] = crate::message::structured_message::project(&rich);
         }
         domain::Content::Unavailable(issue) => {
             use crate::business::structured_message::ContentIssue;

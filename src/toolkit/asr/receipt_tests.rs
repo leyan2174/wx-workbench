@@ -19,6 +19,50 @@ fn evidence() -> VoiceEvidence {
     }
 }
 
+#[test]
+fn shared_source_validation_keeps_receipt_limits_and_request_binding() {
+    let mut source = evidence();
+    source.message_source = format!("message/message_{}.db", "0".repeat(109));
+    let path = Path::new("synthetic-not-opened");
+    assert!(Proof::new(&request(path, &source), &source).is_ok());
+    source.message_source = format!("message/message_{}.db", "0".repeat(110));
+    assert_eq!(
+        Proof::new(&request(path, &source), &source)
+            .err()
+            .unwrap()
+            .to_string(),
+        "invalid receipt evidence"
+    );
+    source = evidence();
+    source.media_local_id = 0;
+    assert!(Proof::new(&request(path, &source), &source).is_err());
+    source = evidence();
+    source.message_table = format!("Msg_{:x}", md5::compute("another-peer"));
+    assert!(Proof::new(&request(path, &source), &source).is_err());
+    source = evidence();
+    let other = evidence();
+    let mut request = request(path, &other);
+    request.username = "another-peer";
+    assert_eq!(
+        Proof::new(&request, &source).err().unwrap().to_string(),
+        "receipt request evidence mismatch"
+    );
+}
+
+#[test]
+fn alternate_valid_source_is_a_conflict_not_a_new_certified_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("cache.json");
+    let backend = local(root.path());
+    let original = evidence();
+    assert_eq!(store(&path, &backend, &original), ReceiptState::Stored);
+    let mut alternate = original.clone();
+    alternate.media_source = "message/media_1.db".into();
+    assert_eq!(store(&path, &backend, &alternate), ReceiptState::Conflict);
+    assert!(matches!(find(&path, &backend), LookupOutcome::Conflict));
+    assert_eq!(store(&path, &backend, &original), ReceiptState::Conflict);
+}
+
 fn request<'a>(path: &'a Path, evidence: &'a VoiceEvidence) -> CachedRequest<'a> {
     CachedRequest {
         cache_path: path,

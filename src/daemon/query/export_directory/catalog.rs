@@ -65,7 +65,11 @@ fn read(shards: &[(String, PathBuf)], names: &Names) -> Result<Vec<Entry>> {
     for row in rows {
         let (username, mapped) = match row.conversation {
             Conversation::Known(username) => (username, true),
-            Conversation::Unmapped(hash) => {
+            Conversation::Unmapped(reference) => {
+                let hash =
+                    crate::adapters::wechat::messages::read::diagnostics::legacy_unmapped_key(
+                        &reference,
+                    );
                 let username = format!("unknown_{hash}");
                 ensure!(
                     !names.map.contains_key(&username) && !snapshot.has_sender_username(&username),
@@ -132,14 +136,14 @@ fn read_unmapped(
     me: &str,
 ) -> Result<Value> {
     let table = &entry.table_name;
+    let hash = crate::adapters::wechat::messages::read::layout::canonical_table_hash(table)
+        .context("未映射表身份无效")?;
     ensure!(
-        super::super::msg_table_re().is_match(table)
-            && entry.identity_status == "unmapped"
-            && entry.target.username == format!("unknown_{}", &table[4..]),
+        entry.identity_status == "unmapped" && entry.target.username == format!("unknown_{hash}"),
         "未映射表身份无效"
     );
     let target = &entry.target;
-    let context = crate::message::export_content::ExportContext {
+    let context = crate::adapters::wechat::messages::export_content::ExportContext {
         is_group: false,
         chat_username: &target.username,
         chat_display_name: &target.chat,
@@ -190,11 +194,12 @@ fn read_unmapped(
                     me,
                     &names.map,
                 );
-                let extracted = crate::message::export_content::extract_with_context(
-                    row.local_type,
-                    row.decoded.as_deref(),
-                    &context,
-                )?;
+                let extracted =
+                    crate::adapters::wechat::messages::export_content::extract_with_context(
+                        row.local_type,
+                        row.decoded.as_deref(),
+                        &context,
+                    )?;
                 let mut extras = extracted.extras;
                 extras.insert("source".into(), Value::String(source.clone()));
                 extras.insert("table_name".into(), Value::String(table.clone()));

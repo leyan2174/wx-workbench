@@ -1,5 +1,6 @@
 use super::output::{emit_warnings, print_response, OutputOpts};
 use crate::ipc::Request;
+use crate::service::message_filter::cli_type as parse_msg_type;
 use crate::service::query_client as transport;
 pub use crate::service::time::{parse_time, parse_time_end};
 use anyhow::Result;
@@ -79,20 +80,4 @@ pub fn cmd_history(args: Args, opts: OutputOpts) -> Result<()> {
     let resp = transport::send(req)?;
     emit_warnings(&resp.data);
     print_response(&resp.data, &opts)
-}
-
-/// 将消息类型字符串转为 local_type 整数，未知类型返回 None
-pub fn parse_msg_type(s: &str) -> Option<i64> {
-    match s {
-        "text" => Some(1),
-        "image" => Some(3),
-        "voice" => Some(34),
-        "video" => Some(43),
-        "sticker" => Some(47),
-        "location" => Some(48),
-        "link" | "file" => Some(49),
-        "call" => Some(50),
-        "system" => Some(10000),
-        _ => None,
-    }
 }
