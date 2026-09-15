@@ -9,6 +9,11 @@ pub mod messages {
 pub mod media;
 #[path = "../../src/adapters/wechat/emoticons/mod.rs"]
 pub mod emoticons;
+#[path = "../../src/adapters/wechat/contacts/batch.rs"]
+pub mod contact_batch;
 pub mod wechat {
+    pub mod contacts {
+        pub use super::super::contact_batch as batch;
+    }
     pub use super::{emoticons, media, messages};
 }

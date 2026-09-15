@@ -66,11 +66,12 @@ pub async fn q_export_delta_username(
         let mut chat = read_delta_shards(chat, &me, &names, &shards, start, end)?;
         let mut warnings = Vec::new();
         if let Some(path) = contact_path {
-            let metadata = crate::toolkit::contact_metadata::contact_metadata_for_export(
-                &path,
-                &chat.username,
-                false,
-            );
+            let metadata =
+                crate::adapters::wechat::contacts::raw_export::contact_metadata_for_export(
+                    &path,
+                    &chat.username,
+                    false,
+                );
             // 与全量导出一致保留旧 schema 回退，同时通过 IPC 交付诊断信息。
             warnings = metadata.diagnostics;
             chat.contact = serde_json::from_value(Value::Object(metadata.fields))?;

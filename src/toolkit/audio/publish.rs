@@ -3,8 +3,9 @@
 use anyhow::{ensure, Context, Result};
 use sha2::{Digest, Sha256};
 use std::{
+    cell::RefCell,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use crate::{attachment::local_files::HostOutputGuard, toolkit::asr::validate_wav};
@@ -34,27 +35,41 @@ pub(crate) fn publish_wav_noclobber(
         sample_rate: info.sample_rate,
     };
     guard.verify()?;
-    let mut staged = tempfile::NamedTempFile::new_in(guard.output_root())?;
-    staged.write_all(wav)?;
-    staged.as_file().sync_all()?;
-    verify_staged(&staged, wav)?;
-    guard.verify()?;
-    before_commit(&published)?;
-    guard.verify()?;
-    // reopen 核对临时文件身份；回调期间发生的替换或内容变化不能发布。
-    verify_staged(&staged, wav)?;
-    guard.verify()?;
-    staged
-        .persist_noclobber(&published.path)
-        .map_err(|error| error.error)
+    let target = crate::toolkit::ExportTarget::new_file(&published.path, &[])?;
+    let staged_path = RefCell::new(None);
+    target
+        .write_with_checked(
+            |path| {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .open(path)?;
+                file.write_all(wav)?;
+                file.sync_all()?;
+                verify_staged(path, wav)?;
+                *staged_path.borrow_mut() = Some(path.to_path_buf());
+                Ok(())
+            },
+            || {
+                guard.verify()?;
+                before_commit(&published)?;
+                guard.verify()?;
+                // The shared publisher verifies file identity; WAV also verifies callback-time bytes.
+                let staged = staged_path.borrow();
+                verify_staged(
+                    staged.as_deref().context("WAV temporary file missing")?,
+                    wav,
+                )?;
+                guard.verify()?;
+                Ok(())
+            },
+        )
         .context("WAV output already exists or publication failed")?;
     Ok(published)
 }
 
-fn verify_staged(staged: &tempfile::NamedTempFile, expected: &[u8]) -> Result<()> {
-    let mut file = staged
-        .reopen()
-        .context("WAV temporary file identity changed")?;
+fn verify_staged(staged: &Path, expected: &[u8]) -> Result<()> {
+    let mut file = std::fs::File::open(staged).context("WAV temporary file identity changed")?;
     let mut buffer = [0u8; 8192];
     for chunk in expected.chunks(buffer.len()) {
         file.read_exact(&mut buffer[..chunk.len()])?;

@@ -121,19 +121,29 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
             if let Some(contacts) = contacts {
                 options.contacts = native::audio::batch::parse_contact_filter(&contacts);
             }
-            let report = native::audio::batch::convert_database(&options)?;
+            // The operation worker's Job owns disconnect/cancellation cleanup.
+            let report =
+                native::audio::batch::convert_database_checked(&options, &[config], || false)?;
             finish_voice_batch(&report)
         }
     }
 }
 fn finish_voice_batch(report: &native::audio::batch::BatchReport) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(report)?);
-    crate::ipc::outcome::BusinessOutcome::from_counts(
-        report.converted.saturating_add(report.skipped_existing),
-        report.failed,
-    )
-    .require_success()?;
+    voice_batch_outcome(report).require_success()?;
     Ok(())
+}
+
+pub(super) fn voice_batch_outcome(
+    report: &native::audio::batch::BatchReport,
+) -> crate::ipc::outcome::BusinessOutcome {
+    use crate::business::voice_export::BatchState;
+    use crate::ipc::outcome::BusinessOutcome;
+    match report.progress.state() {
+        BatchState::Success => BusinessOutcome::Success,
+        BatchState::Partial => BusinessOutcome::Partial,
+        BatchState::Failure => BusinessOutcome::Failure,
+    }
 }
 
 #[test]
@@ -146,10 +156,13 @@ fn voice_batch_report_preserves_partial_classification() {
         (0, 0, 1, BusinessOutcome::Failure),
     ] {
         let report = native::audio::batch::BatchReport {
-            converted,
-            skipped_existing,
-            failed,
-            filtered: 3,
+            progress: crate::business::voice_export::BatchProgress {
+                converted,
+                skipped_existing,
+                failed,
+                filtered: 3,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let actual = finish_voice_batch(&report).map_or_else(

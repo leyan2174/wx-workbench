@@ -21,7 +21,7 @@ pub mod attachment {
 mod files;
 pub mod toolkit {
     pub use super::asr_runtime::legacy;
-    pub(crate) use super::files::{separate, validate_export_target};
+    pub(crate) use super::files::{separate, validate_export_target, ExportTarget};
     pub use super::{asr, audio, setup, private_file};
 }
 pub use asr::{cache, cached, local, openai, transcribe_audio_bytes, Backend, Transcription};

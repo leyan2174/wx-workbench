@@ -38,7 +38,7 @@ pub mod crypto {
 pub mod legacy;
 pub mod toolkit {
     pub use crate::setup;
-    pub(crate) use crate::files::{separate, validate_export_target};
+    pub(crate) use crate::files::{separate, validate_export_target, ExportTarget};
     pub use crate::private_file;
     pub use crate::toolkit_asr as asr;
     pub use crate::legacy;

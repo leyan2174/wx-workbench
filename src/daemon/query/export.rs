@@ -186,9 +186,10 @@ pub(super) async fn q_export_username_with_shape(
             value["contact_alias"] = Value::Null;
         }
         if let Some(path) = contact_path {
-            let metadata = crate::toolkit::contact_metadata::contact_metadata_for_export(
-                &path, &username, is_group,
-            );
+            let metadata =
+                crate::adapters::wechat::contacts::raw_export::contact_metadata_for_export(
+                    &path, &username, is_group,
+                );
             value.as_object_mut().unwrap().extend(metadata.fields);
             if !metadata.diagnostics.is_empty() {
                 value["metadata_warnings"] = serde_json::to_value(metadata.diagnostics)?;

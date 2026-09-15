@@ -178,13 +178,14 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             let mut options = toolkit::audio::batch::BatchOptions::from_config_file(&config)?;
             options.output_dir = output;
             options.contacts = toolkit::audio::batch::parse_contact_filter(&users.join(","));
-            let report = toolkit::audio::batch::convert_database(&options)?;
+            // Parent Job termination remains the worker's cancellation mechanism.
+            let report = toolkit::audio::batch::convert_database_checked(
+                &options,
+                &toolkit::export_protected(runtime),
+                || false,
+            )?;
             emit(&report)?;
-            crate::ipc::outcome::BusinessOutcome::from_counts(
-                report.converted + report.skipped_existing,
-                report.failed,
-            )
-            .require_success()?;
+            super::toolkit::voice_batch_outcome(&report).require_success()?;
             Ok(())
         }
     }

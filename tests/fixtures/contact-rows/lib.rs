@@ -4,12 +4,6 @@ pub mod business {
     pub use crate::contact_business as contacts;
 }
 
-#[path = "../../../src/toolkit/contact_metadata.rs"]
-pub mod contact_metadata;
-pub mod toolkit {
-    pub use crate::contact_metadata;
-}
-
 #[path = "../../../src/adapters/wechat/contacts/mod.rs"]
 pub mod contact_adapter;
 pub mod adapters {

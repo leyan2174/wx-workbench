@@ -5,6 +5,79 @@ use anyhow::{ensure, Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 
+/// Legacy raw diagnostic coordinates, not a strict message identity or reference.
+#[derive(Debug)]
+pub struct RawBatchEntry {
+    /// Physical Name2Id rowid from the selected legacy media database.
+    pub chat_name_id: Option<i64>,
+    pub local_id: Option<i64>,
+    pub timestamp: Option<i64>,
+    pub username: Option<String>,
+}
+
+/// One caller-authorized legacy media file. No discovery or strict message join.
+pub struct BatchSource {
+    connection: Connection,
+    pin: crate::attachment::local_files::Pin,
+}
+
+impl BatchSource {
+    pub fn open(path: &std::path::Path) -> Result<Self> {
+        let pin = crate::attachment::local_files::Pin::open(path, false)?;
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(std::time::Duration::from_secs(2))?;
+        Ok(Self { connection, pin })
+    }
+
+    pub fn verify(&self) -> Result<()> {
+        self.pin.verify()
+    }
+
+    pub fn visit(
+        &self,
+        mut visit: impl FnMut(RawBatchEntry, &dyn Fn() -> Result<Vec<u8>>) -> Result<()>,
+    ) -> Result<()> {
+        self.verify()?;
+        let snapshot = self.connection.unchecked_transaction()?;
+        let names: HashMap<i64, String> = {
+            let mut query = snapshot.prepare("SELECT rowid, user_name FROM Name2Id")?;
+            let mut names = HashMap::new();
+            for row in query.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+            })? {
+                let (id, name) = row?;
+                if let Some(name) = name.filter(|name| !name.is_empty()) {
+                    names.insert(id, name);
+                }
+            }
+            names
+        };
+        // CASE prevents even a selected row from materializing an oversized BLOB.
+        let mut query = snapshot.prepare("SELECT chat_name_id, create_time, local_id, CASE WHEN typeof(voice_data) = 'blob' AND length(voice_data) BETWEEN 1 AND 16777216 THEN voice_data END FROM VoiceInfo ORDER BY chat_name_id, create_time")?;
+        let mut rows = query.query([])?;
+        while let Some(row) = rows.next()? {
+            let chat_name_id = row.get::<_, i64>(0).ok();
+            let entry = RawBatchEntry {
+                chat_name_id,
+                local_id: row.get(2).ok(),
+                timestamp: row.get(1).ok(),
+                username: chat_name_id.map(|id| {
+                    names
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("unknown_{id}"))
+                }),
+            };
+            visit(entry, &|| {
+                self.verify()?;
+                row.get::<_, Vec<u8>>(3)
+                    .context("empty, invalid or oversized voice_data")
+            })?;
+        }
+        self.verify()
+    }
+}
+
 pub struct VoiceRow {
     pub chat_name_id: i64,
     pub chat_username: String,
@@ -14,6 +87,43 @@ pub struct VoiceRow {
     pub data_index: String,
     pub voice_data: Vec<u8>,
     pub media_db: String,
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    #[test]
+    fn four_columns_order_duplicates_and_lazy_bounded_material() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("media_0.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES ('alice'); CREATE TABLE VoiceInfo(chat_name_id, create_time, local_id, voice_data); INSERT INTO VoiceInfo VALUES (99,20,1,NULL),(1,30,8,x'01'),(1,10,8,NULL),(1,10,8,x'02'),(1,40,9,zeroblob(16777217)),(1,50,10,'not blob');").unwrap();
+        drop(conn);
+        let source = BatchSource::open(&path).unwrap();
+        let mut seen = Vec::new();
+        source
+            .visit(|entry, material| {
+                let time = entry.timestamp.unwrap();
+                seen.push((entry.username.unwrap(), time, entry.local_id.unwrap()));
+                if time == 30 {
+                    assert_eq!(material()?, vec![1]);
+                }
+                if time == 40 || time == 50 {
+                    assert!(material().is_err());
+                }
+                // NULL rows remain discoverable and can be skipped without reading material.
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            seen.iter().map(|entry| entry.1).collect::<Vec<_>>(),
+            [10, 10, 30, 40, 50, 20]
+        );
+        assert_eq!(seen.last().unwrap().0, "unknown_99");
+        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
+        source.verify().unwrap();
+    }
 }
 
 /// Preserve the legacy key inventory scope, including non-numeric media suffixes.

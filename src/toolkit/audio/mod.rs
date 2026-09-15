@@ -112,6 +112,7 @@ fn convert_controlled(
     );
     let output = std::path::absolute(output)?;
     protect_source(input, &output)?;
+    let input_pin = crate::attachment::local_files::Pin::open(input, false)?;
     let pcm = decode_silk_to_pcm(&fs::read(input).context("read SILK input")?)?;
     let parent = output.parent().context("output has no parent")?;
     fs::create_dir_all(parent).context("create audio output directory")?;
@@ -120,6 +121,10 @@ fn convert_controlled(
     pcm_file.flush()?;
     // 先关闭输出临时文件句柄，让 Windows 上的 ffmpeg 独占打开它。
     let encoded = tempfile::NamedTempFile::new_in(parent)?.into_temp_path();
+    let target = crate::toolkit::ExportTarget::capture_paths(
+        &output,
+        &[input.to_path_buf(), encoded.to_path_buf()],
+    )?;
     let mut command = Command::new(ffmpeg);
     command
         .args([
@@ -166,16 +171,58 @@ fn convert_controlled(
         std::time::Instant::now() < deadline,
         "Audio conversion deadline expired"
     );
-    // 同目录、同卷的原子替换；失败时 RAII 清理临时文件，保留原输出。
-    encoded
-        .persist(&output)
-        .map_err(|error| error.error)
-        .context("publish MP3 atomically")?;
+    publish_encoded(&encoded, target, || {
+        input_pin.verify()?;
+        protect_source(input, &output)?;
+        ensure!(!cancelled(), "Audio conversion cancelled");
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "Audio conversion deadline expired"
+        );
+        Ok(())
+    })
+    .context("publish MP3 atomically")?;
     Ok(Conversion {
         input: input.to_path_buf(),
         output,
         size,
     })
+}
+
+/// Copy a fixed read-only encoder result; the shared publisher owns final atomic commit.
+fn publish_encoded(
+    staged: &Path,
+    target: crate::toolkit::ExportTarget,
+    mut before_publish: impl FnMut() -> Result<()>,
+) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::os::windows::fs::OpenOptionsExt;
+    let pin = crate::attachment::local_files::Pin::open(staged, false)?;
+    let mut source = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(staged)?;
+    let size = source.metadata()?.len();
+    ensure!(size > 0, "empty MP3 staging file");
+    ensure!(size <= 64 * 1024 * 1024, "MP3 staging exceeds 64 MiB limit");
+    before_publish()?;
+    target.write_with_checked(
+        |temporary| {
+            source.seek(SeekFrom::Start(0))?;
+            let mut destination = fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(temporary)?;
+            let copied = std::io::copy(&mut (&mut source).take(size), &mut destination)?;
+            ensure!(copied == size, "MP3 staging size changed");
+            destination.flush()?;
+            pin.verify()
+        },
+        || {
+            pin.verify()?;
+            before_publish()
+        },
+    )
 }
 
 fn protect_source(input: &Path, output: &Path) -> Result<()> {

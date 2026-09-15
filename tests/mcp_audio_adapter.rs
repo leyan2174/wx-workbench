@@ -5,6 +5,12 @@ pub mod adapters;
 #[path = "support/media_business.rs"]
 pub mod business;
 
+#[path = "../src/attachment/local_files.rs"]
+pub mod local_files;
+mod attachment {
+    pub use crate::local_files;
+}
+
 #[path = "../src/daemon/cache.rs"]
 #[allow(unused_imports)] // 音频适配测试不调用图片资源快照接口。
 pub mod cache;

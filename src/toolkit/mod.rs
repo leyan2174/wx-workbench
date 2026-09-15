@@ -9,7 +9,6 @@ pub(crate) mod chat_index;
 pub(crate) mod chat_merge;
 pub(crate) mod chat_plan;
 pub(crate) mod chat_plan_selection;
-pub(crate) mod contact_metadata;
 mod databases;
 pub(crate) mod directory_publish;
 pub(crate) mod emoticons;

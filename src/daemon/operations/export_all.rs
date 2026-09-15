@@ -146,33 +146,6 @@ fn selected(runtime: &RuntimeContext, args: &Args) -> Result<Vec<Target>> {
     Ok(targets)
 }
 
-fn shards(root: &Path, prefix: &str) -> Result<Vec<PathBuf>> {
-    let directory = root.join("message");
-    let entries = match fs::read_dir(&directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    let mut paths = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let Some(number) = name
-            .strip_prefix(prefix)
-            .and_then(|s| s.strip_suffix(".db"))
-        else {
-            continue;
-        };
-        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
-        ensure!(entry.file_type()?.is_file(), "数据库分片不是普通文件");
-        paths.push(PathBuf::from("message").join(name));
-    }
-    paths.sort();
-    Ok(paths)
-}
-
 fn write_plan(runtime: &RuntimeContext, args: &Args) -> Result<Value> {
     let output = std::path::absolute(args.write_plan_csv.as_ref().unwrap())?;
     super::export_chat::validate_output_for(runtime, &output)?;
@@ -188,17 +161,7 @@ fn write_plan(runtime: &RuntimeContext, args: &Args) -> Result<Value> {
         })
         .collect();
     let root = &runtime.config.decrypted_dir;
-    let resource = PathBuf::from("message/message_resource.db");
-    let resource = if root.join(&resource).try_exists()? {
-        Some(resource)
-    } else {
-        let mut paths = shards(root, "message_resource_")?;
-        ensure!(
-            paths.len() <= 1,
-            "当前计划统计需要单一 message_resource 库，不能静默忽略其他分片"
-        );
-        paths.pop()
-    };
+    let inventory = crate::adapters::wechat::planning::cached_databases(root)?;
     let source = if runtime
         .config
         .db_dir
@@ -216,9 +179,9 @@ fn write_plan(runtime: &RuntimeContext, args: &Args) -> Result<Value> {
     };
     let native = super::chat_plan::Args {
         decrypted_dir: root.clone(),
-        message_dbs: shards(root, "message_")?,
-        resource_db: resource,
-        media_dbs: shards(root, "media_")?,
+        message_dbs: inventory.message,
+        resource_db: inventory.resource,
+        media_dbs: inventory.media,
         users: Vec::new(),
         chats_json: None,
         exclude_users: Vec::new(),

@@ -58,17 +58,12 @@ pub mod daemon {
     }
 }
 
-#[path = "../../../src/toolkit/contact_metadata.rs"]
-pub mod contact_metadata;
 #[path = "../../../src/daemon/query/mcp_contacts.rs"]
 pub mod contacts;
 #[path = "../../../src/message/mod.rs"]
 pub mod message;
 #[path = "../../../src/daemon/meta.rs"]
 pub mod meta;
-pub mod toolkit {
-    pub use crate::contact_metadata;
-}
 #[path = "../../../src/daemon/query/mcp_refer.rs"]
 pub mod refer;
 #[path = "../../../src/daemon/query/strict_message.rs"]

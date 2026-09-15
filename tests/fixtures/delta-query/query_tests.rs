@@ -252,6 +252,48 @@ async fn group_does_not_require_contact_db_and_single_keeps_warnings() {
     );
 }
 
+#[tokio::test]
+async fn raw_export_preserves_numeric_metadata_but_delta_keeps_string_contract() {
+    let f = fixture().await;
+    // Isolate metadata from the delta fixture's intentionally tolerant body cases.
+    let table = format!("Msg_{:x}", md5::compute("wxid_peer"));
+    for (source, path) in &f.cached {
+        if !source.starts_with("message/") {
+            continue;
+        }
+        let conn = Connection::open(path).unwrap();
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1 COLLATE NOCASE)",
+                [&table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if exists {
+            conn.execute_batch(&format!(
+                "UPDATE [{table}] SET local_type=1,message_content='synthetic text',WCDB_CT_message_content=0"
+            ))
+            .unwrap();
+        }
+    }
+    let conn = Connection::open(&f.cached["contact/contact.db"]).unwrap();
+    conn.execute_batch(
+        "DROP TABLE contact;
+         CREATE TABLE contact(username,nick_name,remark,description,local_type,extra_buffer);
+         INSERT INTO contact VALUES('wxid_peer',42,'','',1,NULL);",
+    )
+    .unwrap();
+    drop(conn);
+    let raw = crate::daemon::query::export::q_export_username(&f.db, &f.names, "wxid_peer".into())
+        .await
+        .unwrap();
+    assert_eq!(raw["contact_nick_name"], 42);
+    let error = q_export_delta_username(&f.db, &f.names, "wxid_peer".into(), Some(100), Some(100))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("expected a string"), "{error:#}");
+}
+
 #[test]
 fn sqlite_raw_types_and_uid_are_not_replaced_by_rendered_body() {
     let g = golden();

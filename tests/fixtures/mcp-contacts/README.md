@@ -16,7 +16,7 @@
 
 旧实现会把数据库故障吞成空标签；本实现明确报错。异常 NULL/非文本名称、非整数排序值等不兼容 schema 明确失败，不伪造结果。数值 ID 保留 Python 数值相等语义，文本 ID 不与数字混同。protobuf 保留旧切片截断行为，并有机器整数溢出保护。
 
-直接复用 `crate::toolkit::contact_metadata::{parse_label_id, sqlite_id_equal, extract_field_30}`，分别命名为 label_id、id_equal、field_30。不在查询模块另写解析器。
+严格标签与 raw 导出直接复用 `adapters/wechat/contacts/label_values.rs` 的 `parse_label_id`、`sqlite_id_equal`、`extract_field_30`，分别命名为 label_id、id_equal、field_30。不在查询模块另写解析器。
 
 ## 资源上限
 

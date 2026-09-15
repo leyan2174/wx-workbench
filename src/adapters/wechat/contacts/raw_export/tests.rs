@@ -1,9 +1,40 @@
 use super::*;
 
 #[test]
+fn raw_numeric_labels_are_not_coerced_into_strict_domain_tags() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("synthetic-contact.db");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE contact(username,nick_name,remark,description,local_type,extra_buffer);
+         CREATE TABLE contact_label(label_id_,label_name_,sort_order_);
+         INSERT INTO contact VALUES('u',42,0,NULL,1,x'f2010137');
+         INSERT INTO contact_label VALUES(7,123,1);",
+    )
+    .unwrap();
+    drop(conn);
+    let before = std::fs::read(&path).unwrap();
+    let raw = contact_metadata_for_export(&path, "u", false);
+    assert!(raw.diagnostics.is_empty());
+    assert_eq!(raw.fields["contact_nick_name"], 42);
+    assert_eq!(raw.fields["contact_remark"], "");
+    assert_eq!(raw.fields["contact_tags"], serde_json::json!([123]));
+    let error = super::super::labels::read_tags(&path, &Default::default()).unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<rusqlite::Error>(),
+        Some(rusqlite::Error::InvalidColumnType(
+            1,
+            _,
+            rusqlite::types::Type::Integer
+        ))
+    ));
+    assert_eq!(before, std::fs::read(&path).unwrap());
+}
+
+#[test]
 fn legacy_ast_golden() {
     let cases: Value = serde_json::from_str(include_str!(
-        "../../tests/fixtures/contact-metadata-golden.json"
+        "../../../../../tests/fixtures/contact-metadata-golden.json"
     ))
     .unwrap();
     for case in cases.as_array().unwrap() {

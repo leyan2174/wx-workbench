@@ -2,8 +2,9 @@
 
 use anyhow::{ensure, Context, Result};
 use chrono::{Local, TimeZone};
-use rusqlite::{Connection, OpenFlags};
-use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use rusqlite::Connection;
+use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -88,36 +89,51 @@ pub fn parse_contact_filter(raw: &str) -> Option<BTreeSet<String>> {
     (!raw.is_empty()).then(|| raw.split(',').map(str::to_owned).collect())
 }
 
-#[derive(Debug, Default, Serialize)]
+use crate::adapters::wechat::{
+    contacts::batch::{self as contact_source, Contact},
+    media::voice_export::BatchSource,
+};
+use crate::business::voice_export::BatchProgress;
+use crate::business::voice_export::{batch_selected, BatchFailureStage, BatchItemOutcome};
+
+#[derive(Debug, Default, serde::Serialize)]
 pub struct BatchReport {
-    pub total: u64,
-    pub success: u64,
-    pub failed: u64,
-    pub converted: u64,
-    pub skipped_existing: u64,
-    pub filtered: u64,
+    #[serde(flatten)]
+    pub progress: BatchProgress,
     pub warnings: Vec<String>,
     pub failures: Vec<BatchFailure>,
 }
 
-#[derive(Debug, Serialize)]
+/// Legacy JSON diagnostic projection; these raw IDs do not establish strict identity.
+#[derive(Debug, serde::Serialize)]
 pub struct BatchFailure {
     pub chat_name_id: Option<i64>,
     pub local_id: Option<i64>,
     pub error: String,
 }
 
-#[derive(Debug, Default)]
-struct Contact {
-    alias: String,
-    remark: String,
-    nick_name: String,
+fn failure_message(stage: BatchFailureStage) -> &'static str {
+    match stage {
+        BatchFailureStage::Metadata => "invalid voice metadata",
+        BatchFailureStage::Directory => "voice output directory refused",
+        BatchFailureStage::Material => "empty, invalid or oversized voice_data",
+        BatchFailureStage::Conversion => "start ffmpeg or complete bounded audio conversion failed",
+        BatchFailureStage::Publication => "voice publication refused",
+    }
 }
 
-/// 单条错误累计后继续；无法打开主库、缺表等结构错误整体返回 Err。
-/// success 保持旧口径：converted + skipped_existing。
+/// The wrapper retains the existing synchronous API. Worker cancellation is owned by its Job.
 pub fn convert_database(options: &BatchOptions) -> Result<BatchReport> {
-    // absolute 会折叠 ..；必须先验证原始输入，且不能在检查前创建任何目录。
+    convert_database_checked(options, &[], || false)
+}
+
+/// The caller owns cancellation and any additional protected account paths.
+pub fn convert_database_checked(
+    options: &BatchOptions,
+    protected: &[PathBuf],
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<BatchReport> {
+    ensure!(!cancelled(), "Audio batch cancelled");
     ensure!(
         !options
             .output_dir
@@ -127,61 +143,40 @@ pub fn convert_database(options: &BatchOptions) -> Result<BatchReport> {
     );
     let output = std::path::absolute(&options.output_dir)?;
     validate_output(options, &output)?;
-    let connection = readonly(&options.media_db).context("open media database")?;
-    let snapshot = connection.unchecked_transaction()?;
-    let mut names = BTreeMap::new();
-    let mut query = snapshot.prepare("SELECT rowid, user_name FROM Name2Id")?;
-    for row in query.query_map([], |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-    })? {
-        let (id, name) = row?;
-        if let Some(name) = name.filter(|name| !name.is_empty()) {
-            names.insert(id, name);
-        }
-    }
+    let source = BatchSource::open(&options.media_db).context("open media database")?;
     let mut report = BatchReport::default();
-    let contacts = match load_contacts(&options.contact_db) {
-        Ok(contacts) => contacts,
-        Err(error) => {
-            report.warnings.push(format!(
-                "contact database unavailable; using usernames: {error:#}"
-            ));
-            BTreeMap::new()
+    let contact_read = (|| -> Result<_> {
+        let pin = crate::attachment::local_files::Pin::open(&options.contact_db, false)?;
+        let contacts = contact_source::read(&options.contact_db)?;
+        pin.verify()?;
+        Ok((contacts, Some(pin)))
+    })();
+    let (contacts, contact_pin) = match contact_read {
+        Ok(projection) => projection,
+        Err(_) => {
+            report
+                .warnings
+                .push("contact database unavailable; using usernames".into());
+            (BTreeMap::new(), None)
         }
     };
-    let mut query = snapshot.prepare(
-        "SELECT chat_name_id, create_time, local_id, voice_data, length(voice_data) FROM VoiceInfo ORDER BY chat_name_id, create_time"
-    )?;
-    let mut rows = query.query([])?;
-    while let Some(row) = rows.next()? {
-        report.total += 1;
-        let chat_id = row.get::<_, i64>(0).ok();
-        let local_id = row.get::<_, i64>(2).ok();
-        let result = (|| -> Result<()> {
-            let chat_id = chat_id.context("invalid chat_name_id")?;
-            let username = names
-                .get(&chat_id)
-                .cloned()
-                .unwrap_or_else(|| format!("unknown_{chat_id}"));
-            if options
-                .contacts
-                .as_ref()
-                .is_some_and(|filter| !filter.is_empty() && !filter.contains(&username))
-            {
-                report.filtered += 1;
-                return Ok(());
+    let mut protected = protected.to_vec();
+    protected.extend([options.media_db.clone(), options.contact_db.clone()]);
+    source.visit(|entry, material| {
+        ensure!(!cancelled(), "Audio batch cancelled");
+        let mut failure_stage = BatchFailureStage::Metadata;
+        let result = (|| -> Result<BatchItemOutcome> {
+            let username = entry.username.as_deref().context("invalid chat_name_id")?;
+            if !batch_selected(username, options.contacts.as_ref()) {
+                return Ok(BatchItemOutcome::Filtered);
             }
-            ensure!(
-                !username.chars().any(char::is_control),
-                "username contains control characters"
-            );
-            let local_id = local_id.context("invalid local_id")?;
-            let timestamp: i64 = row.get(1).context("invalid create_time")?;
+            ensure!(!username.chars().any(char::is_control), "invalid username");
+            let local_id = entry.local_id.context("invalid local_id")?;
             let date = Local
-                .timestamp_opt(timestamp, 0)
+                .timestamp_opt(entry.timestamp.context("invalid create_time")?, 0)
                 .single()
                 .context("create_time out of range")?;
-            let contact = contacts.get(&username);
+            let contact = contacts.get(username);
             let display = contact
                 .map(|c| {
                     if !c.remark.is_empty() {
@@ -191,91 +186,109 @@ pub fn convert_database(options: &BatchOptions) -> Result<BatchReport> {
                     }
                 })
                 .filter(|s| !s.is_empty())
-                .unwrap_or(&username);
-            let directory = contact_directory(&output, &username, display, contact)?;
+                .unwrap_or(username);
+            failure_stage = BatchFailureStage::Directory;
+            let mut check = || {
+                ensure!(!cancelled(), "Audio batch cancelled");
+                source.verify()?;
+                if let Some(pin) = &contact_pin {
+                    pin.verify()?;
+                }
+                validate_output(options, &output)
+            };
+            let directory = contact_directory_checked(
+                &output, username, display, contact, &protected, &mut check,
+            )?;
+            let ownership =
+                crate::attachment::local_files::Pin::open(&directory.join(".info"), false)?;
             let voice = directory.join("voice");
             checked_mkdir(&voice)?;
             let target = voice.join(format!("{}_{local_id}.mp3", date.format("%Y%m%d_%H%M%S")));
             reject_reparse(&target)?;
             if target.exists() {
                 ensure!(target.is_file(), "existing MP3 path is not a file");
-                report.success += 1;
-                report.skipped_existing += 1;
-                return Ok(());
+                crate::toolkit::ExportTarget::capture_paths(&target, &protected)?;
+                return Ok(BatchItemOutcome::Existing);
             }
-            let size: Option<i64> = row.get(4)?;
-            ensure!(
-                size.is_some_and(|size| (1..=16 * 1024 * 1024).contains(&size)),
-                "empty or oversized voice_data"
-            );
-            let data: Vec<u8> = row.get(3).context("voice_data is not a BLOB")?;
-            // 每条只保留当前压缩数据；使用现有原子转换入口，不重复实现编解码。
-            let mut source = tempfile::NamedTempFile::new_in(&voice)?;
-            source.write_all(&data)?;
-            source.flush()?;
-            // 单文件入口允许替换；批量先转到独占暂存路径，最终发布必须不覆盖。
+            failure_stage = BatchFailureStage::Material;
+            let data = material()?;
+            let mut input = tempfile::NamedTempFile::new_in(&voice)?;
+            input.write_all(&data)?;
+            input.flush()?;
+            let input = input.into_temp_path();
             let staged = tempfile::NamedTempFile::new_in(&voice)?.into_temp_path();
-            super::convert_silk_to_mp3_with_ffmpeg(source.path(), &staged, &options.ffmpeg)?;
-            if publish_mp3(staged, &target)? {
-                report.converted += 1;
+            failure_stage = BatchFailureStage::Conversion;
+            super::convert_controlled(
+                &input,
+                &staged,
+                &options.ffmpeg,
+                std::time::Instant::now() + std::time::Duration::from_secs(120),
+                &mut cancelled,
+            )?;
+            failure_stage = BatchFailureStage::Publication;
+            let mut check = || {
+                ensure!(!cancelled(), "Audio batch cancelled");
+                ownership.verify()?;
+                source.verify()?;
+                if let Some(pin) = &contact_pin {
+                    pin.verify()?;
+                }
+                validate_output(options, &output)
+            };
+            if publish_mp3_checked(staged, &target, &protected, &mut check)? {
+                Ok(BatchItemOutcome::Converted)
             } else {
-                report.skipped_existing += 1;
+                Ok(BatchItemOutcome::Existing)
             }
-            report.success += 1;
-            Ok(())
         })();
-        if let Err(error) = result {
-            report.failed += 1;
-            report.failures.push(BatchFailure {
-                chat_name_id: chat_id,
-                local_id,
-                error: format!("{error:#}"),
-            });
+        // Cancellation terminates the batch; it is not another bad input record.
+        ensure!(!cancelled(), "Audio batch cancelled");
+        match result {
+            Ok(outcome) => report.progress.record(outcome),
+            Err(_) => {
+                report.progress.record(BatchItemOutcome::Failed);
+                report.failures.push(BatchFailure {
+                    chat_name_id: entry.chat_name_id,
+                    local_id: entry.local_id,
+                    error: failure_message(failure_stage).into(),
+                });
+            }
         }
-    }
+        Ok(())
+    })?;
     Ok(report)
 }
 
-// 返回 false 表示编码期间已有其他导出者发布目标，此时保留既有文件。
+#[cfg(test)]
 fn publish_mp3(staged: tempfile::TempPath, target: &Path) -> Result<bool> {
-    match staged.persist_noclobber(target) {
+    publish_mp3_checked(staged, target, &[], &mut || Ok(()))
+}
+
+fn publish_mp3_checked(
+    staged: tempfile::TempPath,
+    target: &Path,
+    protected: &[PathBuf],
+    check: &mut impl FnMut() -> Result<()>,
+) -> Result<bool> {
+    check()?;
+    let mut protected = protected.to_vec();
+    protected.push(staged.to_path_buf());
+    let result = crate::toolkit::ExportTarget::new_file(target, &protected)
+        .and_then(|target| super::publish_encoded(&staged, target, &mut *check));
+    match result {
         Ok(()) => Ok(true),
-        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-            reject_reparse(target)?;
-            ensure!(target.is_file(), "existing MP3 path is not a file");
-            Ok(false)
-        }
         Err(error) => {
-            Err(error.error).context("publish batch MP3 without replacing existing output")
+            check()?;
+            reject_reparse(target)?;
+            if target.is_file() {
+                crate::toolkit::ExportTarget::capture_paths(target, &protected)?;
+                // Preserve the legacy late-writer skip, never replace its file.
+                Ok(false)
+            } else {
+                Err(error)
+            }
         }
     }
-}
-
-fn readonly(path: &Path) -> Result<Connection> {
-    Ok(Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?)
-}
-
-fn load_contacts(path: &Path) -> Result<BTreeMap<String, Contact>> {
-    let connection = readonly(path)?;
-    let mut query = connection.prepare("SELECT username, alias, remark, nick_name FROM contact")?;
-    let mut result = BTreeMap::new();
-    for row in query.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            Contact {
-                alias: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                remark: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                nick_name: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-            },
-        ))
-    })? {
-        let (username, info) = row?;
-        result.insert(username, info);
-    }
-    Ok(result)
 }
 
 fn resolve(base: &Path, path: &Path) -> Result<PathBuf> {
@@ -409,12 +422,25 @@ pub fn safe_dirname(name: &str) -> String {
     result
 }
 
+#[cfg(test)]
 fn contact_directory(
     root: &Path,
     username: &str,
     display: &str,
     contact: Option<&Contact>,
 ) -> Result<PathBuf> {
+    contact_directory_checked(root, username, display, contact, &[], &mut || Ok(()))
+}
+
+fn contact_directory_checked(
+    root: &Path,
+    username: &str,
+    display: &str,
+    contact: Option<&Contact>,
+    protected: &[PathBuf],
+    check: &mut impl FnMut() -> Result<()>,
+) -> Result<PathBuf> {
+    check()?;
     let base = safe_dirname(display);
     let digest = format!("{:x}", md5::compute(username.as_bytes()));
     for name in [base.clone(), format!("{base}~{}", &digest[..12])] {
@@ -423,6 +449,7 @@ fn contact_directory(
         let info = directory.join(".info");
         reject_reparse(&info)?;
         if info.exists() {
+            crate::toolkit::ExportTarget::capture_paths(&info, protected)?;
             let existing = fs::read_to_string(&info)?;
             if existing.lines().next() == Some(format!("username:  {username}").as_str()) {
                 return Ok(directory);
@@ -438,22 +465,24 @@ fn contact_directory(
             clean(&contact.nick_name),
             clean(&contact.remark)
         );
-        // 独占发布 .info，不能覆盖另一联系人已经取得的目录所有权。
-        let mut temporary = tempfile::NamedTempFile::new_in(&directory)?;
-        temporary.write_all(contents.as_bytes())?;
-        temporary.as_file().sync_all()?;
-        match temporary.persist_noclobber(&info) {
-            Ok(_) => return Ok(directory),
-            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                // 同一联系人并发取得了目录时复用，不另建一个哈希后缀目录。
+        check()?;
+        let result = crate::toolkit::ExportTarget::new_file(&info, protected)
+            .and_then(|target| target.write_bytes_checked(contents.as_bytes(), &mut *check));
+        match result {
+            Ok(()) => return Ok(directory),
+            Err(error) => {
+                check()?;
                 reject_reparse(&info)?;
-                if fs::read_to_string(&info)?.lines().next()
-                    == Some(format!("username:  {username}").as_str())
-                {
-                    return Ok(directory);
+                if info.is_file() {
+                    if fs::read_to_string(&info)?.lines().next()
+                        == Some(format!("username:  {username}").as_str())
+                    {
+                        return Ok(directory);
+                    }
+                } else {
+                    return Err(error);
                 }
             }
-            Err(error) => return Err(error.error.into()),
         }
     }
     anyhow::bail!("contact output directory belongs to another username")

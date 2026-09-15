@@ -1,5 +1,119 @@
 use super::*;
 
+#[test]
+fn progress_flatten_preserves_legacy_report_and_raw_failure_json() {
+    let mut report = BatchReport::default();
+    report.progress.record(BatchItemOutcome::Converted);
+    report.progress.record(BatchItemOutcome::Existing);
+    report.progress.record(BatchItemOutcome::Filtered);
+    report.progress.record(BatchItemOutcome::Failed);
+    report
+        .warnings
+        .push("contact database unavailable; using usernames".into());
+    report.failures.push(BatchFailure {
+        chat_name_id: Some(99),
+        local_id: None,
+        error: failure_message(BatchFailureStage::Material).into(),
+    });
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        serde_json::json!({
+            "total": 4, "success": 2, "failed": 1, "converted": 1,
+            "skipped_existing": 1, "filtered": 1,
+            "warnings": ["contact database unavailable; using usernames"],
+            "failures": [{"chat_name_id": 99, "local_id": null,
+                "error": "empty, invalid or oversized voice_data"}]
+        })
+    );
+}
+
+#[test]
+fn synthetic_encoder_publishes_then_skips_duplicate_before_material() {
+    let mut fixture = Fixture::new();
+    let encoder = fixture._temporary.path().join("success.exe");
+    fs::copy(
+        super::super::process_tests::fake_ffmpeg().join("helper.exe"),
+        &encoder,
+    )
+    .unwrap();
+    fixture.options.ffmpeg = encoder;
+    let data = fs::read(super::super::tests::fixtures().join("tone.silk")).unwrap();
+    fixture.add(1, 7, Some(&data));
+    fixture.add(1, 7, None);
+    let report = convert_database(&fixture.options).unwrap();
+    assert_eq!(
+        (
+            report.progress.total,
+            report.progress.converted,
+            report.progress.skipped_existing,
+            report.progress.failed
+        ),
+        (2, 1, 1, 0)
+    );
+    let lane = fixture.options.output_dir.join("same_name/voice");
+    let files: Vec<_> = fs::read_dir(&lane)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(files.len(), 1);
+    assert_eq!(fs::read(&files[0]).unwrap(), b"synthetic encoded audio");
+    let repeat = convert_database(&fixture.options).unwrap();
+    assert_eq!(
+        (repeat.progress.converted, repeat.progress.skipped_existing),
+        (0, 2)
+    );
+}
+
+#[test]
+fn cancellation_before_batch_creates_no_output() {
+    let fixture = Fixture::new();
+    fixture.add(1, 1, None);
+    assert!(convert_database_checked(&fixture.options, &[], || true).is_err());
+    assert!(!fixture.options.output_dir.exists());
+}
+
+#[test]
+fn cancelled_final_publish_cleans_stage_without_output() {
+    let root = tempfile::tempdir().unwrap();
+    let staged = tempfile::NamedTempFile::new_in(root.path())
+        .unwrap()
+        .into_temp_path();
+    fs::write(&staged, b"encoded bytes").unwrap();
+    let target = root.path().join("out.mp3");
+    let mut checks = 0;
+    let error = publish_mp3_checked(staged, &target, &[], &mut || {
+        checks += 1;
+        ensure!(checks < 3, "Audio batch cancelled");
+        Ok(())
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("cancelled"));
+    assert!(!target.exists());
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn final_callback_target_race_keeps_winner_and_skips() {
+    let root = tempfile::tempdir().unwrap();
+    let staged = tempfile::NamedTempFile::new_in(root.path())
+        .unwrap()
+        .into_temp_path();
+    fs::write(&staged, b"our encoded bytes").unwrap();
+    let target = root.path().join("out.mp3");
+    let mut checks = 0;
+    let published = publish_mp3_checked(staged, &target, &[], &mut || {
+        checks += 1;
+        if checks == 3 {
+            fs::write(&target, b"winning output")?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(!published);
+    assert_eq!(fs::read(&target).unwrap(), b"winning output");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
 struct Fixture {
     _temporary: tempfile::TempDir,
     options: BatchOptions,
@@ -39,7 +153,7 @@ impl Fixture {
     }
 
     fn existing(&self, username: &str, display: &str, local_id: i64) -> PathBuf {
-        let contacts = load_contacts(&self.options.contact_db).unwrap();
+        let contacts = contact_source::read(&self.options.contact_db).unwrap();
         let directory = contact_directory(
             &self.options.output_dir,
             username,
@@ -116,12 +230,12 @@ fn sqlite_filters_skips_existing_and_counts_bad_records() {
     let report = convert_database(&fixture.options).unwrap();
     assert_eq!(
         (
-            report.total,
-            report.success,
-            report.failed,
-            report.converted,
-            report.skipped_existing,
-            report.filtered
+            report.progress.total,
+            report.progress.success,
+            report.progress.failed,
+            report.progress.converted,
+            report.progress.skipped_existing,
+            report.progress.filtered
         ),
         (3, 1, 1, 0, 1, 1)
     );
@@ -147,7 +261,11 @@ fn absent_contact_database_falls_back_without_creating_database() {
     fixture.add(99, 2, None);
     let report = convert_database(&fixture.options).unwrap();
     assert_eq!(
-        (report.total, report.failed, report.warnings.len()),
+        (
+            report.progress.total,
+            report.progress.failed,
+            report.warnings.len()
+        ),
         (2, 2, 1)
     );
     assert!(!fixture.options.contact_db.exists());
@@ -171,7 +289,7 @@ fn missing_main_database_and_unsafe_output_fail_before_writing() {
 #[test]
 fn same_display_names_have_separate_info_and_keep_existing_info() {
     let fixture = Fixture::new();
-    let contacts = load_contacts(&fixture.options.contact_db).unwrap();
+    let contacts = contact_source::read(&fixture.options.contact_db).unwrap();
     let alice = contact_directory(
         &fixture.options.output_dir,
         "alice",
@@ -227,22 +345,22 @@ fn real_sqlite_batch_converts_and_repeated_run_skips() {
     let report = convert_database(&fixture.options).unwrap();
     assert_eq!(
         (
-            report.total,
-            report.success,
-            report.failed,
-            report.converted,
-            report.skipped_existing
+            report.progress.total,
+            report.progress.success,
+            report.progress.failed,
+            report.progress.converted,
+            report.progress.skipped_existing
         ),
         (5, 4, 1, 3, 1)
     );
     let again = convert_database(&fixture.options).unwrap();
     assert_eq!(
         (
-            again.total,
-            again.success,
-            again.failed,
-            again.converted,
-            again.skipped_existing
+            again.progress.total,
+            again.progress.success,
+            again.progress.failed,
+            again.progress.converted,
+            again.progress.skipped_existing
         ),
         (5, 4, 1, 0, 4)
     );
@@ -270,7 +388,14 @@ fn missing_encoder_counts_failure_and_removes_temporary_silk() {
     let fixtures = super::super::tests::fixtures();
     fixture.add(1, 1, Some(&fs::read(fixtures.join("tone.silk")).unwrap()));
     let report = convert_database(&fixture.options).unwrap();
-    assert_eq!((report.total, report.success, report.failed), (1, 0, 1));
+    assert_eq!(
+        (
+            report.progress.total,
+            report.progress.success,
+            report.progress.failed
+        ),
+        (1, 0, 1)
+    );
     assert!(report.failures[0].error.contains("start ffmpeg"));
     let voice = fixture.options.output_dir.join("same_name/voice");
     assert_eq!(fs::read_dir(voice).unwrap().count(), 0);
@@ -284,10 +409,14 @@ fn malformed_sqlite_rows_are_individual_failures() {
     ).unwrap();
     let report = convert_database(&fixture.options).unwrap();
     assert_eq!(
-        (report.total, report.failed, report.failures.len()),
+        (
+            report.progress.total,
+            report.progress.failed,
+            report.failures.len()
+        ),
         (3, 3, 3)
     );
-    assert_eq!(report.success, 0);
+    assert_eq!(report.progress.success, 0);
 }
 
 #[test]

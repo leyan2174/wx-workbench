@@ -6,7 +6,7 @@
 
 - `business/contacts.rs` 定义账户范围内的 `ContactId`、`Contact`、`Member`、`Tag`、查询页、能力状态和窄只读 `ContactSource`。业务用例负责筛选、分页、显示名优先级、唯一身份选择及成员排序，不依赖 SQLite、微信、daemon、clap 或 JSON Value。
 - `adapters/wechat/contacts/mod.rs` 实现接口，仅接受宿主传入的固定账户路径。实际探测联系人、标签和群成员所需表列，解释身份、认证与可见性，读取事务内将数据转换为业务对象。SQL 行号、成员关联编号和标签存储编号不进入业务模型。
-- 适配器子模块保留已有群昵称 BLOB 算法和标签字段解析算法。标签标量解析复用现有 `toolkit/contact_metadata` 原语，不另写同类解析器。
+- 适配器子模块保留已有群昵称 BLOB 算法和标签字段解析算法。严格标签与 raw 导出共用 `adapters/wechat/contacts/label_values.rs` 的标量及 field-30 解析，不再反向依赖 toolkit。
 - daemon 保留 `DbCache`、查询租约、名称缓存和响应投影。`load_names` 使用业务对象填充原有 `Names`；其他尚未迁移的消息查询仍可使用该缓存。
 
 ## 实际接线
@@ -31,6 +31,14 @@
 适配器保持只读事务与有限预算：联系人最多 100,000 条，单文本最多 4096 UTF-8 字节，累计联系人文本最多 16 MiB。标签保留原有 10,000 定义、100,000 关联、1 MiB 单 BLOB 和 16 MiB 累计文本上限。普通与 legacy JSON 投影继续限制响应文本量。跨库读取不声称具有全局事务一致性。
 
 ## 验证与剩余范围
+
+### Raw 导出元数据边界
+
+`adapters/wechat/contacts/raw_export.rs` 拥有联系人导出 SQL、只读快照和旧格式回退。`RawContactMetadata` 的动态 JSON 字段仅用于显式 raw 导出，不能作为普通 `Contact` 或 `Tag`。普通导出与 delta 的生产入口直接调用此适配器，原 `toolkit/contact_metadata` 实现已删除。
+
+此 legacy profile 保留群聊不打开数据库、四个默认字段、字段与标签独立回退及 `metadata_warnings`。它保留 username 精确字节匹配、重复联系人首行、可选列精确大小写、`local_type != 3` 的 NULL 行为，以及数字原值、零/NULL/空 BLOB 转空字符串。标签保留重复定义覆盖但首次位置不变、重复关联计数、Unicode 数字和宽容 field-30 解码。严格标签仍要求字符串并执行既有预算，不能用 raw 回退代替严格错误；共享解析不意味着两个投影具有相同排序、值类型或失败策略。
+
+普通 raw 导出可保留数字 JSON；delta 既有字符串 DTO 会拒绝数字元数据，不自动字符串化。适配器测试锁定 raw 数字标签与严格类型拒绝，真实 delta 查询测试锁定两个导出入口的这一差异。原 golden、只读和 schema/损坏库诊断测试迁至 `contacts/raw_export/tests.rs`，断言保持不变。独立 fixture 通过真实联系人 adapter 加载测试，不保留 toolkit 替代实现。
 
 新增业务内存测试覆盖筛选、分页、账户隔离、同名歧义和标签选择；11 项合成 SQLite 测试覆盖能力缺失、列名变体、成员关联损坏、完整空群、历史发言人、重复身份、标签 BLOB、错误分类、读取预算及连接级显示名读取；另有名称缓存适配测试验证快照范围、首选显示名与分类。投影测试比较普通与 legacy 联系人的共同身份与显示名。已有标签与群昵称解析测试继续复用迁移后的实现，空名称缓存仍必须报错。
 

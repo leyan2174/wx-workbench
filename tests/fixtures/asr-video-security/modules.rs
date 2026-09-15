@@ -41,7 +41,7 @@ pub mod daemon {
 }
 
 pub mod toolkit {
-    pub(crate) use super::files::{separate, validate_export_target};
+    pub(crate) use super::files::{separate, validate_export_target, ExportTarget};
     pub use super::{asr, audio, legacy};
     pub use super::{private_file, setup};
 }

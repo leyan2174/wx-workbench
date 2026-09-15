@@ -7,4 +7,5 @@ pub(crate) mod legacy_text;
 pub mod media;
 pub mod messages;
 pub mod moments;
+pub mod planning;
 pub mod structured_message;

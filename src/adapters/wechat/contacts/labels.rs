@@ -1,8 +1,8 @@
 //! Bounded WeChat label decoding, preserving legacy association multiplicity.
-use crate::business::contacts::{ContactId, Error as ContactError, Tag, TagMember};
-use crate::toolkit::contact_metadata::{
+use super::label_values::{
     extract_field_30 as field_30, parse_label_id as label_id, sqlite_id_equal as id_equal,
 };
+use crate::business::contacts::{ContactId, Error as ContactError, Tag, TagMember};
 use anyhow::{bail, Result};
 use rusqlite::{
     types::{Value as SqlValue, ValueRef},

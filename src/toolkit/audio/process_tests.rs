@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn fake_ffmpeg() -> &'static Path {
+pub(super) fn fake_ffmpeg() -> &'static Path {
     static HELPER: OnceLock<tempfile::TempDir> = OnceLock::new();
     HELPER
         .get_or_init(|| {

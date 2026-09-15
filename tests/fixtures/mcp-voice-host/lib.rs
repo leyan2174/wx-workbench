@@ -24,7 +24,7 @@ pub mod service {
 }
 pub mod toolkit {
     pub use super::{setup, private_file};
-    pub(crate) use super::files::{separate, validate_export_target};
+    pub(crate) use super::files::{separate, validate_export_target, ExportTarget};
     pub use super::audio;
     pub use super::legacy;
     pub use super::toolkit_asr as asr;

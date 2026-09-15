@@ -1,4 +1,48 @@
 use super::*;
+
+#[test]
+fn semantic_partial_reasons_keep_legacy_projection_codes_and_order() {
+    let reasons = [
+        (Partial::MessageSourceMissing, "message_db_missing"),
+        (Partial::ConversationAbsent, "no_message_table"),
+        (Partial::MessageReadFailed, "message_error"),
+        (Partial::MediaReadFailed, "media_error"),
+        (Partial::MediaSourceMissing, "media_missing"),
+        (Partial::ResourceReadFailed, "resource_error"),
+        (Partial::ResourceSourceMissing, "resource_missing"),
+        (Partial::ScanBaseMissing, "scan_base_missing"),
+        (Partial::ScanDepthLimited, "scan_depth_limited"),
+        (Partial::ScanError, "scan_error"),
+        (Partial::ScanLimited, "scan_limited"),
+        (Partial::ScanMissing, "scan_missing"),
+        (Partial::ScanOverflow, "scan_overflow"),
+        (Partial::ScanReparseSkipped, "scan_reparse_skipped"),
+    ];
+    for (reason, expected) in reasons {
+        assert_eq!(partial_code(reason), expected);
+    }
+    let plan = Plan {
+        rows: vec![domain::PlannedChat {
+            chat: PlanChat {
+                index: 1,
+                username: "u".into(),
+                chat_name: "u".into(),
+                chat_type: "single".into(),
+            },
+            messages: MessageTableStats::default(),
+            attachment_estimated_bytes: 0,
+            attachment_scanned_bytes: None,
+            total_estimated_bytes: 0,
+            statuses: reasons.into_iter().map(|(reason, _)| reason).collect(),
+        }],
+    };
+    let mut labels: Vec<_> = reasons.into_iter().map(|(_, label)| label).collect();
+    labels.sort_unstable();
+    assert_eq!(
+        project_plan(plan).unwrap()[0].size_status,
+        format!("partial:{}", labels.join(","))
+    );
+}
 use serde_json::Value;
 
 fn fixture() -> Value {
@@ -92,7 +136,7 @@ fn legacy_synthetic_sqlite_differential() {
 #[test]
 fn query_null_zero_and_inclusive_endpoints_match_python() {
     let (temp, fixture) = synthetic();
-    let conn = open_readonly(&temp.path().join("messages.db")).unwrap();
+    let conn = planning::open_test_source(&temp.path().join("messages.db")).unwrap();
     let table = format!("Msg_{:x}", md5::compute("alpha"));
     for case in fixture["direct"].as_array().unwrap() {
         let stats = query_message_table_plan_stats(
@@ -415,7 +459,7 @@ fn scan_large_logical_file_and_deleted_file() {
     .unwrap();
     assert_eq!(rows[0].attachment_scanned_bytes, Some(large as i64));
     fs::remove_file(&path).unwrap();
-    assert!(matches!(scan_pin(&path), Err("scan_missing")));
+    assert!(matches!(scan_pin(&path), Err(Partial::ScanMissing)));
     assert_eq!(
         scan_username(root.parent().unwrap().parent().unwrap(), "alpha").bytes,
         0
@@ -579,7 +623,7 @@ fn scan_wrong_directory_type_preserves_partial_bytes() {
     fs::write(bad_media.join("attach"), b"not a directory").unwrap();
     let result = scan_username(&bad_media, "alpha");
     assert_eq!(result.bytes, 0);
-    assert!(result.statuses.contains("scan_error"));
+    assert!(result.statuses.contains(&Partial::ScanError));
     assert_eq!(scan_username(&media, "alpha").bytes, 57);
 }
 
@@ -590,7 +634,7 @@ fn scan_depth_bound_is_visible_without_stack_overflow() {
     let pin = scan_pin(temp.path()).unwrap_or_else(|s| panic!("{s}"));
     scan_tree(temp.path(), pin, 128, &mut total);
     assert_eq!(total.bytes, 0);
-    assert!(total.statuses.contains("scan_depth_limited"));
+    assert!(total.statuses.contains(&Partial::ScanDepthLimited));
 }
 
 #[cfg(windows)]
