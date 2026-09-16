@@ -1,5 +1,7 @@
 //! 离线视频流式发布；仅在头部解码成功后创建临时文件，绝不覆盖已有结果。
-use crate::toolkit::sns::video_runtime::{RuntimeLimits, VideoRuntime, VIDEO_PREFIX_BYTES};
+use crate::adapters::wechat::media::sns_keystream::{
+    RuntimeLimits, SnsKeystream, VIDEO_PREFIX_BYTES,
+};
 use anyhow::{ensure, Context, Result};
 use std::{
     fs::{self, OpenOptions},
@@ -14,7 +16,7 @@ pub fn cmd_decode(
     key_file: Option<PathBuf>,
     wasm: Option<PathBuf>,
 ) -> Result<()> {
-    let context = crate::toolkit::export_context::ExportContext::current()?;
+    let context = crate::application::publication_context::PublicationContext::current()?;
     let protected = context.protected(&input)?;
     let bytes = decode_file_checked(
         &input,
@@ -82,10 +84,10 @@ fn decode_file_checked(
         ensure!(key.len() <= 1024, "视频密钥文件超过长度限制");
         let key_text = std::str::from_utf8(&key).context("视频密钥文件必须是 UTF-8 文本")?;
         let runtime = match wasm {
-            Some(path) => VideoRuntime::new(path, RuntimeLimits::default())?,
-            None => VideoRuntime::bundled(RuntimeLimits::default())?,
+            Some(path) => SnsKeystream::new(path, RuntimeLimits::default())?,
+            None => SnsKeystream::bundled(RuntimeLimits::default())?,
         };
-        prefix = Zeroizing::new(runtime.decode(key_text, &prefix)?);
+        prefix = Zeroizing::new(runtime.restore_video(key_text, &prefix)?);
     }
     let mut protected = protected.to_vec();
     protected.push(input.to_path_buf());
@@ -93,7 +95,7 @@ fn decode_file_checked(
         protected.extend(key_file.map(Path::to_path_buf));
         protected.extend(wasm.map(Path::to_path_buf));
     }
-    let target = crate::toolkit::ExportTarget::new_file(output, &protected)?;
+    let target = crate::infrastructure::publication::ExportTarget::new_file(output, &protected)?;
     let source_identity = same_file::Handle::from_file(source.try_clone()?)?;
     let source_guard = source.try_clone()?;
     let mut total = 0;
@@ -128,6 +130,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "sns-wasm-test-asset")]
     fn streams_encrypted_prefix_and_preserves_tail() {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("input.bin");
@@ -137,7 +140,7 @@ mod tests {
         let mut plain = vec![23u8; VIDEO_PREFIX_BYTES + 12345];
         plain[4..8].copy_from_slice(b"ftyp");
         let mut encrypted = plain.clone();
-        let runtime = VideoRuntime::bundled(RuntimeLimits::default()).unwrap();
+        let runtime = SnsKeystream::bundled(RuntimeLimits::default()).unwrap();
         for (b, k) in encrypted
             .iter_mut()
             .zip(runtime.keystream("42", VIDEO_PREFIX_BYTES).unwrap())

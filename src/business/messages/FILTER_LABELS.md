@@ -1,15 +1,15 @@
 # Message filter labels and legacy precision
 
 `FilterLabel` expresses label intent using the existing `Kind` where it fits.
-Sticker, Location and ContactCard are narrow independent labels because Kind
-does not classify them. Link and File remain separate label intents, not
-aliases for the semantic Structured kind.
+Sticker and Location are narrow independent labels because Kind does not
+classify them. Link and File remain separate label intents, not aliases for
+the semantic Structured kind.
 
-`service/message_filter.rs` owns transport spelling profiles and the legacy
-numeric projection. CLI remains lowercase-only with its original ten labels.
-MCP trims whitespace, folds ASCII case, accepts namecard/app/emoji/voip and
-still rejects the CLI-only link/sticker/call spellings. File and app deduplicate
-to one legacy selector, as before. CLI value parsers are unchanged.
+`service/message_filter.rs` owns transport spelling profiles and the numeric
+projection. CLI remains lowercase-only with its original ten labels. MCP uses
+the same formal business spellings, while retaining its existing whitespace
+trimming and ASCII case folding. The removed compatibility words
+`namecard`/`app`/`emoji`/`voip` are rejected. CLI value parsers are unchanged.
 
 The existing numeric wire cannot express link versus file: both project to 49.
 This is explicit compatibility loss, not a claim that these business intents
@@ -30,8 +30,8 @@ forwarding numeric requests through `LegacyReadPolicy`. Converting those
 numbers to Kind would widen results. Search's special decoded app-message
 path for the exact legacy selector list [49] is unchanged.
 
-Tests cover canonical business labels, every legacy CLI/MCP mapping, alias and
-case differences, real MCP routing, and real synthetic SQLite selection for
+Tests cover canonical business labels, explicit rejection of removed MCP
+compatibility words, CLI/MCP case differences, real MCP routing, and real synthetic SQLite selection for
 base/packed/negative selectors and semantic versus legacy differences.
 Standalone protocol, voice-host and image-security fixtures register the
 production compatibility module. Cargo and test execution are deferred to

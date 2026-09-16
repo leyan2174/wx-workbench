@@ -79,43 +79,54 @@ async fn decode_image_dispatch_uses_distinct_redacted_export_failure_code() {
 }
 
 #[tokio::test]
-async fn contacts_legacy_dispatch_reads_account_rows_and_preserves_cli() {
+async fn contacts_dispatch_uses_one_account_snapshot_for_mcp_and_ipc() {
     let a = tempfile::tempdir().unwrap();
     let b = tempfile::tempdir().unwrap();
     let (db_a, path_a) = seeded(a.path(), "contact/contact.db", "account_a").await;
     let (db_b, path_b) = seeded(b.path(), "contact\\contact.db", "account_b").await;
     let before_a = fs::read(&path_a).unwrap();
     let before_b = fs::read(&path_b).unwrap();
-    let names = names();
     for (db, own, other) in [
         (&db_a, "account_a", "account_b"),
         (&db_b, "account_b", "account_a"),
     ] {
+        let names = tokio::sync::RwLock::new(Arc::new(Names {
+            map: HashMap::from([
+                ("wxid_1".into(), "VisibleRemark".into()),
+                (own.into(), own.into()),
+                ("group@chatroom".into(), "Group".into()),
+                ("gh_public".into(), "Public".into()),
+            ]),
+            msg_db_keys: vec![],
+            biz_msg_db_keys: vec![],
+            verify_flags: HashMap::new(),
+        }));
         let request = crate::mcp::protocol::route("get_contacts", &json!({})).unwrap();
         let response = dispatch(request, db, &names).await;
         assert!(response.ok, "{:?}", response.error);
-        assert_eq!(response.data["total"], 5);
+        assert_eq!(response.data["total"], 2);
         let rows = response.data["contacts"].as_array().unwrap();
         assert_eq!(
             rows.iter()
                 .map(|r| r["username"].as_str().unwrap())
                 .collect::<Vec<_>>(),
-            ["wxid_1", "group@chatroom", "gh_public", "wxid_1", own]
+            ["wxid_1", own]
         );
         assert!(!response.data.to_string().contains(other));
         assert_eq!(
             rows[0],
-            json!({"username":"wxid_1","nick_name":"HiddenNick","remark":"VisibleRemark","alias":"alias","description":"memo","phone":"123","display":"VisibleRemark"})
+            json!({"username":"wxid_1","display":"VisibleRemark"})
         );
+        let expected = response.data.clone();
         let request =
             crate::mcp::protocol::route("get_contacts", &json!({"query":"hiddenNICK"})).unwrap();
         let response = dispatch(request, db, &names).await;
         assert!(response.ok);
-        assert_eq!(response.data["total"], 1);
+        assert_eq!(response.data["total"], 0);
         let cli: Request = serde_json::from_value(json!({"cmd":"contacts"})).unwrap();
         let response = dispatch(cli, db, &names).await;
         assert!(response.ok);
-        assert_eq!(response.data["total"], 1);
+        assert_eq!(response.data, expected);
         assert_eq!(response.data["contacts"][0]["username"], "wxid_1");
         let cli: Request =
             serde_json::from_value(json!({"cmd":"contacts","query":"hiddenNICK"})).unwrap();
@@ -126,7 +137,7 @@ async fn contacts_legacy_dispatch_reads_account_rows_and_preserves_cli() {
 }
 
 #[tokio::test]
-async fn contacts_legacy_missing_database_does_not_fall_back_to_names() {
+async fn contacts_use_materialized_names_without_reopening_databases_but_reject_empty_cache() {
     let root = tempfile::tempdir().unwrap();
     let db = DbCache::with_dirs(
         root.path().join("missing"),
@@ -142,10 +153,24 @@ async fn contacts_legacy_missing_database_does_not_fall_back_to_names() {
         &names(),
     )
     .await;
+    assert!(response.ok);
+    assert_eq!(
+        response.data,
+        json!({"contacts":[{"username":"wxid_1","display":"VisibleRemark"}],"total":1})
+    );
+    let empty = tokio::sync::RwLock::new(Arc::new(Names {
+        map: HashMap::new(),
+        msg_db_keys: vec![],
+        biz_msg_db_keys: vec![],
+        verify_flags: HashMap::new(),
+    }));
+    let response = dispatch(
+        crate::mcp::protocol::route("get_contacts", &json!({})).unwrap(),
+        &db,
+        &empty,
+    )
+    .await;
     assert!(!response.ok);
-    assert!(response
-        .error
-        .unwrap()
-        .contains("contact database unavailable"));
+    assert!(response.error.unwrap().contains("wx daemon reload"));
     assert!(!root.path().join("missing").exists());
 }

@@ -24,7 +24,7 @@ MD5 来自精确匹配资源行的 packed_info，不是 username 的散列或明
 按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-python tests/fixtures/mcp-image-listing-parity/generate_oracle.py --check
+cargo test --bin wx mcp_image -- --nocapture
 cargo test --manifest-path tests/fixtures/mcp-image-listing-parity/Cargo.toml -- --nocapture
 cargo test --bin wx image_metadata -- --nocapture
 ```

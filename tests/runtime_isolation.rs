@@ -72,17 +72,13 @@ impl Fixture {
         fs::write(profile.join("config.json"), config.to_string()).unwrap();
         self.profiles.push(profile.clone());
         if valid {
-            self.migrate(&profile);
+            self.seed_keys(&profile, &keys);
         }
         profile
     }
 
-    fn migrate(&self, profile: &Path) {
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &profile.join("config.json"),
-            &self.root.join("shared-runtime"),
-        );
+    fn seed_keys(&self, profile: &Path, keys: &serde_json::Value) {
+        key_store_fixture::seed(&profile.join("config.json"), keys);
     }
 
     fn run(&self, profile: &Path, args: &[&str]) -> Output {
@@ -97,10 +93,6 @@ fn run(root: &Path, profile: &Path, args: &[&str]) -> Output {
         .env_remove("WX_CLI_EXPECTED_RUNTIME")
         .env("WX_CLI_CONFIG", profile.join("config.json"))
         .env("WX_CLI_HOME", root.join("shared-runtime"))
-        .env(
-            "WX_WECHAT_DECRYPT_PYTHON",
-            root.join("not-installed-python.exe"),
-        )
         .current_dir(root)
         .output()
         .unwrap()
@@ -131,7 +123,7 @@ fn success(output: Output) -> String {
 }
 
 #[test]
-fn toolkit_run_images_is_native_and_validates_arguments_without_python() {
+fn toolkit_decode_images_is_native_and_validates_arguments_without_python() {
     let fixture = Fixture::new();
     let profile = fixture.root.join("unconfigured");
     let input = fixture.root.join("images");
@@ -147,9 +139,7 @@ fn toolkit_run_images_is_native_and_validates_arguments_without_python() {
         &profile,
         &[
             "toolkit",
-            "run",
             "decode-images",
-            "--",
             "--attach-dir",
             input.to_str().unwrap(),
             "--decoded-dir",
@@ -160,20 +150,11 @@ fn toolkit_run_images_is_native_and_validates_arguments_without_python() {
         fs::read(output.join("chat/2026-09/image.png")).unwrap(),
         plain
     );
-    let help = success(fixture.run(
-        &profile,
-        &["toolkit", "run", "decode-images", "--", "--help"],
-    ));
+    let help = success(fixture.run(&profile, &["toolkit", "decode-images", "--help"]));
     assert!(help.contains("--attach-dir"));
     let invalid = fixture.run(
         &profile,
-        &[
-            "toolkit",
-            "run",
-            "decode-images",
-            "--",
-            "--unsupported-option",
-        ],
+        &["toolkit", "decode-images", "--unsupported-option"],
     );
     assert_eq!(invalid.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("--unsupported-option"));
@@ -231,17 +212,13 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
         &message_plain,
         &profile.join("db_storage/message/message_0.db"),
     );
-    fs::write(
-        profile.join("all_keys.json"),
-        serde_json::json!({
-            "contact/contact.db":"11".repeat(32),
-            "session/session.db":"11".repeat(32),
-            "message/message_0.db":"11".repeat(32),
-        })
-        .to_string(),
-    )
-    .unwrap();
-    fixture.migrate(&profile);
+    let keys = serde_json::json!({
+        "contact/contact.db":"11".repeat(32),
+        "session/session.db":"11".repeat(32),
+        "message/message_0.db":"11".repeat(32),
+    });
+    fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
+    fixture.seed_keys(&profile, &keys);
     let output = fixture.root.join("batch-output");
     daemon_tasks::assert_personal_tasks(&fixture, &profile, users[0]);
     let output_arg = output.to_str().unwrap();
@@ -617,17 +594,13 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     let a = fixture.account("alpha-person", true);
     let b = fixture.account("beta-person", true);
     let accounts = fixture.root.join("shared-runtime/accounts");
-    let previous_starts: std::collections::HashMap<_, _> = fs::read_dir(&accounts)
-        .unwrap()
-        .map(|entry| {
-            let path = entry.unwrap().path();
-            let count = fs::read_to_string(path.join("daemon.log"))
-                .unwrap()
-                .matches("[daemon] wx-daemon 启动")
-                .count();
-            (path, count)
-        })
-        .collect();
+    assert!(!accounts.exists(), "Seeding keys must not start a daemon");
+    let stores = [&a, &b].map(|profile| {
+        let path = profile.join("keys.dpapi");
+        let bytes = fs::read(&path).unwrap();
+        assert!(bytes.starts_with(b"WXKEYS\0\x01"));
+        (path, bytes)
+    });
     let threads: Vec<_> = (0..4)
         .map(|_| {
             let root = fixture.root.clone();
@@ -655,10 +628,7 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     for entry in fs::read_dir(&accounts).unwrap() {
         let path = entry.unwrap().path();
         let log = fs::read_to_string(path.join("daemon.log")).unwrap();
-        assert_eq!(
-            log.matches("[daemon] wx-daemon 启动").count(),
-            previous_starts[&path] + 1
-        );
+        assert_eq!(log.matches("[daemon] wx-daemon 启动").count(), 1);
     }
     let before = success(fixture.run(&b, &["daemon", "status"]));
     success(fixture.run(&a, &["daemon", "stop"]));
@@ -667,6 +637,9 @@ fn accounts_have_independent_processes_and_concurrent_start_is_singleton() {
     assert!(after.contains("运行中"));
     assert!(success(fixture.run(&a, &["daemon", "status"])).contains("未运行"));
     assert!(success(fixture.run(&b, &["contacts", "--json"])).contains("beta-person"));
+    for (path, bytes) in stores {
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
 }
 
 #[test]
@@ -686,15 +659,9 @@ fn failed_query_keeps_service_alive_and_retries_after_keys_are_repaired() {
     let info: serde_json::Value =
         serde_json::from_str(&success(fixture.run(&bad, &["tasks", "info"]))).unwrap();
     assert_eq!(info["configured"], false);
-    fs::write(
-        bad.join("all_keys.json"),
-        serde_json::json!({
-            "contact/contact.db": "11".repeat(32)
-        })
-        .to_string(),
-    )
-    .unwrap();
-    fixture.migrate(&bad);
+    let keys = serde_json::json!({"contact/contact.db": "11".repeat(32)});
+    fs::write(bad.join("all_keys.json"), keys.to_string()).unwrap();
+    fixture.seed_keys(&bad, &keys);
     assert!(success(fixture.run(&bad, &["contacts", "--json"])).contains("broken-account"));
     assert_eq!(fs::read(directory.join("daemon.pid")).unwrap(), record);
     success(fixture.run(&bad, &["daemon", "stop"]));
@@ -820,7 +787,7 @@ fn export_keeps_null_timestamp_rows_and_empty_tables() {
             serde_json::from_slice(&fs::read(profile.join("all_keys.json")).unwrap()).unwrap();
         keys["message/message_0.db"] = serde_json::json!("11".repeat(32));
         fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
-        fixture.migrate(&profile);
+        fixture.seed_keys(&profile, &keys);
         let output = fixture.root.join(format!("{name}.json"));
         success(fixture.run(&profile, &["export-chat", name, output.to_str().unwrap()]));
         let value: serde_json::Value = serde_json::from_slice(&fs::read(output).unwrap()).unwrap();
@@ -904,7 +871,7 @@ fn detail_clis_preserve_ambiguity_exit_code_and_select_exact_shards() {
         keys[rel] = serde_json::json!("11".repeat(32));
     }
     fs::write(profile.join("all_keys.json"), keys.to_string()).unwrap();
-    fixture.migrate(&profile);
+    fixture.seed_keys(&profile, &keys);
     let export_path = fixture.root.join("native-export.json");
     success(fixture.run(
         &profile,

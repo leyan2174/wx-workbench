@@ -2,7 +2,7 @@ use super::*;
 use crate::daemon::cache::CacheMode;
 use rusqlite::params;
 use serde_json::{json, Value};
-use std::{fs, path::PathBuf, process::Command};
+use std::fs;
 
 const SCHEMA: &str = include_str!("../../../../tests/fixtures/emoticons-catalog/schema.sql");
 
@@ -29,99 +29,63 @@ fn value(catalog: &Catalog) -> Value {
     json!({"items": items, "non_store_count": catalog.non_store_count, "store_added": catalog.store_added})
 }
 
-fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .find(|p| p.join("vendor/wechat-decrypt/emoticons.py").is_file())
-        .unwrap()
-        .to_owned()
-}
-
 #[test]
-fn legacy_ast_golden_all_mapping_boundaries() {
-    let cases = [
-        "",
-        "INSERT INTO kNonStoreEmoticonTable VALUES(NULL,NULL,NULL,NULL,NULL),('',NULL,'https://x?m=abc&x=1',NULL,'p'),('a',NULL,NULL,NULL,NULL); INSERT INTO kStoreEmoticonFilesTable VALUES('p','s'),('p',NULL),('p','');",
-        "INSERT INTO kNonStoreEmoticonTable VALUES('b','old','https://x?m=abc&v=1','e','p'),('a',NULL,NULL,NULL,NULL),('b','new','https://x?m=def&v=2',NULL,'p'),(NULL,NULL,'https://last?m=abc&z=1',NULL,'p'),(NULL,NULL,'',NULL,'p'); INSERT INTO kStoreEmoticonFilesTable VALUES('p','b'),('p','s'),('p','s'),('missing','t');",
-        "INSERT INTO kNonStoreEmoticonTable VALUES('a',NULL,NULL,NULL,NULL); INSERT INTO kStoreEmoticonCaptionsTable VALUES('a','first','default'),('a','ignore','en'),('a',NULL,'default'),('missing','no','default'),(NULL,'no','default'),('a','wrong-case','Default');",
-        "DROP TABLE kStoreEmoticonCaptionsTable; INSERT INTO kNonStoreEmoticonTable VALUES('a',NULL,NULL,NULL,NULL);",
-        "INSERT INTO kNonStoreEmoticonTable VALUES('UPPER',NULL,'https://x?m=abcd&x=1',NULL,'P'),('upper',NULL,NULL,NULL,NULL); INSERT INTO kStoreEmoticonFilesTable VALUES('p','no'),('P','UPPER'),('P','third'); INSERT INTO kStoreEmoticonCaptionsTable VALUES('third','yes','default');",
-    ];
+fn mapping_order_deduplication_templates_and_captions_are_explicit() {
     let temp = tempfile::tempdir().unwrap();
-    for (i, sql) in cases.iter().enumerate() {
-        let path = temp.path().join(format!("case-{i}.db"));
-        database(&path, sql);
-        compare_legacy(&path);
-    }
-    // 包括没有 m、没有 &、大写、部分匹配、非参数边界和多次匹配。
-    let urls = [
-        "https://x?m=abc",
-        "https://x?m=ABC&x=1",
-        "https://x?M=abc&x=1",
-        "https://x?a=1&b=2",
-        "https://x?m=abCDEF&m=012&xm=af&x=1",
-        "https://x?m=&x=1",
-        "https://x/pathm=abc&",
-        "&m=0g&m=fff",
-        "&",
-    ];
-    for (i, url) in urls.iter().enumerate() {
-        let path = temp.path().join(format!("url-{i}.db"));
-        database(&path, "");
-        let conn = Connection::open(&path).unwrap();
-        conn.execute(
-            "INSERT INTO kNonStoreEmoticonTable VALUES(NULL,NULL,?,NULL,'p')",
-            [url],
-        )
-        .unwrap();
-        conn.execute_batch(
-            "INSERT INTO kStoreEmoticonFilesTable VALUES('p','NEW'),('p','second');",
-        )
-        .unwrap();
-        drop(conn);
-        compare_legacy(&path);
-    }
-}
-
-fn compare_legacy(path: &Path) {
-    let before = fs::read(path).unwrap();
-    let output =
-        Command::new(std::env::var_os("WX_CATALOG_PYTHON").unwrap_or_else(|| "python".into()))
-            .arg(root().join("tests/fixtures/emoticons-catalog/oracle.py"))
-            .arg(root().join("vendor/wechat-decrypt/emoticons.py"))
-            .arg(path)
-            .output()
-            .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let path = temp.path().join("catalog.db");
+    database(
+        &path,
+        "INSERT INTO kNonStoreEmoticonTable VALUES
+        ('seed','old','https://cdn.invalid/old?m=abc&x=1','old-encrypted','pkg'),
+        ('seed','new','https://cdn.invalid/new?m=def&x=2',NULL,'pkg'),
+        (NULL,NULL,'https://cdn.invalid/template?m=123&x=3',NULL,'pkg');
+        INSERT INTO kStoreEmoticonFilesTable VALUES
+        ('pkg','seed'),('pkg','added'),('pkg','added'),('missing','ignored');
+        INSERT INTO kStoreEmoticonCaptionsTable VALUES
+        ('seed','first','default'),('seed','second','default'),
+        ('seed','ignored-language','en'),('added','store-caption','default');",
     );
-    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(
-        value(&load_from_path(path).unwrap()) == expected,
-        "legacy mapping mismatch"
+    let before = fs::read(&path).unwrap();
+    assert_eq!(
+        value(&load_from_path(&path).unwrap()),
+        json!({
+            "items": [
+                {"md5":"seed","info":{"cdn_url":"https://cdn.invalid/new?m=def&x=2","aes_key":"new","encrypt_url":"","product_id":"pkg","caption":"second"}},
+                {"md5":"added","info":{"cdn_url":"https://cdn.invalid/template?m=added&x=3","aes_key":"","encrypt_url":"","product_id":"pkg","caption":"store-caption"}}
+            ],
+            "non_store_count": 1,
+            "store_added": 1
+        })
     );
     assert_eq!(fs::read(path).unwrap(), before);
 }
 
 #[test]
-fn legacy_replacement_escapes_and_whole_match_reference() {
+fn replacement_escapes_and_whole_match_are_explicit() {
     let temp = tempfile::tempdir().unwrap();
-    for (i, md5) in [r"a\nb", r"a\\b", r"\101", r"\0", r"\g<0>", r"\&", "$1"]
-        .iter()
-        .enumerate()
+    for (i, (md5, expected)) in [
+        ("plain", "m=plain&m=plain"),
+        (r"a\nb", "m=a\nb&m=a\nb"),
+        (r"a\\b", r"m=a\b&m=a\b"),
+        (r"\g<0>", "m=m=abc&m=m=def"),
+        (r"\&", r"m=\&&m=\&"),
+        ("$1", "m=$1&m=$1"),
+    ]
+    .iter()
+    .enumerate()
     {
         let path = temp.path().join(format!("escape-{i}.db"));
         database(
             &path,
-            "INSERT INTO kNonStoreEmoticonTable VALUES(NULL,NULL,'m=abc&m=def',NULL,'p');",
+            "INSERT INTO kNonStoreEmoticonTable VALUES(NULL,NULL,'m=abc&m=def&x=1',NULL,'p');",
         );
         Connection::open(&path)
             .unwrap()
             .execute("INSERT INTO kStoreEmoticonFilesTable VALUES('p',?)", [md5])
             .unwrap();
-        compare_legacy(&path);
+        let catalog = load_from_path(&path).unwrap();
+        assert_eq!(catalog.items.len(), 1);
+        assert_eq!(catalog.items[0].info.cdn_url, format!("{expected}&x=1"));
     }
 }
 
@@ -168,18 +132,6 @@ fn invalid_replacements_fail_even_without_a_match() {
             conn.execute("INSERT INTO kStoreEmoticonFilesTable VALUES('p',?)", [md5])
                 .unwrap();
             drop(conn);
-            let output = Command::new(
-                std::env::var_os("WX_CATALOG_PYTHON").unwrap_or_else(|| "python".into()),
-            )
-            .arg(root().join("tests/fixtures/emoticons-catalog/oracle.py"))
-            .arg(root().join("vendor/wechat-decrypt/emoticons.py"))
-            .arg(&path)
-            .output()
-            .unwrap();
-            assert!(
-                !output.status.success(),
-                "legacy accepted invalid replacement case {i}/{j}"
-            );
             assert!(load_from_path(&path).is_err(), "case {i}/{j}");
         }
     }

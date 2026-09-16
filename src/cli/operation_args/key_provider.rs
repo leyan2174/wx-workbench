@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum KeyProvider {
-    Auto,
+    Saved,
     Memory,
     Account,
 }
@@ -8,7 +8,7 @@ pub enum KeyProvider {
 impl From<KeyProvider> for crate::service::operation_requests::key_provider::KeyProvider {
     fn from(value: KeyProvider) -> Self {
         match value {
-            KeyProvider::Auto => Self::Auto,
+            KeyProvider::Saved => Self::Saved,
             KeyProvider::Memory => Self::Memory,
             KeyProvider::Account => Self::Account,
         }
@@ -18,7 +18,7 @@ impl From<KeyProvider> for crate::service::operation_requests::key_provider::Key
 impl From<crate::service::operation_requests::key_provider::KeyProvider> for KeyProvider {
     fn from(value: crate::service::operation_requests::key_provider::KeyProvider) -> Self {
         match value {
-            crate::service::operation_requests::key_provider::KeyProvider::Auto => Self::Auto,
+            crate::service::operation_requests::key_provider::KeyProvider::Saved => Self::Saved,
             crate::service::operation_requests::key_provider::KeyProvider::Memory => Self::Memory,
             crate::service::operation_requests::key_provider::KeyProvider::Account => Self::Account,
         }

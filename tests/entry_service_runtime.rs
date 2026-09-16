@@ -107,14 +107,6 @@ impl Fixture {
                 self.root.path().join("account/config.json"),
             ),
             ("WX_CLI_HOME", self.root.path().join("home")),
-            (
-                "WX_WECHAT_DECRYPT_PYTHON",
-                self.root.path().join("absent-python.exe"),
-            ),
-            (
-                "WX_WECHAT_DECRYPT_DIR",
-                self.root.path().join("absent-toolkit"),
-            ),
         ] {
             result.insert(name.into(), value.to_string_lossy().into_owned());
         }
@@ -408,7 +400,7 @@ fn missing_config_bootstraps_and_cli_preserves_service_stdout_stderr_and_exit() 
 fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
     let f = Fixture::new();
     let mut initial = f.environment();
-    initial.insert("WX_WECHAT_DECRYPT_DIR".into(), "starter-only".into());
+    initial.insert("WX_TEST_CALLER_MARKER".into(), "starter-only".into());
     assert_eq!(
         f.cli(f.root.path(), &["toolkit", "status", "--json"], &initial)
             .code,
@@ -429,28 +421,17 @@ fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
         )
         .unwrap();
         let mut env = f.environment();
-        env.remove("WX_WECHAT_DECRYPT_DIR");
         if let Some(value) = override_value {
-            env.insert("WX_WECHAT_DECRYPT_DIR".into(), value.into());
+            env.insert("WX_TEST_CALLER_MARKER".into(), value.into());
         }
         let output = f.cli(&cwd, &["toolkit", "status", "--json"], &env);
         assert_eq!(output.code, 0);
         let status: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            status["env_overrides"]["wx_wechat_decrypt_dir"],
-            json!(override_value)
-        );
+        assert_eq!(status["implementation"], "native-rust");
+        assert!(status["native_commands"].as_array().is_some());
         let output = f.cli(
             &cwd,
-            &[
-                "toolkit",
-                "run",
-                "status",
-                "--",
-                "--json",
-                "--exported-dir",
-                "chosen",
-            ],
+            &["toolkit", "progress", "--json", "--exported-dir", "chosen"],
             &env,
         );
         assert_eq!(output.code, 0, "{output:?}");
@@ -511,7 +492,7 @@ fn authenticated_api_rejects_arbitrary_commands_and_internal_environment() {
 }
 
 fn backend(binary: Option<&Path>) -> Value {
-    json!({"backend":"Local","whisper_binary":binary,"whisper_model":binary.map(|_| "model.bin"),
+    json!({"backend":"whisper_cpp","whisper_binary":binary,"whisper_model":binary.map(|_| "model.bin"),
         "language":"zh","threads":2,"timeout_seconds":60,"allow_upload":false,
         "openai_base_url":null,"openai_model":null,"api_key_file":null,"temp_root":null})
 }

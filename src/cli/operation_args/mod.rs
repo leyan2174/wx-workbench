@@ -13,7 +13,6 @@ pub mod export_messages;
 pub mod export_sns;
 pub mod image_key_sample;
 pub mod image_keys;
-pub mod key_migration;
 pub mod key_provider;
 pub mod mcp_voice;
 pub mod monitor_native;

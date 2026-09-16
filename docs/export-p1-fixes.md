@@ -56,7 +56,7 @@ cargo test --manifest-path tests/fixtures/mcp-voice-host-security/Cargo.toml
 ```
 
 `stable_username_roundtrip` 启动真实 daemon，使用独立临时 Account、合成加密数据库
-和 migrate_keys，经公开 CLI 将 sessions 返回值原样回传 history/attachments，
+和正式 DPAPI 存储夹具，经公开 CLI 将 sessions 返回值原样回传 history/attachments，
 同时验证图片附件 ID、消息目录身份、同名拒绝、伪会话标记和跨账号隔离。
 内部查询测试覆盖联系人/session/消息表三种证据、大小写与空白、精确身份优先、
 无表发送者拒绝，以及严格消息定位；另覆盖 session 源正常但消息源缺失时，

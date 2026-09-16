@@ -11,6 +11,14 @@ mod attachment {
     pub use crate::local_files;
 }
 
+#[path = "../src/service/monitor.rs"]
+pub mod monitor_contract;
+mod service {
+    pub mod protocol {
+        pub use crate::monitor_contract as monitor;
+    }
+}
+
 #[path = "../src/daemon/cache.rs"]
 #[allow(unused_imports)] // 音频适配测试不调用图片资源快照接口。
 pub mod cache;
@@ -21,17 +29,15 @@ mod daemon {
 mod config;
 #[path = "../src/crypto/mod.rs"]
 mod crypto;
-#[path = "../src/toolkit/asr/database_media.rs"]
-pub mod database_media;
+pub use adapters::wechat::media::voice as database_media;
 #[path = "../src/daemon/meta.rs"]
 mod meta;
-#[path = "../src/toolkit/asr/prepared_audio.rs"]
+#[path = "../src/application/transcription/prepared_audio.rs"]
 pub mod prepared_audio;
 #[path = "../src/runtime.rs"]
 mod runtime;
-mod toolkit {
-    pub mod asr {
-        pub use crate::database_media;
+mod application {
+    pub mod transcription {
         pub use crate::prepared_audio;
     }
 }

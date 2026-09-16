@@ -1,6 +1,6 @@
 # 表情目录映射契约
 
-参考来源是 vendor/wechat-decrypt/emoticons.py 的 build_emoji_lookup。oracle.py 通过 AST 提取映射逻辑，只运行合成只读 SQLite 输入；生产实现不调用 Python。
+映射规则最初从 wechat-decrypt 的表情目录实现迁移。当前契约由纯 Rust 合成 SQLite 测试直接固定，不再执行或携带 Python oracle。
 
 ## 映射规则
 
@@ -24,7 +24,7 @@
 按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-cargo test --target x86_64-pc-windows-msvc --bin wx toolkit::emoticons::catalog
+cargo test --target x86_64-pc-windows-msvc --bin wx adapters::wechat::emoticons
 ```
 
 合成回归覆盖映射、替换表达式、独立账号密钥、冷缓存、WAL 增量、缓存命中及重启后更新；加载前后检查源 DB/WAL 字节不变。该过滤器不是全仓测试。

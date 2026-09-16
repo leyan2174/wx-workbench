@@ -16,10 +16,8 @@ use crate::{
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
     Configure(SettingsArgs),
-    #[command(alias = "status")]
     Info,
     List,
-    #[command(alias = "show")]
     Get {
         #[arg(value_parser = parse_id)]
         id: String,
@@ -355,7 +353,7 @@ mod tests {
                 clap::error::ErrorKind::DisplayHelp
             );
         }
-        let args = submit(&["tasks", "submit", "export-all"]);
+        let args = submit(&["tasks", "submit", "export_all"]);
         assert_eq!(
             serde_json::to_value(args.submission().options).unwrap(),
             serde_json::to_value(Options::default()).unwrap()
@@ -382,10 +380,8 @@ mod tests {
             "sns_decrypt",
             "voice_mp3",
         ] {
-            assert_eq!(
-                parse_kind(kind).unwrap(),
-                parse_kind(&kind.replace('_', "-")).unwrap()
-            );
+            assert!(parse_kind(kind).is_ok());
+            assert!(parse_kind(&kind.replace('_', "-")).is_err());
         }
         let args = submit(&[
             "tasks",
@@ -423,13 +419,13 @@ mod tests {
             vec!["tasks", "submit", "wxwork-decrypt"],
             vec!["tasks", "submit", "wxwork-discover"],
             vec!["tasks", "submit", "wxwork-scan"],
-            vec!["tasks", "submit", "export-all", "--all-conversations"],
+            vec!["tasks", "submit", "export_all", "--all-conversations"],
             vec!["tasks", "submit", "shell"],
-            vec!["tasks", "submit", "export-all", "--path", "x"],
-            vec!["tasks", "submit", "export-all", "--argv", "x"],
-            vec!["tasks", "submit", "export-all", "--formats", "xml"],
+            vec!["tasks", "submit", "export_all", "--path", "x"],
+            vec!["tasks", "submit", "export_all", "--argv", "x"],
+            vec!["tasks", "submit", "export_all", "--formats", "xml"],
             vec!["tasks", "configure", "--port", "80"],
-            vec!["tasks", "submit", "export-all", "--", "cmd.exe"],
+            vec!["tasks", "submit", "export_all", "--", "cmd.exe"],
         ] {
             assert!(Invocation::try_parse_from(argv).is_err());
         }
@@ -438,14 +434,14 @@ mod tests {
     #[test]
     fn ids_and_scan_consent_are_checked_locally() {
         let id = "a1".repeat(32);
-        for command in ["get", "show", "logs", "cancel"] {
+        for command in ["get", "logs", "cancel"] {
             assert!(Invocation::try_parse_from(["tasks", command, &id]).is_ok());
             for bad in ["", "abc", &"A".repeat(64), &"g".repeat(64), &"a".repeat(65)] {
                 assert!(Invocation::try_parse_from(["tasks", command, bad]).is_err());
                 assert!(Invocation::try_parse_from([
                     "tasks",
                     "submit",
-                    "export-all",
+                    "export_all",
                     "--request-id",
                     bad
                 ])
@@ -453,12 +449,12 @@ mod tests {
             }
         }
         assert_eq!(
-            submit(&["tasks", "submit", "export-all", "--request-id", &id])
+            submit(&["tasks", "submit", "export_all", "--request-id", &id])
                 .request_id
                 .as_deref(),
             Some(id.as_str())
         );
-        for kind in ["wechat-keys", "image-key"] {
+        for kind in ["wechat_keys", "image_key"] {
             assert!(submit(&["tasks", "submit", kind]).validate().is_err());
             assert!(
                 submit(&["tasks", "submit", kind, "--authorize-memory-scan"])
@@ -467,16 +463,13 @@ mod tests {
             );
         }
         assert!(
-            submit(&["tasks", "submit", "export-all", "--authorize-memory-scan"])
+            submit(&["tasks", "submit", "export_all", "--authorize-memory-scan"])
                 .validate()
                 .is_err()
         );
-        assert!(matches!(
-            Invocation::try_parse_from(["tasks", "status"])
-                .unwrap()
-                .command,
-            Command::Info
-        ));
+        for removed in ["status", "show"] {
+            assert!(Invocation::try_parse_from(["tasks", removed]).is_err());
+        }
     }
 
     #[test]

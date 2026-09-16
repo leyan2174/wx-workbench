@@ -1,6 +1,30 @@
 use super::*;
 use std::fs;
 
+#[test]
+fn secret_record_rejects_audio_parameters_without_discarding_database_material() {
+    let record = serde_json::json!({
+        "version": 1, "account": "synthetic", "revision": 1,
+        "account_key": null, "image_key": null,
+        "database_keys": {"message/media_0.db": {
+            "bytes": vec![0x31u8; 32], "verification": "verified"
+        }}
+    });
+    let parsed: Record = serde_json::from_value(record.clone()).unwrap();
+    assert_eq!(
+        parsed.database_keys["message/media_0.db"].bytes,
+        vec![0x31; 32]
+    );
+    for field in ["voice_key", "audio_key", "codec", "sample_rate", "channels"] {
+        let mut invalid = record.clone();
+        invalid[field] = serde_json::json!(24_000);
+        assert!(
+            serde_json::from_value::<Record>(invalid).is_err(),
+            "{field}"
+        );
+    }
+}
+
 struct Fixture {
     root: tempfile::TempDir,
     store: Store,
@@ -44,6 +68,7 @@ fn real_dpapi_roundtrip_preserves_all_materials_and_private_acl() {
         )
         .unwrap();
     assert_eq!(two.account_key().unwrap(), &account);
+    assert!(two.verified_account_key().is_none());
     let three = fixture
         .store
         .update(
@@ -55,12 +80,11 @@ fn real_dpapi_roundtrip_preserves_all_materials_and_private_acl() {
     assert_eq!(three.account_key().unwrap(), &account);
     assert_eq!(three.database_keys(), databases);
     assert_eq!(three.image_key(), Some((aes, 0x51)));
-    assert_eq!(three.counts(), (2, 1));
     let ciphertext = fs::read(fixture.store.path()).unwrap();
     assert!(!ciphertext.windows(32).any(|window| window == account));
     assert!(!ciphertext.windows(aes.len()).any(|window| window == aes));
     assert!(!format!("{three:?}").contains("synthetic"));
-    crate::toolkit::private_file::assert_private_acl(fixture.store.path());
+    crate::private_file::assert_private_acl(fixture.store.path());
 }
 
 #[test]
@@ -81,6 +105,7 @@ fn account_and_derived_databases_publish_in_one_revision_or_not_at_all() {
     assert_eq!(saved.revision(), 1);
     assert_eq!(saved.database_keys(), databases);
     assert_eq!(saved.account_key(), Some(account.as_slice()));
+    assert_eq!(saved.verified_account_key(), Some(account.as_slice()));
     let before = fs::read(fixture.store.path()).unwrap();
     assert!(fixture
         .store
@@ -100,18 +125,18 @@ fn account_and_derived_databases_publish_in_one_revision_or_not_at_all() {
 }
 
 #[test]
-fn stale_revision_and_conflicting_import_preserve_ciphertext() {
+fn unchanged_update_and_stale_revision_preserve_ciphertext() {
     let fixture = Fixture::new();
     let key = [0x51; 32];
     fixture
         .store
-        .import(&[Update::Account(&key, Verification::Verified)])
+        .update(Some(0), &[Update::Account(&key, Verification::Verified)])
         .unwrap();
     let before = fs::read(fixture.store.path()).unwrap();
     assert_eq!(
         fixture
             .store
-            .import(&[Update::Account(&key, Verification::Verified)])
+            .update(Some(1), &[Update::Account(&key, Verification::Verified)])
             .unwrap()
             .revision(),
         1
@@ -122,12 +147,6 @@ fn stale_revision_and_conflicting_import_preserve_ciphertext() {
             Some(0),
             &[Update::Account(&[0x42; 32], Verification::Verified)]
         ),
-        Err(Error::Conflict)
-    ));
-    assert!(matches!(
-        fixture
-            .store
-            .import(&[Update::Account(&[0x42; 32], Verification::Verified)]),
         Err(Error::Conflict)
     ));
     assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
@@ -264,26 +283,102 @@ fn concurrent_update_lock_and_atomic_publication_failure_preserve_old_keys() {
 }
 
 #[test]
-fn xor_only_material_does_not_invent_aes_and_can_be_extended_without_conflicts() {
+fn absent_image_material_keeps_defaults_and_complete_image_updates_preserve_aes() {
     let fixture = Fixture::new();
     let snapshot = fixture
         .store
-        .import(&[Update::ImageXor(0x89, Verification::Unverified)])
+        .update(
+            Some(0),
+            &[Update::Account(&[0x42; 32], Verification::Unverified)],
+        )
         .unwrap();
-    assert_eq!(snapshot.image_material(), (None, 0x89));
+    assert_eq!(snapshot.image_material(), (None, 0x88));
     let snapshot = fixture
         .store
-        .import(&[Update::Image(
-            b"syntheticAESkey1",
-            0x89,
-            Verification::Verified,
-        )])
+        .update(
+            Some(1),
+            &[Update::Image(
+                b"syntheticAESkey1",
+                0x89,
+                Verification::Verified,
+            )],
+        )
         .unwrap();
     assert_eq!(snapshot.image_key(), Some((*b"syntheticAESkey1", 0x89)));
-    let before = fs::read(fixture.store.path()).unwrap();
-    assert!(fixture
+    let snapshot = fixture
         .store
-        .import(&[Update::ImageXor(0x90, Verification::Unverified)])
-        .is_err());
-    assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
+        .update(
+            Some(2),
+            &[Update::Image(
+                b"syntheticAESkey1",
+                0x90,
+                Verification::Verified,
+            )],
+        )
+        .unwrap();
+    assert_eq!(snapshot.image_key(), Some((*b"syntheticAESkey1", 0x90)));
+    assert_eq!(snapshot.revision(), 3);
+}
+
+#[test]
+fn protected_one_byte_image_records_are_invalid_without_fallback_or_file_changes() {
+    for verification in [Verification::Verified, Verification::Unverified] {
+        let fixture = Fixture::new();
+        let snapshot = fixture
+            .store
+            .update(
+                Some(0),
+                &[Update::Image(b"syntheticAESkey1", 0xa2, verification)],
+            )
+            .unwrap();
+        let mut record = snapshot.record;
+        record.image_key.as_mut().unwrap().bytes = vec![0xa2];
+        let plain = Zeroizing::new(serde_json::to_vec(&record).unwrap());
+        let encrypted = dpapi::transform(&plain, false).unwrap();
+        let decoded: Record =
+            serde_json::from_slice(&dpapi::transform(&encrypted, true).unwrap()).unwrap();
+        assert_eq!(decoded.account, fixture.store.binding);
+        assert_eq!(decoded.image_key.as_ref().unwrap().bytes, [0xa2]);
+        let bytes = [MAGIC, encrypted.as_slice()].concat();
+        FileSnapshot::capture(fixture.store.path())
+            .unwrap()
+            .write_bytes(&bytes, &fixture.store.protected)
+            .unwrap();
+        crate::private_file::assert_private_acl(fixture.store.path());
+
+        let old_files = [
+            (
+                fixture.root.path().join("all_keys.json"),
+                br#"{"contact/contact.db":"synthetic"}"#.to_vec(),
+            ),
+            (
+                fixture.root.path().join("account_key.dpapi"),
+                b"synthetic old account material".to_vec(),
+            ),
+            (
+                fixture.root.path().join("config.json"),
+                br#"{"image_xor_key":162}"#.to_vec(),
+            ),
+        ];
+        for (path, contents) in &old_files {
+            fs::write(path, contents).unwrap();
+        }
+        assert!(matches!(fixture.store.load(), Err(Error::Invalid)));
+        // Invalid is not Missing: callers must not initialize or fall back to old files.
+        assert!(matches!(
+            fixture.store.update(
+                Some(record.revision),
+                &[Update::Image(
+                    b"syntheticAESkey1",
+                    0xa2,
+                    Verification::Verified
+                )],
+            ),
+            Err(Error::Invalid)
+        ));
+        assert_eq!(fs::read(fixture.store.path()).unwrap(), bytes);
+        for (path, contents) in old_files {
+            assert_eq!(fs::read(path).unwrap(), contents);
+        }
+    }
 }

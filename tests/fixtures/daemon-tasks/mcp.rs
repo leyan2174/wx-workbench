@@ -101,7 +101,7 @@ impl Drop for Mcp {
     }
 }
 
-const DECRYPT: &[&str] = &["--tasks", "--task-kind", "wechat-decrypt"];
+const DECRYPT: &[&str] = &["--tasks", "--task-kind", "wechat_decrypt"];
 
 #[test]
 fn mcp_tasks_real_worker_shared_with_cli_web_and_retry_after_disconnect() {
@@ -195,7 +195,7 @@ fn mcp_tasks_real_worker_shared_with_cli_web_and_retry_after_disconnect() {
     call(
         &fixture,
         &account,
-        &["tasks", "submit", "wechat-decrypt", "--request-id", &cli_id],
+        &["tasks", "submit", "wechat_decrypt", "--request-id", &cli_id],
     );
     assert_eq!(mcp.data("get_task", json!({"id":cli_id}))["id"], cli_id);
     mcp.data("cancel_task", json!({"id":cli_id}));
@@ -253,6 +253,9 @@ fn mcp_tasks_real_worker_shared_with_cli_web_and_retry_after_disconnect() {
 fn mcp_tasks_reject_model_authorization_paths_and_changed_account() {
     let mut fixture = Fixture::new();
     let account = fixture.account("mcp-task-policy", true);
+    let store = account.join("keys.dpapi");
+    let store_before = fs::read(&store).unwrap();
+    assert!(store_before.starts_with(b"WXKEYS\0\x01"));
     let mut mcp = Mcp::start(&fixture, &account, DECRYPT);
     for bad in [
         json!({"idempotency_key":"a".repeat(64),"kind":"shell"}),
@@ -278,12 +281,19 @@ fn mcp_tasks_reject_model_authorization_paths_and_changed_account() {
             "{reply}"
         );
     }
-    for entry in fs::read_dir(fixture.root.join("shared-runtime/accounts")).unwrap() {
-        assert!(
-            !entry.unwrap().path().join("daemon.pid").exists(),
-            "Rejected host requests must not start a daemon after fixture migration"
-        );
+    match fs::read_dir(fixture.root.join("shared-runtime/accounts")) {
+        Ok(entries) => {
+            for entry in entries {
+                assert!(
+                    !entry.unwrap().path().join("daemon.pid").exists(),
+                    "Rejected host requests must not start a daemon"
+                );
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("Cannot inspect daemon state: {error}"),
     }
+    assert_eq!(fs::read(&store).unwrap(), store_before);
     mcp.data("list_tasks", json!({}));
     let original = fs::read(account.join("config.json")).unwrap();
     let mut config: Value = serde_json::from_slice(&original).unwrap();
@@ -352,7 +362,7 @@ fn mcp_tasks_cancel_reaps_worker_and_crash_restores_interrupted() {
         &[
             "--tasks",
             "--task-kind",
-            "export-all",
+            "export_all",
             "--task-allow-media-write",
         ],
     );
@@ -438,7 +448,7 @@ fn mcp_tasks_cancel_reaps_worker_and_crash_restores_interrupted() {
                 &[
                     "--tasks",
                     "--task-kind",
-                    "export-all",
+                    "export_all",
                     "--task-allow-media-write",
                 ],
             );

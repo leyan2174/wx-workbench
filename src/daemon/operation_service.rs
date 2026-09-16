@@ -41,6 +41,7 @@ struct Entry {
 
 pub(crate) struct Service {
     runtime: RuntimeContext,
+    keys: Arc<super::worker_keys::Broker>,
     tasks: Option<Arc<super::tasks::Service>>,
     entries: Mutex<HashMap<String, Arc<Entry>>>,
     retired: Mutex<VecDeque<(String, String)>>,
@@ -54,9 +55,14 @@ fn failure(code: &'static str, message: &'static str) -> ServiceError {
 }
 
 impl Service {
-    pub fn new(runtime: RuntimeContext, tasks: Option<Arc<super::tasks::Service>>) -> Arc<Self> {
+    pub fn new(
+        runtime: RuntimeContext,
+        tasks: Option<Arc<super::tasks::Service>>,
+        keys: Arc<super::worker_keys::Broker>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             runtime,
+            keys,
             tasks,
             entries: Mutex::new(HashMap::new()),
             workers: Mutex::new(Vec::new()),
@@ -219,9 +225,10 @@ impl Service {
         let runtime = self.runtime.clone();
         let shutdown = self.stopping.subscribe();
         let tasks = self.tasks.clone();
+        let keys = self.keys.clone();
         let worker = tokio::spawn(async move {
             let _permit = permit;
-            execute(runtime, invocation, entry, shutdown, tasks).await;
+            execute(runtime, invocation, entry, shutdown, tasks, keys).await;
         });
         workers.retain(|worker| !worker.is_finished());
         workers.push(worker);
@@ -339,13 +346,13 @@ async fn drain(mut input: impl AsyncRead + Unpin, entry: Arc<Entry>, stderr: boo
 async fn spawn(
     runtime: &RuntimeContext,
     invocation: &Invocation,
-) -> Result<(tokio::process::Child, super::tasks::process::Job)> {
+    keys: &Arc<super::worker_keys::Broker>,
+) -> Result<(
+    tokio::process::Child,
+    super::tasks::process::Job,
+    Option<super::worker_keys::Registration>,
+)> {
     use tokio::process::Command;
-    let bytes = zeroize::Zeroizing::new(serde_json::to_vec(&invocation.operation)?);
-    ensure!(
-        bytes.len() <= crate::service::protocol::MAX_REQUEST_BYTES,
-        "Operation frame exceeds limit"
-    );
     let job = if restarts_user_application(&invocation.operation) {
         super::tasks::process::Job::for_account_capture()?
     } else {
@@ -372,6 +379,20 @@ async fn spawn(
         .context("Unable to create operation worker")?;
     let result = async {
         job.attach(&child)?;
+        let registered = keys.register(&child, &invocation.operation).await?;
+        let (access, registration) = match registered {
+            Some((access, registration)) => (Some(access), Some(registration)),
+            None => (None, None),
+        };
+        let bytes =
+            zeroize::Zeroizing::new(serde_json::to_vec(&crate::service::worker_keys::Input {
+                operation: &invocation.operation,
+                access,
+            })?);
+        ensure!(
+            bytes.len() <= crate::service::protocol::MAX_REQUEST_BYTES,
+            "Operation frame exceeds limit"
+        );
         let mut input = child.stdin.take().context("Missing operation input")?;
         tokio::time::timeout(Duration::from_secs(5), async {
             input.write_all(&(bytes.len() as u32).to_le_bytes()).await?;
@@ -379,14 +400,16 @@ async fn spawn(
             input.shutdown().await
         })
         .await??;
-        Ok::<_, anyhow::Error>(())
+        Ok::<_, anyhow::Error>(registration)
     }
     .await;
-    if let Err(error) = result {
-        super::tasks::process::reap(child, job).await?;
-        return Err(error);
+    match result {
+        Ok(registration) => Ok((child, job, registration)),
+        Err(error) => {
+            super::tasks::process::reap(child, job).await?;
+            Err(error)
+        }
     }
-    Ok((child, job))
 }
 
 fn restarts_user_application(operation: &crate::service::operations::Operation) -> bool {
@@ -401,31 +424,32 @@ fn restarts_user_application(operation: &crate::service::operations::Operation) 
     )
 }
 
-fn mutates_account(operation: &crate::service::operations::Operation) -> bool {
-    operation.invalidates_query()
-}
-
 async fn execute(
     runtime: RuntimeContext,
     invocation: Invocation,
     entry: Arc<Entry>,
     mut shutdown: watch::Receiver<bool>,
     tasks: Option<Arc<super::tasks::Service>>,
+    keys: Arc<super::worker_keys::Broker>,
 ) {
-    let refresh = mutates_account(&invocation.operation);
-    let spawned = spawn(&runtime, &invocation).await;
+    let refresh = invocation.operation.requires_snapshot_reload();
+    let spawned = spawn(&runtime, &invocation, &keys).await;
     drop(invocation);
-    let (mut child, job) = match spawned {
+    let (mut child, job, _registration) = match spawned {
         Ok(value) => value,
-        Err(_) => {
-            let _ = entry
-                .append(b"Unable to start daemon operation worker\n", true)
-                .await;
+        Err(error) => {
+            let message = error.downcast_ref::<crate::key_store::Error>().map_or_else(
+                || "Unable to start daemon operation worker".to_owned(),
+                ToString::to_string,
+            );
+            let _ = entry.append(format!("{message}\n").as_bytes(), true).await;
             entry.finish(1);
             return;
         }
     };
     let mut job = Some(job);
+    // Registered key writers publish their generation in the daemon transaction.
+    let refresh = refresh && _registration.is_none();
     let mut stdout = tokio::spawn(drain(child.stdout.take().unwrap(), entry.clone(), false));
     let mut stderr = tokio::spawn(drain(child.stderr.take().unwrap(), entry.clone(), true));
     let mut cancel = entry.cancelled.subscribe();
@@ -480,7 +504,11 @@ mod tests {
     #[test]
     fn only_authorized_account_capture_releases_application_children() {
         use crate::{scanner::KeyProvider, service::operations::Operation};
-        for provider in [KeyProvider::Auto, KeyProvider::Memory, KeyProvider::Account] {
+        for provider in [
+            KeyProvider::Saved,
+            KeyProvider::Memory,
+            KeyProvider::Account,
+        ] {
             for force in [false, true] {
                 for restart in [false, true] {
                     let operation = Operation::Initialize {
@@ -600,7 +628,11 @@ mod tests {
             root.path().join("home"),
         )
         .unwrap();
-        let service = Service::new(runtime, None);
+        let keys = super::super::worker_keys::Broker::new(
+            runtime.clone(),
+            Arc::new(super::super::query_state::QueryState::new(runtime.clone())),
+        );
+        let service = Service::new(runtime, None, keys);
         service
             .entries
             .lock()
@@ -639,7 +671,11 @@ mod tests {
             root.path().join("home"),
         )
         .unwrap();
-        let service = Service::new(runtime, None);
+        let keys = super::super::worker_keys::Broker::new(
+            runtime.clone(),
+            Arc::new(super::super::query_state::QueryState::new(runtime.clone())),
+        );
+        let service = Service::new(runtime, None, keys);
         let invocation = Invocation {
             operation: crate::service::operations::Operation::Toolkit {
                 operation: crate::service::operations::ToolkitOperation::Status { json: true },

@@ -45,7 +45,7 @@ impl Drop for OwnedHandle {
 }
 
 pub struct WindowsImageKeyProvider {
-    configured: std::result::Result<(PathBuf, String), String>,
+    configured: (PathBuf, String),
     timeout: Duration,
     max_bytes: u64,
     cache: Mutex<Option<ImageKeyMaterial>>,
@@ -65,17 +65,6 @@ impl Drop for WindowsImageKeyProvider {
 }
 
 impl WindowsImageKeyProvider {
-    pub fn from_current_config() -> Self {
-        Self {
-            configured: crate::config::load_config()
-                .map(|cfg| (cfg.db_dir, cfg.wechat_process))
-                .map_err(|err| err.to_string()),
-            timeout: DEFAULT_TIMEOUT,
-            max_bytes: DEFAULT_MAX_BYTES,
-            cache: Mutex::new(None),
-        }
-    }
-
     /// 只固定显式参数；构造不读取配置、目录或进程。get_key 才执行有界提取。
     pub fn from_db_dir(
         db_dir: &Path,
@@ -86,7 +75,7 @@ impl WindowsImageKeyProvider {
         validate_inputs(db_dir, process_name)?;
         ExtractionBudget::new(timeout, max_bytes)?;
         Ok(Self {
-            configured: Ok((db_dir.into(), process_name.into())),
+            configured: (db_dir.into(), process_name.into()),
             timeout,
             max_bytes,
             cache: Mutex::new(None),
@@ -96,10 +85,7 @@ impl WindowsImageKeyProvider {
 
 impl ImageKeyProvider for WindowsImageKeyProvider {
     fn get_key(&self, wxid: &str) -> Result<ImageKeyMaterial> {
-        let (db_dir, process_name) = self
-            .configured
-            .as_ref()
-            .map_err(|err| anyhow::anyhow!("读取图片提取配置失败：{err}"))?;
+        let (db_dir, process_name) = &self.configured;
         let account = db_dir
             .parent()
             .and_then(Path::file_name)
@@ -293,48 +279,6 @@ pub fn validate_existing_evidence_for_db_dir(
     source.verify()?;
     budget.check()?;
     Ok(evidence)
-}
-
-#[cfg(test)]
-mod evidence_tests {
-    use super::*;
-    use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
-
-    #[test]
-    fn existing_image_evidence_distinguishes_absence_conflict_and_errors() -> Result<()> {
-        let root = tempfile::tempdir()?;
-        let db = root.path().join("db_storage");
-        std::fs::create_dir(&db)?;
-        let key = *b"syntheticAESkey1";
-        let validate = |key: &[u8; 16]| {
-            validate_existing_evidence_for_db_dir(&db, key, Duration::from_secs(5), 1024 * 1024)
-        };
-        assert_eq!(validate(&key)?, ExistingKeyEvidence::NoEvidence);
-        assert!(
-            validate_existing_for_db_dir(&db, &key, Duration::from_secs(5), 1024 * 1024).is_err()
-        );
-        let attach = root.path().join("msg/attach");
-        std::fs::create_dir_all(&attach)?;
-        let mut block = [0u8; 16];
-        block[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
-        aes::Aes128::new_from_slice(&key)
-            .expect("AES-128 key")
-            .encrypt_block(GenericArray::from_mut_slice(&mut block));
-        let mut sample = vec![0u8; 15];
-        sample[..6].copy_from_slice(&crate::attachment::decoder::V2_MAGIC);
-        sample.extend_from_slice(&block);
-        std::fs::write(attach.join("sample_t.dat"), sample)?;
-        assert_eq!(validate(&key)?, ExistingKeyEvidence::Verified);
-        assert_eq!(validate(&[0x51; 16])?, ExistingKeyEvidence::Contradicted);
-        assert!(!validate_existing_for_db_dir(
-            &db,
-            &[0x51; 16],
-            Duration::from_secs(5),
-            1024 * 1024
-        )?);
-        assert!(validate_existing_evidence_for_db_dir(&db, &key, Duration::ZERO, 1024).is_err());
-        Ok(())
-    }
 }
 
 fn no_more_files(error: &windows::core::Error) -> bool {
@@ -558,4 +502,46 @@ fn is_candidate_page(protect: u32) -> bool {
     }
     let base = protect & !(PAGE_GUARD.0 | PAGE_NOCACHE.0 | PAGE_WRITECOMBINE.0);
     matches!(base,value if value==PAGE_READWRITE.0 || value==PAGE_WRITECOPY.0 || value==PAGE_EXECUTE_READWRITE.0 || value==PAGE_EXECUTE_WRITECOPY.0)
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+    use aes::cipher::{generic_array::GenericArray, BlockEncrypt, KeyInit};
+
+    #[test]
+    fn existing_image_evidence_distinguishes_absence_conflict_and_errors() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let db = root.path().join("db_storage");
+        std::fs::create_dir(&db)?;
+        let key = *b"syntheticAESkey1";
+        let validate = |key: &[u8; 16]| {
+            validate_existing_evidence_for_db_dir(&db, key, Duration::from_secs(5), 1024 * 1024)
+        };
+        assert_eq!(validate(&key)?, ExistingKeyEvidence::NoEvidence);
+        assert!(
+            validate_existing_for_db_dir(&db, &key, Duration::from_secs(5), 1024 * 1024).is_err()
+        );
+        let attach = root.path().join("msg/attach");
+        std::fs::create_dir_all(&attach)?;
+        let mut block = [0u8; 16];
+        block[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        aes::Aes128::new_from_slice(&key)
+            .expect("AES-128 key")
+            .encrypt_block(GenericArray::from_mut_slice(&mut block));
+        let mut sample = vec![0u8; 15];
+        sample[..6].copy_from_slice(&crate::attachment::decoder::V2_MAGIC);
+        sample.extend_from_slice(&block);
+        std::fs::write(attach.join("sample_t.dat"), sample)?;
+        assert_eq!(validate(&key)?, ExistingKeyEvidence::Verified);
+        assert_eq!(validate(&[0x51; 16])?, ExistingKeyEvidence::Contradicted);
+        assert!(!validate_existing_for_db_dir(
+            &db,
+            &[0x51; 16],
+            Duration::from_secs(5),
+            1024 * 1024
+        )?);
+        assert!(validate_existing_evidence_for_db_dir(&db, &key, Duration::ZERO, 1024).is_err());
+        Ok(())
+    }
 }

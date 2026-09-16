@@ -14,7 +14,7 @@
 
 ## 2. Web 三路由的实际协议修复
 
-源码：`src/toolkit/web/mod.rs::router` 注册 `/api/contacts`、`/api/sessions`、`/api/tag-members`；对应 handler 经 `src/toolkit/web/query.rs::request` 到 `raw`。旧的裸 Request/Response 读写已替换为现有 `service::query_client::{connect_query, write_query, decode_query_response}` 和 `transport::framing::line`。
+源码：`src/web/mod.rs::router` 注册 `/api/contacts`、`/api/sessions`、`/api/tag-members`；对应 handler 经 `src/web/query.rs::request` 到 `raw`。旧的裸 Request/Response 读写已替换为现有 `service::query_client::{connect_query, write_query, decode_query_response}` 和 `transport::framing::line`。
 
 保证：先核验 OS 对端及 QueryHello 的版本/runtime，再发送带 runtime 与响应预算的 QueryEnvelope，最后验证 QueryReply 的版本/runtime。保持 Shared 中固定 RuntimeContext、查询槽位/等待人数限制、2 秒等待、普通 raw 请求 20 秒超时、8 MiB 响应上限。单次发送、不重放；Web 使用 connect-only，不因显式停 daemon 自动重启。
 
@@ -26,7 +26,7 @@
 
 源码：`src/service/client.rs::connect_named` 读取固定 runtime 的身份记录，核对 runtime，再用命名管道服务端 PID 和 `verify_process` 验证进程；`request_with_timeout` 从该 runtime 读取服务 token 并核对回复 runtime/version。`src/service/query_client.rs::connect_query` 在这层对端验证上增加 query v3 握手。不能把公开的 runtime_id 单独视作授权凭据。
 
-HTTP：`src/toolkit/web/mod.rs::security` 核对 Host/Origin/Sec-Fetch-Site；受保护路由要求启动 token；写入要求同源 POST 与 CSRF token。此次 raw 修复未绕过这些 middleware。
+HTTP：`src/web/mod.rs::security` 核对 Host/Origin/Sec-Fetch-Site；受保护路由要求启动 token；写入要求同源 POST 与 CSRF token。此次 raw 修复未绕过这些 middleware。
 
 MCP 任务：`src/cli/mcp_tasks.rs::Args::{permits, authorize}` 根据进程启动参数限制任务种类及内存扫描、媒体写入、上传等能力；工具参数中的本次确认不能自行获得宿主未授予的能力。`src/service/mcp.rs::HostSettings/Call` 将宿主设置、固定 runtime 与 session 分开于工具请求，`open_session` 表达禁止重启后默默重绑的协议约束。
 

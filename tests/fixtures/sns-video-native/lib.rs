@@ -1,2 +1,2 @@
-#[path = "../../../src/toolkit/sns/video_runtime.rs"]
-pub mod video_runtime;
+#[path = "../../../src/adapters/wechat/media/sns_keystream.rs"]
+pub mod keystream;

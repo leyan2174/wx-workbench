@@ -45,13 +45,6 @@ pub trait ImageKeyProvider {
     }
 }
 
-/// 平台默认实现。
-pub fn default_provider() -> Option<Box<dyn ImageKeyProvider + Send + Sync>> {
-    Some(Box::new(
-        windows::WindowsImageKeyProvider::from_current_config(),
-    ))
-}
-
 /// 连续监控可按类型重试，不能根据错误字符串判断。此错误不携带密钥或原始内存。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoImageKeyFound {

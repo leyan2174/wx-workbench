@@ -1,8 +1,9 @@
 //! 显式后端参数及单文件、聊天转录入口；不自动读取账号和云端凭证。
-use crate::toolkit::asr::backend::BackendId;
-#[cfg(test)]
-use crate::toolkit::asr::backend::Entry;
-use crate::toolkit::asr::{self, local, openai, Backend, OfflineMedia};
+use crate::service::operation_requests::asr::BackendId;
+use crate::{
+    application::transcription::{self as asr, Backend, OfflineMedia},
+    infrastructure::transcription::{local, openai},
+};
 use anyhow::{ensure, Context, Result};
 use std::{fs::File, io::Read, time::Duration};
 
@@ -29,7 +30,7 @@ impl BackendArgs {
                 config.timeout = Duration::from_secs(self.timeout_seconds);
                 config.output_format = local::OutputFormat::Json;
                 config.temp_root = self.temp_root;
-                Ok(Backend::Local(config))
+                Ok(Backend::WhisperCpp(config))
             }
             BackendId::OpenAiCompatible => {
                 let base_url = self
@@ -44,7 +45,7 @@ impl BackendArgs {
                     .read_to_string(&mut key)
                     .context("read explicit UTF-8 API key file")?;
                 ensure!(key.len() <= 16_384, "API key file exceeds limit");
-                Backend::explicit_openai(
+                Backend::openai_compatible(
                     openai::OpenAiConfig {
                         base_url,
                         model,
@@ -65,39 +66,33 @@ mod backend_selection_tests {
     use super::*;
 
     #[test]
-    fn wire_aliases_preserve_native_identity() {
-        for (names, expected) in [
-            (vec!["local", "whisper_cpp"], BackendId::WhisperCpp),
-            (
-                vec!["explicit-open-ai", "openai", "openai_compatible"],
-                BackendId::OpenAiCompatible,
-            ),
-            (vec!["python_whisper"], BackendId::PythonWhisper),
+    fn wire_contract_accepts_only_canonical_backend_names() {
+        for (name, expected) in [
+            ("whisper_cpp", BackendId::WhisperCpp),
+            ("python_whisper", BackendId::PythonWhisper),
+            ("openai_compatible", BackendId::OpenAiCompatible),
         ] {
-            for name in names {
-                let kind: BackendKind = serde_json::from_value(serde_json::json!(name)).unwrap();
-                assert_eq!(kind.identity(Entry::Native), expected);
-            }
+            let kind: BackendKind = serde_json::from_value(serde_json::json!(name)).unwrap();
+            assert_eq!(kind.identity(), expected);
         }
-        let old: BackendKind = serde_json::from_str("\"ExplicitOpenAi\"").unwrap();
-        assert_eq!(old.identity(Entry::Native), BackendId::OpenAiCompatible);
+        for old in ["local", "openai", "explicit-open-ai", "ExplicitOpenAi"] {
+            assert!(serde_json::from_value::<BackendKind>(serde_json::json!(old)).is_err());
+        }
     }
 
     #[test]
     fn explicit_preflight_rejects_upload_and_engine_mix_before_io() {
-        for kind in [BackendKind::Local, BackendKind::WhisperCpp] {
-            let mut args = BackendArgs {
-                backend: kind,
-                whisper_binary: Some("nonexistent-binary".into()),
-                whisper_model: Some("nonexistent-model".into()),
-                ..Default::default()
-            };
-            assert_eq!(args.validate_explicit().unwrap(), BackendId::WhisperCpp);
-            args.allow_upload = true;
-            assert!(args.validate_explicit().is_err());
-        }
+        let mut args = BackendArgs {
+            backend: BackendKind::WhisperCpp,
+            whisper_binary: Some("nonexistent-binary".into()),
+            whisper_model: Some("nonexistent-model".into()),
+            ..Default::default()
+        };
+        assert_eq!(args.validate_explicit().unwrap(), BackendId::WhisperCpp);
+        args.allow_upload = true;
+        assert!(args.validate_explicit().is_err());
         let mut cloud = BackendArgs {
-            backend: BackendKind::ExplicitOpenAi,
+            backend: BackendKind::OpenAiCompatible,
             openai_base_url: Some("https://example.invalid/v1".into()),
             openai_model: Some("test".into()),
             api_key_file: Some("not-read".into()),

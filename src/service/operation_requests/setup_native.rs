@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Backend {
-    Local,
+    PythonWhisper,
     WhisperCpp,
-    Openai,
+    OpenAiCompatible,
 }
 
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize, Clone)]

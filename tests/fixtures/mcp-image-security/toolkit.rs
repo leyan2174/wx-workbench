@@ -1,9 +1,7 @@
 #![allow(dead_code)]
-pub use crate::{files, private_file, setup};
-pub(crate) use crate::files::ExportTarget;
+pub use crate::files;
 pub mod asr {
-    use anyhow::{ensure, Result};
-    include!(concat!(env!("OUT_DIR"), "/wav_validator.rs"));
+    pub use crate::audio_wav::validate_wav;
 }
 mod images {
     use anyhow::{ensure, Context, Result};

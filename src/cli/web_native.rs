@@ -32,7 +32,7 @@ pub fn cmd_web(args: Args) -> Result<()> {
         .enable_all()
         .build()
         .context("无法创建 Web 运行时")?
-        .block_on(crate::toolkit::web::serve(runtime, args.into()))
+        .block_on(crate::web::serve(runtime, args.into()))
 }
 
 pub fn cmd_gui(mut args: Args) -> Result<()> {

@@ -8,7 +8,13 @@ fn key(audio: &[u8]) -> CacheKey {
         "message/media_0.db",
         1,
         audio,
-        &ConfigIdentity::new("local", "synthetic-model-sha", "zh", "synthetic-options").unwrap(),
+        &ConfigIdentity::new(
+            "python_whisper",
+            "synthetic-model-sha",
+            "zh",
+            "synthetic-options",
+        )
+        .unwrap(),
     )
     .unwrap()
 }

@@ -13,7 +13,8 @@ pub(crate) fn run() -> Result<()> {
     );
     let mut bytes = zeroize::Zeroizing::new(vec![0u8; length]);
     input.read_exact(&mut bytes)?;
-    let operation = serde_json::from_slice(&bytes).context("Invalid typed operation")?;
+    let request: crate::service::worker_keys::Input<crate::service::operations::Operation> =
+        serde_json::from_slice(&bytes).context("Invalid typed operation")?;
     let mut trailing = [0u8; 1];
     ensure!(
         input.read(&mut trailing)? == 0,
@@ -26,7 +27,10 @@ pub(crate) fn run() -> Result<()> {
             "Account changed before operation execution"
         );
     }
-    finish(crate::daemon::operations::execute(operation))
+    let access = crate::service::worker_keys::install(request.access)?;
+    let result = crate::daemon::operations::execute(request.operation);
+    drop(access);
+    finish(result)
 }
 
 /// Worker adapter only: domain work has returned, so its guards have already unwound.

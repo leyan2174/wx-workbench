@@ -1,0 +1,47 @@
+{
+  "name": "@leyan2174/wx-workbench",
+  "version": "0.3.0",
+  "description": "Windows WeChat local data workbench with CLI, MCP and Web interfaces.",
+  "bin": {
+    "wx": "bin/wx.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node --test test/launcher.test.js test/release.test.js"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "optionalDependencies": {
+    "@leyan2174/wx-workbench-win32-x64": "0.3.0"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "keywords": [
+    "wechat",
+    "cli",
+    "wx",
+    "llm",
+    "ai",
+    "sqlite",
+    "sqlcipher"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/leyan2174/wx-workbench"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

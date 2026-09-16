@@ -1,21 +1,27 @@
 //! 仅运行 security_ 前缀测试；所有音频、凭据和网络响应均为本机合成数据。
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 #[path = "fixtures/asr-video-security/modules.rs"]
 #[allow(dead_code)] // harness 仅审查安全边界，不调用每个生产入口。
 mod production;
 use bootstrap::BootstrapCleanup;
+#[cfg(feature = "sns-wasm-test-asset")]
+use production::video;
 pub use production::{
-    adapters, attachment, business, cli, config, crypto, daemon, ipc, key_store, runtime, service,
-    toolkit, windows_process,
+    adapters, application, attachment, business, cli, config, crypto, daemon, infrastructure, ipc,
+    key_store, runtime, service, windows_process,
 };
-use production::{asr, video};
+use production::{transcription_app as asr, transcription_engine as engines};
 use std::{
     collections::BTreeMap,
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -31,8 +37,8 @@ fn repo() -> PathBuf {
     }
 }
 
-fn config(url: String) -> asr::openai::OpenAiConfig {
-    asr::openai::OpenAiConfig {
+fn config(url: String) -> engines::openai::OpenAiConfig {
+    engines::openai::OpenAiConfig {
         base_url: url,
         model: "synthetic-model".into(),
         language: None,
@@ -96,12 +102,12 @@ fn read_request(listener: TcpListener) -> (TcpStream, Vec<u8>) {
 #[test]
 fn security_cloud_denial_precedes_audio_access_and_has_zero_requests() {
     let server = listener();
-    let client = asr::openai::OpenAiTranscriber::new(config(format!(
+    let client = engines::openai::OpenAiTranscriber::new(config(format!(
         "http://{}/v1",
         server.local_addr().unwrap()
     )))
     .unwrap();
-    let backend = asr::Backend::ExplicitOpenAi {
+    let backend = asr::Backend::OpenAiCompatible {
         client,
         allow_upload: false,
     };
@@ -120,7 +126,7 @@ fn security_cloud_redirect_does_not_forward_credentials_or_audio() {
     let server = listener();
     let destination = listener();
     let target = format!("http://{}/stolen", destination.local_addr().unwrap());
-    let client = asr::openai::OpenAiTranscriber::new(config(format!(
+    let client = engines::openai::OpenAiTranscriber::new(config(format!(
         "http://{}/v1",
         server.local_addr().unwrap()
     )))
@@ -135,7 +141,7 @@ fn security_cloud_redirect_does_not_forward_credentials_or_audio() {
     assert!(String::from_utf8_lossy(&request).contains(SECRET));
     assert_eq!(
         error,
-        asr::openai::OpenAiError::Http {
+        engines::openai::OpenAiError::Http {
             status: 307,
             json_error: false
         }
@@ -151,7 +157,7 @@ fn security_cloud_redirect_does_not_forward_credentials_or_audio() {
 fn security_cloud_error_body_is_redacted_and_unframed_response_is_bounded() {
     for oversized in [false, true] {
         let server = listener();
-        let client = asr::openai::OpenAiTranscriber::new(config(format!(
+        let client = engines::openai::OpenAiTranscriber::new(config(format!(
             "http://{}/v1",
             server.local_addr().unwrap()
         )))
@@ -174,9 +180,9 @@ fn security_cloud_error_body_is_redacted_and_unframed_response_is_bounded() {
         assert_eq!(
             error,
             if oversized {
-                asr::openai::OpenAiError::ResponseTooLarge
+                engines::openai::OpenAiError::ResponseTooLarge
             } else {
-                asr::openai::OpenAiError::Http {
+                engines::openai::OpenAiError::Http {
                     status: 401,
                     json_error: true,
                 }
@@ -193,7 +199,11 @@ fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
     let _bootstrap = BootstrapCleanup(dir.path().join("runtime"));
     let key = dir.path().join("key.txt");
     let audio = dir.path().join("audio.wav");
-    fs::write(&audio, asr::pcm24k_to_wav(&[0; 8]).unwrap()).unwrap();
+    fs::write(
+        &audio,
+        infrastructure::audio::pcm24k_to_wav(&[0; 8]).unwrap(),
+    )
+    .unwrap();
     let server = listener();
     let url = format!("http://{}/v1", server.local_addr().unwrap());
     let base = [
@@ -201,7 +211,7 @@ fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
         "transcribe-audio-native",
         audio.to_str().unwrap(),
         "--backend",
-        "explicit-open-ai",
+        "openai_compatible",
         "--openai-base-url",
         &url,
         "--openai-model",
@@ -255,7 +265,6 @@ fn run_wx(root: &Path, args: &[&str]) -> std::process::Output {
         .env_remove("WX_CLI_EXPECTED_RUNTIME")
         .env("WX_CLI_HOME", root.join("runtime"))
         .env("WX_CLI_CONFIG", root.join("absent-config.json"))
-        .env("WX_WECHAT_DECRYPT_PYTHON", root.join("absent-python.exe"))
         .env("PATH", "")
         .output()
         .unwrap();
@@ -368,6 +377,104 @@ fn chat() -> serde_json::Value {
     serde_json::json!({"username":"alice","messages":[{"type":"voice","source":"message_0.db","local_id":1}]})
 }
 
+static UNUSED_SNAPSHOT_CALLS: AtomicUsize = AtomicUsize::new(0);
+static FAILED_SNAPSHOT_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+fn unused_snapshot(_: &runtime::RuntimeContext) -> anyhow::Result<asr::batch::Snapshot> {
+    UNUSED_SNAPSHOT_CALLS.fetch_add(1, Ordering::SeqCst);
+    anyhow::bail!("unused synthetic snapshot loader")
+}
+
+fn failed_snapshot(_: &runtime::RuntimeContext) -> anyhow::Result<asr::batch::Snapshot> {
+    FAILED_SNAPSHOT_CALLS.fetch_add(1, Ordering::SeqCst);
+    anyhow::bail!("synthetic snapshot denied")
+}
+
+fn batch_runtime(root: &Path) -> runtime::RuntimeContext {
+    let directory = root.join("account");
+    fs::create_dir_all(&directory).unwrap();
+    runtime::RuntimeContext {
+        config: config::Config {
+            db_dir: root.join("databases"),
+            keys_file: root.join("retired-keys.json"),
+            key_store: Some(root.join("secrets.dat")),
+            decrypted_dir: root.join("decrypted"),
+            wechat_process: "synthetic.exe".into(),
+        },
+        config_path: root.join("config.json"),
+        root: root.to_owned(),
+        id: "synthetic-account".into(),
+        directory,
+    }
+}
+
+fn batch_transcriber(
+    root: &Path,
+    loader: asr::batch::SnapshotLoader,
+) -> asr::batch::BatchTranscriber {
+    let backend = asr::Backend::WhisperCpp(engines::local::LocalConfig::new(
+        root.join("unused-whisper.exe"),
+        root.join("unused-model.bin"),
+    ));
+    asr::batch::BatchTranscriber::new(
+        &batch_runtime(root),
+        backend,
+        asr::batch::CacheOptions::default(),
+        loader,
+    )
+    .unwrap()
+}
+
+#[test]
+fn security_batch_does_not_load_database_keys_without_pending_voice() {
+    UNUSED_SNAPSHOT_CALLS.store(0, Ordering::SeqCst);
+    let dir = tempfile::tempdir().unwrap();
+    let mut transcriber = batch_transcriber(dir.path(), unused_snapshot);
+    let mut document = serde_json::json!({
+        "username": "synthetic",
+        "messages": [
+            {"type": "text"},
+            {"type": "voice", "transcription": "already present"}
+        ]
+    });
+
+    let report = transcriber.process(&mut document).unwrap();
+
+    assert_eq!(UNUSED_SNAPSHOT_CALLS.load(Ordering::SeqCst), 0);
+    assert_eq!(report.skipped_non_voice, 1);
+    assert_eq!(report.skipped_existing, 1);
+    assert_eq!(report.failed, 0);
+}
+
+#[test]
+fn security_batch_loads_database_keys_once_for_pending_voices() {
+    FAILED_SNAPSHOT_CALLS.store(0, Ordering::SeqCst);
+    let dir = tempfile::tempdir().unwrap();
+    let mut transcriber = batch_transcriber(dir.path(), failed_snapshot);
+    let mut document = serde_json::json!({
+        "username": "synthetic",
+        "messages": [
+            {"type": "voice", "source": "message_0.db", "local_id": 1},
+            {"type": "voice", "source": "message_1.db", "local_id": 2}
+        ]
+    });
+
+    let report = transcriber.process(&mut document).unwrap();
+
+    assert_eq!(FAILED_SNAPSHOT_CALLS.load(Ordering::SeqCst), 1);
+    assert_eq!(report.failed, 2);
+    assert_eq!(report.errors.len(), 2);
+    assert!(report
+        .errors
+        .iter()
+        .all(|error| error.error.contains("synthetic snapshot denied")));
+    assert!(document["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|message| message.get("transcription").is_none()));
+}
+
 #[test]
 fn security_writeback_rechecks_owner_after_transcription_before_publish() {
     let dir = tempfile::tempdir().unwrap();
@@ -414,13 +521,13 @@ fn security_local_diagnostic_does_not_leak_audio_into_writeback_report() {
     let audio = dir.path().join("audio.wav");
     fs::write(&model, b"synthetic").unwrap();
     fs::write(&audio, b"SYNTHETIC_PRIVATE_AUDIO_PAYLOAD").unwrap();
-    let mut config = asr::local::LocalConfig::new(executable, model);
+    let mut config = engines::local::LocalConfig::new(executable, model);
     config.temp_root = Some(dir.path().to_owned());
     config.timeout = Duration::from_secs(3);
     let before = fs::read_dir(dir.path()).unwrap().count();
     let mut data = chat();
     let report = asr::writeback::transcribe_json(&mut data, |_| {
-        Ok(asr::local::transcribe(&config, &audio)?.text)
+        Ok(engines::local::transcribe(&config, &audio)?.text)
     })
     .unwrap();
     assert_eq!(report.failed, 1);
@@ -433,9 +540,10 @@ fn security_local_diagnostic_does_not_leak_audio_into_writeback_report() {
 }
 
 #[test]
+#[cfg(feature = "sns-wasm-test-asset")]
 fn security_video_rejects_tampered_assets_and_recovers_after_bad_key() {
     let dir = tempfile::tempdir().unwrap();
-    let asset = repo().join("vendor/wechat-decrypt/sns_media_wasm/wasm_video_decode.wasm");
+    let asset = repo().join("src/adapters/wechat/media/assets/wasm_video_decode.wasm");
     let original = fs::read(&asset).unwrap();
     let tampered = dir.path().join("tampered.wasm");
     let mut bytes = original.clone();
@@ -443,8 +551,8 @@ fn security_video_rejects_tampered_assets_and_recovers_after_bad_key() {
     bytes[last] ^= 1;
     fs::write(&tampered, &bytes).unwrap();
     assert!(matches!(
-        video::VideoRuntime::new(&tampered, video::RuntimeLimits::default()),
-        Err(video::VideoRuntimeError::UnsupportedAsset)
+        video::SnsKeystream::new(&tampered, video::RuntimeLimits::default()),
+        Err(video::KeystreamError::UnsupportedAsset)
     ));
     let huge = dir.path().join("oversized.wasm");
     fs::File::create(&huge)
@@ -452,10 +560,10 @@ fn security_video_rejects_tampered_assets_and_recovers_after_bad_key() {
         .set_len(4 * 1024 * 1024 + 1)
         .unwrap();
     assert!(matches!(
-        video::VideoRuntime::new(&huge, video::RuntimeLimits::default()),
-        Err(video::VideoRuntimeError::UnsupportedAsset)
+        video::SnsKeystream::new(&huge, video::RuntimeLimits::default()),
+        Err(video::KeystreamError::UnsupportedAsset)
     ));
-    let runtime = video::VideoRuntime::new(&asset, video::RuntimeLimits::default()).unwrap();
+    let runtime = video::SnsKeystream::new(&asset, video::RuntimeLimits::default()).unwrap();
     let expected = runtime.keystream("42", 16).unwrap();
     for key in [SECRET.to_owned(), "1".repeat(1025)] {
         let error = runtime.keystream(&key, 16).unwrap_err();
@@ -464,8 +572,8 @@ fn security_video_rejects_tampered_assets_and_recovers_after_bad_key() {
     }
     let invalid = vec![0; 64];
     assert_eq!(
-        runtime.decode("42", &invalid),
-        Err(video::VideoRuntimeError::InvalidMp4)
+        runtime.restore_video("42", &invalid),
+        Err(video::KeystreamError::InvalidMp4)
     );
     assert_eq!(invalid, vec![0; 64]);
     assert_eq!(fs::read(&asset).unwrap(), original);

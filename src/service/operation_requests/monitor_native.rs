@@ -1,4 +1,4 @@
-use crate::toolkit::monitor::{latency::LatencyOptions, InitialPolicy, MonitorOptions};
+use crate::application::monitor::{latency::LatencyOptions, InitialPolicy, MonitorOptions};
 use anyhow::{ensure, Result};
 use std::path::PathBuf;
 use std::time::Duration;

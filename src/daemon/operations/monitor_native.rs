@@ -1,8 +1,9 @@
 //! 校验监控和延迟采样参数，在固定账号上下文中运行采样循环并输出结果。
 //! 增量查询由监控工具层通过认证通道发送，大状态使用分块传输。
-use crate::toolkit::monitor::{
-    self, latency::LatencyOptions, ConsoleCancellation, FixedRuntimeContext, MonitorOptions,
+use crate::application::monitor::{
+    self, latency::LatencyOptions, FixedRuntimeContext, MonitorOptions,
 };
+use crate::infrastructure::cancellation::ConsoleCancellation;
 use anyhow::{ensure, Result};
 
 pub use crate::service::operation_requests::monitor_native::Args;

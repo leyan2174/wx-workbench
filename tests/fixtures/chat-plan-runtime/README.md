@@ -9,6 +9,7 @@
 ## 元数据缺失行为
 
 - 不提供聊天清单时必须明确传入 username；chat_name 回退为 username，chat_type 仅按 @chatroom 后缀推定 group，否则 single，index 按输入编号。
+- JSON 清单只接受 `username`、`index`、`chat_name` 和 `chat_type`；旧 `display_name` / `kind` 字段会被明确拒绝。
 - JSON 清单中缺少可选字段同样回退；不会查联系人或自动发现账号，也不会伪造昵称。
 - 显式指定不存在的 JSON 文件会失败，不会回退。当前 stderr 只有底层文件错误，尚无专门的“元数据文件缺失”上下文；测试只要求非零退出和保留错误输出。
 - 回退不会额外产生 metadata_missing 状态。因此无缺库状态不意味着联系人元数据完整。

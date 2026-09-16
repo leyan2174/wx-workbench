@@ -26,7 +26,7 @@ q_history 前十个参数不变，末尾增加 `msg_types: Option<&[i64]>`、`ol
 
 ## 验证
 
-`python tests/fixtures/mcp-history-compat/generate_oracle.py` 仅 AST 抽取旧纯函数，不导入旧服务、不读账号。生成 288 组真实 SQLite 选行与旧分页结果，oracle 内记录旧源码 SHA256。
+固定 oracle 保存迁移时生成的 288 组合成 SQLite 选行与分页结果。当前回归不再执行或携带旧 Python 源码。
 
 `cargo test --manifest-path tests/fixtures/mcp-history-compat/Cargo.toml -- --nocapture` 只核对测试目录中的旧选择器参考实现与 oracle，包括高位及有符号类型、原始字段和分页规则；它不再是生产查询的验收。当前生产读取由 `adapters::wechat::messages` 和业务分页执行，须以以下真进程测试、根工程 `mcp_readonly_runtime` 以及 `daemon::query::message_source_tests` 验证，不能把旧参考实现通过当成新通道通过。
 

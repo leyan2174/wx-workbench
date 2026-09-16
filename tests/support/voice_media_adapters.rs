@@ -11,7 +11,8 @@ pub use message_read as read;
 #[path = "../../src/adapters/wechat/media/voice.rs"]
 pub mod voice;
 #[path = "../../src/adapters/wechat/media/voice_catalog.rs"]
-#[allow(dead_code)] // Voice decode hosts embed catalog tests but not the daemon inventory entry point.
+#[allow(dead_code)]
+// Voice decode hosts embed catalog tests but not the daemon inventory entry point.
 pub mod voice_catalog;
 #[path = "../../src/adapters/wechat/media/voice_export.rs"]
 pub mod voice_export;

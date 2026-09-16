@@ -210,7 +210,7 @@ fn security_null_length_empty_blob_and_inclusive_zero_time_are_distinct() {
         until: Some(0),
         ..query()
     };
-    let rows = legacy_query(&[s.clone()], &q).unwrap();
+    let rows = legacy_query(std::slice::from_ref(&s), &q).unwrap();
     assert_eq!(
         rows.iter()
             .map(|r| (r.local_id, r.voice_data_bytes))
@@ -332,7 +332,7 @@ async fn security_documented_incomplete_offline_inventory_cannot_prove_uniquenes
         resolve(d.path()).unwrap_err().kind,
         dm::ErrorKind::AmbiguousMedia
     );
-    assert_eq!(legacy_query(&[a.clone()], &query()).unwrap().len(), 1);
+    assert_eq!(legacy_query(std::slice::from_ref(&a), &query()).unwrap().len(), 1);
     fs::remove_file(&b.path).unwrap();
     assert!(resolve(d.path()).is_ok());
     let db = DbCache {

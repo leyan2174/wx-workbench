@@ -17,7 +17,10 @@ pub struct Redactor {
 }
 
 impl Redactor {
-    pub fn new(runtime: &RuntimeContext) -> Result<Self> {
+    pub fn new(
+        runtime: &RuntimeContext,
+        snapshot: Option<&crate::key_store::Snapshot>,
+    ) -> Result<Self> {
         fn collect(value: &Value, all: bool, secrets: &mut Vec<zeroize::Zeroizing<String>>) {
             match value {
                 Value::String(text) if all && text.len() >= 4 => {
@@ -44,36 +47,21 @@ impl Redactor {
             }
         }
         let mut secrets = Vec::new();
-        for (path, all) in [(&runtime.config_path, false)] {
-            if !path.exists() {
-                continue;
-            }
+        if runtime.config_path.exists() {
             let mut bytes = zeroize::Zeroizing::new(Vec::new());
-            fs::File::open(path)?
+            fs::File::open(&runtime.config_path)?
                 .take(4 * 1024 * 1024 + 1)
                 .read_to_end(&mut bytes)?;
             ensure!(
                 bytes.len() <= 4 * 1024 * 1024,
                 "Credential file exceeds limit"
             );
-            // Invalid keys must not prevent the service from accepting a key-repair task.
-            match serde_json::from_slice::<Value>(&bytes) {
-                Ok(value) => collect(&value, all, &mut secrets),
-                Err(_) if all => {
-                    if let Ok(text) = std::str::from_utf8(&bytes) {
-                        if text.len() >= 4 {
-                            secrets.push(zeroize::Zeroizing::new(text.into()));
-                        }
-                    }
-                }
-                Err(_) => anyhow::bail!("Invalid account configuration"),
-            }
+            let value = serde_json::from_slice::<Value>(&bytes)
+                .map_err(|_| anyhow::anyhow!("Invalid account configuration"))?;
+            collect(&value, false, &mut secrets);
         }
-        // Redaction is not a business key reader: unavailable stores must not block
-        // the explicit migration entry. Actual operations still reject these errors.
-        if let Ok(snapshot) =
-            crate::key_store::Store::for_runtime(runtime).and_then(|store| store.load())
-        {
+        // The execution host supplies its account snapshot; redaction never opens a key store.
+        if let Some(snapshot) = snapshot {
             secrets.extend(
                 snapshot
                     .database_keys()
@@ -136,7 +124,7 @@ pub fn persist(
         "Task history exceeds limit"
     );
     let mut file = tempfile::NamedTempFile::new_in(&runtime.directory)?;
-    crate::toolkit::private_file::restrict(file.as_file())?;
+    crate::private_file::restrict(file.as_file())?;
     file.write_all(&bytes)?;
     file.as_file().sync_all()?;
     guard.verify_replaceable_file(&path)?;
@@ -293,7 +281,7 @@ pub fn restore(
             ensure!(existing == bytes, "History archive differs");
         } else {
             let mut file = tempfile::NamedTempFile::new_in(&runtime.directory)?;
-            crate::toolkit::private_file::restrict(file.as_file())?;
+            crate::private_file::restrict(file.as_file())?;
             file.write_all(&bytes)?;
             file.as_file().sync_all()?;
             guard.verify_replaceable_file(&backup)?;

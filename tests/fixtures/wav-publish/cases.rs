@@ -1,4 +1,4 @@
-use crate::{asr, audio::publish::publish_wav_noclobber, local_files::HostOutputGuard};
+use crate::{audio, audio::publish::publish_wav_noclobber, local_files::HostOutputGuard};
 use sha2::{Digest, Sha256};
 use std::{cell::Cell, fs, path::Path};
 
@@ -7,7 +7,7 @@ fn empty(root: &Path) {
 }
 
 fn wav() -> Vec<u8> {
-    asr::pcm24k_to_wav(&[0, 0, 255, 127, 0, 128]).unwrap()
+    audio::pcm24k_to_wav(&[0, 0, 255, 127, 0, 128]).unwrap()
 }
 
 fn target(root: &Path, bytes: &[u8]) -> std::path::PathBuf {
@@ -51,8 +51,8 @@ pub fn run_suite() {
     println!("PASS complete bytes, SHA256 name, borrowed response before commit, repeat refused");
 
     let bytes = with_extra_chunk();
-    assert_eq!(asr::prepare_wav_bytes(&bytes).unwrap(), bytes);
-    let info = asr::validate_wav(&bytes).unwrap();
+    assert_eq!(audio::prepare_wav_bytes(&bytes).unwrap(), bytes);
+    let info = audio::validate_wav(&bytes).unwrap();
     assert_eq!(info.pcm_bytes, 6);
     assert_ne!(info.pcm_bytes, (bytes.len() - 44) as u64);
     let result = publish_wav_noclobber(&bytes, &guard, |_| Ok(())).unwrap();
@@ -68,7 +68,7 @@ pub fn run_suite() {
     println!("PASS padded ancillary chunk and non-24kHz metadata, prepare_wav_bytes unchanged");
 
     let silk = include_bytes!("../audio/silence.silk");
-    let prepared = asr::prepare_wav_bytes(silk).unwrap();
+    let prepared = audio::prepare_wav_bytes(silk).unwrap();
     let result = publish_wav_noclobber(&prepared, &guard, |_| Ok(())).unwrap();
     let pcm = crate::audio::decode_silk_to_pcm(silk).unwrap();
     assert_eq!(result.pcm_bytes, pcm.len() as u64);

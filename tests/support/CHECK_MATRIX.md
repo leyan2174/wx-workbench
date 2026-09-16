@@ -1,5 +1,7 @@
 # Fixture Check Matrix
 
+可在根目录执行 `./scripts/check-fixtures.ps1`（离线时添加 `-Offline`）复现本表编译范围；脚本另检查 `src/crypto/test-harness`，保留逐项日志及 JSON 汇总。本轮修订见[代码质量记录](../../docs/code-quality-review-2026-09-16.md)。编译检查不等于运行了全部独立测试。
+
 本表定义独立夹具的有效检查范围。集中复核已完成：根工程和下列 26 项均零错误、零告警，包含两个 runtime feature；命令与日志说明见[编译告警维护](../../docs/compiler-warnings.md)。根项目使用 `--all-targets`。
 
 在仓库根运行 `cargo check --manifest-path tests/fixtures/<fixture>/Cargo.toml --target x86_64-pc-windows-msvc <targets>`。以下是完整 26 项范围，不把普通库单测跳过来隐藏告警。

@@ -232,7 +232,7 @@ fn export_image_impl(
         bytes.len() as u64 == source.stamp.1 && bytes.len() as u64 <= MAX_DAT_BYTES,
         "DAT changed or exceeded limit"
     );
-    let decoded = decoder::dispatch(&bytes, request.key)?;
+    let decoded = decoder::restore(&bytes, request.key)?;
     let decoded_md5 = format!("{:x}", md5::compute(&decoded.data));
     let path = request
         .output_root
@@ -240,7 +240,7 @@ fn export_image_impl(
     if let Some(guard) = host_guard {
         guard.verify()?;
     }
-    let target = crate::toolkit::ExportTarget::new_file(
+    let target = crate::infrastructure::publication::ExportTarget::new_file(
         &path,
         &[
             request.attach_root.to_owned(),

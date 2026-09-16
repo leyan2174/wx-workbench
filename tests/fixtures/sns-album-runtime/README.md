@@ -12,7 +12,7 @@ cargo check --target x86_64-pc-windows-msvc
 
 ## 接线契约
 
-- CLI 使用位置参数 `sns-album USER`，原 `--output` 的可见别名为 `--output-root`；`--output-dir` 指定可复用目录，和显式 `--output` 互斥。
+- CLI 使用位置参数 `sns-album USER`，只接受 `--output`；已移除的 `--output-root` 明确拒绝。`--output-dir` 指定可复用目录，和显式 `--output` 互斥。
 - `--image-workers`、`--video-workers` 接受 0 并沿用旧夹值；`-n 0` 返回空 timeline。
 - stdout 为 summary 对象，必须等于 `export_summary.json`。`timeline.json` 是帖子数组，不是带 posts 字段的对象。
 - 逐项断言旧 Python summary 的全部 16 个计数字段；`image_cache` 始终为 0。
@@ -32,7 +32,7 @@ cargo check --target x86_64-pc-windows-msvc
 
 ## 加密视频与缓存
 
-- `loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail` 只读复用 `sns-video-native/vectors.json` 的公开 key=1、size=131072 oracle，来源为该 fixture 已有 `generate-vectors.cjs` 对供应商 Node/WASM 包装器的输出。测试本身不执行生成器、Node、Python，也不调用生产 Rust runtime 来制造预期值。
+- `loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail` 只读复用 `sns-video-native/vectors.json` 的公开 key=1、size=131072 固定 oracle。该向量在迁移时由历史 Node/WASM 包装器生成；测试不执行 Node、Python，也不调用生产 Rust runtime 来制造预期值。
 - 合成 MP4 字节只在前 128 KiB 与 oracle 异或，32779 字节的非零尾部保持明文；loopback 分段发送完整密文，真实 CLI 从加密 SNS 数据库解析 `<enc key="1"/>` 后下载。断言最终文件完整字节、前缀、原始 tail，以及 timeline 的 key/local_file/source/complete/bytes、HTML 引用和全部 summary 计数。
 - 继承现有空 PATH 和不存在的 Python 路径，Node 也无法通过 PATH 查找；不降低 TLS 校验，不运行外部生成器。
 - `complete_and_partial_cache_keep_mtime_in_final_album` 使用真实缓存命名布局，分别验证完整及部分缓存经 staging/publisher 后的最终文件 mtime，并检查源字节和源 mtime 不变、no-remote 零连接。

@@ -1,5 +1,9 @@
 //! 合成加密账号的真实 daemon / named pipe 回归，不读取真实微信数据。
 #![cfg(windows)]
+#[path = "support/bootstrap.rs"]
+mod bootstrap;
+#[path = "support/cli_output.rs"]
+mod cli_output;
 #[path = "support/key_store.rs"]
 mod key_store_fixture;
 #[path = "fixtures/query_v3.rs"]
@@ -40,7 +44,7 @@ impl Account {
         let mut keys = Map::new();
         keys.insert("contact/contact.db".into(), json!("11".repeat(32)));
         // 同时覆盖原始反斜杠和大小写键，磁盘文件仍为标准拼写。
-        for (shard, key) in [(0, "message\\media_0.db"), (1, "MeSsAgE/MeDiA_1.Db")] {
+        for (shard, key) in [(0, "message\\media_0.db"), (1, "MeSsAgE/MeDiA_1.db")] {
             let plain = profile.join(format!("media-{shard}-plain.db"));
             let conn = sqlite(&plain);
             conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id(rowid,user_name) VALUES(7,'peer'),(8,'other'); CREATE TABLE VoiceInfo(chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,voice_data BLOB);").unwrap();
@@ -73,11 +77,7 @@ impl Account {
                 .to_string(),
         )
         .unwrap();
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &profile.join("config.json"),
-            home,
-        );
+        key_store_fixture::seed(&profile.join("config.json"), &json!(keys));
         let mut digest = Sha256::new();
         digest.update(b"wx-cli-runtime-v2\0");
         for path in [
@@ -199,6 +199,84 @@ impl Account {
         }
         result
     }
+}
+
+#[test]
+fn voice_export_uses_daemon_snapshot_and_restart_rejects_corrupt_store() {
+    let home = tempfile::tempdir().unwrap();
+    let account = Account::new(home.path(), 0);
+    let _cleanup = bootstrap::RuntimeCleanup(account.home.clone());
+    for shard in 0..2 {
+        let plain = account.profile.join(format!("media-{shard}-plain.db"));
+        let conn = sqlite(&plain);
+        conn.execute_batch(
+            "ALTER TABLE VoiceInfo ADD COLUMN svr_id INTEGER DEFAULT 0;
+             ALTER TABLE VoiceInfo ADD COLUMN data_index TEXT DEFAULT '';",
+        )
+        .unwrap();
+        drop(conn);
+        encrypt(
+            &plain,
+            &account
+                .profile
+                .join(format!("db_storage/message/media_{shard}.db")),
+        );
+    }
+    let before = account.snapshot();
+    let run = |account: &Account, name: &str| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
+        command
+            .env_clear()
+            .env("WX_CLI_CONFIG", account.profile.join("config.json"))
+            .env("WX_CLI_HOME", &account.home)
+            .env("PATH", "")
+            .current_dir(account.root.path())
+            .args(["voices", "peer", "--since", "2020-01-01", "--json", "-o"])
+            .arg(account.root.path().join(name));
+        for name in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        for name in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"] {
+            command.env(name, &account.home);
+        }
+        cli_output::output(&mut command, account.root.path(), Duration::from_secs(60))
+    };
+    let first = run(&account, "first");
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let store = account.profile.join("keys.dpapi");
+    fs::write(&store, b"synthetic corrupt store").unwrap();
+    let hot = run(&account, "hot");
+    assert!(
+        hot.status.success(),
+        "{}",
+        String::from_utf8_lossy(&hot.stderr)
+    );
+    for name in ["first", "hot"] {
+        let summary: Value = serde_json::from_slice(
+            &fs::read(
+                account
+                    .root
+                    .path()
+                    .join(name)
+                    .join("_voice_export_summary.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(summary["scanned_rows"], 0);
+    }
+    drop(bootstrap::RuntimeCleanup(account.home.clone()));
+    let cold = run(&account, "cold");
+    assert!(!cold.status.success());
+    assert!(!account.root.path().join("cold").exists());
+    assert_eq!(account.snapshot(), before);
+    assert_eq!(fs::read(store).unwrap(), b"synthetic corrupt store");
 }
 
 impl Drop for Account {

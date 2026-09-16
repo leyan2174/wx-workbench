@@ -1,9 +1,9 @@
 //! 选中配置的 SNS 生产宿主；不发现其他账号，不启动旧 Python。
-use crate::toolkit::directory_publish::ExistingPolicy;
+use crate::infrastructure::output_tree::ExistingPolicy;
 use crate::{
     adapters::wechat::moments::cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots},
+    application::moments::{self as sns, export_database_with_publication, TimelinePublication},
     runtime::RuntimeContext,
-    toolkit::sns::{self, export_database_with_publication, TimelinePublication},
 };
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
@@ -72,18 +72,18 @@ fn paths(runtime: &RuntimeContext, raw: &Value, args: &Args) -> Result<(PathBuf,
 
 #[cfg(test)]
 fn image_keys(raw: &Value) -> Result<CacheKeys> {
-    use crate::toolkit::{parse_image_aes, parse_image_xor};
+    use crate::application::image_publication::{parse_aes, parse_xor};
     let aes = match raw.get("image_aes_key") {
         None | Some(Value::Null) => None,
         Some(Value::String(s)) if s.is_empty() => None,
         Some(Value::String(s)) => {
-            Some(parse_image_aes(s).map_err(|_| anyhow::anyhow!("image_aes_key 格式无效"))?)
+            Some(parse_aes(s).map_err(|_| anyhow::anyhow!("image_aes_key 格式无效"))?)
         }
         Some(_) => anyhow::bail!("image_aes_key 必须是字符串"),
     };
     let xor = match raw.get("image_xor_key") {
         None => 0x88,
-        Some(value) => parse_image_xor(
+        Some(value) => parse_xor(
             &value
                 .as_str()
                 .map(str::to_owned)
@@ -125,7 +125,7 @@ fn publication(
     .flatten()
     {
         // 缺失路径也先做分离检查；现存输入交给 core 固定身份并检查硬链接。
-        crate::toolkit::separate(source, output)
+        crate::infrastructure::publication::separate(source, output)
             .map_err(|_| anyhow::anyhow!("SNS 输出不能覆盖配置、密钥、数据库或缓存"))?;
         if existing(source)? {
             inputs.push(source.clone());
@@ -154,13 +154,31 @@ pub fn cmd(args: Args) -> Result<()> {
         serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("选中账号配置 JSON 无效"))?;
     let contacts_env = std::env::var("WECHAT_EXPORT_CONTACTS").ok();
     let download_env = std::env::var("WECHAT_SNS_DOWNLOAD_MEDIA").ok();
+    let source_exists = existing(
+        &runtime
+            .config
+            .decrypted_dir
+            .join(crate::adapters::wechat::moments::source_key()),
+    )?;
+    let material = source_exists
+        .then(|| crate::service::worker_keys::image_material(&runtime))
+        .transpose()?
+        .flatten();
+    if source_exists {
+        crate::service::worker_keys::verify_image_revision(&runtime)?;
+    }
     export_for(
         &runtime,
         &raw,
         args,
         contacts_env.as_deref(),
         download_env.as_deref(),
-    )
+        material.as_ref(),
+    )?;
+    if source_exists {
+        crate::service::worker_keys::verify_image_revision(&runtime)?;
+    }
+    Ok(())
 }
 
 fn export_for(
@@ -169,6 +187,7 @@ fn export_for(
     args: Args,
     contacts_env: Option<&str>,
     download_env: Option<&str>,
+    material: Option<&crate::service::worker_keys::ImageMaterial>,
 ) -> Result<()> {
     let (options, remote) = options(&args, contacts_env, download_env)?;
     let sns_db = runtime
@@ -182,14 +201,9 @@ fn export_for(
     let keys = if missing {
         CacheKeys::default()
     } else {
-        let material = zeroize::Zeroizing::new(
-            crate::key_store::Store::for_runtime(runtime)?
-                .load()?
-                .image_material(),
-        );
         CacheKeys {
-            image_aes_key: material.0,
-            image_xor_key: material.1,
+            image_aes_key: material.map(|material| material.aes),
+            image_xor_key: material.map_or(0x88, |material| material.xor),
         }
     };
     // 旧脚本跳过不存在的缓存；存在但不可读或不安全的根仍由 core 报错。
@@ -306,7 +320,8 @@ mod tests {
             .unwrap()
             .update(
                 Some(0),
-                &[crate::key_store::Update::ImageXor(
+                &[crate::key_store::Update::Image(
+                    b"syntheticAESkey1",
                     0x88,
                     crate::key_store::Verification::Verified,
                 )],
@@ -494,7 +509,7 @@ mod tests {
     fn missing_sns_db_is_unavailable_without_creating_output() {
         let temp = tempfile::tempdir().unwrap();
         let rt = runtime(temp.path());
-        let error = export_for(&rt, &json!({}), Args::default(), None, None).unwrap_err();
+        let error = export_for(&rt, &json!({}), Args::default(), None, None, None).unwrap_err();
         assert!(matches!(
             error.downcast_ref::<crate::business::moments::SourceError>(),
             Some(crate::business::moments::SourceError::Unavailable)
@@ -522,6 +537,7 @@ mod tests {
                 output_dir: Some(out.clone()),
                 ..Default::default()
             },
+            None,
             None,
             None,
         )
@@ -552,6 +568,7 @@ mod tests {
             },
             None,
             None,
+            None,
         )
         .unwrap();
         let error = export_for(
@@ -562,6 +579,7 @@ mod tests {
                 output_dir: Some(out.clone()),
                 ..Default::default()
             },
+            None,
             None,
             None,
         )

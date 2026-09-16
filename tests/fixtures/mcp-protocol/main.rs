@@ -6,7 +6,7 @@ use wx_mcp_protocol_harness::{
 
 fn main() {
     let mut protocol = Protocol::new(|request| {
-        if matches!(&request, Request::Contacts { query: Some(query), .. } if query == "synthetic-error")
+        if matches!(&request, Request::Contacts(args) if args.query.as_deref() == Some("synthetic-error"))
         {
             return Ok(Response::err(
                 "private-message=SYNTHETIC_PRIVATE keys=SYNTHETIC_SECRET",

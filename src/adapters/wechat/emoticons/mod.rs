@@ -1,5 +1,6 @@
 //! Materialized WeChat emoticon catalog and private resource material.
 pub(crate) mod catalog;
+pub(crate) mod remote_format;
 pub(crate) mod types;
 use crate::{business::emoticons as domain, daemon::cache::DbCache};
 use domain::{CatalogMediaRef, Error, Failure, Stage};

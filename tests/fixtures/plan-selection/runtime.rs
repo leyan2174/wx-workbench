@@ -2,6 +2,9 @@
 #![cfg(windows)]
 #[path = "../mcp-readonly-runtime/encrypted_sqlite.rs"]
 mod encrypted_sqlite;
+#[path = "../../../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; ACL inspection runs in the root security tests.
+mod private_file;
 #[path = "../mcp-readonly-runtime/support.rs"]
 #[allow(dead_code)]
 mod support;
@@ -20,7 +23,7 @@ fn safe_failure(reply: Value, expected: &str) {
     assert!(reply.get("error").is_none());
 }
 
-fn seed(root: &Path) {
+fn seed(root: &Path) -> Value {
     let storage = root.join("db_storage");
     fs::create_dir(storage.join("session")).unwrap();
     for part in ["session", "contact", "message_0", "message_1"] {
@@ -60,6 +63,7 @@ fn seed(root: &Path) {
     let mut keys: Value = serde_json::from_slice(&fs::read(&keys_path).unwrap()).unwrap();
     keys["session/session.db"] = json!("11".repeat(32));
     fs::write(keys_path, serde_json::to_vec(&keys).unwrap()).unwrap();
+    keys
 }
 
 fn run(
@@ -124,8 +128,8 @@ fn real_cli_selects_only_csv_usernames_and_preserves_date_incremental_and_dry_ru
     let home = tempfile::tempdir().unwrap();
     let work = tempfile::tempdir().unwrap();
     let mut account = support::Account::new(home.path(), "A");
-    seed(account.root());
-    account.migrate_keys();
+    let keys = seed(account.root());
+    account.seed_keys(&keys);
     let before = account.snapshot();
     account.start();
     let output = work.path().join("export");

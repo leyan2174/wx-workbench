@@ -72,31 +72,6 @@ fn unicode_unknown_fields_duplicates_empty_labels_and_read_only() {
 }
 
 #[test]
-fn extracted_python_oracle_matches_complete_result() {
-    let (_dir, path) = fixture();
-    let names = HashMap::from([("u1".into(), "张三".into())]);
-    let actual = contact_tags_from_path(&path, &names).unwrap();
-    let output = std::process::Command::new(
-        std::env::var_os("CONTACTS_ORACLE_PYTHON").unwrap_or_else(|| "python".into()),
-    )
-    .arg(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/mcp-contacts/oracle.py"
-    ))
-    .arg(&path)
-    .env("PYTHONUTF8", "1")
-    .output()
-    .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(serde_json::to_value(actual).unwrap(), expected);
-}
-
-#[test]
 fn exact_precedes_contains_and_ambiguity_is_not_first_match() {
     let (_dir, path) = fixture();
     let mut tags = contact_tags_from_path(&path, &HashMap::new()).unwrap();

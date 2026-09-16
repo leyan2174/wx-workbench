@@ -43,7 +43,7 @@ pub(crate) fn process_image_if_running(
         Err(error) => {
             // The process may exit during the image query. Only the original,
             // opened process handle being signaled proves that it is now gone.
-            if unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } == 0 {
+            if unsafe { WaitForSingleObject(handle.as_raw_handle(), 1000) } == 0 {
                 Ok(None)
             } else {
                 Err(error).context("read bootstrap process executable failed")

@@ -1,7 +1,7 @@
 use super::output::{print_value, resolve};
+use crate::application::{database_decryption, image_publication, voice_batch_export};
+use crate::infrastructure::audio;
 use crate::service::operations::ToolkitOperation;
-use crate::toolkit as native;
-use crate::toolkit::legacy::{python_available, toolkit_python, toolkit_root};
 use anyhow::Result;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -9,27 +9,7 @@ use std::path::PathBuf;
 #[derive(Serialize)]
 struct ToolkitStatus {
     native_commands: Vec<&'static str>,
-    wechat_decrypt_dir: String,
-    wechat_decrypt_dir_exists: bool,
-    python: String,
-    python_exists: bool,
-    config_json: String,
-    config_json_exists: bool,
-    scripts: Vec<ScriptStatus>,
-    env_overrides: EnvOverrides,
-}
-
-#[derive(Serialize)]
-struct ScriptStatus {
-    name: &'static str,
-    path: String,
-    exists: bool,
-}
-
-#[derive(Serialize)]
-struct EnvOverrides {
-    wx_wechat_decrypt_dir: Option<String>,
-    wx_wechat_decrypt_python: Option<String>,
+    implementation: &'static str,
 }
 
 pub fn execute(cmd: ToolkitOperation) -> Result<()> {
@@ -63,7 +43,9 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
         }),
         ToolkitOperation::ExportEmoticons(args) => {
             let runtime = crate::runtime::RuntimeContext::load()?;
-            let keys = super::toolkit_run_prepare::load_saved(&runtime)?;
+            let keys = crate::service::worker_keys::database_keys(&runtime)?
+                .ok_or(crate::key_store::Error::Missing)?;
+            super::database_key_validation::validate_paths(&runtime, &keys.0)?;
             super::export_emoticons::export(runtime, keys, args)
         }
         ToolkitOperation::Status { json } => cmd_status(json),
@@ -72,14 +54,10 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
             dry_run,
         } => {
             let runtime = crate::runtime::RuntimeContext::load()?;
-            let keys = super::toolkit_run_prepare::load_saved(&runtime)?;
-            native::decrypt(
-                &runtime,
-                &keys,
-                incremental,
-                dry_run,
-                native::DecryptMode::Strict,
-            )
+            let keys = crate::service::worker_keys::database_keys(&runtime)?
+                .ok_or(crate::key_store::Error::Missing)?;
+            super::database_key_validation::validate_paths(&runtime, &keys.0)?;
+            database_decryption::decrypt(&runtime, &keys.0, incremental, dry_run)
         }
         ToolkitOperation::DecodeImages {
             attach_dir,
@@ -87,24 +65,53 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
             aes_key,
             xor_key,
             force,
-        } => native::decode_images(attach_dir, decoded_dir, aes_key, xor_key, force),
+        } => {
+            let runtime = crate::runtime::RuntimeContext::for_operation()?;
+            let needs_stored =
+                runtime.config.key_store.is_some() && (aes_key.is_none() || xor_key.is_none());
+            let stored = needs_stored
+                .then(|| super::image_keys::publication_material(&runtime))
+                .transpose()?;
+            image_publication::decode_images_current(
+                attach_dir,
+                decoded_dir,
+                aes_key,
+                xor_key,
+                force,
+                stored,
+            )?;
+            if needs_stored {
+                crate::service::worker_keys::verify_image_revision(&runtime)?;
+            }
+            Ok(())
+        }
         ToolkitOperation::DecodeImage {
             dat_file,
             output_file,
-        } => native::decode_image(dat_file, output_file),
+        } => {
+            let runtime = crate::runtime::RuntimeContext::load()?;
+            let stored = super::image_keys::publication_material(&runtime)?;
+            image_publication::decode_image_for(&runtime, dat_file, output_file, stored)?;
+            crate::service::worker_keys::verify_image_revision(&runtime)
+        }
         ToolkitOperation::BatchDecryptImages {
             input_dir,
             output_dir,
-        } => native::batch_images(input_dir, output_dir),
+        } => {
+            let runtime = crate::runtime::RuntimeContext::load()?;
+            let stored = super::image_keys::publication_material(&runtime)?;
+            image_publication::batch_images_for(&runtime, input_dir, output_dir, stored)?;
+            crate::service::worker_keys::verify_image_revision(&runtime)
+        }
         ToolkitOperation::VoiceToMp3 { input, output } => {
-            let context = native::export_context::ExportContext::current()?;
+            let context = crate::application::publication_context::PublicationContext::current()?;
             let output = output.unwrap_or_else(|| {
                 let mut path = PathBuf::from(&input);
                 path.set_extension("mp3");
                 path.to_string_lossy().into_owned()
             });
             let protected = context.protected(std::path::Path::new(&input))?;
-            let result = native::audio::convert_silk_to_mp3_checked(
+            let result = audio::convert_silk_to_mp3_checked(
                 std::path::Path::new(&input),
                 std::path::Path::new(&output),
                 &protected,
@@ -118,28 +125,28 @@ pub fn execute(cmd: ToolkitOperation) -> Result<()> {
             output_dir,
             contacts,
         } => {
-            let mut options = native::audio::batch::BatchOptions::from_config_file(&config)?;
+            let mut options = voice_batch_export::BatchOptions::from_config_file(&config)?;
             if let Some(output) = output_dir {
                 options.output_dir = output;
             }
             if let Some(contacts) = contacts {
-                options.contacts = native::audio::batch::parse_contact_filter(&contacts);
+                options.contacts = voice_batch_export::parse_contact_filter(&contacts);
             }
             // The operation worker's Job owns disconnect/cancellation cleanup.
             let report =
-                native::audio::batch::convert_database_checked(&options, &[config], || false)?;
+                voice_batch_export::convert_database_checked(&options, &[config], || false)?;
             finish_voice_batch(&report)
         }
     }
 }
-fn finish_voice_batch(report: &native::audio::batch::BatchReport) -> Result<()> {
+fn finish_voice_batch(report: &voice_batch_export::BatchReport) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(report)?);
     voice_batch_outcome(report).require_success()?;
     Ok(())
 }
 
 pub(super) fn voice_batch_outcome(
-    report: &native::audio::batch::BatchReport,
+    report: &voice_batch_export::BatchReport,
 ) -> crate::ipc::outcome::BusinessOutcome {
     use crate::business::voice_export::BatchState;
     use crate::ipc::outcome::BusinessOutcome;
@@ -159,7 +166,7 @@ fn voice_batch_report_preserves_partial_classification() {
         (0, 1, 1, BusinessOutcome::Partial),
         (0, 0, 1, BusinessOutcome::Failure),
     ] {
-        let report = native::audio::batch::BatchReport {
+        let report = voice_batch_export::BatchReport {
             progress: crate::business::voice_export::BatchProgress {
                 converted,
                 skipped_existing,
@@ -178,42 +185,14 @@ fn voice_batch_report_preserves_partial_classification() {
 }
 
 fn cmd_status(json: bool) -> Result<()> {
-    let root = toolkit_root();
-    let python = toolkit_python();
-    let scripts = [
-        "main.py",
-        "decrypt_db.py",
-        "export_all_chats.py",
-        "export_sns.py",
-        "export_sns_album.py",
-        "sns_media_wasm/wasm_video_decode.js",
-        "sns_media_wasm/wasm_video_decode.wasm",
-        "sns_media_wasm/weflow_wasm_keystream.js",
-        "decode_image.py",
-        "batch_decrypt_images.py",
-        "voice_to_mp3.py",
-        "transcribe_chat.py",
-        "monitor_web.py",
-        "app_gui.py",
-    ]
-    .into_iter()
-    .map(|name| {
-        let path = root.join(name);
-        ScriptStatus {
-            name,
-            path: path.to_string_lossy().into_owned(),
-            exists: path.exists(),
-        }
-    })
-    .collect();
-
-    let config = root.join("config.json");
     let status = ToolkitStatus {
         native_commands: vec![
-            "run status",
-            "run decrypt",
-            "run emoticons",
-            "run decode-images",
+            "setup",
+            "cleanup",
+            "status",
+            "progress",
+            "decrypt",
+            "export-all",
             "export-emoticons",
             "transcribe-database-native",
             "export-delta-native",
@@ -229,18 +208,19 @@ fn cmd_status(json: bool) -> Result<()> {
             "voice-batch",
             "export-chats-native",
             "export-sns-native",
+            "export-sns",
+            "export-messages",
+            "decrypt-sns",
+            "find-image-key",
+            "find-database-keys",
+            "find-image-key-monitor",
+            "monitor",
+            "latency",
+            "transcribe-chat",
+            "web",
+            "gui",
         ],
-        wechat_decrypt_dir: root.to_string_lossy().into_owned(),
-        wechat_decrypt_dir_exists: root.is_dir(),
-        python: python.to_string_lossy().into_owned(),
-        python_exists: python_available(&python),
-        config_json: config.to_string_lossy().into_owned(),
-        config_json_exists: config.is_file(),
-        scripts,
-        env_overrides: EnvOverrides {
-            wx_wechat_decrypt_dir: std::env::var("WX_WECHAT_DECRYPT_DIR").ok(),
-            wx_wechat_decrypt_python: std::env::var("WX_WECHAT_DECRYPT_PYTHON").ok(),
-        },
+        implementation: "native-rust",
     };
     print_value(&serde_json::to_value(status)?, &resolve(json))
 }

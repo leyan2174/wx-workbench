@@ -52,6 +52,16 @@ pub fn query_response_limit(request: &Request) -> usize {
     }
 }
 
+/// Contacts alone reject unknown fields without changing other request contracts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContactsRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default = "default_limit_50")]
+    pub limit: usize,
+}
+
 /// Query payload inside the versioned account-bound envelope; no legacy wire fallback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -185,14 +195,7 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "is_false")]
         debug_source: bool,
     },
-    Contacts {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        query: Option<String>,
-        #[serde(default = "default_limit_50")]
-        limit: usize,
-        #[serde(default, skip_serializing_if = "is_false")]
-        legacy_view: bool,
-    },
+    Contacts(ContactsRequest),
     ContactTags,
     TagMembers {
         tag_name: String,
@@ -371,7 +374,7 @@ impl Request {
             Self::Sessions { .. } => "sessions",
             Self::History { .. } => "history",
             Self::Search { .. } => "search",
-            Self::Contacts { .. } => "contacts",
+            Self::Contacts(_) => "contacts",
             Self::ContactTags => "contact_tags",
             Self::TagMembers { .. } => "tag_members",
             Self::VoiceMessages { .. } => "voice_messages",
@@ -434,6 +437,13 @@ impl Response {
                 .and_then(outcome::KeyStoreDiagnostic::from_code);
             failure
         })
+    }
+
+    pub fn from_result(result: Result<Value, impl std::fmt::Display>) -> Self {
+        match result {
+            Ok(data) => Self::ok(data),
+            Err(error) => Self::err(error.to_string()),
+        }
     }
 
     pub fn ok(data: Value) -> Self {

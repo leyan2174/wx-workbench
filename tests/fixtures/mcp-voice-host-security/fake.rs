@@ -7,7 +7,7 @@ fn main() {
     let wav = PathBuf::from(arg("-f"));
     assert_eq!(
         fs::read(&wav).unwrap(),
-        mcp_voice_host_security::toolkit::asr::prepare_wav_bytes(include_bytes!(
+        mcp_voice_host_security::infrastructure::audio::prepare_wav_bytes(include_bytes!(
             "../audio/silence.silk"
         ))
         .unwrap()

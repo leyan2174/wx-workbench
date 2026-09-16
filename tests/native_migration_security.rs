@@ -2,10 +2,13 @@
 use rusqlite::Connection;
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
+#[path = "support/cli_output.rs"]
+mod cli_output;
 use std::{
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
+    time::Duration,
 };
 
 struct Fixture(tempfile::TempDir);
@@ -26,7 +29,8 @@ impl Fixture {
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        let output = Command::new(env!("CARGO_BIN_EXE_wx"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
+        command
             .args(args)
             .current_dir(self.0.path())
             .env_remove("WX_DAEMON_MODE")
@@ -35,11 +39,8 @@ impl Fixture {
             .env_remove("WECHAT_EXPORT_USERS")
             .env("WX_CLI_CONFIG", self.path("ambient.json"))
             .env("WX_CLI_HOME", self.path("runtime"))
-            .env("WX_WECHAT_DECRYPT_DIR", self.path("absent-toolkit"))
-            .env("WX_WECHAT_DECRYPT_PYTHON", self.path("absent-python.exe"))
-            .env("PATH", "")
-            .output()
-            .unwrap();
+            .env("PATH", "");
+        let output = cli_output::output(&mut command, self.0.path(), Duration::from_secs(60));
         assert_eq!(
             fs::read(self.path("ambient.json")).unwrap(),
             b"invalid ambient account config"

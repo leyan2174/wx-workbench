@@ -96,10 +96,9 @@ impl Fixture {
                 .to_string(),
         )
         .unwrap();
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
+        key_store_fixture::seed(
             &profile.join("config.json"),
-            &self.root.path().join("shared-runtime"),
+            &json!({"contact/contact.db":"11".repeat(32),"sns/sns.db":"11".repeat(32)}),
         );
         for relative in [
             "keys.dpapi",
@@ -124,10 +123,6 @@ impl Fixture {
             .env_remove("WX_CLI_EXPECTED_RUNTIME")
             .env("WX_CLI_CONFIG", profile.join("config.json"))
             .env("WX_CLI_HOME", self.root.path().join("shared-runtime"))
-            .env(
-                "WX_WECHAT_DECRYPT_PYTHON",
-                self.root.path().join("nonexistent-python.exe"),
-            )
             .env("PATH", empty_path)
             .env("NO_PROXY", "127.0.0.1,localhost")
             .env("no_proxy", "127.0.0.1,localhost")
@@ -601,9 +596,10 @@ fn loopback_plain_video_is_downloaded_and_counted() {
 }
 
 #[test]
+#[cfg(feature = "sns-wasm-test-asset")]
 fn loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail() {
     const PREFIX: usize = 128 * 1024;
-    // 复用原 Node/WASM 包装器生成并由 video_runtime 测试核验的公开合成向量。
+    // 复用原 Node/WASM 包装器生成并由 keystream 测试核验的公开合成向量。
     // 本测试不启动 Node，也不调用被测 Rust 解密器反向生成 oracle。
     let vectors: Value =
         serde_json::from_str(include_str!("fixtures/sns-video-native/vectors.json")).unwrap();
@@ -673,6 +669,37 @@ fn loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail() {
         .contains("videos/00001_100_01.mp4"));
     assert_eq!(server.count(), 1);
     f.unchanged();
+}
+
+#[test]
+#[cfg(not(feature = "sns-wasm-test-asset"))]
+fn public_build_reports_encrypted_video_engine_unavailable_without_publication() {
+    let server = HttpFixture::body(vec![0x5a; 32]);
+    let mut f = Fixture::new();
+    let xml = format!(
+        "<media><id>encrypted-video</id><type>6</type><url>{}</url><enc key=\"1\"/></media>",
+        server.url
+    );
+    let profile = f.account("encrypted-video", &[(100, 1704196800, USER, "", xml)]);
+    let out = f.root.path().join("encrypted-unavailable");
+    let summary = f.album(&profile, &out, &[]);
+    counts(
+        &summary,
+        &[
+            ("posts", 1),
+            ("album_posts", 0),
+            ("video_total", 1),
+            ("video_ok", 0),
+            ("video_missing", 1),
+        ],
+    );
+    assert_eq!(server.count(), 1);
+    let posts = read_json(&out.join("timeline.json"));
+    let media = &posts[0]["media"][0];
+    assert_eq!(media["enc_key"], "1");
+    assert_eq!(media["video_error"], "video engine unavailable");
+    assert!(media.get("local_file").is_none());
+    assert!(!out.join("videos/00001_100_01.mp4").exists());
 }
 
 #[test]
@@ -749,7 +776,7 @@ fn empty_timeline_and_output_root_contract() {
         &[
             "sns-album",
             USER,
-            "--output-root",
+            "--output",
             root.to_str().unwrap(),
             "--no-remote",
         ],

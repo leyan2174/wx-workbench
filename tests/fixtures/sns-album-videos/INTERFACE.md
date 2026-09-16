@@ -10,7 +10,7 @@ reuse_existing_video(name: &str, guard: &HostOutputGuard)
 copy_cached_video(source: &Path, name: &str, guard: &HostOutputGuard, allow_partial: bool)
     -> Result<Option<Outcome>, VideoError>
 download_video<'a>(url: &str, key: &str, name: &str, guard: &HostOutputGuard,
-    engine: impl FnMut() -> Result<&'a VideoRuntime, VideoError>)
+    engine: impl FnMut() -> Result<&'a SnsKeystream, VideoError>)
     -> Result<Outcome, VideoError>
 ```
 
@@ -36,7 +36,7 @@ download_video<'a>(url: &str, key: &str, name: &str, guard: &HostOutputGuard,
 现行生产模块可从仓库根定向运行：
 
 ```powershell
-cargo test --bin wx toolkit::sns::album_videos::tests -- --nocapture --test-threads=1
+cargo test --bin wx application::moments::album_videos::tests -- --nocapture --test-threads=1
 ```
 
 run.ps1 委托 tests/run-module.ps1，使用根 Cargo.toml、Windows MSVC 和 wx 测试目标，筛选 album_videos::tests，单线程执行。

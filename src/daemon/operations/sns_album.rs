@@ -1,12 +1,12 @@
 //! 固定账号的原生相册入口；仅以选定账号的 Feed 和缓存作为来源。
 use super::history::{parse_time, parse_time_end};
+use crate::infrastructure::output_tree as publish;
 use crate::service::query_client as transport;
-use crate::toolkit::directory_publish as publish;
 use crate::{
     adapters::wechat::moments::cache,
+    application::moments::{album, album_render},
     ipc::Request,
     runtime::RuntimeContext,
-    toolkit::sns::{album, album_render},
 };
 use anyhow::{ensure, Context, Result};
 use std::{fs, path::Path, time::Duration};
@@ -73,10 +73,10 @@ pub fn cmd_sns_album(args: Args) -> Result<()> {
     })?;
     let runtime = RuntimeContext::load()?;
     super::export_chat::validate_output_for(&runtime, &output)?;
-    crate::toolkit::separate(&runtime.root, &output)?;
+    crate::infrastructure::publication::separate(&runtime.root, &output)?;
     let account = cache::account_root(&runtime.config.db_dir)?;
     let cache_root = cache::account_cache_root(account);
-    crate::toolkit::separate(&cache_root, &output)?;
+    crate::infrastructure::publication::separate(&cache_root, &output)?;
 
     let response = feed(&runtime, &args, since, until)?;
     let username = response.data["resolved_user"]

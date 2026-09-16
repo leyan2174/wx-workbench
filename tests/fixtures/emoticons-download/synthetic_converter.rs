@@ -7,6 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+// The timeout mode intentionally leaves its descendant running so the parent
+// test can prove that the production Job Object reaps the whole process tree.
+#[allow(clippy::zombie_processes)]
 fn main() {
     let args: Vec<_> = std::env::args_os().collect();
     if args.get(1).is_some_and(|arg| arg == "--child") {

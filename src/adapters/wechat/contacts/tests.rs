@@ -1,5 +1,5 @@
 use super::*;
-use crate::business::contacts::{ContactQuery, ContactView};
+use crate::business::contacts::ContactQuery;
 
 fn fixture() -> (tempfile::TempDir, SqliteContacts) {
     let temp = tempfile::tempdir().unwrap();
@@ -23,7 +23,6 @@ fn capabilities_and_typed_contact_projection_preserve_identity_and_optional_phon
         &source,
         ContactQuery {
             text: None,
-            view: ContactView::People,
             offset: 0,
             limit: 10,
         },
@@ -37,24 +36,10 @@ fn capabilities_and_typed_contact_projection_preserve_identity_and_optional_phon
             .collect::<Vec<_>>(),
         ["a", "b"]
     );
-    let legacy = domain::list(
-        &source,
-        ContactQuery {
-            text: None,
-            view: ContactView::VisibleDirectory,
-            offset: 0,
-            limit: 10,
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        legacy
-            .contacts
-            .iter()
-            .map(|c| c.id.0.as_str())
-            .collect::<Vec<_>>(),
-        ["b", "a", "g@chatroom"]
-    );
+    assert!(directory
+        .contacts
+        .iter()
+        .any(|contact| contact.id.0 == "g@chatroom"));
     assert_eq!(domain::resolve(&source, "Same"), Err(Error::Ambiguous));
     assert!(matches!(
         source.tags(),
@@ -128,18 +113,7 @@ fn missing_schema_invalid_values_and_duplicate_ids_are_not_successful_empty_resu
     )
     .unwrap();
     assert!(matches!(source.contacts(), Err(Error::Ambiguous)));
-    let legacy = SqliteContacts::legacy_directory(source.path.clone());
-    assert_eq!(
-        legacy
-            .contacts()
-            .unwrap()
-            .contacts
-            .iter()
-            .filter(|contact| contact.id.0 == "a")
-            .count(),
-        2
-    );
-    assert_eq!(domain::resolve(&legacy, "a"), Err(Error::Ambiguous));
+    assert_eq!(domain::resolve(&source, "a"), Err(Error::Ambiguous));
     conn.execute("DELETE FROM contact WHERE nick_name='Other'", [])
         .unwrap();
     conn.execute("UPDATE contact SET nick_name=x'ff' WHERE username='a'", [])
@@ -204,27 +178,13 @@ fn classification_is_reported_unsupported_without_hiding_directory_entries() {
             &source,
             ContactQuery {
                 text: None,
-                view: ContactView::People,
                 offset: 0,
                 limit: 1
             }
         ),
         Err(Error::Unsupported("contact classification"))
     ));
-    assert_eq!(
-        domain::list(
-            &source,
-            ContactQuery {
-                text: None,
-                view: ContactView::VisibleDirectory,
-                offset: 0,
-                limit: 1
-            }
-        )
-        .unwrap()
-        .total,
-        1
-    );
+    assert_eq!(source.contacts().unwrap().contacts.len(), 1);
 }
 
 #[test]
@@ -286,7 +246,6 @@ fn cached_directory_preserves_snapshot_scope_names_and_classification() {
         &source,
         ContactQuery {
             text: None,
-            view: ContactView::People,
             offset: 0,
             limit: 10,
         },
@@ -301,7 +260,6 @@ fn cached_directory_preserves_snapshot_scope_names_and_classification() {
             &source,
             ContactQuery {
                 text: Some("New"),
-                view: ContactView::People,
                 offset: 0,
                 limit: 10
             }

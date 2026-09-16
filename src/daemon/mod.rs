@@ -11,6 +11,7 @@ pub mod query_state;
 pub mod server;
 pub(crate) mod tasks;
 pub(crate) mod web_service;
+pub(crate) mod worker_keys;
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -53,6 +54,7 @@ async fn async_run() -> Result<()> {
     eprintln!("[daemon] DB_DIR: {}", cfg.db_dir.display());
 
     let query = Arc::new(query_state::QueryState::new(runtime.clone()));
+    let keys = worker_keys::Broker::new(runtime.clone(), query.clone());
     let bootstrap = runtime.is_bootstrap();
     let web = web_service::WebService::new(runtime.clone(), query.clone());
     let monitor = monitor_service::Service::new();
@@ -60,11 +62,11 @@ async fn async_run() -> Result<()> {
     let (tasks, worker) = if bootstrap {
         (None, None)
     } else {
-        let (tasks, receiver) = tasks::Service::new(runtime.clone(), query.clone())?;
+        let (tasks, receiver) = tasks::Service::new(runtime.clone(), query.clone(), keys.clone())?;
         let worker = tokio::spawn(tasks.clone().run_worker(receiver));
         (Some(tasks), Some(worker))
     };
-    let operations = operation_service::Service::new(runtime.clone(), tasks.clone());
+    let operations = operation_service::Service::new(runtime.clone(), tasks.clone(), keys.clone());
     let handler_state = tasks.clone();
     let handler_operations = operations.clone();
     let handler_shutdown = shutdown.clone();
@@ -72,7 +74,8 @@ async fn async_run() -> Result<()> {
     let handler_runtime = runtime.clone();
     let handler_query = query.clone();
     let handler_monitor = monitor.clone();
-    let handler = Arc::new(move |call| {
+    let handler_keys = keys.clone();
+    let handler = Arc::new(move |call, peer_pid| {
         let state = handler_state.clone();
         let operations = handler_operations.clone();
         let shutdown = handler_shutdown.clone();
@@ -80,8 +83,22 @@ async fn async_run() -> Result<()> {
         let runtime = handler_runtime.clone();
         let query = handler_query.clone();
         let monitor = handler_monitor.clone();
+        let keys = handler_keys.clone();
         async move {
             use crate::service::protocol::{Call, ServiceError, VERSION};
+            if let Call::WorkerKeyRevision { request } = call {
+                keys.verify_image_revision(peer_pid, request).await?;
+                return Ok(serde_json::json!({"verified": true}));
+            }
+            if let Call::WorkerKeys { request } = call {
+                let revision = keys.update(peer_pid, request).await?;
+                if let Some(state) = state {
+                    if state.refresh_redactor().await.is_err() {
+                        state.request_shutdown();
+                    }
+                }
+                return Ok(serde_json::json!({"revision": revision}));
+            }
             if operation_service::Service::handles(&call) {
                 return operations.dispatch(call).await;
             }
@@ -124,9 +141,24 @@ async fn async_run() -> Result<()> {
             }
         }
     });
-    let mut task_server = tokio::spawn(crate::service::transport::serve(
+    let database_key_broker = keys.clone();
+    let database_keys: crate::service::transport::DatabaseKeyHandler =
+        Arc::new(move |request, peer_pid| {
+            let broker = database_key_broker.clone();
+            Box::pin(async move { broker.read_databases(peer_pid, request).await })
+        });
+    let image_key_broker = keys.clone();
+    let image: crate::service::transport::ImageKeyHandler = Arc::new(move |request, peer_pid| {
+        let broker = image_key_broker.clone();
+        Box::pin(async move { broker.read_image(peer_pid, request).await })
+    });
+    let mut task_server = tokio::spawn(crate::service::transport::serve_with_worker_keys(
         runtime.clone(),
         handler,
+        crate::service::transport::WorkerKeyHandlers {
+            databases: database_keys,
+            image,
+        },
         shutdown.subscribe(),
     ));
     let server_query = query.clone();
@@ -161,6 +193,7 @@ async fn async_run() -> Result<()> {
     if let Some(tasks) = tasks {
         tasks.request_shutdown();
     }
+    keys.close();
     operations.shutdown().await;
     if let Err(error) = web.shutdown().await {
         eprintln!("[daemon] Web service shutdown failed: {error}");

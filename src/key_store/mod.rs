@@ -1,8 +1,7 @@
 //! Account-bound, versioned key snapshots. No plaintext fallback or implicit migration.
 pub(crate) mod dpapi;
-pub(crate) mod legacy_json;
 
-use crate::toolkit::setup::{ConfigLock, Snapshot as FileSnapshot};
+use crate::infrastructure::configuration::{ConfigLock, Snapshot as FileSnapshot};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -30,10 +29,10 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Missing => {
-                "Encrypted key store is missing; explicit key acquisition or migration is required"
+                "Encrypted key store is missing; explicitly initialize keys for the selected account"
             }
             Self::LegacyMigrationRequired => {
-                "Legacy key material requires explicit migration; plaintext fallback is disabled"
+                "Legacy key material is unsupported; configure a current DPAPI key store and explicitly initialize the selected account; plaintext fallback is disabled"
             }
             Self::Invalid => "Invalid key store format, version or key material",
             Self::WrongAccount => "Key store belongs to a different account",
@@ -77,7 +76,7 @@ struct Record {
     account_key: Option<Material>,
     #[serde(deserialize_with = "unique_database_keys")]
     database_keys: BTreeMap<String, Material>,
-    // Optional AES bytes followed by XOR (17 bytes), or legacy XOR alone (1 byte).
+    // When present, AES bytes followed by XOR (17 bytes).
     image_key: Option<Material>,
 }
 
@@ -123,35 +122,31 @@ impl Snapshot {
     pub fn revision(&self) -> u64 {
         self.record.revision
     }
+    #[cfg(test)]
     pub fn account_key(&self) -> Option<&[u8]> {
         self.record
             .account_key
             .as_ref()
             .map(|key| key.bytes.as_slice())
     }
-    pub fn image_key(&self) -> Option<([u8; 16], u8)> {
+    pub fn verified_account_key(&self) -> Option<&[u8]> {
         self.record
-            .image_key
+            .account_key
             .as_ref()
-            .filter(|key| key.bytes.len() == 17)
-            .map(|key| {
-                (
-                    key.bytes[..16].try_into().expect("validated AES length"),
-                    key.bytes[16],
-                )
-            })
+            .filter(|key| key.verification == Verification::Verified)
+            .map(|key| key.bytes.as_slice())
     }
-    pub fn image_xor(&self) -> Option<u8> {
-        self.record
-            .image_key
-            .as_ref()
-            .and_then(|key| key.bytes.last().copied())
+    pub fn image_key(&self) -> Option<([u8; 16], u8)> {
+        self.record.image_key.as_ref().map(|key| {
+            (
+                key.bytes[..16].try_into().expect("validated AES length"),
+                key.bytes[16],
+            )
+        })
     }
     pub fn image_material(&self) -> (Option<[u8; 16]>, u8) {
-        (
-            self.image_key().map(|(aes, _)| aes),
-            self.image_xor().unwrap_or(0x88),
-        )
+        self.image_key()
+            .map_or((None, 0x88), |(aes, xor)| (Some(aes), xor))
     }
     pub fn database_keys(&self) -> HashMap<String, String> {
         self.record
@@ -165,19 +160,9 @@ impl Snapshot {
             })
             .collect()
     }
-    pub fn counts(&self) -> (usize, usize) {
-        self.record
-            .account_key
-            .iter()
-            .chain(self.record.database_keys.values())
-            .chain(self.record.image_key.iter())
-            .fold((0, 0), |(verified, unverified), key| {
-                if key.verification == Verification::Verified {
-                    (verified + 1, unverified)
-                } else {
-                    (verified, unverified + 1)
-                }
-            })
+
+    pub fn has_database_keys(&self) -> bool {
+        !self.record.database_keys.is_empty()
     }
 }
 
@@ -185,7 +170,6 @@ pub enum Update<'a> {
     Account(&'a [u8], Verification),
     Databases(&'a HashMap<String, String>, Verification),
     Image(&'a [u8; 16], u8, Verification),
-    ImageXor(u8, Verification),
 }
 
 pub struct Store {
@@ -250,7 +234,7 @@ impl Store {
         store
             .protected
             .extend([runtime.config_path.clone(), runtime.directory.clone()]);
-        crate::toolkit::setup::check_target(&store.path, &store.protected)
+        crate::infrastructure::publication::check_target(&store.path, &store.protected)
             .map_err(|_| Error::Io)?;
         Ok(store)
     }
@@ -270,7 +254,8 @@ impl Store {
             )
         );
         let path = std::path::absolute(path).map_err(|_| Error::Io)?;
-        crate::toolkit::setup::check_target(&path, &protected).map_err(|_| Error::Io)?;
+        crate::infrastructure::publication::check_target(&path, &protected)
+            .map_err(|_| Error::Io)?;
         Ok(Self {
             path,
             binding,
@@ -306,7 +291,7 @@ impl Store {
             || record
                 .image_key
                 .as_ref()
-                .is_some_and(|key| !matches!(key.bytes.len(), 1 | 17))
+                .is_some_and(|key| key.bytes.len() != 17)
         {
             return Err(Error::Invalid);
         }
@@ -328,19 +313,6 @@ impl Store {
     }
 
     pub fn update(&self, expected: Option<u64>, updates: &[Update<'_>]) -> Result<Snapshot> {
-        self.write(expected, updates, false)
-    }
-
-    pub fn import(&self, updates: &[Update<'_>]) -> Result<Snapshot> {
-        self.write(None, updates, true)
-    }
-
-    fn write(
-        &self,
-        expected: Option<u64>,
-        updates: &[Update<'_>],
-        importing: bool,
-    ) -> Result<Snapshot> {
         if updates.is_empty() {
             return Err(Error::Invalid);
         }
@@ -363,10 +335,9 @@ impl Store {
             return Err(Error::Conflict);
         }
         let mut changed = false;
-        if !importing
-            && updates
-                .iter()
-                .any(|update| matches!(update, Update::Databases(..)))
+        if updates
+            .iter()
+            .any(|update| matches!(update, Update::Databases(..)))
         {
             let mut retained = HashSet::new();
             for update in updates {
@@ -388,41 +359,12 @@ impl Store {
                     if bytes.len() != 32 {
                         return Err(Error::Invalid);
                     }
-                    changed |= assign(&mut record.account_key, bytes, *verification, importing)?;
+                    changed |= assign(&mut record.account_key, bytes, *verification);
                 }
                 Update::Image(aes, xor, verification) => {
                     let mut bytes = Zeroizing::new(aes.to_vec());
                     bytes.push(*xor);
-                    if importing
-                        && record
-                            .image_key
-                            .as_ref()
-                            .is_some_and(|key| key.bytes.len() == 1)
-                    {
-                        if record.image_key.as_ref().unwrap().bytes[0] != *xor {
-                            return Err(Error::Conflict);
-                        }
-                        record.image_key = None;
-                    }
-                    changed |= assign(&mut record.image_key, &bytes, *verification, importing)?;
-                }
-                Update::ImageXor(xor, verification) => {
-                    let mut bytes = Zeroizing::new(
-                        record
-                            .image_key
-                            .as_ref()
-                            .map(|key| key.bytes.clone())
-                            .unwrap_or_else(|| vec![*xor]),
-                    );
-                    *bytes.last_mut().expect("validated XOR length") = *xor;
-                    let verification = if record.image_key.as_ref().is_some_and(|key| {
-                        key.verification == Verification::Unverified && key.bytes.len() == 17
-                    }) {
-                        Verification::Unverified
-                    } else {
-                        *verification
-                    };
-                    changed |= assign(&mut record.image_key, &bytes, verification, importing)?;
+                    changed |= assign(&mut record.image_key, &bytes, *verification);
                 }
                 Update::Databases(keys, verification) => {
                     let mut names = HashSet::new();
@@ -448,7 +390,7 @@ impl Store {
                             return Err(Error::Conflict);
                         }
                         let mut existing = record.database_keys.remove(&name);
-                        changed |= assign(&mut existing, &bytes, *verification, importing)?;
+                        changed |= assign(&mut existing, &bytes, *verification);
                         record
                             .database_keys
                             .insert(name, existing.expect("assigned material"));
@@ -478,27 +420,19 @@ impl Store {
     }
 }
 
-fn assign(
-    target: &mut Option<Material>,
-    bytes: &[u8],
-    verification: Verification,
-    importing: bool,
-) -> Result<bool> {
+fn assign(target: &mut Option<Material>, bytes: &[u8], verification: Verification) -> bool {
     if let Some(previous) = target {
-        if importing && previous.bytes != bytes {
-            return Err(Error::Conflict);
-        }
         if previous.bytes == bytes
             && (previous.verification == verification || verification == Verification::Unverified)
         {
-            return Ok(false);
+            return false;
         }
     }
     *target = Some(Material {
         bytes: bytes.to_vec(),
         verification,
     });
-    Ok(true)
+    true
 }
 
 #[cfg(test)]

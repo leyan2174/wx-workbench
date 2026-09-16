@@ -1,5 +1,8 @@
 //! 显式静态快照中的单条语音转录；不认证账号来源、不猜分片、不创建 SILK 中转文件。
-use crate::toolkit::asr::{cached, database_media, transcribe_audio_bytes};
+use crate::{
+    adapters::wechat::media::voice as database_media,
+    application::transcription::{cached, transcribe_audio_bytes},
+};
 use anyhow::{ensure, Result};
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
@@ -125,9 +128,9 @@ fn validate_cache_path(path: &Path, database_root: &Path, protected: &[PathBuf])
         parent.is_dir(),
         "cache parent must be an existing trusted directory"
     );
-    crate::toolkit::separate(database_root, path)?;
+    crate::infrastructure::publication::separate(database_root, path)?;
     for source in protected {
-        crate::toolkit::separate(source, path)?;
+        crate::infrastructure::publication::separate(source, path)?;
         if source.exists() && path.exists() {
             ensure!(
                 !same_file::is_same_file(source, path)?,
@@ -254,7 +257,7 @@ mod tests {
             "--local-id",
             "7",
             "--backend",
-            "explicit-open-ai",
+            "openai_compatible",
             "--api-key-file",
             "missing.key",
             "--cache-file",

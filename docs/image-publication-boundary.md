@@ -1,8 +1,8 @@
 # Image publication boundary
 
-The three toolkit image entry points share `ExportContext` and `ExportTarget`.
+The three toolkit image entry points share `application::publication_context::PublicationContext` and `ExportTarget`.
 `decode_images_for` accepts the task host's selected `RuntimeContext`; it does
-not rediscover configuration. The ordinary entries use `ExportContext::current`.
+not rediscover configuration. The ordinary entries use `PublicationContext::current`.
 When `WX_CLI_EXPECTED_RUNTIME` is present, current configuration must resolve to
 that runtime ID, matching the worker's expected-account check. Missing or
 changed accounts cannot fall back to offline execution.
@@ -29,7 +29,7 @@ the separate strict attachment resolver or turn legacy results into hash proofs.
 
 ## Synthetic evidence
 
-- `toolkit::export_context::tests`: explicit expected-runtime parameters without
+- `application::publication_context::tests`: explicit expected-runtime parameters without
   environment mutation; missing, matching and changed config; missing ancestor
   appearance; protection of future config and input.
 - `toolkit::images::publication_tests`: protected outputs across single, album,

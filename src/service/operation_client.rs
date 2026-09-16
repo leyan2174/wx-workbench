@@ -53,7 +53,7 @@ fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
         "Operation request exceeds limit"
     );
     super::query_client::ensure_running_quiet(&runtime)?;
-    let cancellation = crate::toolkit::monitor::ConsoleCancellation::install()?;
+    let cancellation = crate::infrastructure::cancellation::ConsoleCancellation::install()?;
     let token = cancellation.token();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

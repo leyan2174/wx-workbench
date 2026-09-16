@@ -7,6 +7,7 @@ pub(crate) mod legacy;
 pub mod location;
 pub mod probe;
 mod projection;
+pub(crate) use projection::directory_display;
 pub use projection::pages;
 pub mod read;
 pub mod reply;

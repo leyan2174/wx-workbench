@@ -4,14 +4,13 @@ use super::config_cipher::{collect_db_pages, verify_page1, DbPage};
 use anyhow::{bail, ensure, Context, Result};
 use frida::{DeviceManager, Frida, Message, ScriptHandler, ScriptOption, SpawnOptions};
 use pbkdf2::pbkdf2_hmac;
-use serde::{Deserialize, Serialize};
 use sha2::Sha512;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::CloseHandle;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 enum Event {
     Ready,
@@ -56,77 +55,8 @@ impl Drop for ChannelGuard {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct SavedKey {
-    version: u32,
-    db_dir: String,
-    key: Vec<u8>,
-}
-impl Drop for SavedKey {
-    fn drop(&mut self) {
-        self.key.zeroize();
-    }
-}
-
-fn binding(db_dir: &Path) -> Result<String> {
-    Ok(db_dir.canonicalize()?.to_string_lossy().to_lowercase())
-}
-
-fn protect(data: &[u8], decrypt: bool) -> Result<Zeroizing<Vec<u8>>> {
-    ensure!(data.len() <= 65536, "账号密钥文件长度无效");
-    crate::key_store::dpapi::transform(data, decrypt)
-}
-
-#[cfg(test)]
-fn save(db_dir: &Path, file: &Path, key: &[u8]) -> Result<()> {
-    use std::io::Write;
-    let record = SavedKey {
-        version: 1,
-        db_dir: binding(db_dir)?,
-        key: key.to_vec(),
-    };
-    let plain = Zeroizing::new(serde_json::to_vec(&record)?);
-    let encrypted = protect(&plain, false)?;
-    if let Some(parent) = file.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let suffix = format!(
-        "{}.{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
-    );
-    let temporary = file.with_extension(format!("dpapi.{suffix}.tmp"));
-    let result = (|| -> Result<()> {
-        let mut output = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        output.write_all(&encrypted)?;
-        output.sync_all()?;
-        drop(output);
-        if file.exists() {
-            std::fs::copy(file, file.with_extension(format!("dpapi.{suffix}.bak")))?;
-        }
-        use std::os::windows::ffi::OsStrExt;
-        use windows::core::PCWSTR;
-        use windows::Win32::Storage::FileSystem::{
-            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-        };
-        let src: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
-        let dst: Vec<u16> = file.as_os_str().encode_wide().chain(Some(0)).collect();
-        unsafe {
-            MoveFileExW(
-                PCWSTR(src.as_ptr()),
-                PCWSTR(dst.as_ptr()),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )?;
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+fn binding(path: &Path) -> Result<String> {
+    Ok(path.canonicalize()?.to_string_lossy().to_lowercase())
 }
 
 fn derive(raw: &[u8], page: &[u8]) -> Option<Zeroizing<[u8; 32]>> {
@@ -169,30 +99,6 @@ fn verified_entries(
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|value| format!("{value:02x}")).collect()
-}
-
-#[cfg(test)]
-pub(crate) fn derive_saved(db_dir: &Path, file: &Path) -> Result<Vec<KeyEntry>> {
-    let key = load_legacy(db_dir, file)?;
-    verify_material(db_dir, &key)
-}
-
-pub(crate) fn load_legacy(db_dir: &Path, file: &Path) -> Result<Zeroizing<Vec<u8>>> {
-    ensure!(std::fs::metadata(file)?.len() <= 65536, "账号密钥文件过大");
-    let snapshot = crate::toolkit::setup::Snapshot::capture(file)?;
-    let encrypted = snapshot.bytes().context("账号密钥文件不存在")?;
-    let plain = protect(&encrypted, true)?;
-    let record: SavedKey = serde_json::from_slice(&plain).context("账号密钥记录无效")?;
-    ensure!(
-        record.version == 1 && record.key.len() == 32,
-        "账号密钥记录版本或长度无效"
-    );
-    ensure!(
-        record.db_dir == binding(db_dir)?,
-        "账号密钥属于不同的数据库目录"
-    );
-    snapshot.verify()?;
-    Ok(Zeroizing::new(record.key.clone()))
 }
 
 pub(crate) fn verify_material(db_dir: &Path, key: &[u8]) -> Result<Vec<KeyEntry>> {
@@ -364,15 +270,21 @@ mod tests {
     }
 
     #[test]
-    fn dpapi_roundtrip_and_tamper_rejection() {
-        let raw = [0x27; 32];
-        let encrypted = protect(&raw, false).unwrap();
-        assert_ne!(&encrypted[..], &raw);
-        assert_eq!(&protect(&encrypted, true).unwrap()[..], &raw);
-        let mut corrupt = encrypted.to_vec();
-        let last = corrupt.len() - 1;
-        corrupt[last] ^= 1;
-        assert!(protect(&corrupt, true).is_err());
+    fn executable_binding_distinguishes_installations_without_starting_processes() {
+        let root = tempfile::tempdir().unwrap();
+        for directory in ["selected", "other"] {
+            std::fs::create_dir(root.path().join(directory)).unwrap();
+            std::fs::write(root.path().join(directory).join("Weixin.exe"), b"synthetic").unwrap();
+        }
+        let selected = root.path().join("selected/Weixin.exe");
+        assert_eq!(
+            binding(&selected).unwrap(),
+            binding(&root.path().join("selected/../selected/Weixin.exe")).unwrap()
+        );
+        assert_ne!(
+            binding(&selected).unwrap(),
+            binding(&root.path().join("other/Weixin.exe")).unwrap()
+        );
     }
 
     #[test]
@@ -405,7 +317,7 @@ mod tests {
         let acquired = crate::scanner::scan_with_provider(
             &db,
             "SyntheticNeverLaunched.exe",
-            crate::scanner::KeyProvider::Auto,
+            crate::scanner::KeyProvider::Saved,
             false,
             None,
             1,
@@ -418,45 +330,24 @@ mod tests {
         assert!(crate::scanner::scan_with_provider(
             &db,
             "SyntheticNeverLaunched.exe",
-            crate::scanner::KeyProvider::Auto,
+            crate::scanner::KeyProvider::Saved,
             false,
             None,
             1,
             Some(&[0x43; 32]),
         )
         .is_err());
+        assert!(crate::scanner::scan_with_provider(
+            &db,
+            "SyntheticNeverLaunched.exe",
+            crate::scanner::KeyProvider::Saved,
+            false,
+            None,
+            1,
+            None,
+        )
+        .is_err());
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
-    }
-
-    #[test]
-    fn saved_key_handles_new_shards_and_rejects_other_account_directory() {
-        let root = std::env::temp_dir().join(format!(
-            "wx-account-test-{}-{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap()
-        ));
-        let db = root.join("account/db_storage");
-        let other = root.join("other/db_storage");
-        std::fs::create_dir_all(db.join("message")).unwrap();
-        std::fs::create_dir_all(&other).unwrap();
-        let file = root.join("account_key.dpapi");
-        let raw = [0x42; 32];
-        std::fs::write(db.join("message/message_0.db"), page(&raw, 1)).unwrap();
-        save(&db, &file, &raw).unwrap();
-        assert_eq!(derive_saved(&db, &file).unwrap().len(), 1);
-        std::fs::write(db.join("message/message_1.db"), page(&raw, 2)).unwrap();
-        assert_eq!(derive_saved(&db, &file).unwrap().len(), 2);
-        assert!(derive_saved(&other, &file).is_err());
-        save(&db, &file, &raw).unwrap();
-        assert_eq!(
-            std::fs::read_dir(&root)
-                .unwrap()
-                .filter_map(Result::ok)
-                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "bak"))
-                .count(),
-            1
-        );
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

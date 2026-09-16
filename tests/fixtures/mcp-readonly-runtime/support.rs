@@ -4,13 +4,11 @@ pub(crate) mod encrypted_sqlite;
 pub mod history;
 #[path = "../../support/key_store.rs"]
 mod key_store_fixture;
-#[path = "../../../src/toolkit/private_file.rs"]
-#[allow(dead_code)]
-mod private_file;
 #[path = "../query_v3.rs"]
 mod query_v3;
 #[path = "../../support/bootstrap.rs"]
 mod runtime_cleanup;
+use crate::private_file;
 use encrypted_sqlite::{encrypt, sqlite};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -98,11 +96,7 @@ impl Account {
         )
         .unwrap();
         fs::write(root.path().join("config.json"), json!({"db_dir":storage,"keys_file":root.path().join("keys.json"),"decrypted_dir":root.path().join("decrypted")}).to_string()).unwrap();
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &root.path().join("config.json"),
-            home,
-        );
+        key_store_fixture::seed(&root.path().join("config.json"), &json!(keys));
         let mut hash = Sha256::new();
         hash.update(b"wx-cli-runtime-v2\0");
         for path in [
@@ -315,20 +309,12 @@ impl Account {
     // Used by image/plan fixtures after adding synthetic keys; the read-only
     // runtime target shares this Account but never updates its seeded key set.
     #[allow(dead_code)]
-    pub fn migrate_keys(&self) {
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &self.root.path().join("config.json"),
-            &self.home,
+    pub fn seed_keys(&self, keys: &Value) {
+        assert!(
+            self.daemon.is_none(),
+            "seed fixtures before starting the daemon"
         );
-        // Additional fixture shards are seeded before the test's explicit daemon start.
-        assert!(self
-            .command()
-            .args(["daemon", "stop"])
-            .output()
-            .unwrap()
-            .status
-            .success());
+        key_store_fixture::seed(&self.root.path().join("config.json"), keys);
     }
 
     pub fn stop(&mut self) {

@@ -9,7 +9,7 @@ use std::{
 
 use crate::config::{self, Config};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RuntimeContext {
     pub config: Config,
     pub config_path: PathBuf,

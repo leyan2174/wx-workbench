@@ -16,6 +16,8 @@ pub mod crypto;
 // The security fixture uses checked material publication, not every export wrapper.
 pub mod native_image;
 pub mod publish_probe;
+#[path = "../../../src/infrastructure/audio/wav.rs"]
+pub mod audio_wav;
 #[path = "../../../src/daemon/cache.rs"]
 #[allow(dead_code)] // The image query slice omits unrelated cache lifecycle entry points.
 pub mod real_cache;
@@ -117,8 +119,12 @@ pub async fn decode_with_material(
     .await
 }
 
+#[path = "../../../src/config.rs"]
+pub mod config;
+#[path = "../../../src/runtime.rs"]
+#[allow(dead_code)] // This image fixture omits bootstrap and other operation lifecycle entry points.
+pub mod runtime;
 pub mod toolkit;
-pub use native_image_fixture::{config, runtime};
 
 #[path = "../../../src/service/transport/framing.rs"]
 #[allow(dead_code)] // The audit probes bounded line reads, not all frame transports.
@@ -135,10 +141,15 @@ pub mod ipc_reader {
 pub mod ipc;
 #[path = "../../../src/service/message_filter.rs"]
 pub mod message_filter;
+#[path = "../../../src/service/monitor.rs"]
+pub mod monitor_contract;
 #[path = "../../../src/mcp/protocol.rs"]
 pub mod protocol;
 pub mod service {
     pub use crate::message_filter;
+    pub mod protocol {
+        pub use crate::monitor_contract as monitor;
+    }
 }
 pub mod mcp {
     pub use crate::protocol;
@@ -175,12 +186,14 @@ mod chat_identity;
 #[allow(dead_code)] // Image queries do not consume every strict message getter.
 mod strict_message;
 
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // Image fixture uses publication guards, not directory collection.
 pub mod files;
-#[path = "../../../src/toolkit/private_file.rs"]
+pub mod infrastructure {
+    pub(crate) use crate::files as publication;
+    pub mod audio {
+        pub use crate::audio_wav::validate_wav;
+    }
+}
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
-#[path = "../../../src/toolkit/setup.rs"]
-#[allow(dead_code)]
-// Only fixed-path configuration support is needed; setup orchestration is tested at root.
-pub mod setup;

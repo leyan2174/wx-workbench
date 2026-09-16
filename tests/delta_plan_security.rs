@@ -60,7 +60,6 @@ impl Fixture {
             .env_remove("WECHAT_EXPORT_CONTACTS")
             .env("WX_CLI_CONFIG", self.path("profile/config.json"))
             .env("WX_CLI_HOME", self.path("runtime"))
-            .env("WX_WECHAT_DECRYPT_PYTHON", self.path("absent-python.exe"))
             .env("PATH", "")
             .output()
             .unwrap();
@@ -127,10 +126,9 @@ impl Fixture {
             br#"{"db_dir":"db_storage","keys_file":"all_keys.json","decrypted_dir":"decrypted"}"#,
         )
         .unwrap();
-        key_store_fixture::migrate(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
+        key_store_fixture::seed(
             &self.path("profile/config.json"),
-            &self.path("runtime"),
+            &serde_json::json!({"contact/contact.db":"11".repeat(32),"message/message_0.db":"11".repeat(32)}),
         );
         for name in [
             "profile/db_storage/contact/contact.db",
@@ -224,12 +222,10 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         "--run-id",
         "safe",
     ]));
-    for entry in fs::read_dir(f.path("runtime/accounts")).unwrap() {
-        assert!(
-            !entry.unwrap().path().join("daemon.pid").exists(),
-            "pure argument validation started a daemon after fixture migration"
-        );
-    }
+    assert!(
+        !f.path("runtime/accounts").exists(),
+        "pure argument validation created daemon state"
+    );
     for path in [
         f.path("profile/db_storage/new"),
         f.path("profile/all_keys.json"),

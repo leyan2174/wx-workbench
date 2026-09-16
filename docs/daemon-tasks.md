@@ -10,10 +10,10 @@
 
 ```powershell
 # WX_CLI_CONFIG 必须显式指定合成/目标账号；WX_CLI_HOME 与 CLI/Web 保持一致。
-wx mcp --tasks --task-kind wechat-decrypt
+wx mcp --tasks --task-kind wechat_decrypt
 # 仅管理现有任务（无提交工具）：wx mcp --tasks
 # 导出需另授固定目录媒体写入权限：
-wx mcp --tasks --task-kind export-all --task-allow-media-write
+wx mcp --tasks --task-kind export_all --task-allow-media-write
 ```
 
 启用 `--tasks` 后增加 `list_tasks`、`get_task`、`cancel_task`、`get_task_events`。只有存在可提交的授权类型时才增加 `submit_task`；类型枚举由共享 `service::plan::capabilities()` 与宿主授权取交集，未实现的类型不会出现。任务类型使用下划线，参数形状及选项约束沿用共享 `Submission` / `Options` 和 `plan::validate`，拒绝未知字段、任意命令、可执行程序、后端及输出路径。
@@ -34,7 +34,7 @@ wx mcp --tasks --task-kind export-all --task-allow-media-write
 
 - `--task-kind` 是任务类型白名单，也明确授权该类型在配置绑定目录内的数据库/密钥写入；不会隐式扫描。`--tasks` 本身允许查看及取消固定账号的全部保留任务，包括 CLI/Web 提交的任务。
 - 取钥还需 `--task-allow-memory-scan`，并在提交中设置 `authorize_memory_scan: true`。模型的布尔值不能替代宿主开关。
-- 导出、图片、朋友圈和语音任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改原同步工具的 `--media-output-root`。组合导出的 `include_voice`、`include_sns` 还需允许相应的 `voice-mp3`、`sns-decrypt` 类型。
+- 导出、图片、朋友圈和语音任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改原同步工具的 `--media-output-root`。组合导出的 `include_voice`、`include_sns` 还需允许相应的 `voice_mp3`、`sns_decrypt` 类型。
 - 后台转写需 `--task-allow-transcription`；云上传还需 `--task-allow-upload` 及提交中的 `allow_upload: true`，并通过共享的后端配置校验。朋友圈媒体下载另需 `--task-allow-media-download`。原同步语音工具的启动授权和执行方式不变。
 - `--task-image-cache-dir` 只能由宿主传入，并通过现有 `Configure` 绑定；与当前 daemon 设置不一致会报 `settings_conflict`，不会覆盖。模型没有 `configure` 工具。
 - 查询和任务共享同一个惰性固定的 `RuntimeContext`，首次实际访问必须显式配置 `WX_CLI_CONFIG`。启用任务后记录共享配置指纹，每次任务调用前后复核；账号切换或不可变配置变化会使本 MCP 会话失效，需重启，不静默换账号。沿用共享指纹对合法图片密钥轮换的豁免，不另外发明配置身份规则。
@@ -56,7 +56,7 @@ wx mcp --tasks --task-kind export-all --task-allow-media-write
 ```powershell
 wx tasks info
 wx tasks configure
-wx tasks submit export-all --users "synthetic-user" --formats json --no-images --wait
+wx tasks submit export_all --users "synthetic-user" --formats json --no-images --wait
 wx tasks list
 # 将提交结果中的 id 赋给 $taskId 后，按需执行查询或取消。
 wx tasks get $taskId
@@ -72,15 +72,15 @@ wx tasks cancel $taskId
 
 | 任务类型 | 执行内容 | 额外边界 |
 | --- | --- | --- |
-| `wechat-keys` | 数据库取钥 | 必须逐任务提供 `--authorize-memory-scan` |
-| `wechat-decrypt` | 数据库快照解密 | 使用已保存密钥，不隐式扫描 |
-| `image-key` | 图片取钥 | 必须逐任务授权，输出日志完全抑制 |
-| `export-all` | 聊天导出，可选 SNS、语音及转录 | 筛选和格式显式传递；云转录必须另有上传授权 |
-| `decode-images` | 图片批量解码 | 不接受任意输出路径 |
-| `sns-decrypt` | SNS 归档、导出 | 媒体下载是显式选项 |
-| `voice-mp3` | 数据库语音批量转 MP3 | FFmpeg 依赖不因任务托管而消失 |
+| `wechat_keys` | 数据库取钥 | 必须逐任务提供 `--authorize-memory-scan` |
+| `wechat_decrypt` | 数据库快照解密 | 使用已保存密钥，不隐式扫描 |
+| `image_key` | 图片取钥 | 必须逐任务授权，输出日志完全抑制 |
+| `export_all` | 聊天导出，可选 SNS、语音及转录 | 筛选和格式显式传递；云转录必须另有上传授权 |
+| `decode_images` | 图片批量解码 | 不接受任意输出路径 |
+| `sns_decrypt` | SNS 归档、导出 | 媒体下载是显式选项 |
+| `voice_mp3` | 数据库语音批量转 MP3 | FFmpeg 依赖不因任务托管而消失 |
 
-CLI 同时接受连字符和下划线形式；JSON 协议使用下划线。旧企业任务类型、`--enterprise-*` 和 `--all-conversations` 均被拒绝。完整参数以 `wx tasks submit --help` 和 `wx tasks configure --help` 为准。
+CLI 与 JSON 协议只接受下划线形式。旧连字符拼写、企业任务类型、`--enterprise-*` 和 `--all-conversations` 均被拒绝。完整参数以 `wx tasks submit --help` 和 `wx tasks configure --help` 为准。
 
 ## 生命周期与恢复
 
@@ -125,10 +125,10 @@ HTTP 可用 `Idempotency-Key` 传相同格式的 ID；省略时由 Web 生成。
 
 - `src/service`：类型化协议、参数校验、固定设置、计划、客户端及认证管道。
 - `src/daemon/tasks`：任务记录、持久化、队列、取消、日志与进程生命周期。
-- `src/cli/tasks.rs` 和 `src/toolkit/web`：命令/HTTP 适配及展示。
+- `src/cli/tasks.rs` 和 `src/web`：命令/HTTP 适配及展示。
 - `src/daemon/operations/task_worker.rs`：内部类型化任务执行桥，调用 daemon 侧业务编排与领域模块，不解析公开 CLI 参数，也不递归提交任务。
 - `src/daemon/operation_service.rs`、`operation_worker.rs`：另行监督非持久前台操作的 Job、字节流和取消租约，不复用持久任务日志作为 CLI 输出。
 - `src/daemon/mcp_service.rs`、`web_service.rs`：MCP 和 Web 业务状态；HTTP/stdio 入口不维护业务副本。
-- `src/toolkit`、`src/attachment` 等：共享领域能力；由 daemon 或其拥有的 worker 调用，不为移动所有权重写算法。
+- `src/business`、`src/application`、`src/adapters/wechat`、`src/infrastructure`：分别提供业务契约、用例编排、微信格式适配和共享执行能力；daemon 或其拥有的 worker 直接调用这些真实所有者。
 
 合成进程测试在 `tests/fixtures/daemon-tasks/runtime.rs`，由 `runtime_isolation` 注册；覆盖导出、幂等、跨账号隔离、设置冲突、日志、重启、Web/CLI 共享、工作进程取消和停机。Job 后代回收、协议边界、私有权限、队列持久化及懒初始化另有单元测试。复跑入口见[测试说明](../tests/README.md)。这些测试不代替真实账号完整性、模型质量或安装部署验证。

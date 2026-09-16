@@ -21,7 +21,7 @@
 | SNS 视频 | decode-sns-video | 本地输入和新输出；MP4 头检查不证明完整可播放。 |
 | 初始化和密钥 | init、setup | 区分检查、只读扫描、DPAPI 复用和显式重启捕获。 |
 | 清理 | toolkit cleanup | 先预览、明确账号和逐文件选择，不清理未知目录。 |
-| 本地 Web | toolkit run web | 本地认证、Host/Origin/CSRF；错误与限流应可见。 |
+| 本地 Web | toolkit web | 本地认证、Host/Origin/CSRF；错误与限流应可见。 |
 | 后台任务 | wx tasks | 与前台操作租约不同；取消须等待 worker 回收。 |
 
 ## 失败与授权
@@ -35,8 +35,8 @@
 - [账号密钥](account-key-provider.md)
 - [附件](native-attachment-contract.md)
 - [MCP](../src/mcp/PROTOCOL.md)
-- [ASR](../src/toolkit/asr/LOCAL.md)、[云端](../src/toolkit/asr/OPENAI.md)、[缓存](../src/toolkit/asr/CACHE.md)
-- [音频](../src/toolkit/audio/README.md)、[SNS 视频](../src/toolkit/sns/VIDEO_RUNTIME.md)
+- [ASR](../src/infrastructure/transcription/LOCAL.md)、[云端](../src/infrastructure/transcription/OPENAI.md)、[缓存](../src/application/transcription/CACHE.md)
+- [音频](../src/infrastructure/audio/README.md)、[SNS 媒体密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
 - [daemon](daemon-entrypoints.md)、[任务](daemon-tasks.md)、[测试](../tests/README.md)
 
 保留的上游材料用于来源或格式参考，不作为任意旧脚本仍可运行的承诺。公开命令与参数以本项目实际注册和各子命令帮助为准。

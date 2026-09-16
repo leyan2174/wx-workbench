@@ -15,7 +15,13 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     println!("cargo:rerun-if-changed={}", framing.display());
     fs::create_dir_all(out.join("transport")).unwrap();
     fs::copy(framing, out.join("transport/framing.rs")).unwrap();
-    let mut calls = vec!["Mcp", "Info", "Shutdown"];
+    let mut calls = vec![
+        "WorkerDatabaseKeys",
+        "WorkerImageMaterial",
+        "Mcp",
+        "Info",
+        "Shutdown",
+    ];
     let mut types = vec!["Call", "Envelope", "Reply", "ServiceError"];
     if tasks {
         calls.extend(["Configure", "Submit", "List", "Get", "Cancel", "Events"]);
@@ -65,6 +71,7 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
         ast.items.insert(2, syn::parse_quote!(use super::settings::SettingsInput;));
     }
     fs::write(out.join("service_protocol.rs"), prettyplease::unparse(&ast)).unwrap();
+    generate_database_worker_keys(root, out);
     let mut modules = vec!["client", "transport", "query_client"];
     if tasks {
         modules.extend(["config_pin", "plan", "settings"]);
@@ -80,13 +87,67 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
                 if let syn::Item::Fn(value) = item {
                     if value.sig.ident == "start_daemon" {
                         value.attrs.push(syn::parse_quote!(#[allow(unused_variables)]));
-                        value.block = Box::new(syn::parse_quote!({
+                        *value.block = syn::parse_quote!({
                             bail!("fixture never starts a daemon")
-                        }));
+                        });
                     }
                 }
             }
         }
         fs::write(out.join(format!("service_{name}.rs")), prettyplease::unparse(&ast)).unwrap();
     }
+}
+
+fn generate_database_worker_keys(root: &Path, out: &Path) {
+    let source = root.join("../../../src/service/worker_keys.rs");
+    println!("cargo:rerun-if-changed={}", source.display());
+    let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
+    let types = [
+        "Secret",
+        "DatabaseReadRequest",
+        "DatabaseKeys",
+        "DatabaseSnapshot",
+        "ImageReadRequest",
+        "ImageMaterial",
+        "ImageSnapshot",
+        "DatabaseReplyReader",
+    ];
+    let constants = [
+        "DATABASE_REPLY_MAGIC",
+        "MAX_DATABASE_REPLY_BYTES",
+        "MAX_DATABASE_KEYS",
+        "MAX_DATABASE_NAME_BYTES",
+        "IMAGE_REPLY_MAGIC",
+        "MAX_IMAGE_REPLY_BYTES",
+    ];
+    let functions = [
+        "error_tag",
+        "tagged_error",
+        "tagged_image_error",
+        "put_bytes",
+        "encode_database_reply",
+        "decode_database_reply",
+        "encode_image_reply",
+        "decode_image_reply",
+    ];
+    ast.attrs.clear();
+    ast.items.retain(|item| match item {
+        syn::Item::Struct(value) => types.iter().any(|name| value.ident == name),
+        syn::Item::Impl(value) => matches!(value.self_ty.as_ref(), syn::Type::Path(path)
+            if path.path.segments.last().is_some_and(|segment|
+                types.iter().any(|name| segment.ident == name))),
+        syn::Item::Const(value) => constants.iter().any(|name| value.ident == name),
+        syn::Item::Fn(value) => functions.iter().any(|name| value.sig.ident == name),
+        _ => false,
+    });
+    ast.items.insert(0, syn::parse_quote!(use std::{collections::HashMap, fmt};));
+    ast.items.insert(1, syn::parse_quote!(use anyhow::{anyhow, ensure, Result};));
+    ast.items.insert(2, syn::parse_quote!(use serde::{Deserialize, Serialize};));
+    ast.items.insert(3, syn::parse_quote!(use zeroize::Zeroize;));
+    ast.items.push(syn::parse_quote!(#[cfg(test)] fn observe_drop(_: bool) {}));
+    fs::write(
+        out.join("service_worker_keys.rs"),
+        prettyplease::unparse(&ast),
+    )
+    .unwrap();
 }

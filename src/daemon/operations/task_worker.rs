@@ -1,8 +1,8 @@
 //! Private typed worker entry. It never parses a public command or submits a task.
 use crate::{
+    application::voice_batch_export,
     runtime::RuntimeContext,
     service::{plan::*, protocol::MAX_REQUEST_BYTES},
-    toolkit,
 };
 use anyhow::{ensure, Result};
 use std::{io::Read, path::Path};
@@ -23,10 +23,17 @@ pub(crate) fn run() -> Result<()> {
         length > 0 && length <= MAX_REQUEST_BYTES,
         "Worker request exceeds limit"
     );
-    let mut bytes = vec![0; length];
+    let mut bytes = zeroize::Zeroizing::new(vec![0; length]);
     input.read_exact(&mut bytes)?;
-    let step: Step = serde_json::from_slice(&bytes)?;
-    crate::daemon::operation_worker::finish(execute(&runtime, step))
+    let request: crate::service::worker_keys::Input<Step> = serde_json::from_slice(&bytes)?;
+    drop(bytes);
+    let mut trailing = [0u8; 1];
+    ensure!(input.read(&mut trailing)? == 0, "Unexpected worker input");
+    drop(input);
+    let access = crate::service::worker_keys::install(request.access)?;
+    let result = execute(&runtime, request.operation);
+    drop(access);
+    crate::daemon::operation_worker::finish(result)
 }
 
 fn selected(runtime: &RuntimeContext, config: &Path) -> Result<()> {
@@ -55,8 +62,10 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
         }
         Step::WechatDecrypt { config } => {
             selected(runtime, &config)?;
-            let keys = super::toolkit_run_prepare::load_saved(runtime)?;
-            toolkit::decrypt(runtime, &keys, false, false, toolkit::DecryptMode::Strict)
+            let keys = crate::service::worker_keys::database_keys(runtime)?
+                .ok_or_else(|| anyhow::anyhow!("Worker database key access not installed"))?;
+            super::database_key_validation::validate_keys(runtime, &keys.0)?;
+            crate::application::database_decryption::decrypt(runtime, &keys.0, false, false)
         }
         Step::ImageKey {
             config,
@@ -112,7 +121,7 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                     with_transcriptions: true,
                     write_plan_csv: None,
                     from_plan_csv: None,
-                    plan_mode: toolkit::chat_plan_selection::Mode::Blacklist,
+                    plan_mode: crate::service::operation_requests::plan::Mode::Blacklist,
                     size_mode: super::chat_plan::Mode::Estimate,
                     incremental: false,
                     delta_only: false,
@@ -134,7 +143,8 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
         }
         Step::DecodeImages { config, output } => {
             selected(runtime, &config)?;
-            toolkit::decode_images_for(
+            let stored = super::image_keys::publication_material(runtime)?;
+            crate::application::image_publication::decode_images_for(
                 runtime,
                 None,
                 Some(
@@ -146,7 +156,9 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                 None,
                 None,
                 false,
-            )
+                Some(stored),
+            )?;
+            crate::service::worker_keys::verify_image_revision(runtime)
         }
         Step::SnsArchive { config, output } => {
             selected(runtime, &config)?;
@@ -176,13 +188,13 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             users,
         } => {
             selected(runtime, &config)?;
-            let mut options = toolkit::audio::batch::BatchOptions::from_config_file(&config)?;
+            let mut options = voice_batch_export::BatchOptions::from_config_file(&config)?;
             options.output_dir = output;
-            options.contacts = toolkit::audio::batch::parse_contact_filter(&users.join(","));
+            options.contacts = voice_batch_export::parse_contact_filter(&users.join(","));
             // Parent Job termination remains the worker's cancellation mechanism.
-            let report = toolkit::audio::batch::convert_database_checked(
+            let report = voice_batch_export::convert_database_checked(
                 &options,
-                &toolkit::export_protected(runtime),
+                &crate::infrastructure::publication::export_protected(runtime),
                 || false,
             )?;
             emit(&report)?;

@@ -16,8 +16,8 @@ the catalog before releasing it. Missing input is distinct from an empty valid
 catalog. Schema, row and decryption errors do not return partial catalogs.
 
 The host retains account selection, saved-key preparation, locking, authorization,
-protected output construction and terminal formatting. Both `toolkit
-export-emoticons` and `toolkit run emoticons` invoke the same existing operation.
+protected output construction and terminal formatting. The formal CLI entry is
+`toolkit export-emoticons`; no compatibility command bypasses that operation.
 No HTTP/MCP permission, remote discovery or automatic download was added.
 
 ## Compatibility

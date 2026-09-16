@@ -1,6 +1,6 @@
 {
   "provenance": {
-    "source": "vendor/wechat-decrypt/export_sns.py",
+    "source": "upstream:ylytdeng/wechat-decrypt/export_sns.py",
     "sha256": "95539b459f4c38d6e106f8a601b9fdb21edf0f1ef916c3d15c662a1f19b44df3",
     "synthetic_only": true,
     "timezone": "UTC+08:00"

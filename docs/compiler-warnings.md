@@ -32,6 +32,6 @@
 
 受影响夹具另通过 83 项：下载监督 3、语音宿主关闭 1、语音宿主安全 19、附件 58、历史 runtime 1、计划选择 runtime 1；语音安全另有一项符号链接权限用例忽略。合计 639 项通过、5 项忽略。夹具日志前缀为 `C:/CodexLocal/wx-cli-warning-runtime-`。
 
-计划选择 runtime 首次失败是旧夹具在受保护存储初始化之后新增 session 库密钥，却没有执行迁移。补调用已有 `Account::migrate_keys` 后，原有选择/日期/增量/只读断言全部通过；未放宽生产读取限制。复测日志为 `C:/CodexLocal/wx-cli-warning-plan-fix-test.log`，零告警编译记录为同前缀 `-check.log`。
+计划选择 runtime 当时首次失败是夹具在受保护存储初始化之后新增 session 库密钥，却没有更新测试存储。修复后，原有选择/日期/增量/只读断言全部通过；未放宽生产读取限制。复测日志为 `C:/CodexLocal/wx-cli-warning-plan-fix-test.log`，零告警编译记录为同前缀 `-check.log`。当时使用的旧迁移 helper 现已退役，当前夹具通过 `Account::seed_keys` 直接构造正式 DPAPI 测试存储；此处日志是历史验证记录，不代表本轮已执行测试。
 
 最终根工程 `--all-targets` 检查 exit 0、warnings 0，日志为 `C:/CodexLocal/wx-cli-warning-delivery-check.log`。以上是集中定向验证，不宣称重新执行了全部无关测试。没有访问真实账号、执行真实内存扫描或真实云上传。

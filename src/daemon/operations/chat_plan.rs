@@ -1,5 +1,9 @@
 //! 显式离线计划 CSV 命令；不接触配置、IPC、账号发现或聊天正文导出。
-use crate::toolkit::chat_plan as plan;
+use crate::{
+    adapters::wechat::planning::PlanDatabases,
+    application::chat_export_plan as plan,
+    business::chat_plan::{PlanChat, SizeMode, TimeRange},
+};
 use anyhow::{ensure, Context, Result};
 use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 use serde::Deserialize;
@@ -15,12 +19,13 @@ pub use crate::service::operation_requests::chat_plan::Mode;
 pub use crate::service::operation_requests::chat_plan::Args;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ChatMetadata {
     username: String,
     index: Option<usize>,
-    #[serde(default, alias = "display_name")]
+    #[serde(default)]
     chat_name: Option<String>,
-    #[serde(default, alias = "kind")]
+    #[serde(default)]
     chat_type: Option<String>,
 }
 
@@ -49,7 +54,7 @@ fn timestamp(raw: &str) -> Result<i64> {
     Ok(value)
 }
 
-fn selected_chats(args: &Args) -> Result<Vec<plan::PlanChat>> {
+fn selected_chats(args: &Args) -> Result<Vec<PlanChat>> {
     let mut metadata: Vec<ChatMetadata> = if let Some(path) = &args.chats_json {
         let mut bytes = Vec::new();
         fs::File::open(path)?
@@ -101,7 +106,7 @@ fn selected_chats(args: &Args) -> Result<Vec<plan::PlanChat>> {
             {
                 return None;
             }
-            Some(plan::PlanChat {
+            Some(PlanChat {
                 index: row.index.unwrap_or(i + 1),
                 chat_name: row.chat_name.unwrap_or_else(|| row.username.clone()),
                 chat_type: row.chat_type.unwrap_or_else(|| {
@@ -237,7 +242,7 @@ fn execute(args: &Args) -> Result<usize> {
 /// 统一导出入口直接传入已选会话，不为调用计划核心创建中间清单文件。
 pub(super) fn execute_for(
     args: &Args,
-    chats: Option<Vec<plan::PlanChat>>,
+    chats: Option<Vec<PlanChat>>,
     default_export: Option<&str>,
     replace_existing: bool,
 ) -> Result<usize> {
@@ -259,7 +264,7 @@ pub(super) fn execute_for(
             "estimate 不使用扫描源目录，请移除参数或选择 scan"
         ),
     }
-    let range = plan::TimeRange {
+    let range = TimeRange {
         start: args.start.as_deref().map(timestamp).transpose()?,
         end: args.end.as_deref().map(timestamp).transpose()?,
     };
@@ -310,11 +315,11 @@ pub(super) fn execute_for(
             .map(|path| args.decrypted_dir.join(path)),
     );
     let target = if replace_existing {
-        crate::toolkit::ExportTarget::capture_paths(&output, &protected)?
+        crate::infrastructure::publication::ExportTarget::capture_paths(&output, &protected)?
     } else {
-        crate::toolkit::ExportTarget::new_file(&output, &protected)?
+        crate::infrastructure::publication::ExportTarget::new_file(&output, &protected)?
     };
-    let databases = plan::PlanDatabases {
+    let databases = PlanDatabases {
         message: args.message_dbs.clone(),
         resource: args.resource_db.clone(),
         media: args.media_dbs.clone(),
@@ -325,7 +330,7 @@ pub(super) fn execute_for(
             &databases,
             &chats,
             range,
-            plan::SizeMode::Estimate,
+            SizeMode::Estimate,
         )?,
         Mode::Scan => plan::collect_plan_with_scan(
             &args.decrypted_dir,
@@ -443,7 +448,7 @@ mod tests {
         args.start = Some("100".into());
         args.end = Some("102".into());
         let manifest = temp.path().join("chats.json");
-        fs::write(&manifest, r#"[{"index":9007199254740993,"username":"alpha","display_name":"中文, \"名字\"","kind":"single"},{"username":"absent","display_name":"中文, \"名字\""}]"#).unwrap();
+        fs::write(&manifest, r#"[{"index":9007199254740993,"username":"alpha","chat_name":"中文, \"名字\"","chat_type":"single"},{"username":"absent","chat_name":"中文, \"名字\""}]"#).unwrap();
         args.chats_json = Some(manifest);
         let output = args.output.clone();
         cmd(args).unwrap();
@@ -499,12 +504,14 @@ mod tests {
     fn publication_never_overwrites_and_cleans_temporary() {
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("plan.csv");
-        crate::toolkit::ExportTarget::new_file(&output, &[])
+        crate::infrastructure::publication::ExportTarget::new_file(&output, &[])
             .and_then(|target| target.write_bytes(b"original"))
             .unwrap();
-        assert!(crate::toolkit::ExportTarget::new_file(&output, &[])
-            .and_then(|target| target.write_bytes(b"replacement"))
-            .is_err());
+        assert!(
+            crate::infrastructure::publication::ExportTarget::new_file(&output, &[])
+                .and_then(|target| target.write_bytes(b"replacement"))
+                .is_err()
+        );
         assert_eq!(fs::read(&output).unwrap(), b"original");
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
     }
@@ -517,13 +524,13 @@ mod tests {
         let successes = std::thread::scope(|scope| {
             let a = scope.spawn(|| {
                 barrier.wait();
-                crate::toolkit::ExportTarget::new_file(&output, &[])
+                crate::infrastructure::publication::ExportTarget::new_file(&output, &[])
                     .and_then(|target| target.write_bytes(b"first"))
                     .is_ok()
             });
             let b = scope.spawn(|| {
                 barrier.wait();
-                crate::toolkit::ExportTarget::new_file(&output, &[])
+                crate::infrastructure::publication::ExportTarget::new_file(&output, &[])
                     .and_then(|target| target.write_bytes(b"second"))
                     .is_ok()
             });
@@ -581,5 +588,24 @@ mod tests {
         assert!(selected_chats(&a).is_err());
         a.users = vec!["alpha".into(), "alpha".into()];
         assert!(selected_chats(&a).is_err());
+    }
+
+    #[test]
+    fn chat_metadata_rejects_removed_field_aliases() {
+        assert!(serde_json::from_str::<ChatMetadata>(
+            r#"{"username":"alpha","display_name":"Alpha"}"#
+        )
+        .is_err());
+        assert!(
+            serde_json::from_str::<ChatMetadata>(r#"{"username":"alpha","kind":"single"}"#)
+                .is_err()
+        );
+
+        let metadata: ChatMetadata = serde_json::from_str(
+            r#"{"username":"alpha","chat_name":"Alpha","chat_type":"single"}"#,
+        )
+        .unwrap();
+        assert_eq!(metadata.chat_name.as_deref(), Some("Alpha"));
+        assert_eq!(metadata.chat_type.as_deref(), Some("single"));
     }
 }

@@ -8,10 +8,6 @@ pub fn table_for_username(username: &str) -> String {
 }
 
 /// Syntax and ownership only; this does not authenticate an account or prove uniqueness.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "validate the existing physical proof without duplicating its storage type"
-)]
 pub fn valid_voice_source(
     username: &str,
     message_source: &str,

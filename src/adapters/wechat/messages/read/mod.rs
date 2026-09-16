@@ -19,6 +19,13 @@ use std::{
 
 pub const MAX_STORED_BYTES: usize = 1_048_576;
 pub const MAX_DECODED_BYTES: usize = 4 * 1_048_576;
+
+/// Legacy text search requires both the keyword and its semantic preview decoder.
+pub(super) struct LegacySearch<'a> {
+    pub keyword: &'a str,
+    pub preview: &'a dyn Fn(&RawMessage) -> Result<String>,
+}
+
 pub struct MetadataCount {
     pub local_type: i64,
     pub timestamp: i64,
@@ -632,7 +639,7 @@ impl Snapshot {
         limit: usize,
         oldest_first: bool,
     ) -> Result<Vec<RawMessage>> {
-        self.read_selection(stream, filter, legacy, limit, oldest_first, None, None)
+        self.read_selection(stream, filter, legacy, limit, oldest_first, None)
     }
     pub(super) fn read_selection(
         &self,
@@ -641,9 +648,9 @@ impl Snapshot {
         legacy: &LegacyReadPolicy,
         limit: usize,
         oldest_first: bool,
-        keyword: Option<&str>,
-        preview: Option<&dyn Fn(&RawMessage) -> Result<String>>,
+        search: Option<LegacySearch<'_>>,
     ) -> Result<Vec<RawMessage>> {
+        let keyword = search.as_ref().map(|search| search.keyword);
         filter.validate()?;
         ensure!(legacy.local_types.len() <= 100, domain::Error::Limit);
         self.require_content(stream)?;
@@ -754,7 +761,10 @@ impl Snapshot {
                 let text = std::str::from_utf8(&decoded)?;
                 if !domain::matches_text(text, keyword)
                     && !domain::matches_text(
-                        &preview.context("decoded search projection unavailable")?(&row)?,
+                        &(search
+                            .as_ref()
+                            .context("decoded search projection unavailable")?
+                            .preview)(&row)?,
                         keyword,
                     )
                 {

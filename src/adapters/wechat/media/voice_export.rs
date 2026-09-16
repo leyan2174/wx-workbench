@@ -126,8 +126,8 @@ mod batch_tests {
     }
 }
 
-/// Preserve the legacy key inventory scope, including non-numeric media suffixes.
-pub fn media_keys<'a>(keys: impl IntoIterator<Item = &'a String>) -> Vec<String> {
+/// Select database paths, not audio secrets; preserve non-numeric media suffixes.
+pub fn media_database_paths<'a>(keys: impl IntoIterator<Item = &'a String>) -> Vec<String> {
     let mut keys: Vec<_> = keys
         .into_iter()
         .map(|key| key.replace('\\', "/"))
@@ -357,7 +357,7 @@ mod tests {
         .map(String::from)
         .into();
         assert_eq!(
-            media_keys(&keys),
+            media_database_paths(&keys),
             vec!["message/media_2.db", "message/media_old.db"]
         );
         let root = tempfile::tempdir().unwrap();

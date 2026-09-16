@@ -5,6 +5,9 @@ mod accounts;
 #[allow(dead_code)]
 #[path = "fixtures/mcp-voice-runtime/artifacts.rs"]
 mod artifacts;
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 #[allow(dead_code)]
 #[path = "fixtures/mcp-readonly-runtime/support.rs"]
 mod support;
@@ -51,7 +54,7 @@ fn local(
         "--media-output-root",
         root.to_str().unwrap(),
         "--backend",
-        "local",
+        "whisper_cpp",
         "--whisper-binary",
         artifacts::executable().to_str().unwrap(),
         "--whisper-model",
@@ -151,6 +154,9 @@ fn real_voice_media_ids_decode_exact_wav_and_preserve_session_and_accounts() {
             json!({"chat_name":"peer","local_id":700,"create_time":artifacts::TIMESTAMP}),
             json!({"chat_name":"peer","local_id":700,"output_root":"forbidden"}),
             json!({"chat_name":"peer","local_id":700,"backend":"local"}),
+            json!({"chat_name":"peer","local_id":700,"voice_key":"not-a-secret"}),
+            json!({"chat_name":"peer","local_id":700,"codec":"silk"}),
+            json!({"chat_name":"peer","local_id":700,"sample_rate":24000}),
         ] {
             assert_eq!(ma.call(name, invalid)["error"]["code"], -32602);
         }
@@ -397,7 +403,7 @@ fn voice_without_explicit_output_or_backend_does_not_start_account_or_read_crede
             "transcribe_voice",
             vec![
                 "--backend",
-                "explicit-open-ai",
+                "openai_compatible",
                 "--api-key-file",
                 key.to_str().unwrap(),
                 "--openai-base-url",

@@ -3,10 +3,12 @@
 #[allow(dead_code)] // WAV 测试不调用后台管理入口。
 mod asr_runtime;
 pub use asr_runtime::{config, crypto, daemon, runtime};
-#[path = "../../../src/toolkit/asr/mod.rs"]
-#[allow(dead_code)] // WAV publication does not discover Python host inputs.
-pub mod asr;
-#[path = "../../../src/toolkit/audio/mod.rs"]
+pub mod service {
+    pub mod protocol {
+        pub use crate::asr_runtime::monitor_contract as monitor;
+    }
+}
+#[path = "../../../src/infrastructure/audio/mod.rs"]
 #[allow(dead_code)] // WAV publication does not invoke the MP3 checked wrapper.
 pub mod audio;
 #[path = "../../../src/attachment/local_files.rs"]
@@ -14,9 +16,7 @@ pub mod audio;
 pub mod local_files;
 
 pub mod toolkit {
-    pub(crate) use super::files::{validate_export_target, ExportTarget};
-    pub use super::asr_runtime::legacy;
-    pub use super::{asr, audio, setup, private_file};
+    pub use super::audio;
 }
 pub mod attachment {
     pub use super::local_files;
@@ -34,12 +34,17 @@ pub mod windows_process;
 #[path = "../../../src/key_store/mod.rs"]
 #[allow(dead_code)] // WAV fixture retains store APIs but has no legacy migration entry point.
 pub mod key_store;
-#[path = "../../../src/toolkit/setup.rs"]
+#[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
-#[path = "../../../src/toolkit/private_file.rs"]
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
 
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // WAV publication exercises target guards, not directory collection.
 mod files;
+pub mod infrastructure {
+    pub use crate::audio;
+    pub(crate) use crate::setup as configuration;
+    pub(crate) use crate::files as publication;
+}

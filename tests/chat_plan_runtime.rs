@@ -104,10 +104,6 @@ impl Fixture {
             .env("TMP", &self.root)
             .env("WX_CLI_CONFIG", self.root.join("must-not-read-config.json"))
             .env("WX_CLI_HOME", self.root.join("must-not-create-runtime"))
-            .env(
-                "WX_WECHAT_DECRYPT_PYTHON",
-                self.root.join("not-installed-python.exe"),
-            )
             .env("PYTHONHOME", self.root.join("not-installed-python"))
             .env("PYTHONPATH", self.root.join("not-installed-python"))
             .env("WECHAT_EXPORT_USERS", "must-not-select-this-user")

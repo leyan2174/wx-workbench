@@ -1,9 +1,12 @@
 //! 文件与合并转发附件的只读适配；复用严格消息定位，不接收任意缓存根或输出路径。
 use super::{ensure_complete_message_inventory, strict_message, DbCache, Names};
 use crate::{
-    adapters::wechat::media::strict_message::{self as media_message, Message},
+    adapters::wechat::media::{
+        attachment_content::{self, ErrorKind, Kind},
+        strict_message::{self as media_message, Message},
+    },
+    application::attachment_references,
     business::attachment_content::Selection,
-    toolkit::attachment_refs::{self, ErrorKind, Kind},
 };
 use anyhow::{ensure, Result};
 use serde_json::{json, Value};
@@ -50,7 +53,7 @@ pub async fn q_attachment_reference(
             Ok(metadata) => metadata,
             Err(error) => return Ok(attachment_error(error)),
         };
-        let reference = match attachment_refs::find_reference(&base, &metadata) {
+        let reference = match attachment_references::find_reference(&base, &metadata) {
             Ok(reference) => reference,
             Err(error) => return Ok(attachment_error(error)),
         };
@@ -81,7 +84,7 @@ fn failure(code: i32, text: &str) -> Value {
     json!({"exit_code":code,"text":text})
 }
 
-fn attachment_error(error: attachment_refs::Error) -> Value {
+fn attachment_error(error: attachment_content::Error) -> Value {
     let code = if error.kind == ErrorKind::Ambiguous {
         2
     } else {

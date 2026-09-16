@@ -36,4 +36,4 @@
 - 强制终止整个 worker 不执行 Rust 析构，不能保证自动删除所有遗留临时文件；进程回收不等于文件事务回滚。
 - 后台重启保留 `interrupted` 语义，不提供自动断点续跑。
 
-实现和使用说明见 [密钥存储](key-store.md)、[通信与导出](communication-and-export.md)、[业务与进程](business-and-process.md)、[ASR 后端](../src/toolkit/asr/BACKENDS.md)。
+实现和使用说明见 [密钥存储](key-store.md)、[通信与导出](communication-and-export.md)、[业务与进程](business-and-process.md)、[ASR 后端](asr-backends.md)。

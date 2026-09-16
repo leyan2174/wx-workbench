@@ -1,5 +1,8 @@
 //! Public CLI -> real daemon over migrated, isolated synthetic account databases.
 #![cfg(windows)]
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 
 #[path = "support/mcp_failure.rs"]
 mod mcp_failure;
@@ -83,7 +86,7 @@ fn seed(account: &support::Account) {
     let mut keys: Value = serde_json::from_slice(&fs::read(&keys_path).unwrap()).unwrap();
     keys["session/session.db"] = json!("11".repeat(32));
     fs::write(keys_path, serde_json::to_vec(&keys).unwrap()).unwrap();
-    account.migrate_keys();
+    account.seed_keys(&keys);
 }
 
 fn cli(account: &support::Account, home: &Path, args: &[&str]) -> Output {

@@ -1,18 +1,21 @@
 mod adapters;
+mod application;
 mod attachment;
 mod business;
 mod cli;
 mod config;
 mod crypto;
 mod daemon;
+mod infrastructure;
 mod ipc;
 mod key_store;
 mod mcp;
 mod message;
+mod private_file;
 mod runtime;
 mod scanner;
 mod service;
-mod toolkit;
+mod web;
 #[cfg(windows)]
 mod windows_process;
 
@@ -34,8 +37,6 @@ fn main() {
         }
     } else if std::env::var("WX_DAEMON_MODE").is_ok() {
         daemon::run();
-    } else if env!("CARGO_BIN_NAME") == "wx-toolbox" {
-        cli::run_toolbox();
     } else {
         cli::run();
     }

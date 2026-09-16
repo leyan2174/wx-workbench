@@ -9,7 +9,7 @@ this slice. This is implementation evidence, not a claim that tests were run.
   inspection, cache layout/indexing, legacy image scoring, video key association,
   bounded legacy JSON interpretation and recovery-reference projection. Codec
   algorithms are moved unchanged, not merged with the strict attachment codec.
-- `toolkit/sns/cache.rs` owns controlled recovery writes and source snapshot
+- `application/moments/cache.rs` owns controlled recovery writes and source snapshot
   checks. Its writer returns business `RecoveredMediaFile` values containing
   only a relative path and byte count. The adapter cannot choose an output root
   or execute a daemon operation. The compatibility host entry delegates all
@@ -35,7 +35,7 @@ history.
 
 ## Synthetic Evidence To Run
 
-- Existing `toolkit::sns::cache::cache_tests` golden DAT/header/dimension,
+- Existing `application::moments::cache::cache_tests` golden DAT/header/dimension,
   matching, exact-byte recovery, source mutation, root bounds and JSON projection
   assertions are retained and now execute the real adapter.
 - Added `adapter_recovery_uses_typed_writer_and_preserves_partial_failure`:
@@ -49,5 +49,6 @@ history.
   checking process failure, report fields, local-only scope and an untouched
   existing output tree.
 
-No Cargo, test run or commit was performed in this slice. Parent integration
-owns compilation and targeted/root/fixture validation.
+The implementation now lives under `application::moments`. Targeted module,
+timeline, album, download, image and video fixture tests passed on Windows x64
+MSVC with synthetic data. No real account, cache, download or upload was used.

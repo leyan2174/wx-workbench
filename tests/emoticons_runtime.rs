@@ -50,10 +50,9 @@ fn fixture_with_url(root: &Path, url: &str) -> Vec<(std::path::PathBuf, Vec<u8>)
     let old_source = root.join("db_storage/message/old-missing.db");
     fs::create_dir_all(old_source.parent().unwrap()).unwrap();
     fs::copy(&source, &old_source).unwrap();
-    key_store_fixture::migrate(
-        Path::new(env!("CARGO_BIN_EXE_wx")),
+    key_store_fixture::seed(
         &config,
-        &root.join("runtime"),
+        &json!({"emoticon/emoticon.db":"11".repeat(32), "message/old-missing.db":"11".repeat(32)}),
     );
     fs::remove_file(old_source).unwrap();
     [source, config, keys]
@@ -80,7 +79,6 @@ fn command(root: &Path) -> Command {
         .env_remove("WX_CLI_EXPECTED_RUNTIME")
         .env("WX_CLI_CONFIG", root.join("config.json"))
         .env("WX_CLI_HOME", root.join("runtime"))
-        .env("WX_WECHAT_DECRYPT_PYTHON", root.join("no-python.exe"))
         .env("PATH", "")
         .current_dir(root);
     command
@@ -93,6 +91,29 @@ fn success(output: Output) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+#[test]
+fn catalog_preview_uses_daemon_snapshot_and_restart_rejects_corrupt_store() {
+    let root = tempfile::tempdir().unwrap();
+    let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
+    let originals = fixture(root.path());
+    let first = success(run(root.path(), &["--dry-run"]));
+    assert!(first.contains(MD5));
+    let config: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("config.json")).unwrap()).unwrap();
+    let store = root.path().join(config["key_store"].as_str().unwrap());
+    fs::write(&store, b"corrupt synthetic ciphertext").unwrap();
+    assert_eq!(success(run(root.path(), &["--dry-run"])), first);
+    drop(bootstrap::RuntimeCleanup(root.path().join("runtime")));
+    let rejected = run(root.path(), &["--dry-run"]);
+    assert!(!rejected.status.success());
+    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("secret-aes"));
+    assert!(!root.path().join("exported_emoticons").exists());
+    assert_eq!(fs::read(store).unwrap(), b"corrupt synthetic ciphertext");
+    for (path, bytes) in originals {
+        assert_eq!(fs::read(path).unwrap(), bytes);
+    }
 }
 
 #[test]
@@ -146,14 +167,16 @@ fn per_item_failure_reports_failure_and_missing_keys_fail() {
         .contains("0 成功, 1 失败"));
     assert_eq!(fs::read_dir(root.path().join("out")).unwrap().count(), 0);
     fs::remove_file(root.path().join("keys.dpapi")).unwrap();
+    // Disk changes are observed on explicit reload or daemon restart.
+    drop(bootstrap::RuntimeCleanup(root.path().join("runtime")));
     assert!(!run(root.path(), &["--dry-run"]).status.success());
 }
 
 #[test]
-fn run_emoticons_help_precedes_configuration_and_process_checks() {
+fn export_emoticons_help_precedes_configuration_and_process_checks() {
     let root = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_wx"))
-        .args(["toolkit", "run", "emoticons", "--", "--help"])
+        .args(["toolkit", "export-emoticons", "--help"])
         .env_remove("WX_DAEMON_MODE")
         .env("WX_CLI_CONFIG", root.path().join("missing/config.json"))
         .env("WX_CLI_HOME", root.path().join("runtime"))
@@ -229,7 +252,7 @@ fn encrypted_catalog_downloads_and_publishes_over_loopback_http() {
 }
 
 #[test]
-fn run_emoticons_reuses_saved_keys_with_a_synthetic_live_process() {
+fn export_emoticons_reuses_saved_keys_without_process_scanning() {
     let root = tempfile::tempdir().unwrap();
     let _cleanup = bootstrap::RuntimeCleanup(root.path().join("runtime"));
     fixture(root.path());
@@ -248,7 +271,7 @@ fn run_emoticons_reuses_saved_keys_with_a_synthetic_live_process() {
     let keys = root.path().join("all_keys.json");
     let before = fs::read(&keys).unwrap();
     let output = command(root.path())
-        .args(["toolkit", "run", "emoticons", "--", "--dry-run"])
+        .args(["toolkit", "export-emoticons", "--dry-run"])
         .output()
         .unwrap();
     assert!(success(output).contains("Example"));

@@ -33,6 +33,7 @@ const EVENT_BYTES: usize = 4 * 1024 * 1024;
 pub struct Service {
     pub(super) runtime: RuntimeContext,
     pub(super) query: Arc<super::query_state::QueryState>,
+    pub(super) keys: Arc<super::worker_keys::Broker>,
     pub(super) records: Mutex<Records>,
     queue: mpsc::Sender<Work>,
     pub(super) shutdown: watch::Sender<bool>,
@@ -81,14 +82,16 @@ impl Service {
     pub fn new(
         runtime: RuntimeContext,
         query: Arc<super::query_state::QueryState>,
+        keys: Arc<super::worker_keys::Broker>,
     ) -> Result<(Arc<Self>, mpsc::Receiver<Work>)> {
-        let redactor = store::Redactor::new(&runtime)?;
+        let redactor = store::Redactor::new(&runtime, None)?;
         let (tasks, requests) = store::restore(&runtime, &redactor)?;
         let (queue, receiver) = mpsc::channel(QUEUE_LIMIT);
         let (shutdown, _) = watch::channel(false);
         let state = Arc::new(Self {
             runtime,
             query,
+            keys,
             queue,
             shutdown,
             changed: Notify::new(),
@@ -122,11 +125,21 @@ impl Service {
     }
 
     pub(crate) async fn refresh_configuration(&self) {
-        match store::Redactor::new(&self.runtime) {
-            Ok(redactor) => *self.redactor.lock().unwrap() = redactor,
-            Err(_) => self.request_shutdown(),
+        self.query.invalidate_keys().await;
+        if self.refresh_redactor().await.is_err() {
+            self.request_shutdown();
         }
-        self.query.invalidate().await;
+    }
+
+    pub(crate) async fn refresh_redactor(&self) -> Result<()> {
+        // Missing material must not prevent an authorized initialization task.
+        let snapshot = self.query.key_snapshot().await.ok();
+        let redactor = store::Redactor::new(
+            &self.runtime,
+            snapshot.as_ref().map(|lease| lease.key_material()),
+        )?;
+        *self.redactor.lock().unwrap() = redactor;
+        Ok(())
     }
 
     fn info(&self, records: &Records) -> Value {
@@ -160,6 +173,10 @@ impl Service {
             Call::OperationStart { .. }
             | Call::OperationPoll { .. }
             | Call::OperationCancel { .. }
+            | Call::WorkerKeys { .. }
+            | Call::WorkerKeyRevision { .. }
+            | Call::WorkerDatabaseKeys { .. }
+            | Call::WorkerImageMaterial { .. }
             | Call::Mcp { .. }
             | Call::Monitor { .. }
             | Call::Web { .. } => Err(failure(

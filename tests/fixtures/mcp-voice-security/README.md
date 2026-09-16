@@ -27,4 +27,4 @@ ASR 使用 message.server_id 与 media.svr_id 关联，媒体 local_id 不等于
 cargo test --offline --manifest-path tests/fixtures/mcp-voice-security/Cargo.toml --target x86_64-pc-windows-msvc -- --nocapture
 ```
 
-完整证据与限制见[数据库媒体契约](../../../src/toolkit/asr/DATABASE_MEDIA.md)。合成模式测试不代表覆盖所有微信版本。
+完整证据与限制见[数据库媒体契约](../../../src/adapters/wechat/media/VOICE_DATABASE.md)。合成模式测试不代表覆盖所有微信版本。

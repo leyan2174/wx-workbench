@@ -127,7 +127,24 @@ pub(super) async fn dispatch_state(req: Request, state: &QueryState) -> Response
     }
     match state.snapshot().await {
         Ok(lease) => {
-            let response = dispatch(req, lease.db(), lease.names()).await;
+            let response = match req {
+                Request::Extract {
+                    attachment_id,
+                    output,
+                    overwrite,
+                } => Response::from_result(
+                    super::query::q_extract(
+                        lease.db(),
+                        state.runtime(),
+                        lease.key_material(),
+                        &attachment_id,
+                        &output,
+                        overwrite,
+                    )
+                    .await,
+                ),
+                req => dispatch(req, lease.db(), lease.names()).await,
+            };
             drop(lease);
             response
         }
@@ -243,10 +260,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
     match req {
         Ping => Response::ok(serde_json::json!({ "pong": true })),
         LatencyProbe { limit } => match db.latency_probe(limit).await {
-            Ok(probe) => match serde_json::to_value(probe) {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            },
+            Ok(probe) => Response::from_result(serde_json::to_value(probe)),
             Err(error) => Response::err(error.to_string()),
         },
         ResolveChat { chat } => match query::q_resolve_chat(db, &names_arc, &chat).await {
@@ -273,16 +287,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             chat,
             local_id,
             create_time,
-        } => match query::q_decode_refer(db, &names_arc, &chat, local_id, create_time).await {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
+        } => Response::from_result(
+            query::q_decode_refer(db, &names_arc, &chat, local_id, create_time).await,
+        ),
         DecodeFileMessage {
             chat,
             local_id,
             create_time,
-        } => {
-            match query::mcp_attachments::q_attachment_reference(
+        } => Response::from_result(
+            query::mcp_attachments::q_attachment_reference(
                 db,
                 &names_arc,
                 &chat,
@@ -290,19 +303,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 create_time,
                 None,
             )
-            .await
-            {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
-        }
+            .await,
+        ),
         DecodeRecordItem {
             chat,
             local_id,
             item_index,
             create_time,
-        } => {
-            match query::mcp_attachments::q_attachment_reference(
+        } => Response::from_result(
+            query::mcp_attachments::q_attachment_reference(
                 db,
                 &names_arc,
                 &chat,
@@ -310,15 +319,11 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 create_time,
                 Some(item_index),
             )
-            .await
-            {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
-        }
+            .await,
+        ),
         DecodeVoice { chat, local_id } | TranscribeVoice { chat, local_id } => {
-            let limits = crate::toolkit::asr::prepared_audio::Limits {
-                max_audio_bytes: crate::toolkit::asr::database_media::MAX_VOICE_BYTES,
+            let limits = crate::application::transcription::prepared_audio::Limits {
+                max_audio_bytes: crate::adapters::wechat::media::voice::MAX_VOICE_BYTES,
                 // 为外层 prepared_audio 和 IPC 包装预留空间，不能靠放宽 MCP 帧解决。
                 max_response_bytes: crate::ipc::MAX_PREPARED_VOICE_RESPONSE_BYTES - 1024,
             };
@@ -386,87 +391,65 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 Ok::<_, anyhow::Error>(serde_json::json!({"voices": rows, "count": rows.len()}))
             }
             .await;
-            match result {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
+            Response::from_result(result)
         }
-        ExportChatList => match query::q_export_chat_list(db, &names_arc).await {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
-        ExportDirectoryCatalog => match query::q_export_directory_catalog(db, &names_arc).await {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
+        ExportChatList => Response::from_result(query::q_export_chat_list(db, &names_arc).await),
+        ExportDirectoryCatalog => {
+            Response::from_result(query::q_export_directory_catalog(db, &names_arc).await)
+        }
         ExportDelta {
             username,
             start,
             end,
-        } => {
-            match query::q_export_delta_username(db, &names_arc, username, Some(start), end).await {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
-        }
+        } => Response::from_result(
+            query::q_export_delta_username(db, &names_arc, username, Some(start), end).await,
+        ),
         ExportChatByUsername { username } => {
-            match query::q_export_username(db, &names_arc, username).await {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
+            Response::from_result(query::q_export_username(db, &names_arc, username).await)
         }
-        ExportDirectoryByUsername { username } => {
-            match query::q_export_directory_by_username(db, &names_arc, username).await {
-                Ok(value) => Response::ok(value),
-                Err(error) => Response::err(error.to_string()),
-            }
+        ExportDirectoryByUsername { username } => Response::from_result(
+            query::q_export_directory_by_username(db, &names_arc, username).await,
+        ),
+        ExportChat { chat } => {
+            Response::from_result(query::q_export_chat(db, &names_arc, &chat).await)
         }
-        ExportChat { chat } => match query::q_export_chat(db, &names_arc, &chat).await {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
         DecodeTransfer {
             chat,
             local_id,
             create_time,
-        } => match query::q_decode(
-            db,
-            &names_arc,
-            &chat,
-            local_id,
-            create_time,
-            query::DecodeKind::Transfer,
-        )
-        .await
-        {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
+        } => Response::from_result(
+            query::q_decode(
+                db,
+                &names_arc,
+                &chat,
+                local_id,
+                create_time,
+                query::DecodeKind::Transfer,
+            )
+            .await,
+        ),
         DecodeLocation {
             chat,
             local_id,
             create_time,
-        } => match query::q_decode(
-            db,
-            &names_arc,
-            &chat,
-            local_id,
-            create_time,
-            query::DecodeKind::Location,
-        )
-        .await
-        {
-            Ok(value) => Response::ok(value),
-            Err(error) => Response::err(error.to_string()),
-        },
+        } => Response::from_result(
+            query::q_decode(
+                db,
+                &names_arc,
+                &chat,
+                local_id,
+                create_time,
+                query::DecodeKind::Location,
+            )
+            .await,
+        ),
         Sessions {
             limit,
             with_meta,
             debug_source,
-        } => match query::q_sessions(db, &names_arc, limit, with_meta, debug_source).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
+        } => Response::from_result(
+            query::q_sessions(db, &names_arc, limit, with_meta, debug_source).await,
+        ),
         History {
             chat,
             limit,
@@ -545,97 +528,64 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        Contacts {
-            query,
-            limit,
-            legacy_view,
-        } => {
-            let result = if legacy_view {
-                query::mcp_contacts_legacy::q_contacts_legacy(db, query.as_deref(), limit).await
-            } else {
-                query::q_contacts(&names_arc, query.as_deref(), limit).await
-            };
-            match result {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+        Contacts(request) => Response::from_result(
+            query::q_contacts(&names_arc, request.query.as_deref(), request.limit).await,
+        ),
         Unread {
             limit,
             filter,
             with_meta,
             debug_source,
-        } => match query::q_unread(db, &names_arc, limit, filter, with_meta, debug_source).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
-        Members { chat } => match query::q_members(db, &names_arc, &chat).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
+        } => Response::from_result(
+            query::q_unread(db, &names_arc, limit, filter, with_meta, debug_source).await,
+        ),
+        Members { chat } => Response::from_result(query::q_members(db, &names_arc, &chat).await),
         NewMessages {
             state,
             limit,
             with_meta,
             debug_source,
-        } => {
-            match query::q_new_messages(db, &names_arc, state, limit, with_meta, debug_source).await
-            {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+        } => Response::from_result(
+            query::q_new_messages(db, &names_arc, state, limit, with_meta, debug_source).await,
+        ),
         Favorites {
             limit,
             fav_type,
             query,
-        } => match query::q_favorites(db, limit, fav_type, query).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
+        } => Response::from_result(query::q_favorites(db, limit, fav_type, query).await),
         Stats {
             chat,
             since,
             until,
             with_meta,
             debug_source,
-        } => {
-            match query::q_stats(db, &names_arc, &chat, since, until, with_meta, debug_source).await
-            {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+        } => Response::from_result(
+            query::q_stats(db, &names_arc, &chat, since, until, with_meta, debug_source).await,
+        ),
         SnsNotifications {
             limit,
             since,
             until,
             include_read,
-        } => {
-            match query::q_sns_notifications(db, &names_arc, limit, since, until, include_read)
-                .await
-            {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+        } => Response::from_result(
+            query::q_sns_notifications(db, &names_arc, limit, since, until, include_read).await,
+        ),
         SnsFeed {
             limit,
             since,
             until,
             user,
-        } => match query::q_sns_feed(db, &names_arc, limit, since, until, user.as_deref()).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
+        } => Response::from_result(
+            query::q_sns_feed(db, &names_arc, limit, since, until, user.as_deref()).await,
+        ),
         SnsSearch {
             keyword,
             limit,
             since,
             until,
             user,
-        } => {
-            match query::q_sns_search(
+        } => Response::from_result(
+            query::q_sns_search(
                 db,
                 &names_arc,
                 &keyword,
@@ -644,12 +594,8 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 until,
                 user.as_deref(),
             )
-            .await
-            {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+            .await,
+        ),
         ReloadConfig => {
             match query::load_names_with_retry(db, 3, std::time::Duration::from_millis(300)).await {
                 Ok(mut fresh) => {
@@ -668,13 +614,9 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             since,
             until,
             unread,
-        } => {
-            match query::q_biz_articles(db, &names_arc, limit, account, since, until, unread).await
-            {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
-        }
+        } => Response::from_result(
+            query::q_biz_articles(db, &names_arc, limit, account, since, until, unread).await,
+        ),
         Attachments {
             chat,
             image_metadata,
@@ -701,18 +643,10 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             } else {
                 query::q_attachments(db, &names_arc, &chat, options).await
             };
-            match result {
-                Ok(v) => Response::ok(v),
-                Err(e) => Response::err(e.to_string()),
-            }
+            Response::from_result(result)
         }
-        Extract {
-            attachment_id,
-            output,
-            overwrite,
-        } => match query::q_extract(db, &names_arc, &attachment_id, &output, overwrite).await {
-            Ok(v) => Response::ok(v),
-            Err(e) => Response::err(e.to_string()),
-        },
+        Extract { .. } => {
+            Response::err("Attachment extraction requires an account-bound query lease")
+        }
     }
 }

@@ -1,6 +1,6 @@
 //! 可注入查询器的 MCP 子集；不打开数据库、不启动 daemon、不访问全局标准输出。
 use crate::ipc::{Request, Response};
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
+use chrono::{Local, TimeZone};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -286,9 +286,9 @@ pub fn tools() -> Vec<Tool> {
         ),
         (
             "get_contacts",
-            "Find contacts via Rust Contacts",
+            "List people via the selected account's native contact snapshot",
             "contacts",
-            json!({"query":string(),"limit":limit}),
+            json!({"query":string(),"limit":integer(0,500)}),
             vec![],
         ),
         (
@@ -362,23 +362,11 @@ pub fn tools() -> Vec<Tool> {
     }
     for tool in &mut out {
         let properties = tool.input_schema["properties"].as_object_mut().unwrap();
-        if [
-            "get_chat_history",
-            "search_messages",
-            "get_chat_images",
-            "get_voice_messages",
-        ]
-        .contains(&tool.name)
-        {
-            properties.insert("start_time".into(), string());
-            properties.insert("end_time".into(), string());
-        }
         if tool.name == "get_chat_history" {
             properties.insert("oldest_first".into(), json!({"type":"boolean","default":false,"description":"在全部分片过滤合并后选择最早页；默认选择最新页"}));
             properties.insert("msg_types".into(), json!({"anyOf":[{"type":"null"},{"type":"array","items":string(),"maxItems":100}],"description":"空列表表示全部；多个类型按并集筛选，与 msg_type 互斥"}));
         }
         if tool.name == "search_messages" {
-            properties.insert("chat_name".into(), json!({"anyOf":[{"type":"null"},string(),{"type":"array","items":string(),"maxItems":100}]}));
             properties.insert("offset".into(), integer(0, (MAX_CANDIDATES - 1) as i64));
         }
     }
@@ -430,9 +418,6 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
         }
     }
     for key in ["chat_name", "keyword"] {
-        if name == "search_messages" && key == "chat_name" {
-            continue;
-        }
         if args
             .get(key)
             .and_then(Value::as_str)
@@ -442,19 +427,6 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
         }
     }
     let mut mapped = args.clone();
-    if name == "get_contacts" {
-        mapped.insert("legacy_view".into(), json!(true));
-    }
-    for (legacy, native, end) in [("start_time", "since", false), ("end_time", "until", true)] {
-        if let Some(value) = mapped.remove(legacy) {
-            if let Some(timestamp) = parse_legacy_time(value.as_str().unwrap(), end)? {
-                if mapped.contains_key(native) {
-                    return Err("Conflicting time arguments");
-                }
-                mapped.insert(native.into(), json!(timestamp));
-            }
-        }
-    }
     if let (Some(since), Some(until)) = (
         mapped.get("since").and_then(Value::as_i64),
         mapped.get("until").and_then(Value::as_i64),
@@ -484,26 +456,6 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
         }
     }
     if name == "search_messages" {
-        if let Some(chats) = mapped.remove("chat_name") {
-            if mapped.contains_key("chats") {
-                return Err("Conflicting chat arguments");
-            }
-            let values = if chats.is_string() {
-                vec![chats]
-            } else {
-                chats.as_array().cloned().unwrap_or_default()
-            };
-            let mut names = Vec::new();
-            for value in values {
-                let chat = value.as_str().unwrap().trim().to_owned();
-                if !chat.is_empty() && !names.contains(&chat) {
-                    names.push(chat);
-                }
-            }
-            if !names.is_empty() {
-                mapped.insert("chats".into(), json!(names));
-            }
-        }
         let offset = mapped
             .remove("offset")
             .and_then(|v| v.as_u64())
@@ -529,31 +481,6 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
     }
     mapped.insert("cmd".into(), json!(tool.command));
     serde_json::from_value(Value::Object(mapped)).map_err(|_| "Invalid IPC arguments")
-}
-
-/// 与旧 Python 的本机时区规则一致；DST 重叠/空洞不猜测，要求改传 Unix 秒。
-fn parse_legacy_time(value: &str, end: bool) -> Result<Option<i64>, &'static str> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Ok(None);
-    }
-    let date = if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        if end {
-            date.and_hms_opt(23, 59, 59)
-        } else {
-            date.and_hms_opt(0, 0, 0)
-        }
-    } else {
-        ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"]
-            .iter()
-            .find_map(|fmt| NaiveDateTime::parse_from_str(value, fmt).ok())
-    }
-    .ok_or("Invalid legacy date; use YYYY-MM-DD [HH:MM[:SS]]")?;
-    Local
-        .from_local_datetime(&date)
-        .single()
-        .map(|d| Some(d.timestamp()))
-        .ok_or("Ambiguous or nonexistent local time; use Unix seconds")
 }
 
 fn error(id: Value, code: i64, message: &str) -> Value {
@@ -727,7 +654,7 @@ impl<D: Dispatcher> Protocol<D> {
                     self.phase = Phase::AwaitingInitialized;
                     result(
                         id,
-                        json!({"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"wx-cli-native-mcp","version":"0.1.0"}}),
+                        json!({"protocolVersion":PROTOCOL_VERSION,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"wx-workbench-mcp","version":env!("CARGO_PKG_VERSION")}}),
                     )
                 }
             }

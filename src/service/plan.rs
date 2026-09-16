@@ -161,8 +161,8 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
         "上传授权必须属于本次转录任务"
     );
     if o.with_transcriptions {
-        use crate::toolkit::asr::backend::{BackendId, Entry};
-        let backend = BackendId::parse(&settings.transcription_backend, Entry::ConfiguredBatch)?;
+        use crate::service::operation_requests::asr::BackendId;
+        let backend = BackendId::parse(&settings.transcription_backend)?;
         ensure!(
             (backend == BackendId::OpenAiCompatible) == o.allow_upload,
             "云端转录须明确授权上传；本地转录不接受上传选项"
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn combined_plan_preserves_order_and_typed_parameters() {
         let settings = Settings {
-            transcription_backend: "local".into(),
+            transcription_backend: "python_whisper".into(),
             ..Default::default()
         };
         let r = Submission {
@@ -326,7 +326,7 @@ mod tests {
     #[test]
     fn cloud_consent_is_explicit() {
         let mut settings = Settings {
-            transcription_backend: "openai".into(),
+            transcription_backend: "openai_compatible".into(),
             ..Default::default()
         };
         let mut r = Submission {
@@ -337,21 +337,23 @@ mod tests {
         assert!(validate(&r, &settings).is_err());
         r.options.allow_upload = true;
         assert!(validate(&r, &settings).is_ok());
-        settings.transcription_backend = "local".into();
+        settings.transcription_backend = "python_whisper".into();
         assert!(validate(&r, &settings).is_err());
-        for name in ["openai", "openai_compatible", "explicit-open-ai"] {
+        settings.transcription_backend = "openai_compatible".into();
+        r.options.allow_upload = false;
+        assert!(validate(&r, &settings).is_err());
+        r.options.allow_upload = true;
+        assert!(validate(&r, &settings).is_ok());
+        for name in ["python_whisper", "whisper_cpp"] {
             settings.transcription_backend = name.into();
-            r.options.allow_upload = false;
-            assert!(validate(&r, &settings).is_err());
             r.options.allow_upload = true;
+            assert!(validate(&r, &settings).is_err());
+            r.options.allow_upload = false;
             assert!(validate(&r, &settings).is_ok());
         }
-        for name in ["local", "python_whisper", "whisper_cpp"] {
+        for name in ["local", "openai", "explicit-open-ai"] {
             settings.transcription_backend = name.into();
-            r.options.allow_upload = true;
             assert!(validate(&r, &settings).is_err());
-            r.options.allow_upload = false;
-            assert!(validate(&r, &settings).is_ok());
         }
     }
 }

@@ -152,14 +152,8 @@ impl ContactSource for Directory {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ContactView {
-    People,
-    VisibleDirectory,
-}
 pub struct ContactQuery<'a> {
     pub text: Option<&'a str>,
-    pub view: ContactView,
     pub offset: usize,
     pub limit: usize,
 }
@@ -170,7 +164,7 @@ pub struct ContactPage {
         not(test),
         expect(
             dead_code,
-            reason = "Typed continuation offset is retained while legacy wire only projects total and items"
+            reason = "Typed continuation offset is retained while contact wire only projects total and items"
         )
     )]
     pub next_offset: Option<usize>,
@@ -179,12 +173,7 @@ pub struct ContactPage {
 pub fn list(source: &impl ContactSource, query: ContactQuery<'_>) -> Result<ContactPage> {
     validate_query(query.text.unwrap_or(""))?;
     let directory = source.contacts()?;
-    if matches!(query.view, ContactView::VisibleDirectory)
-        && !directory.contacts.iter().any(|contact| contact.visible)
-    {
-        return Err(Error::Unavailable);
-    }
-    if matches!(query.view, ContactView::People) && !directory.capabilities.classification {
+    if !directory.capabilities.classification {
         return Err(Error::Unsupported("contact classification"));
     }
     let needle = query.text.unwrap_or("").to_lowercase();
@@ -192,27 +181,13 @@ pub fn list(source: &impl ContactSource, query: ContactQuery<'_>) -> Result<Cont
         .contacts
         .into_iter()
         .filter(|contact| {
-            let eligible = match query.view {
-                ContactView::People => contact.kind == ContactKind::Person,
-                ContactView::VisibleDirectory => contact.visible,
-            };
-            eligible
+            contact.kind == ContactKind::Person
                 && (needle.is_empty()
                     || contact.id.0.to_lowercase().contains(&needle)
-                    || match query.view {
-                        ContactView::People => contact.display().to_lowercase().contains(&needle),
-                        ContactView::VisibleDirectory => {
-                            [contact.nickname.as_deref(), contact.remark.as_deref()]
-                                .into_iter()
-                                .flatten()
-                                .any(|name| name.to_lowercase().contains(&needle))
-                        }
-                    })
+                    || contact.display().to_lowercase().contains(&needle))
         })
         .collect();
-    if matches!(query.view, ContactView::People) {
-        contacts.sort_by(|a, b| a.display().cmp(b.display()).then(a.id.cmp(&b.id)));
-    }
+    contacts.sort_by(|a, b| a.display().cmp(b.display()).then(a.id.cmp(&b.id)));
     let total = contacts.len();
     let contacts: Vec<_> = contacts
         .into_iter()
@@ -361,7 +336,6 @@ mod tests {
             &source,
             ContactQuery {
                 text: Some("same"),
-                view: ContactView::People,
                 offset: 0,
                 limit: 1,
             },

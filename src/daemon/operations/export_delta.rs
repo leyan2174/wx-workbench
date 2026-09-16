@@ -1,6 +1,8 @@
 //! delta 命令编排；账号查询经现有 IPC，文件发布只处理原始增量模型。
+use crate::application::chat_delta_export::{
+    ContactMetadata, DeltaChat, DeltaRunWriter, DeltaWindow,
+};
 use crate::business::archive::{self, DeltaPublisher, DeltaSource, Failure, Publication, Stage};
-use crate::toolkit::chat_delta::{ContactMetadata, DeltaChat, DeltaRunWriter, DeltaWindow};
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::path::{Component, Path, PathBuf};
@@ -73,7 +75,7 @@ pub fn cmd(args: Args) -> Result<()> {
         &users,
         window,
         args.append_run,
-        &crate::toolkit::export_protected(&runtime),
+        &crate::infrastructure::publication::export_protected(&runtime),
         dispatch,
     )?;
     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -153,7 +155,7 @@ where
     }))
 }
 
-// The legacy raw-export document is intentionally confined to the IPC/format boundary.
+// The raw-export document is intentionally confined to the IPC/format boundary.
 struct RawDelta {
     chat: DeltaChat,
     warnings: Option<Value>,

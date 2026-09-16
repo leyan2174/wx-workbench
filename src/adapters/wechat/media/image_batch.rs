@@ -1,5 +1,5 @@
 //! WeChat batch image layout and decoding policy. No filesystem or publication authority.
-use crate::attachment::decoder::{self, DecodedImage, V2_MAGIC};
+use crate::attachment::decoder::{self, RestoredImage, V2_MAGIC};
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
@@ -19,7 +19,7 @@ pub(crate) enum DecodeMode {
 }
 
 pub(crate) enum Decoded {
-    Image(DecodedImage),
+    Image(RestoredImage),
     MissingKey,
 }
 
@@ -27,7 +27,7 @@ pub(crate) fn decode(bytes: &[u8], keys: KeyMaterial<'_>, mode: DecodeMode) -> R
     if matches!(mode, DecodeMode::Batch) && keys.aes_key.is_none() && bytes.starts_with(&V2_MAGIC) {
         return Ok(Decoded::MissingKey);
     }
-    decoder::dispatch(bytes, keys).map(Decoded::Image)
+    decoder::restore(bytes, keys).map(Decoded::Image)
 }
 
 fn stem(path: &Path) -> Result<String> {

@@ -25,7 +25,7 @@ def execute(arguments, name):
 
 def main():
     execute(["check"], "check")
-    for scope in ("export_delta", "toolkit::chat_delta", "business::archive"):
+    for scope in ("export_delta", "application::chat_delta_export", "business::archive"):
         execute(["test", "--bin", "wx", scope], scope.replace("::", "-"))
 
 

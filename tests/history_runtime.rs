@@ -4,4 +4,4 @@
 #[path = "fixtures/mcp-history-compat/runtime.rs"]
 mod history;
 
-use history::safe_failure;
+use history::{private_file, safe_failure};

@@ -2,22 +2,17 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum BackendKind {
-    Local,
     #[value(name = "whisper_cpp")]
     WhisperCpp,
     #[value(name = "python_whisper")]
     PythonWhisper,
-    #[value(
-        name = "openai_compatible",
-        alias = "explicit-open-ai",
-        alias = "openai"
-    )]
-    ExplicitOpenAi,
+    #[value(name = "openai_compatible")]
+    OpenAiCompatible,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct BackendArgs {
-    #[arg(long, value_enum, default_value = "local")]
+    #[arg(long, value_enum, default_value = "whisper_cpp")]
     pub backend: BackendKind,
     /// 显式 whisper.cpp 可执行文件路径
     #[arg(long)]
@@ -70,10 +65,9 @@ pub struct TranscribeChatNativeArgs {
 impl From<BackendKind> for crate::service::operation_requests::asr::BackendKind {
     fn from(value: BackendKind) -> Self {
         match value {
-            BackendKind::Local => Self::Local,
             BackendKind::WhisperCpp => Self::WhisperCpp,
             BackendKind::PythonWhisper => Self::PythonWhisper,
-            BackendKind::ExplicitOpenAi => Self::ExplicitOpenAi,
+            BackendKind::OpenAiCompatible => Self::OpenAiCompatible,
         }
     }
 }
@@ -81,13 +75,12 @@ impl From<BackendKind> for crate::service::operation_requests::asr::BackendKind 
 impl From<crate::service::operation_requests::asr::BackendKind> for BackendKind {
     fn from(value: crate::service::operation_requests::asr::BackendKind) -> Self {
         match value {
-            crate::service::operation_requests::asr::BackendKind::Local => Self::Local,
             crate::service::operation_requests::asr::BackendKind::WhisperCpp => Self::WhisperCpp,
             crate::service::operation_requests::asr::BackendKind::PythonWhisper => {
                 Self::PythonWhisper
             }
-            crate::service::operation_requests::asr::BackendKind::ExplicitOpenAi => {
-                Self::ExplicitOpenAi
+            crate::service::operation_requests::asr::BackendKind::OpenAiCompatible => {
+                Self::OpenAiCompatible
             }
         }
     }

@@ -1,7 +1,9 @@
 //! 原生语音管线的账号级字节适配；不写 WAV、不上传、不读取后端或凭据配置。
 use super::{DbCache, Names};
-use crate::toolkit::asr::database_media::{self, DatabaseVoice, DecryptedSource};
-use crate::toolkit::asr::prepared_audio;
+use crate::adapters::wechat::media::voice::{
+    self as database_media, DatabaseVoice, DecryptedSource,
+};
+use crate::application::transcription::prepared_audio;
 use anyhow::{ensure, Context, Result};
 use std::{
     collections::{BTreeMap, BTreeSet},

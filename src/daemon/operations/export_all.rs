@@ -1,9 +1,10 @@
 //! 旧批量导出的统一原生宿主；模式选择、账号固定和转录在同一流程内完成。
 use crate::{
+    application::{chat_delta_export::DeltaWindow, chat_plan_selection::Plan},
+    business::chat_plan::PlanChat,
     ipc::Request,
     message::export::Target,
     runtime::RuntimeContext,
-    toolkit::{chat_delta::DeltaWindow, chat_plan::PlanChat, chat_plan_selection::Plan},
 };
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -231,7 +232,7 @@ fn export_delta(runtime: &RuntimeContext, args: Args, output: &Path) -> Result<V
         &users,
         window,
         output.try_exists()?,
-        &crate::toolkit::export_protected(runtime),
+        &crate::infrastructure::publication::export_protected(runtime),
         |query| {
             let mut value = crate::service::query_client::send_for(
                 runtime,

@@ -13,9 +13,7 @@ use std::{
     time::Duration,
 };
 
-#[path = "../../../src/toolkit/private_file.rs"]
-#[allow(dead_code)]
-mod private_file;
+use crate::private_file;
 
 #[allow(
     dead_code,

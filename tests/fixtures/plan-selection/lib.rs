@@ -6,12 +6,12 @@ pub mod service {
     }
 }
 
-#[path = "../../../src/toolkit/chat_plan_selection.rs"]
+#[path = "../../../src/application/chat_plan_selection.rs"]
 pub mod selection;
 
 #[cfg(test)]
 mod tests {
-    use super::selection::{Mode, Plan};
+    use super::{plan_request::Mode, selection::Plan};
     use serde_json::{json, Value};
     use std::io::Read;
 

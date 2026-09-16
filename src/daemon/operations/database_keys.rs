@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use zeroize::Zeroize;
 
-use super::toolkit_run_prepare::{save_keys, snapshot_keys, validate_keys};
+use super::database_key_validation::validate_keys;
 use crate::{attachment::local_files::HostOutputGuard, runtime::RuntimeContext};
 
 pub use crate::service::operation_requests::database_keys::Args;
@@ -32,8 +32,11 @@ fn extract_for(runtime: &RuntimeContext) -> Result<Value> {
         current.same_account(runtime)?,
         "选中账号配置发生变化，未开始扫描"
     );
-    let store = crate::key_store::Store::for_runtime(runtime)?;
-    let target = store.path();
+    let target = runtime
+        .config
+        .key_store
+        .as_deref()
+        .context("当前账号未配置正式密钥存储")?;
     let parent = target.parent().context("密钥输出缺少父目录")?;
     let output_guard = HostOutputGuard::new(parent)?;
     output_guard.verify_replaceable_file(target)?;
@@ -64,7 +67,7 @@ fn extract_for(runtime: &RuntimeContext) -> Result<Value> {
             "密钥输出不得覆盖配置文件别名"
         );
     }
-    let before = snapshot_keys(target)?;
+    let before = crate::service::worker_keys::expected_revision(runtime)?;
     let source_guard = HostOutputGuard::new(&runtime.config.db_dir)?;
     let mut entries =
         crate::scanner::scan_keys_checked(&runtime.config.db_dir, &runtime.config.wechat_process)?;
@@ -82,12 +85,18 @@ fn extract_for(runtime: &RuntimeContext) -> Result<Value> {
         config_pin.verify(runtime)?;
         output_guard.verify_replaceable_file(target)?;
         ensure!(
-            snapshot_keys(target)? == before,
-            "扫描期间密钥文件发生变化，拒绝覆盖并发修改"
+            crate::service::worker_keys::expected_revision(runtime)? == before,
+            "扫描期间密钥代际发生变化，拒绝覆盖并发修改"
         );
-        save_keys(runtime, &keys)?;
+        let count = keys.len();
+        crate::service::worker_keys::commit_sync(
+            runtime,
+            vec![crate::service::worker_keys::MaterialChange::Databases(
+                std::mem::take(&mut keys),
+            )],
+        )?;
         Ok(
-            json!({"engine":"rust", "account_id":runtime.id, "databases":keys.len(),
+            json!({"engine":"rust", "account_id":runtime.id, "databases":count,
             "keys_updated":true, "keys_redacted":true, "config_updated":false}),
         )
     })();

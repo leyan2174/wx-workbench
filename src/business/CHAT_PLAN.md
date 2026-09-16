@@ -20,7 +20,7 @@ This describes the available cache, not a complete account inventory.
 
 The planning adapter's `scan` module owns the WeChat media-root mapping, directory
 targets, missing-lane interpretation and unchanged pinned attribute-only scanner.
-`toolkit::chat_plan` retains scan thread execution, guard lifetimes and presentation.
+`application::chat_export_plan` owns scan thread execution, guard lifetimes and presentation.
 It converts typed reasons to sorted legacy
 `partial:...` labels only at the output boundary. The CLI CSV publisher remains
 the existing shared ExportTarget implementation, unchanged by this slice.
@@ -44,6 +44,6 @@ Compatibility rules:
 
 Validation includes memory-source business tests, real synthetic SQLite adapter
 tests, the existing Python/SQLite differential and scan security tests in
-`toolkit/chat_plan_tests.rs`, plus `tests/chat_plan_runtime.rs` and its fixtures.
+`application/chat_export_plan_tests.rs`, plus `tests/chat_plan_runtime.rs` and its fixtures.
 The root business-contracts test loads the actual business module registration.
 No new fixture stand-ins or private account inputs are required.

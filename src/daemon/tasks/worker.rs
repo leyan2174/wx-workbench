@@ -1,4 +1,4 @@
-use super::{now, process, store::Redactor, Service, Work};
+use super::{now, process, Service, Work};
 use crate::{
     attachment::local_files::HostOutputGuard,
     service::{config_pin::ConfigPin, plan, protocol::Kind},
@@ -115,7 +115,6 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
             "Queued task configuration changed"
         );
         pin = Some(locked);
-        *state.redactor.lock().unwrap() = Redactor::new(&state.runtime)?;
         let steps = plan::plan(
             &work.request,
             &work.settings,
@@ -134,7 +133,7 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         .into_iter()
         .flatten()
         {
-            crate::toolkit::separate(source, &task.output_dir)?;
+            crate::infrastructure::publication::separate(source, &task.output_dir)?;
         }
         let parent = task
             .output_dir
@@ -158,7 +157,7 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
                 &format!("开始步骤 {}/{}", index + 1, steps.len()),
             );
             let suppress = matches!(work.request.kind, Kind::ImageKey | Kind::WechatKeys);
-            let (mut child, job) = process::spawn(&state.runtime, step).await?;
+            let (mut child, job, _registration) = process::spawn(&state.runtime, step, &state.keys).await?;
             let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
                 process::reap(child, job).await?;
                 anyhow::bail!("Task output handles unavailable");
@@ -224,9 +223,6 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
     let identity_changed = pin
         .as_ref()
         .is_some_and(|pin| pin.verify(&state.runtime).is_err());
-    if matches!(work.request.kind, Kind::WechatKeys | Kind::ImageKey) {
-        state.refresh_configuration().await;
-    }
     if identity_changed {
         state.log(&work.id, "system", "配置身份复核失败，后台停止接受任务");
         state.request_shutdown();
@@ -254,9 +250,12 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
                     task.error = Some(outcome.public_message().into());
                 }
             }
-            Err(_) => {
+            Err(error) => {
                 task.status = "failed".into();
-                task.error = Some("任务预检、启动或执行失败，未公开内部诊断".into());
+                task.error = Some(error.downcast_ref::<crate::key_store::Error>().map_or_else(
+                    || "任务预检、启动或执行失败，未公开内部诊断".into(),
+                    ToString::to_string,
+                ));
             }
         }
     });

@@ -373,7 +373,7 @@ fn validate_bodies(
     ensure!(!bodies.is_empty(), "离线验证必须提供实际图片样本");
     for body in bodies {
         budget.check()?;
-        let decoded = v2::decode(
+        let decoded = v2::restore(
             body,
             V2KeyMaterial {
                 aes_key: Some(key),

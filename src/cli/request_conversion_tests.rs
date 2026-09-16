@@ -8,31 +8,29 @@ fn parse<T: clap::Args + clap::FromArgMatches>(argv: &[&str]) -> T {
 }
 
 #[test]
-fn backend_defaults_and_legacy_aliases_survive_the_cli_boundary() {
+fn backend_defaults_and_canonical_names_cross_the_cli_boundary() {
     use super::operation_args::asr::BackendArgs as CliArgs;
     use crate::service::operation_requests::asr::BackendArgs;
     let defaults: BackendArgs = parse::<CliArgs>(&["fixture"]).into();
     let wire = serde_json::to_value(&defaults).unwrap();
     assert_eq!(wire, serde_json::to_value(BackendArgs::default()).unwrap());
-    assert_eq!(wire["backend"], "Local");
+    assert_eq!(wire["backend"], "whisper_cpp");
     assert_eq!(wire["timeout_seconds"], 120);
     assert_eq!(wire["allow_upload"], false);
-    for (alias, expected) in [
-        ("local", "Local"),
+    for (name, expected) in [
         ("whisper_cpp", "whisper_cpp"),
         ("python_whisper", "python_whisper"),
+        ("openai_compatible", "openai_compatible"),
     ] {
-        let args: BackendArgs = parse::<CliArgs>(&["fixture", "--backend", alias]).into();
+        let args: BackendArgs = parse::<CliArgs>(&["fixture", "--backend", name]).into();
         assert_eq!(serde_json::to_value(args).unwrap()["backend"], expected);
     }
-    for alias in ["explicit-open-ai", "openai", "openai_compatible"] {
-        let args: BackendArgs = parse::<CliArgs>(&["fixture", "--backend", alias]).into();
-        assert_eq!(
-            serde_json::to_value(&args).unwrap()["backend"],
-            "openai_compatible"
+    for old in ["local", "openai", "explicit-open-ai"] {
+        assert!(
+            <CliArgs as clap::Args>::augment_args(clap::Command::new("fixture"))
+                .try_get_matches_from(["fixture", "--backend", old])
+                .is_err()
         );
-        assert!(!args.allow_upload);
-        assert!(args.validate_explicit().is_err());
     }
 }
 
@@ -41,7 +39,7 @@ fn mcp_host_conversion_preserves_explicit_authorization_and_paths() {
     let parsed = parse::<super::operation_args::mcp_voice::Args>(&[
         "fixture",
         "--backend",
-        "openai",
+        "openai_compatible",
         "--allow-upload",
         "--openai-base-url",
         "https://example.invalid/v1",

@@ -29,11 +29,14 @@ fn run(root: &Path, mode: &str) -> emoticons_download_tests::download::Downloade
                 Err(error) => panic!("synthetic HTTP failure: {error}"),
             }
         };
+        // Windows accepts sockets with the listener's nonblocking mode. The
+        // request can arrive just after accept, so switch back before reading.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         let mut request = [0; 4096];
-        stream.read(&mut request).unwrap();
+        assert!(stream.read(&mut request).unwrap() > 0);
         let body = b"WXGF\x00\x00\x00\x01\x40\x01synthetic";
         write!(
             stream,

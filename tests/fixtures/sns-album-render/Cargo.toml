@@ -7,7 +7,7 @@ publish = false
 [workspace]
 
 [lib]
-path = "../../../src/toolkit/sns/album_render.rs"
+path = "../../../src/application/moments/album_render.rs"
 
 [dependencies]
 anyhow = "1"

@@ -13,7 +13,7 @@
 
 use anyhow::{anyhow, Result};
 
-use super::{detect_image_format, DecodedImage};
+use super::{detect_image_format, RestoredImage};
 
 const PNG: &[u8] = &[0x89, 0x50, 0x4E, 0x47];
 const GIF: &[u8] = &[0x47, 0x49, 0x46, 0x38];
@@ -72,7 +72,7 @@ pub fn detect_key(file_bytes: &[u8]) -> Option<u8> {
 }
 
 /// XOR 解码整个 `.dat` 内容。
-pub fn decode(file_bytes: &[u8]) -> Result<DecodedImage> {
+pub fn restore(file_bytes: &[u8]) -> Result<RestoredImage> {
     let key = detect_key(file_bytes)
         .ok_or_else(|| anyhow!("legacy XOR: 无法识别图片 magic（key 探测失败）"))?;
     let data: Vec<u8> = file_bytes.iter().map(|b| b ^ key).collect();
@@ -83,7 +83,7 @@ pub fn decode(file_bytes: &[u8]) -> Result<DecodedImage> {
             key
         ));
     }
-    Ok(DecodedImage {
+    Ok(RestoredImage {
         data,
         format,
         decoder: "legacy_xor",
@@ -165,7 +165,7 @@ mod tests {
         let mut plain = vec![0xFF, 0xD8, 0xFF, 0xE0];
         plain.extend_from_slice(b"JFIF padding here");
         let enc = xor_encrypt(&plain, 0xAB);
-        let out = decode(&enc).unwrap();
+        let out = restore(&enc).unwrap();
         assert_eq!(out.format, "jpg");
         assert_eq!(out.decoder, "legacy_xor");
         assert_eq!(out.data, plain);

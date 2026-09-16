@@ -2,7 +2,6 @@
 
 use anyhow::{bail, ensure, Context, Result};
 use std::fs::{self, File, Metadata, OpenOptions};
-#[cfg(test)]
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
@@ -240,6 +239,16 @@ pub(crate) struct Pin {
 }
 
 impl Pin {
+    pub(crate) fn read_bounded(&self, limit: u64) -> Result<Vec<u8>> {
+        self.verify()?;
+        let bound = limit.checked_add(1).context("source size limit overflow")?;
+        let mut bytes = Vec::new();
+        (&self.file).take(bound).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() as u64 <= limit, "Source exceeds size limit");
+        self.verify()?;
+        Ok(bytes)
+    }
+
     pub(crate) fn open(path: &Path, directory: bool) -> Result<Self> {
         let before = stamp(&fs::symlink_metadata(path)?)?;
         ensure!(before.0 == directory, "unexpected path type");
@@ -442,6 +451,23 @@ pub(super) fn read_entries(path: &Path, left: &mut usize) -> Result<Vec<(String,
 
 #[cfg(all(test, windows))]
 mod tests {
+    #[test]
+    fn pinned_read_enforces_size_without_changing_source() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("synthetic.bin");
+        std::fs::write(&path, b"synthetic").unwrap();
+        for (limit, succeeds) in [(9, true), (8, false), (u64::MAX, false)] {
+            let pin = super::Pin::open(&path, false).unwrap();
+            let result = pin.read_bounded(limit);
+            assert_eq!(result.is_ok(), succeeds);
+            if let Ok(bytes) = result {
+                assert_eq!(bytes, b"synthetic");
+            }
+            pin.verify().unwrap();
+        }
+        assert_eq!(std::fs::read(path).unwrap(), b"synthetic");
+    }
+
     use super::*;
 
     #[test]

@@ -2,10 +2,14 @@
 use super::{
     protocol::{Call, Envelope, Reply, MAX_REQUEST_BYTES, VERSION},
     transport::{self, DirectoryGuard, CALL_TIMEOUT},
+    worker_keys::{
+        decode_database_reply, decode_image_reply, DatabaseReadRequest, DatabaseSnapshot,
+        ImageReadRequest, ImageSnapshot, MAX_DATABASE_REPLY_BYTES, MAX_IMAGE_REPLY_BYTES,
+    },
 };
 use crate::runtime::RuntimeContext;
 use anyhow::{ensure, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     os::windows::{ffi::OsStringExt, io::AsRawHandle},
@@ -22,7 +26,7 @@ use windows::{
         },
     },
 };
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 pub(crate) fn startup_race(error: &anyhow::Error) -> bool {
     if error
@@ -60,6 +64,23 @@ pub(crate) async fn wait_ready(runtime: &RuntimeContext) -> Result<Value> {
             Err(error) => return Err(error),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    pub created: u64,
+}
+
+pub fn current_process_identity() -> Result<ProcessIdentity> {
+    let pid = std::process::id();
+    let handle =
+        ProcessHandle(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)? });
+    Ok(ProcessIdentity {
+        pid,
+        created: created(handle.0)?,
+    })
 }
 
 #[derive(Deserialize)]
@@ -141,6 +162,25 @@ pub(crate) async fn connect(runtime: &RuntimeContext) -> Result<NamedPipeClient>
 }
 
 pub(crate) async fn connect_named(runtime: &RuntimeContext, name: &str) -> Result<NamedPipeClient> {
+    connect_named_bound(runtime, name, None).await
+}
+
+fn verify_bound_identity(actual: &ProcessIdentity, expected: &ProcessIdentity) -> Result<()> {
+    if actual != expected {
+        return Err(super::protocol::ServiceError::new(
+            "unauthorized",
+            "Task daemon process generation mismatch; no request was sent",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+async fn connect_named_bound(
+    runtime: &RuntimeContext,
+    name: &str,
+    parent: Option<&ProcessIdentity>,
+) -> Result<NamedPipeClient> {
     let directory = DirectoryGuard::open(&runtime.directory)?;
     let bytes = transport::read_identity(&directory.path.join("daemon.pid"), 16 * 1024)?;
     let record: PidRecord =
@@ -171,6 +211,17 @@ pub(crate) async fn connect_named(runtime: &RuntimeContext, name: &str) -> Resul
         "cannot verify task pipe server PID"
     );
     verify_process(pid, &record)?;
+    if let Some(parent) = parent {
+        // pid came from the connected pipe; verify_process checked its live
+        // creation time against this record, not just its on-disk metadata.
+        verify_bound_identity(
+            &ProcessIdentity {
+                pid,
+                created: record.created,
+            },
+            parent,
+        )?;
+    }
     Ok(pipe)
 }
 
@@ -179,10 +230,101 @@ pub(crate) async fn request(runtime: &RuntimeContext, call: Call) -> Result<Valu
     request_with_timeout(runtime, call, CALL_TIMEOUT).await
 }
 
+/// Pins the actual pipe server generation before credentials or material are sent.
+pub(crate) async fn request_bound(
+    runtime: &RuntimeContext,
+    call: Call,
+    parent: &ProcessIdentity,
+) -> Result<Value> {
+    request_inner(runtime, call, CALL_TIMEOUT, Some(parent)).await
+}
+
+pub(crate) async fn request_database_keys(
+    runtime: &RuntimeContext,
+    request: DatabaseReadRequest,
+    parent: &ProcessIdentity,
+) -> Result<DatabaseSnapshot> {
+    tokio::time::timeout(CALL_TIMEOUT, async {
+        let directory = DirectoryGuard::open(&runtime.directory)?;
+        let mut pipe =
+            connect_named_bound(runtime, &transport::pipe_name(runtime)?, Some(parent)).await?;
+        let bytes = transport::read_identity(&directory.path.join("service-token.key"), 64)?;
+        ensure!(
+            bytes.len() == 64 && bytes.iter().all(|byte| byte.is_ascii_hexdigit()),
+            "invalid task token file"
+        );
+        let mut envelope = Envelope {
+            version: VERSION,
+            runtime_id: runtime.id.clone(),
+            token: String::from_utf8(bytes.to_vec())
+                .map_err(|_| anyhow::anyhow!("invalid task token encoding"))?,
+            request: Call::WorkerDatabaseKeys { request },
+        };
+        let encoded = transport::encode(&envelope, MAX_REQUEST_BYTES);
+        envelope.token.zeroize();
+        let encoded = Zeroizing::new(encoded?);
+        transport::write_frame(&mut pipe, &encoded).await?;
+        let bytes =
+            Zeroizing::new(transport::read_frame(&mut pipe, MAX_DATABASE_REPLY_BYTES).await?);
+        tokio::io::AsyncWriteExt::write_all(&mut pipe, &[0]).await?;
+        decode_database_reply(&bytes, &runtime.id)
+    })
+    .await
+    .map_err(|_| {
+        anyhow::Error::new(transport::framing::FrameError::Timeout)
+            .context("worker database request timed out")
+    })?
+}
+
+pub(crate) async fn request_image_material(
+    runtime: &RuntimeContext,
+    request: ImageReadRequest,
+    parent: &ProcessIdentity,
+) -> Result<ImageSnapshot> {
+    tokio::time::timeout(CALL_TIMEOUT, async {
+        let directory = DirectoryGuard::open(&runtime.directory)?;
+        let mut pipe =
+            connect_named_bound(runtime, &transport::pipe_name(runtime)?, Some(parent)).await?;
+        let bytes = transport::read_identity(&directory.path.join("service-token.key"), 64)?;
+        ensure!(
+            bytes.len() == 64 && bytes.iter().all(|byte| byte.is_ascii_hexdigit()),
+            "invalid task token file"
+        );
+        let mut envelope = Envelope {
+            version: VERSION,
+            runtime_id: runtime.id.clone(),
+            token: String::from_utf8(bytes.to_vec())
+                .map_err(|_| anyhow::anyhow!("invalid task token encoding"))?,
+            request: Call::WorkerImageMaterial { request },
+        };
+        let encoded = transport::encode(&envelope, MAX_REQUEST_BYTES);
+        envelope.token.zeroize();
+        let encoded = Zeroizing::new(encoded?);
+        transport::write_frame(&mut pipe, &encoded).await?;
+        let bytes = Zeroizing::new(transport::read_frame(&mut pipe, MAX_IMAGE_REPLY_BYTES).await?);
+        tokio::io::AsyncWriteExt::write_all(&mut pipe, &[0]).await?;
+        decode_image_reply(&bytes, &runtime.id)
+    })
+    .await
+    .map_err(|_| {
+        anyhow::Error::new(transport::framing::FrameError::Timeout)
+            .context("worker image request timed out")
+    })?
+}
+
 pub(crate) async fn request_with_timeout(
     runtime: &RuntimeContext,
     call: Call,
     timeout: std::time::Duration,
+) -> Result<Value> {
+    request_inner(runtime, call, timeout, None).await
+}
+
+async fn request_inner(
+    runtime: &RuntimeContext,
+    call: Call,
+    timeout: std::time::Duration,
+    parent: Option<&ProcessIdentity>,
 ) -> Result<Value> {
     ensure!(
         !timeout.is_zero() && timeout <= std::time::Duration::from_secs(90),
@@ -191,7 +333,10 @@ pub(crate) async fn request_with_timeout(
     let max_response_bytes = call.response_limit();
     tokio::time::timeout(timeout, async {
         let directory = DirectoryGuard::open(&runtime.directory)?;
-        let mut pipe = connect(runtime).await?;
+        let mut pipe = match parent {
+            Some(parent) => connect_named_bound(runtime, &transport::pipe_name(runtime)?, Some(parent)).await?,
+            None => connect(runtime).await?,
+        };
         let bytes = transport::read_identity(&directory.path.join("service-token.key"), 64)?;
         ensure!(bytes.len() == 64 && bytes.iter().all(|b| b.is_ascii_hexdigit()), "invalid task token file");
         let mut envelope = Envelope { version: VERSION, runtime_id: runtime.id.clone(), token: String::from_utf8(bytes.to_vec()).map_err(|_| anyhow::anyhow!("invalid task token encoding"))?, request: call };
@@ -217,6 +362,37 @@ pub(crate) async fn request_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bound_identity_rejects_replacement_and_pid_reuse() {
+        let parent = ProcessIdentity {
+            pid: 41,
+            created: 101,
+        };
+        assert!(verify_bound_identity(&parent, &parent.clone()).is_ok());
+        let wire = serde_json::to_vec(&parent).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ProcessIdentity>(&wire).unwrap(),
+            parent
+        );
+        for actual in [
+            ProcessIdentity {
+                pid: 42,
+                created: 101,
+            },
+            ProcessIdentity {
+                pid: 41,
+                created: 102,
+            },
+        ] {
+            let error = verify_bound_identity(&actual, &parent).unwrap_err();
+            let error = error
+                .downcast_ref::<super::super::protocol::ServiceError>()
+                .unwrap();
+            assert_eq!(error.code, "unauthorized");
+            assert!(error.message.contains("no request was sent"));
+        }
+    }
 
     #[test]
     fn process_identity_checks_pid_birth_and_executable() {

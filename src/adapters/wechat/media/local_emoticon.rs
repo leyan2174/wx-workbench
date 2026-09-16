@@ -26,44 +26,6 @@ pub(crate) struct Resolved {
     pub binding: Binding,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn local_catalog_binding_and_explicit_legacy_do_not_publish_or_fetch() {
-        let root = tempfile::tempdir().unwrap();
-        let images = root.path().join("images");
-        let stage = root.path().join("stage");
-        std::fs::create_dir(&images).unwrap();
-        std::fs::create_dir(&stage).unwrap();
-        let bytes = b"\xff\xd8\xffsynthetic local image\xff\xd9";
-        let digest = format!("{:x}", md5::compute(bytes));
-        std::fs::write(images.join(format!("{digest}.jpg")), bytes).unwrap();
-        let legacy = resolve(&images, None, &digest, &stage, 4096, 4096).unwrap();
-        assert_eq!(legacy.binding, Binding::MessageDigest);
-        assert_eq!(legacy.bytes, bytes);
-        let path = root.path().join("catalog.db");
-        let conn = rusqlite::Connection::open(&path).unwrap();
-        conn.execute_batch(include_str!(
-            "../../../../tests/fixtures/emoticons-catalog/schema.sql"
-        ))
-        .unwrap();
-        conn.execute("INSERT INTO kNonStoreEmoticonTable VALUES(?1,'synthetic-secret','https://example.invalid/private','','p')", [&digest]).unwrap();
-        drop(conn);
-        let known = resolve(&images, Some(&path), &digest, &stage, 4096, 4096).unwrap();
-        assert_eq!(known.binding, Binding::CatalogAndMessageDigest);
-        assert_eq!(known.bytes, bytes);
-        std::fs::write(&path, b"invalid catalog").unwrap();
-        let error = resolve(&images, Some(&path), &digest, &stage, 4096, 4096)
-            .err()
-            .unwrap();
-        assert_eq!(error.failure, Failure::IncompleteSources);
-        assert!(!error.to_string().contains("synthetic-secret"));
-        assert_eq!(std::fs::read_dir(&stage).unwrap().count(), 0);
-    }
-}
-
 pub(crate) fn resolve(
     root: &Path,
     catalog_path: Option<&Path>,
@@ -151,4 +113,42 @@ pub(crate) fn resolve(
             Binding::MessageDigest
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_catalog_binding_and_explicit_legacy_do_not_publish_or_fetch() {
+        let root = tempfile::tempdir().unwrap();
+        let images = root.path().join("images");
+        let stage = root.path().join("stage");
+        std::fs::create_dir(&images).unwrap();
+        std::fs::create_dir(&stage).unwrap();
+        let bytes = b"\xff\xd8\xffsynthetic local image\xff\xd9";
+        let digest = format!("{:x}", md5::compute(bytes));
+        std::fs::write(images.join(format!("{digest}.jpg")), bytes).unwrap();
+        let legacy = resolve(&images, None, &digest, &stage, 4096, 4096).unwrap();
+        assert_eq!(legacy.binding, Binding::MessageDigest);
+        assert_eq!(legacy.bytes, bytes);
+        let path = root.path().join("catalog.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!(
+            "../../../../tests/fixtures/emoticons-catalog/schema.sql"
+        ))
+        .unwrap();
+        conn.execute("INSERT INTO kNonStoreEmoticonTable VALUES(?1,'synthetic-secret','https://example.invalid/private','','p')", [&digest]).unwrap();
+        drop(conn);
+        let known = resolve(&images, Some(&path), &digest, &stage, 4096, 4096).unwrap();
+        assert_eq!(known.binding, Binding::CatalogAndMessageDigest);
+        assert_eq!(known.bytes, bytes);
+        std::fs::write(&path, b"invalid catalog").unwrap();
+        let error = resolve(&images, Some(&path), &digest, &stage, 4096, 4096)
+            .err()
+            .unwrap();
+        assert_eq!(error.failure, Failure::IncompleteSources);
+        assert!(!error.to_string().contains("synthetic-secret"));
+        assert_eq!(std::fs::read_dir(&stage).unwrap().count(), 0);
+    }
 }

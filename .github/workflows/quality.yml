@@ -1,0 +1,54 @@
+name: Quality
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy, rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: Swatinem/rust-cache@v2
+      - name: Configure libclang
+        shell: pwsh
+        run: |
+          $clang = 'C:\Program Files\LLVM\bin'
+          if (-not (Test-Path "$clang\libclang.dll")) { throw 'libclang.dll is required' }
+          "LIBCLANG_PATH=$clang" >> $env:GITHUB_ENV
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Check
+        run: cargo check --locked --target x86_64-pc-windows-msvc
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Test
+        run: cargo test --locked --no-fail-fast --target x86_64-pc-windows-msvc -- --test-threads=1
+      - name: npm launcher tests
+        run: node --test npm/wx-workbench/test/launcher.test.js
+      - name: Compile independent fixtures
+        shell: pwsh
+        run: ./scripts/check-fixtures.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fixture-check-logs
+          path: target/quality-fixtures/
+          if-no-files-found: ignore

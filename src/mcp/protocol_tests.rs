@@ -2,38 +2,60 @@ use super::*;
 use std::io::{BufReader, Cursor};
 
 #[test]
-fn contacts_legacy_view_is_internal_and_cli_wire_stays_unchanged() {
+fn contacts_use_one_strict_request_and_reject_removed_inputs() {
     let tool = tools()
         .into_iter()
         .find(|t| t.name == "get_contacts")
         .unwrap();
     assert!(tool.input_schema["properties"].get("legacy_view").is_none());
-    for value in [json!(true), json!(false), Value::Null] {
+    for value in [
+        json!(true),
+        json!(false),
+        Value::Null,
+        json!("false"),
+        json!(0),
+    ] {
         assert!(route("get_contacts", &json!({"legacy_view": value})).is_err());
+        assert!(
+            serde_json::from_value::<Request>(json!({"cmd":"contacts","legacy_view":value}))
+                .is_err()
+        );
     }
     let request = route("get_contacts", &json!({})).unwrap();
     assert_eq!(
         serde_json::to_value(request).unwrap(),
-        json!({"cmd":"contacts","limit":50,"legacy_view":true})
+        json!({"cmd":"contacts","limit":50})
     );
     for wire in [
         json!({"cmd":"contacts"}),
-        json!({"cmd":"contacts","legacy_view":false}),
+        json!({"cmd":"contacts","query":null,"limit":50}),
     ] {
         let request: Request = serde_json::from_value(wire).unwrap();
         assert!(matches!(
             &request,
-            Request::Contacts {
-                legacy_view: false,
-                limit: 50,
-                ..
-            }
+            Request::Contacts(args) if args.query.is_none() && args.limit == 50
         ));
         assert_eq!(
             serde_json::to_value(request).unwrap(),
             json!({"cmd":"contacts","limit":50})
         );
     }
+}
+
+#[test]
+fn contacts_reject_paths_unknown_fields_and_keep_zero_limit() {
+    for field in ["output", "keys_file", "db_dir", "view", "unknown"] {
+        let mut args = json!({});
+        args[field] = json!("synthetic");
+        assert!(route("get_contacts", &args).is_err());
+        args["cmd"] = json!("contacts");
+        assert!(serde_json::from_value::<Request>(args).is_err());
+    }
+    let request = route("get_contacts", &json!({"query":"needle","limit":0})).unwrap();
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        json!({"cmd":"contacts","query":"needle","limit":0})
+    );
 }
 
 fn synthetic(_: Request) -> Result<Response, DispatchError> {
@@ -443,13 +465,13 @@ fn readonly_extensions_validate_arguments_and_keep_safe_errors() {
     let request = route(
         "get_voice_messages",
         &json!({
-            "chat_name":"x", "start_time":"", "end_time":"", "offset":2
+            "chat_name":"x", "since":10, "until":20, "offset":2
         }),
     )
     .unwrap();
     assert_eq!(
         serde_json::to_value(request).unwrap(),
-        json!({"cmd":"voice_messages","chat":"x","limit":20,"offset":2})
+        json!({"cmd":"voice_messages","chat":"x","limit":20,"offset":2,"since":10,"until":20})
     );
     for (name, args) in [
         ("get_contact_tags", json!({})),
@@ -588,21 +610,11 @@ fn writer_failure_is_propagated() {
 }
 
 #[test]
-fn legacy_time_and_type_arguments_map_without_ambiguity() {
-    let r = route("get_chat_history", &json!({"chat_name":"synthetic","start_time":"2024-02-29","end_time":"2024-02-29","oldest_first":false,"msg_types":["FILE","app"]})).unwrap();
+fn current_time_and_type_arguments_map_without_ambiguity() {
+    let r = route("get_chat_history", &json!({"chat_name":"synthetic","since":1709164800,"until":1709251199,"oldest_first":false,"msg_types":["FILE","link"]})).unwrap();
     let r = serde_json::to_value(r).unwrap();
-    let start = Local
-        .with_ymd_and_hms(2024, 2, 29, 0, 0, 0)
-        .single()
-        .unwrap()
-        .timestamp();
-    let end = Local
-        .with_ymd_and_hms(2024, 2, 29, 23, 59, 59)
-        .single()
-        .unwrap()
-        .timestamp();
-    assert_eq!(r["since"], start);
-    assert_eq!(r["until"], end);
+    assert_eq!(r["since"], 1709164800);
+    assert_eq!(r["until"], 1709251199);
     assert_eq!(r["msg_type"], 49);
     for value in [json!(null), json!([])] {
         assert!(route(
@@ -615,32 +627,36 @@ fn legacy_time_and_type_arguments_map_without_ambiguity() {
         json!({"chat_name":"s","oldest_first":1}),
         json!({"chat_name":"s","msg_types":["image","text"],"msg_type":3}),
         json!({"chat_name":"s","msg_types":["secret_bad_type"]}),
-        json!({"chat_name":"s","start_time":"2023-02-29"}),
-        json!({"chat_name":"s","start_time":"2024-02-29","since":1}),
-        json!({"chat_name":"s","start_time":"2024-03-01","end_time":"2024-02-29"}),
+        json!({"chat_name":"s","start_time":"2024-02-29"}),
+        json!({"chat_name":"s","end_time":"2024-02-29"}),
         json!({"chat_name":"s","msg_types":["text"],"msg_type":1}),
     ] {
         assert!(route("get_chat_history", &args).is_err());
     }
-    assert_eq!(
-        parse_legacy_time("2024-02-29 01:02", false).unwrap(),
-        parse_legacy_time("2024-02-29 01:02:00", false).unwrap()
-    );
+    for name in [
+        "get_chat_history",
+        "search_messages",
+        "get_chat_images",
+        "get_voice_messages",
+    ] {
+        let tool = tools().into_iter().find(|tool| tool.name == name).unwrap();
+        assert!(tool.input_schema["properties"].get("start_time").is_none());
+        assert!(tool.input_schema["properties"].get("end_time").is_none());
+    }
 }
 
 #[test]
-fn shared_type_projection_preserves_mcp_only_aliases_and_cli_only_rejections() {
+fn shared_type_projection_uses_formal_mcp_words() {
     for (label, expected) in [
         (" TEXT ", 1),
         ("IMAGE", 3),
         ("VOICE", 34),
-        ("NAMECARD", 42),
         ("VIDEO", 43),
-        ("EMOJI", 47),
+        ("STICKER", 47),
         ("LOCATION", 48),
-        ("APP", 49),
+        ("LINK", 49),
         ("FILE", 49),
-        ("VOIP", 50),
+        ("CALL", 50),
         ("SYSTEM", 10000),
     ] {
         let request = route(
@@ -650,7 +666,7 @@ fn shared_type_projection_preserves_mcp_only_aliases_and_cli_only_rejections() {
         .unwrap();
         assert_eq!(serde_json::to_value(request).unwrap()["msg_type"], expected);
     }
-    for label in ["sticker", "call", "link", "49"] {
+    for label in ["emoji", "voip", "app", "namecard", "49"] {
         assert!(matches!(
             route(
                 "get_chat_history",
@@ -696,7 +712,7 @@ fn history_multiple_types_and_oldest_page_reach_ipc() {
         route(
             "get_chat_history",
             &json!({
-                "chat_name":"s", "msg_types":["image","text","IMAGE","file","app"],
+                "chat_name":"s", "msg_types":["image","text","IMAGE","file","link"],
                 "oldest_first":true,"offset":3,"limit":2,
             }),
         )
@@ -723,7 +739,7 @@ fn history_multiple_types_and_oldest_page_reach_ipc() {
 }
 
 #[test]
-fn legacy_search_names_and_offset_are_applied_globally() {
+fn current_search_chats_and_offset_are_applied_globally() {
     let mut p = Protocol::new(|request| {
         assert_eq!(
             serde_json::to_value(request).unwrap(),
@@ -738,7 +754,7 @@ fn legacy_search_names_and_offset_are_applied_globally() {
         &mut p,
         call(
             "search_messages",
-            json!({"keyword":"synthetic","chat_name":[" a ","b","a",""],"offset":2,"limit":2}),
+            json!({"keyword":"synthetic","chats":["a","b"],"offset":2,"limit":2}),
         ),
     )
     .unwrap();
@@ -746,23 +762,19 @@ fn legacy_search_names_and_offset_are_applied_globally() {
         serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(data["results"], json!([{"timestamp":2},{"timestamp":1}]));
     assert_eq!(data["count"], 2);
-    for name in [json!(null), json!(" "), json!([])] {
-        let request = route("search_messages", &json!({"keyword":"s","chat_name":name})).unwrap();
-        assert!(serde_json::to_value(request)
-            .unwrap()
-            .get("chats")
-            .is_none());
+    for old_value in [json!(null), json!("a"), json!(["a"])] {
+        assert!(route(
+            "search_messages",
+            &json!({"keyword":"s","chat_name":old_value})
+        )
+        .is_err());
     }
     assert!(route(
         "search_messages",
         &json!({"keyword":"s","offset":9999,"limit":2})
     )
     .is_err());
-    assert!(route(
-        "search_messages",
-        &json!({"keyword":"s","chat_name":"a","chats":["b"]})
-    )
-    .is_err());
+    assert!(route("search_messages", &json!({"keyword":"s","chats":null})).is_err());
 }
 
 fn session(username: &str, timestamp: i64, unread: i64) -> Value {

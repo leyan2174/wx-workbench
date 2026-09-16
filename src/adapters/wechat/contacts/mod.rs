@@ -25,7 +25,6 @@ pub struct SqliteContacts {
     pub path: PathBuf,
     pub message_paths: Vec<PathBuf>,
     pub display_names: HashMap<String, String>,
-    preserve_directory_duplicates: bool,
 }
 
 /// Ordered source descriptor for legacy cache lookup; only absence permits fallback.
@@ -39,14 +38,6 @@ impl SqliteContacts {
             path,
             message_paths: Vec::new(),
             display_names: HashMap::new(),
-            preserve_directory_duplicates: false,
-        }
-    }
-    /// Explicit legacy directory projection only; never used for unique identity lookup.
-    pub fn legacy_directory(path: PathBuf) -> Self {
-        Self {
-            preserve_directory_duplicates: true,
-            ..Self::new(path)
         }
     }
 }
@@ -197,7 +188,7 @@ fn room_name(columns: &HashSet<String>) -> Option<&'static str> {
         .find(|name| columns.contains(*name))
 }
 
-fn read_directory(conn: &Connection, preserve_duplicates: bool) -> domain::Result<Directory> {
+fn read_directory(conn: &Connection) -> domain::Result<Directory> {
     let capabilities = capabilities(conn)?;
     if !capabilities.names {
         return Err(Error::Unsupported("contact names"));
@@ -248,7 +239,7 @@ fn read_directory(conn: &Connection, preserve_duplicates: bool) -> domain::Resul
             .clone()
             .filter(|id| !id.is_empty())
             .ok_or(Error::InvalidData("empty contact identity"))?;
-        if !ids.insert(id.clone()) && !preserve_duplicates {
+        if !ids.insert(id.clone()) {
             return Err(Error::Ambiguous);
         }
         bytes = bytes.saturating_add(values.iter().flatten().map(String::len).sum::<usize>());
@@ -299,7 +290,7 @@ impl ContactSource for SqliteContacts {
     fn contacts(&self) -> domain::Result<Directory> {
         let conn = open(&self.path)?;
         let tx = conn.unchecked_transaction().map_err(data)?;
-        read_directory(&tx, self.preserve_directory_duplicates)
+        read_directory(&tx)
     }
     fn tags(&self) -> domain::Result<Vec<Tag>> {
         read_tags(&self.path, &self.display_names).map_err(|error| {
@@ -312,7 +303,7 @@ impl ContactSource for SqliteContacts {
     fn members(&self, group: &ContactId) -> domain::Result<Membership> {
         let conn = open(&self.path)?;
         let tx = conn.unchecked_transaction().map_err(data)?;
-        let directory = read_directory(&tx, false)?;
+        let directory = read_directory(&tx)?;
         let names: HashMap<_, _> = directory
             .contacts
             .iter()

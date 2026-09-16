@@ -1,5 +1,6 @@
 //! Wire request data. CLI parsing and execution are separate consumers.
 pub mod asr;
+mod asr_backend;
 pub mod asr_batch;
 pub mod asr_database;
 pub mod chat_plan;
@@ -13,7 +14,6 @@ pub mod export_messages;
 pub mod export_sns;
 pub mod image_key_sample;
 pub mod image_keys;
-pub mod key_migration;
 pub mod key_provider;
 pub mod monitor_native;
 pub mod plan;

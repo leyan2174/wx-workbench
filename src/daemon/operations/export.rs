@@ -19,7 +19,12 @@ pub fn cmd_export(
     let runtime = crate::runtime::RuntimeContext::load()?;
     let target = output
         .as_ref()
-        .map(|path| crate::toolkit::ExportTarget::capture(&runtime, std::path::Path::new(path)))
+        .map(|path| {
+            crate::infrastructure::publication::ExportTarget::capture(
+                &runtime,
+                std::path::Path::new(path),
+            )
+        })
         .transpose()?;
 
     let req = Request::History {

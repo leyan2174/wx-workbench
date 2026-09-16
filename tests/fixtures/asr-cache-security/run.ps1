@@ -3,7 +3,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $manifest = Join-Path $PSScriptRoot 'Cargo.toml'
 $logs = Join-Path $repo 'target/test-logs/asr-cache-security'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
-$sources = @('src/toolkit/asr/cache.rs', 'src/toolkit/asr/cache_tests.rs', 'src/toolkit/asr/cached.rs', 'src/toolkit/asr/cached_tests.rs', 'src/toolkit/asr/mod.rs', 'src/toolkit/asr/local.rs', 'src/toolkit/asr/openai.rs', 'src/toolkit/asr/database_media.rs', 'src/toolkit/audio/mod.rs', 'src/cli/asr.rs', 'src/cli/asr_database.rs', 'src/toolkit/files.rs')
+$sources = @('src/application/transcription/cache.rs', 'src/application/transcription/cache_tests.rs', 'src/application/transcription/cached.rs', 'src/application/transcription/cached_tests.rs', 'src/application/transcription/mod.rs', 'src/infrastructure/transcription/local.rs', 'src/infrastructure/transcription/openai.rs', 'src/infrastructure/audio/mod.rs', 'src/infrastructure/audio/wav.rs', 'src/cli/asr.rs', 'src/cli/asr_database.rs', 'src/infrastructure/publication.rs')
 Push-Location $repo
 try {
     $before = @($sources | ForEach-Object { Get-FileHash -Algorithm SHA256 -LiteralPath $_ })

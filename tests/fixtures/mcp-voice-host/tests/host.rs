@@ -1,14 +1,12 @@
 use mcp_voice_host::{
+    adapters::wechat::media::voice::{DatabaseVoice, VoiceEvidence},
     service::operation_requests::asr::{BackendArgs, BackendKind},
     config::Config,
     ipc::Response,
     mcp_voice::{Args, Operation},
     protocol::{CallContext, DispatchError},
     runtime::RuntimeContext,
-    toolkit_asr::{
-        database_media::{DatabaseVoice, VoiceEvidence},
-        prepared_audio,
-    },
+    application::transcription::prepared_audio,
 };
 use serde_json::json;
 use std::{fs, path::Path};
@@ -87,7 +85,7 @@ fn real_decode_and_noclobber() {
     let wav = fs::read(&files[0]).unwrap();
     assert_eq!(
         wav,
-        mcp_voice_host::toolkit_asr::prepare_wav_bytes(include_bytes!("../../audio/silence.silk"))
+        mcp_voice_host::audio::prepare_wav_bytes(include_bytes!("../../audio/silence.silk"))
             .unwrap()
     );
     let retry = args
@@ -150,7 +148,7 @@ fn authorization_and_binding_fail_closed() {
     let context = CallContext::default();
     let args = Args {
         backend: BackendArgs {
-            backend: BackendKind::ExplicitOpenAi,
+            backend: BackendKind::OpenAiCompatible,
             api_key_file: Some("missing-secret".into()),
             ..Default::default()
         },

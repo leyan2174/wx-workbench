@@ -69,18 +69,12 @@ impl Fixture {
             p.join("config.json"),
             json!({
                 "db_dir":"db_storage", "keys_file":"all_keys.json",
-                "decrypted_dir":"decrypted", "output_base_dir":"exports",
-                "image_xor_key":136
+                "decrypted_dir":"decrypted", "output_base_dir":"exports"
             })
             .to_string(),
         )
         .unwrap();
-        key_store_fixture::migrate_with_unverified(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &p.join("config.json"),
-            &self.root.path().join("runtime"),
-            true,
-        );
+        key_store_fixture::seed_image(&p.join("config.json"), b"syntheticAESkey1", 136);
         p
     }
 
@@ -111,14 +105,6 @@ impl Fixture {
             .current_dir(self.root.path())
             .env("WX_CLI_CONFIG", account.join("config.json"))
             .env("WX_CLI_HOME", self.root.path().join("runtime"))
-            .env(
-                "WX_WECHAT_DECRYPT_DIR",
-                self.root.path().join("missing-toolkit"),
-            )
-            .env(
-                "WX_WECHAT_DECRYPT_PYTHON",
-                self.root.path().join("missing-python.exe"),
-            )
             .env("PATH", "")
             .env("NO_PROXY", "*")
             .env("no_proxy", "*");

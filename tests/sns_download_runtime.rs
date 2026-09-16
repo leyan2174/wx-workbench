@@ -158,8 +158,6 @@ impl Fixture {
             .env_remove("WECHAT_SNS_DOWNLOAD_MEDIA")
             .env("WX_CLI_CONFIG", self.path("ambient.json"))
             .env("WX_CLI_HOME", self.path("runtime"))
-            .env("WX_WECHAT_DECRYPT_DIR", self.path("absent-toolkit"))
-            .env("WX_WECHAT_DECRYPT_PYTHON", self.path("absent-python.exe"))
             .env("PATH", "")
             .env("NO_PROXY", "*")
             .env("no_proxy", "*");

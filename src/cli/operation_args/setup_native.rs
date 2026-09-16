@@ -2,10 +2,12 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum Backend {
-    Local,
-    #[value(name = "whisper_cpp", alias = "whisper-cpp")]
+    #[value(name = "python_whisper")]
+    PythonWhisper,
+    #[value(name = "whisper_cpp")]
     WhisperCpp,
-    Openai,
+    #[value(name = "openai_compatible")]
+    OpenAiCompatible,
 }
 
 #[derive(Default, Debug, clap::Args, Clone)]
@@ -27,7 +29,7 @@ pub struct Args {
     #[arg(long)]
     pub local_model: Option<String>,
     /// 仅保存凭据环境变量名；能力检查只报告是否已设置，不保存或回显其值
-    #[arg(long, alias = "openai-api-key-env")]
+    #[arg(long)]
     pub openai_key_env: Option<String>,
     #[arg(long)]
     pub interactive: bool,
@@ -43,9 +45,9 @@ pub struct Args {
 impl From<Backend> for crate::service::operation_requests::setup_native::Backend {
     fn from(value: Backend) -> Self {
         match value {
-            Backend::Local => Self::Local,
+            Backend::PythonWhisper => Self::PythonWhisper,
             Backend::WhisperCpp => Self::WhisperCpp,
-            Backend::Openai => Self::Openai,
+            Backend::OpenAiCompatible => Self::OpenAiCompatible,
         }
     }
 }
@@ -53,11 +55,15 @@ impl From<Backend> for crate::service::operation_requests::setup_native::Backend
 impl From<crate::service::operation_requests::setup_native::Backend> for Backend {
     fn from(value: crate::service::operation_requests::setup_native::Backend) -> Self {
         match value {
-            crate::service::operation_requests::setup_native::Backend::Local => Self::Local,
+            crate::service::operation_requests::setup_native::Backend::PythonWhisper => {
+                Self::PythonWhisper
+            }
             crate::service::operation_requests::setup_native::Backend::WhisperCpp => {
                 Self::WhisperCpp
             }
-            crate::service::operation_requests::setup_native::Backend::Openai => Self::Openai,
+            crate::service::operation_requests::setup_native::Backend::OpenAiCompatible => {
+                Self::OpenAiCompatible
+            }
         }
     }
 }

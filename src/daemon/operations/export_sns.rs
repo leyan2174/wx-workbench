@@ -1,5 +1,5 @@
 //! SNS 预览；路径显式传入，不推断账号，仅在显式授权后下载媒体。
-use crate::toolkit::sns::cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots};
+use crate::application::moments::cache::{build_cache_index, CacheKeys, CacheLimits, CacheRoots};
 use anyhow::{ensure, Context, Result};
 
 pub use crate::service::operation_requests::export_sns::LocalCacheArgs;
@@ -58,18 +58,24 @@ pub fn cmd_export(args: Args) -> Result<()> {
     ensure!(!adopt_existing || update, "--adopt-existing 需要 --update");
     let sns_db = sns_db.canonicalize().context("找不到 SNS 数据库")?;
     let output = std::path::absolute(output)?;
-    crate::toolkit::separate(sns_db.parent().context("SNS 数据库缺少父目录")?, &output)?;
+    crate::infrastructure::publication::separate(
+        sns_db.parent().context("SNS 数据库缺少父目录")?,
+        &output,
+    )?;
     let contact_db = contact_db.map(|p| p.canonicalize()).transpose()?;
     if let Some(path) = &contact_db {
-        crate::toolkit::separate(path.parent().context("联系人数据库缺少父目录")?, &output)?;
+        crate::infrastructure::publication::separate(
+            path.parent().context("联系人数据库缺少父目录")?,
+            &output,
+        )?;
     }
     let raw =
         contacts.unwrap_or_else(|| std::env::var("WECHAT_EXPORT_CONTACTS").unwrap_or_default());
-    let options = crate::toolkit::sns::ExportOptions {
+    let options = crate::application::moments::ExportOptions {
         timezone: utc_offset
             .map(|s| {
                 s.parse::<chrono::FixedOffset>()
-                    .map(crate::toolkit::sns::TimeZone::Fixed)
+                    .map(crate::application::moments::TimeZone::Fixed)
             })
             .transpose()
             .context("时区偏移格式应为 +08:00 或 -05:00")?
@@ -97,7 +103,7 @@ pub fn cmd_export(args: Args) -> Result<()> {
         .into_iter()
         .flatten()
     {
-        crate::toolkit::separate(root, &output)?;
+        crate::infrastructure::publication::separate(root, &output)?;
         inputs.push(root.canonicalize()?);
     }
     let cache = if enabled {
@@ -114,11 +120,11 @@ pub fn cmd_export(args: Args) -> Result<()> {
     };
     let recovery = cache
         .as_ref()
-        .map(|index| crate::toolkit::sns::CacheRecovery { index, keys: &keys });
-    let download = download_media.then(crate::toolkit::sns::DownloadOptions::default);
+        .map(|index| crate::application::moments::CacheRecovery { index, keys: &keys });
+    let download = download_media.then(crate::application::moments::DownloadOptions::default);
     let report = if update {
-        use crate::toolkit::directory_publish::ExistingPolicy;
-        use crate::toolkit::sns::TimelinePublication;
+        use crate::application::moments::TimelinePublication;
+        use crate::infrastructure::output_tree::ExistingPolicy;
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
         digest.update(b"wx-sns-static-source-v1\0");
@@ -126,7 +132,7 @@ pub fn cmd_export(args: Args) -> Result<()> {
             digest.update(path.to_string_lossy().to_lowercase().as_bytes());
             digest.update([0]);
         }
-        crate::toolkit::sns::export_database_with_publication(
+        crate::application::moments::export_database_with_publication(
             &sns_db,
             contact_db.as_deref(),
             &output,
@@ -146,7 +152,7 @@ pub fn cmd_export(args: Args) -> Result<()> {
             },
         )?
     } else {
-        crate::toolkit::sns::export_database_with_media(
+        crate::application::moments::export_database_with_media(
             &sns_db,
             contact_db.as_deref(),
             &output,

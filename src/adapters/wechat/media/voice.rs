@@ -954,7 +954,7 @@ impl ReadDb {
 }
 
 #[cfg(test)]
-#[path = "../../../toolkit/asr/database_media_tests.rs"]
+#[path = "voice_tests.rs"]
 mod tests;
 
 #[cfg(test)]

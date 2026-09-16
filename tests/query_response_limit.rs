@@ -1,5 +1,8 @@
 //! Real CLI -> daemon -> DPAPI/SQLCipher queries over isolated synthetic accounts.
 #![cfg(windows)]
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 
 #[path = "fixtures/mcp-readonly-runtime/support.rs"]
 #[allow(dead_code)]
@@ -216,7 +219,7 @@ fn exercise_limit(rows: usize, body_bytes: usize, code: &str) {
 fn real_history_response_limit_reports_json_and_text_then_small_pages_succeed() {
     // 36 MiB of ASCII content alone exceeds the wire limit, without relying on
     // JSON escaping or metadata overhead. Each of 144 messages is only 256 KiB.
-    assert!(LARGE_ROWS * LARGE_BODY_BYTES > RESPONSE_LIMIT_BYTES);
+    const { assert!(LARGE_ROWS * LARGE_BODY_BYTES > RESPONSE_LIMIT_BYTES) };
     exercise_limit(LARGE_ROWS, LARGE_BODY_BYTES, "response_limit_exceeded");
 }
 

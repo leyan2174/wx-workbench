@@ -44,7 +44,7 @@
 1. `daemon/meta.rs` 的普通消息库存目录识别。
 2. `daemon/cache.rs::latency_probe` 的 Session schema 读取。
 3. `daemon/query/export_directory/catalog.rs` 中未映射原始目录身份的重复物理校验。
-4. `toolkit/attachment_refs.rs` 的附件私有 XML/缓存布局，以及 `attachment/resolver.rs` 的旧 DAT 月份与优先级规则。
+4. `application/attachment_references.rs` 的受控附件引用选择、`adapters/wechat/media/attachment_content.rs` 的私有 XML/缓存布局，以及 `attachment/resolver.rs` 的旧 DAT 月份与优先级规则。
 5. `toolkit/chat_directory/media.rs` 的媒体 XML 语义。
 6. ASR `prepared_audio.rs` 和 `receipt.rs` 的物理来源证明校验。
 7. `daemon/query/mcp_refer.rs` 的严格引用回复解析。

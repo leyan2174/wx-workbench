@@ -1,10 +1,11 @@
 //! 旧 transcribe-chat 的自动数据库入口；待 main 接线及集中验证。
 use super::asr::BackendArgs;
-use crate::toolkit::asr::backend::{self, BackendId, Entry};
-pub use crate::toolkit::asr::batch::{BatchTranscriber, Report};
+pub use crate::application::transcription::batch::{BatchTranscriber, Report};
+use crate::service::operation_requests::asr::{self as backend, BackendId};
 use crate::{
+    application::transcription::{batch::CacheOptions, Backend},
+    infrastructure::transcription::{local, local_python, openai},
     runtime::RuntimeContext,
-    toolkit::asr::{batch::CacheOptions, local, local_python, openai, Backend},
 };
 use anyhow::{bail, ensure, Context, Result};
 use serde_json::Value;
@@ -54,12 +55,14 @@ fn batch_report_counts_persistence_warnings_but_not_engine_warnings() {
             ..Default::default()
         };
         if warning {
-            report.warnings.push(crate::toolkit::asr::batch::Warning {
-                username: "synthetic".into(),
-                source: "message_0.db".into(),
-                local_id: 1,
-                error: "synthetic persistence failure".into(),
-            });
+            report
+                .warnings
+                .push(crate::application::transcription::batch::Warning {
+                    username: "synthetic".into(),
+                    source: "message_0.db".into(),
+                    local_id: 1,
+                    error: "synthetic persistence failure".into(),
+                });
         }
         let actual = finish_report(&report).map_or_else(
             |error| error.downcast_ref::<BusinessFailure>().unwrap().0,
@@ -88,7 +91,23 @@ pub fn prepare(runtime: &RuntimeContext, args: BatchArgs) -> Result<BatchTranscr
     } else {
         args.asr_cache_name
     };
-    BatchTranscriber::new(runtime, backend, CacheOptions { file_name })
+    BatchTranscriber::new(
+        runtime,
+        backend,
+        CacheOptions { file_name },
+        prepare_snapshot,
+    )
+}
+
+pub(crate) fn prepare_snapshot(
+    runtime: &RuntimeContext,
+) -> Result<crate::application::transcription::batch::Snapshot> {
+    let mut keys = crate::service::worker_keys::database_keys(runtime)?
+        .context("saved database keys unavailable")?;
+    let materials = crate::application::transcription::batch::DatabaseMaterials::new(
+        std::mem::take(&mut keys.0),
+    );
+    crate::application::transcription::batch::prepare_snapshot(runtime, materials)
 }
 
 fn default_output(input: &Path) -> PathBuf {
@@ -107,12 +126,7 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
         config.is_object(),
         "transcription configuration must be an object"
     );
-    let backend = match overrides.backend {
-        crate::service::operation_requests::asr::BackendKind::Local => {
-            BackendId::configured(&config)?
-        }
-        selected => selected.identity(Entry::ConfiguredBatch),
-    };
+    let backend = BackendId::configured(&config)?;
     overrides.validate_for(backend)?;
     match backend {
         BackendId::PythonWhisper => {
@@ -131,7 +145,7 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
                     .context("selected configuration parent missing")?
                     .to_owned(),
             )?;
-            Ok(Backend::LegacyPythonLocal(local))
+            Ok(Backend::PythonWhisper(local))
         }
         BackendId::WhisperCpp => {
             let base = runtime
@@ -201,12 +215,12 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
             }
             local.timeout = Duration::from_secs(overrides.timeout_seconds);
             local.temp_root = overrides.temp_root;
-            Ok(Backend::Local(local))
+            Ok(Backend::WhisperCpp(local))
         }
         BackendId::OpenAiCompatible => {
             if overrides.api_key_file.is_some() {
                 return BackendArgs {
-                    backend: crate::service::operation_requests::asr::BackendKind::ExplicitOpenAi,
+                    backend: crate::service::operation_requests::asr::BackendKind::OpenAiCompatible,
                     openai_base_url: Some(
                         overrides
                             .openai_base_url
@@ -223,7 +237,7 @@ fn configured_backend(runtime: &RuntimeContext, overrides: BackendArgs) -> Resul
                 }
                 .build();
             }
-            Backend::explicit_openai(
+            Backend::openai_compatible(
                 openai::OpenAiConfig {
                     base_url: overrides
                         .openai_base_url
@@ -248,14 +262,13 @@ fn configured_api_key_with(
     config: &Value,
     read_env: impl FnOnce(&str) -> std::result::Result<String, std::env::VarError>,
 ) -> Result<String> {
-    // 调用方已检查上传授权和 CLI 凭据；显式环境来源失败时不得回退到旧明文 key。
-    let Some(name) = config.get("openai_api_key_env") else {
-        return Ok(required_string(config, "openai_api_key")?.to_owned());
-    };
-    let name = name
+    // 调用方已检查上传授权和 CLI 凭据；配置只保存环境变量名，不读取明文 key。
+    let name = config
+        .get("openai_api_key_env")
+        .context("openai_api_key_env is required")?
         .as_str()
         .context("openai_api_key_env must be a string")?;
-    crate::toolkit::setup::valid_env_name(name)?;
+    crate::infrastructure::configuration::valid_env_name(name)?;
     // VarError::NotUnicode 可能携带凭据原文，不能作为错误上下文输出。
     let key = match read_env(name) {
         Ok(value) => zeroize::Zeroizing::new(value),
@@ -341,7 +354,7 @@ mod credential_tests {
     }
 
     #[test]
-    fn configured_env_wins_over_inline_and_reads_only_named_variable() {
+    fn configured_env_reads_only_named_variable() {
         let config = json!({"openai_api_key_env":"_ASR_KEY_9", "openai_api_key":"inline"});
         let key = configured_api_key_with(&config, |name| {
             assert_eq!(name, "_ASR_KEY_9");
@@ -352,16 +365,14 @@ mod credential_tests {
     }
 
     #[test]
-    fn absent_env_field_uses_inline_without_any_environment_lookup() {
+    fn absent_env_field_rejects_inline_without_any_environment_lookup() {
         let config = json!({"openai_api_key":SECRET});
-        assert_eq!(
-            configured_api_key_with(&config, |_| panic!("unexpected environment lookup")).unwrap(),
-            SECRET
-        );
-        assert_redacted(
-            configured_api_key_with(&json!({}), |_| panic!("unexpected environment lookup"))
-                .unwrap_err(),
-        );
+        for config in [config, json!({})] {
+            let error =
+                configured_api_key_with(&config, |_| panic!("unexpected environment lookup"))
+                    .unwrap_err();
+            assert!(assert_redacted(error).contains("openai_api_key_env is required"));
+        }
     }
 
     #[test]
@@ -433,7 +444,7 @@ mod credential_tests {
         fs::write(
             &config_path,
             serde_json::to_vec(&json!({
-                "transcription_backend":"openai", "openai_api_key_env":null, "openai_api_key":SECRET
+                "transcription_backend":"openai_compatible", "openai_api_key_env":null
             }))
             .unwrap(),
         )
@@ -454,33 +465,47 @@ mod credential_tests {
     }
 
     #[test]
-    fn configured_canonical_selection_and_alias_authorization() {
+    fn configured_selection_requires_canonical_backend() {
         let root = tempfile::tempdir().unwrap();
         let runtime = cloud_runtime(root.path());
-        for name in ["local", "python_whisper"] {
-            fs::write(
-                &runtime.config_path,
-                serde_json::to_vec(&json!({"transcription_backend":name})).unwrap(),
-            )
-            .unwrap();
-            let args = BackendArgs {
+        fs::write(
+            &runtime.config_path,
+            serde_json::to_vec(&json!({"transcription_backend":"python_whisper"})).unwrap(),
+        )
+        .unwrap();
+        let error = configured_backend(
+            &runtime,
+            BackendArgs {
                 whisper_binary: Some("not-opened".into()),
                 ..Default::default()
-            };
-            let error = configured_backend(&runtime, args).unwrap_err();
-            assert!(error.to_string().contains("python_whisper"));
-        }
-        for name in ["openai", "openai_compatible"] {
-            fs::write(
-                &runtime.config_path,
-                serde_json::to_vec(&json!({"transcription_backend":name,
-                "openai_api_key_env":null}))
-                .unwrap(),
-            )
-            .unwrap();
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("python_whisper"));
+
+        for config in [
+            json!({}),
+            json!({"transcription_backend":"local"}),
+            json!({"transcription_backend":"openai"}),
+        ] {
+            fs::write(&runtime.config_path, serde_json::to_vec(&config).unwrap()).unwrap();
             let error = configured_backend(&runtime, BackendArgs::default()).unwrap_err();
-            assert!(error.to_string().contains("authorization"));
+            assert!(
+                error.to_string().contains("required")
+                    || error.to_string().contains("unsupported ASR backend")
+            );
         }
+
+        fs::write(
+            &runtime.config_path,
+            serde_json::to_vec(&json!({"transcription_backend":"openai_compatible",
+            "openai_api_key_env":null}))
+            .unwrap(),
+        )
+        .unwrap();
+        let error = configured_backend(&runtime, BackendArgs::default()).unwrap_err();
+        assert!(error.to_string().contains("authorization"));
+
         fs::write(
             &runtime.config_path,
             serde_json::to_vec(&json!({
@@ -491,8 +516,8 @@ mod credential_tests {
         )
         .unwrap();
         for kind in [
-            crate::service::operation_requests::asr::BackendKind::Local,
             crate::service::operation_requests::asr::BackendKind::WhisperCpp,
+            crate::service::operation_requests::asr::BackendKind::PythonWhisper,
         ] {
             let selected = configured_backend(
                 &runtime,
@@ -522,7 +547,7 @@ mod credential_tests {
             },
         )
         .unwrap();
-        assert!(matches!(backend, Backend::ExplicitOpenAi { .. }));
+        assert!(matches!(backend, Backend::OpenAiCompatible { .. }));
         assert!(!format!("{backend:?}").contains(SECRET));
         assert!(!runtime.directory.exists());
     }

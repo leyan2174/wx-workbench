@@ -137,11 +137,7 @@ impl Fixture {
         )
         .unwrap();
         fs::write(account.join("config.json"), json!({"db_dir":"db_storage", "keys_file":"all_keys.json", "decrypted_dir":"decrypted"}).to_string()).unwrap();
-        crate::key_store_fixture::migrate(
-            std::path::Path::new(env!("CARGO_BIN_EXE_wx")),
-            &account.join("config.json"),
-            &fixture.runtime_root(),
-        );
+        crate::key_store_fixture::seed(&account.join("config.json"), &json!(keys));
         fixture
     }
 
@@ -162,10 +158,6 @@ impl Fixture {
             .env_remove("WECHAT_EXPORT_USERS")
             .env("WX_CLI_CONFIG", self.profile.join("config.json"))
             .env("WX_CLI_HOME", self.runtime_root())
-            .env(
-                "WX_WECHAT_DECRYPT_PYTHON",
-                self.root.path().join("not-installed-python.exe"),
-            )
             .current_dir(self.root.path());
         eprintln!("执行命令：{command:?}");
         let result = command.output().unwrap();
@@ -643,11 +635,7 @@ fn encrypted_shard_without_a_key_is_an_error_not_a_successful_subset() {
     keys.as_object_mut().unwrap().remove("message/message_1.db");
     fs::write(&keys_path, serde_json::to_vec(&keys).unwrap()).unwrap();
     fs::remove_file(f.profile.join("keys.dpapi")).unwrap();
-    key_store_fixture::migrate(
-        Path::new(env!("CARGO_BIN_EXE_wx")),
-        &f.profile.join("config.json"),
-        &f.runtime_root(),
-    );
+    key_store_fixture::seed(&f.profile.join("config.json"), &keys);
     let output = f.output("unkeyed-shard");
     let result = f.delta(
         &output,

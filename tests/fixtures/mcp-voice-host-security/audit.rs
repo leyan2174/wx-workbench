@@ -1,14 +1,12 @@
 use mcp_voice_host_security::{
+    adapters::wechat::media::voice::{DatabaseVoice, VoiceEvidence},
     service::operation_requests::asr::{BackendArgs, BackendKind},
     config::Config,
     ipc::Response,
     mcp::protocol::{CallContext, DispatchError},
     mcp_voice::{Args, Operation},
     runtime::RuntimeContext,
-    toolkit::asr::{
-        database_media::{DatabaseVoice, VoiceEvidence},
-        prepared_audio,
-    },
+    application::transcription::prepared_audio,
 };
 use serde_json::{json, Value};
 use std::{
@@ -206,7 +204,7 @@ fn unauthorized_cloud_never_enters_account_path_backend_or_ipc() {
         let f = Fixture::new();
         let mut args = vec![
             "--backend".into(),
-            "explicit-open-ai".into(),
+            "openai_compatible".into(),
             "--openai-base-url".into(),
             format!("http://{}/v1", listener.local_addr().unwrap()),
             "--openai-model".into(),
@@ -223,7 +221,7 @@ fn unauthorized_cloud_never_enters_account_path_backend_or_ipc() {
                 ]);
             }
             2 => {
-                args[1] = "local".into();
+                args[1] = "whisper_cpp".into();
             }
             3 => {
                 args.extend([
@@ -539,7 +537,7 @@ fn explicit_cloud_loopback_only_success_and_backend_error_are_distinguished() {
         });
         let args = Args {
             backend: BackendArgs {
-                backend: BackendKind::ExplicitOpenAi,
+                backend: BackendKind::OpenAiCompatible,
                 allow_upload: true,
                 openai_base_url: Some(format!("http://{address}/v1")),
                 openai_model: Some("synthetic-model".into()),

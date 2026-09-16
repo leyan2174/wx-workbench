@@ -1,6 +1,6 @@
 [
   {"name":"get_recent_sessions","arguments":{},"ipc":{"cmd":"sessions","limit":20}},
-  {"name":"get_contacts","arguments":{"query":"synthetic","limit":12},"ipc":{"cmd":"contacts","query":"synthetic","limit":12,"legacy_view":true}},
+  {"name":"get_contacts","arguments":{"query":"synthetic","limit":12},"ipc":{"cmd":"contacts","query":"synthetic","limit":12}},
   {"name":"get_chat_history","arguments":{"chat_name":"synthetic","since":1,"until":10,"msg_type":1},"ipc":{"cmd":"history","chat":"synthetic","limit":50,"offset":0,"since":1,"until":10,"msg_type":1}},
   {"name":"search_messages","arguments":{"keyword":"synthetic","chats":["fake"],"limit":3},"ipc":{"cmd":"search","keyword":"synthetic","chats":["fake"],"limit":3}},
   {"name":"decode_transfer","arguments":{"chat_name":"synthetic","local_id":1},"ipc":{"cmd":"decode_transfer","chat":"synthetic","local_id":1,"create_time":0}},

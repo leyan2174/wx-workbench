@@ -6,9 +6,9 @@ pub mod windows_process {
     pub use crate::managed;
 }
 
-#[path = "../../../src/toolkit/asr/local.rs"]
+#[path = "../../../src/infrastructure/transcription/local.rs"]
 pub mod local;
-#[path = "../../../src/toolkit/asr/windows_supervision.rs"]
+#[path = "../../../src/infrastructure/transcription/windows_supervision.rs"]
 #[allow(dead_code)] // This backend fixture exercises C++ supervision, not the Python variant.
 mod windows_supervision;
 pub use local::*;

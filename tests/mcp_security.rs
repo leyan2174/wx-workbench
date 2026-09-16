@@ -495,10 +495,7 @@ fn mcp_startup_ping_must_obey_response_byte_limit() {
     .into_bytes();
     let server =
         authenticated_mock::Mock::start_with_initial_ping(runtime, Some(oversized), |request| {
-            assert_eq!(
-                request,
-                &json!({"cmd":"contacts","limit":50,"legacy_view":true})
-            );
+            assert_eq!(request, &json!({"cmd":"contacts","limit":50}));
             authenticated_mock::Reply::Json(json!({"ok":true,"contacts":[]}))
         });
     let mut wx = Session::start(f.command(Some(&f.config)));
@@ -523,7 +520,7 @@ fn mcp_startup_ping_must_obey_response_byte_limit() {
         vec![
             json!({"cmd":"ping"}),
             json!({"cmd":"ping"}),
-            json!({"cmd":"contacts","limit":50,"legacy_view":true})
+            json!({"cmd":"contacts","limit":50})
         ],
         "必须拒绝初始 8 MiB Pong，再通过小 Pong 健康探测后查询"
     );

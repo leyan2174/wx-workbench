@@ -21,7 +21,7 @@ pub struct Args {
     #[arg(long = "media-db")]
     pub media_dbs: Vec<PathBuf>,
     /// 明确的 username，可重复；提供元数据清单时作为精确过滤
-    #[arg(long = "user", alias = "users", required_unless_present = "chats_json")]
+    #[arg(long = "user", required_unless_present = "chats_json")]
     pub users: Vec<String>,
     /// 聊天元数据 JSON 数组：username、index、chat_name/display_name、chat_type/kind
     #[arg(long)]
@@ -48,7 +48,7 @@ pub struct Args {
     #[arg(long, allow_hyphen_values = true)]
     pub end: Option<String>,
     /// 新 CSV 文件；父目录须存在，禁止覆盖或写入源目录
-    #[arg(short, long, alias = "write-plan-csv")]
+    #[arg(short, long)]
     pub output: PathBuf,
 }
 

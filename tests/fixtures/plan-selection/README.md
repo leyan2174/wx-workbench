@@ -4,7 +4,7 @@
 
 ## 源码对照
 
-对照 vendor/wechat-decrypt/export_all_chats.py 的 _load_selected_usernames_from_plan_csv、_write_plan_csv 和 main 的 users 过滤顺序；oracle.json 记录源码 SHA256。
+选择语义最初从 wechat-decrypt 的聊天导出流程迁移；`oracle.json` 是迁移时固定的合成契约，不再绑定仓库内的 Python 源码。
 
 - 默认 blacklist：只有 trim 后的 `0` 跳过，包括空白在内的其他标记均选择。whitelist：只有 trim 后的 `1` 选择。`yes` 等标记沿用旧语义，不擅自解释为布尔值或报错。
 - username trim 后精确匹配，区分大小写；显示名、序号、类型、数量、大小及时间统计列不用于账号绑定。重复 username 即使全部不选，也整批拒绝。
@@ -15,13 +15,12 @@
 
 ## 验证方式
 
-1. `python tests/fixtures/plan-selection/generate_oracle.py`：仅 AST 抽取旧纯函数，不导入旧服务、不读账号。56 组旧消费者结果/错误对照，含 12 列旧 writer 的真实输出。
-2. `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --lib -- --nocapture`：真实新 helper 对照 oracle 和损坏/超限输入。
-3. `cargo test --bin wx export_chats -- --nocapture`：保留时间范围回归，直接验证原生 render_plan_csv 输出与 Args。
-4. 先 `cargo build --bin wx`，将 CARGO_BIN_EXE_wx 设为构建产物绝对路径，再 `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --features runtime --test runtime -- --nocapture`。
+1. `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --lib -- --nocapture`：真实 helper 对照固定 oracle 和损坏/超限输入。
+2. `cargo test --bin wx export_chats -- --nocapture`：保留时间范围回归，直接验证原生 render_plan_csv 输出与 Args。
+3. 先 `cargo build --bin wx`，将 CARGO_BIN_EXE_wx 设为构建产物绝对路径，再 `cargo test --manifest-path tests/fixtures/plan-selection/Cargo.toml --features runtime --test runtime -- --nocapture`。
 
 runtime 复用现有合成 SQLCipher 工具与 daemon 生命周期，不模拟目标 CLI、选择器或导出 JSON。两名联系人拥有相同显示名，验证名单顺序、blacklist/whitelist、用户和环境过滤、错误计划、空选择、实际导出 username、日期闭区间和增量追加。源快照与计划字节核对不变。
 
 不声称旧 Python 的宽容损坏 CSV 行为完全兼容；这些输入是明确安全收紧。CSV 中的展示/统计列不被当作可靠的导出时间条件，实际时间条件仍由命令行 start/end 决定。
 
-运行环境和人工审核点见[测试说明](../../README.md)。生成 oracle 会写入文件，普通回归无需重建 golden。
+运行环境和人工审核点见[测试说明](../../README.md)。固定 oracle 只作为迁移契约，不由生产实现重新生成。

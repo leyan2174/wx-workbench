@@ -7,6 +7,7 @@ pub(crate) mod legacy_dat;
 pub(crate) mod local_emoticon;
 pub(crate) mod local_read;
 pub mod resource;
+pub(crate) mod sns_keystream;
 pub(crate) mod strict_image;
 pub(crate) mod strict_message;
 pub mod voice;

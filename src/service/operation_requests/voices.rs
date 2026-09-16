@@ -1,5 +1,4 @@
 /// CLI 解析和后台执行共用字段定义；IPC 仍保留原来的扁平字段。
-
 pub struct Args {
     /// 会话名称（可选；省略则导出全部语音）
     pub chat: Option<String>,

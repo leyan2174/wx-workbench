@@ -58,7 +58,7 @@ pub async fn q_decode_refer(
                 #[serde(flatten)]
                 source: reply_read::LegacySource,
             }
-            let refer = project_refer(parsed);
+            let refer = project_refer(*parsed);
             Ok(serde_json::to_value(ReplyResponse {
                 exit_code: 0,
                 text: render(&refer),

@@ -5,7 +5,7 @@ pub struct Args {
     /// 作者昵称、备注名或微信 ID
     pub user: String,
     /// 输出根目录；在其下创建带时间戳的相册目录
-    #[arg(short = 'o', long, visible_alias = "output-root", default_value = ".")]
+    #[arg(short = 'o', long, default_value = ".")]
     pub output: PathBuf,
     /// 指定相册目录；已绑定同一账号和联系人的目录可更新
     #[arg(long, conflicts_with = "output")]

@@ -80,7 +80,7 @@ fn directory_digest_uses_all_sources_and_preserves_raw_identity() {
         &selector(),
         &first.logical_name,
         3,
-        &[resources.clone()]
+        std::slice::from_ref(&resources)
     )
     .is_ok());
     assert_eq!(
@@ -89,7 +89,7 @@ fn directory_digest_uses_all_sources_and_preserves_raw_identity() {
             &selector(),
             &first.logical_name,
             3 + (1i64 << 32),
-            &[resources.clone()]
+            std::slice::from_ref(&resources)
         )
         .unwrap_err()
         .failure,
@@ -127,7 +127,7 @@ fn directory_digest_keeps_reused_local_ids_at_distinct_times_separate() {
         &selector(),
         &file.logical_name,
         3,
-        &[resources.clone()],
+        std::slice::from_ref(&resources),
     )
     .unwrap();
     let later = image_digest(

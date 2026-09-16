@@ -1,10 +1,9 @@
 //! 固定账号的查询与监控；有限等待查询许可，不重放已经发出的请求。
 use super::WebService as Shared;
+use crate::application::monitor::{self as incremental, FixedRuntimeContext, MonitorOptions};
+use crate::infrastructure::cancellation::Cancellation;
 use crate::ipc::Request;
 use crate::ipc::Response;
-use crate::toolkit::monitor::{
-    self as incremental, Cancellation, FixedRuntimeContext, MonitorOptions,
-};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
@@ -77,11 +76,7 @@ async fn dispatch_host_request(state: &Shared, request: Request) -> Response {
         let decode = async {
             let lease = state.query.snapshot().await?;
             let names = lease.names().read().await.clone();
-            let material = zeroize::Zeroizing::new(
-                crate::key_store::Store::for_runtime(&state.runtime)?
-                    .load()?
-                    .image_material(),
-            );
+            let material = zeroize::Zeroizing::new(lease.key_material().image_material());
             super::super::query::mcp_image::q_decode_image_with_material(
                 lease.db(),
                 &names,
@@ -275,7 +270,8 @@ mod tests {
             .unwrap()
             .update(
                 Some(0),
-                &[crate::key_store::Update::ImageXor(
+                &[crate::key_store::Update::Image(
+                    &[0x11; 16],
                     0x88,
                     crate::key_store::Verification::Verified,
                 )],

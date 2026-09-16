@@ -23,11 +23,11 @@
 | `--max-frame-bytes` | 默认 1048576，允许 1024..16777216；MCP 双向帧上限不含结尾 LF，其他普通 IPC 响应也受该预算约束 |
 | `--media-output-root` | 无默认，必须已存在且可信；图片/语音解码发布必需，不自动创建 |
 | `--image-key-file` | 旧明文密钥文件接口不再支持；显式设置时拒绝图片请求，不读取文件 |
-| `--backend` | 默认 `local` 指 whisper.cpp，要求 `--whisper-binary` 和 `--whisper-model`；云端选 `explicit-open-ai` |
+| `--backend` | 默认 `whisper_cpp`，要求 `--whisper-binary` 和 `--whisper-model`；云端选 `openai_compatible` |
 | `--language`、`--threads`、`--timeout-seconds` | 默认 `auto`、原生自动且最多 8、120 秒；显式线程和超时须正值。Python 未给线程时沿用 PyTorch 默认。MCP context 默认 30 秒，实际剩余期限会收紧后端预算，120 秒不延长此请求期限 |
 | `--temp-root` | 普通 whisper.cpp 可指定可信目录，省略时 host 创建请求独占 TempDir；配置式 Python 不接受此用户参数，使用 host 私有目录 |
 | `--allow-upload`、`--openai-base-url`、`--openai-model`、`--api-key-file` | 云端必须全部显式给出；不读默认 key/环境凭据，不自动回退。本地与云参数不可混用 |
-| `--configured-local-python` | 默认 false；必须由宿主显式启用，且固定配置必须明确为 `transcription_backend="local"`。`local_whisper_model` 缺失默认 `base`；拒绝 cpp 路径、云参数和用户 temp-root，仅允许 local 后端 |
+| `--configured-local-python` | 默认 false；必须由宿主显式启用，且固定配置必须明确为 `transcription_backend="python_whisper"`。`local_whisper_model` 缺失默认 `base`；拒绝 cpp 路径、云参数和用户 temp-root，仅允许 Python Whisper 后端 |
 | `--voice-cache-file` | 可选显式 JSON 缓存路径，省略不持久化；父目录可信、存在且通过输出守卫，账号取固定 RuntimeContext.id |
 | `--tasks`、`--task-kind` | 默认关闭；前者授权管理当前账号任务，后者为可重复/逗号分隔的提交类型白名单 |
 | `--task-allow-media-write`、`--task-allow-memory-scan` | 默认 false；分别授权固定任务目录媒体写入、取钥任务扫描；扫描还须逐次确认 |
@@ -36,7 +36,7 @@
 
 CLI 帮助还继承全局 `--with-meta` 和 `--help`；它们不是 MCP 工具 schema 属性，工具请求不能借此增加未公布参数。
 
-**与兼容批处理区别：** `wx toolkit transcribe-chat` 等入口在用户请求转录后按固定配置选择引擎，配置缺少 `transcription_backend` 时默认 `local`（Python Whisper），缺模型时默认 `base`。这是兼容默认选择，不是失败回退；MCP 不沿用这个缺省后端规则，必须满足上表开关与显式配置双重条件。详情见 [本地 ASR](../toolkit/asr/LOCAL.md) 与 [云端授权](../toolkit/asr/OPENAI.md)。
+**与配置式批处理区别：** `wx toolkit transcribe-chat` 等入口在用户请求转录后按固定配置选择引擎，配置必须明确提供 `transcription_backend`；Python 模型缺失时默认 `base`。MCP 仍必须满足上表开关与显式配置双重条件。详情见 [本地 ASR](../infrastructure/transcription/LOCAL.md) 与 [云端授权](../infrastructure/transcription/OPENAI.md)。
 
 ## 后台任务工具
 
@@ -77,28 +77,26 @@ CLI 将固定账号与调用预算封装为认证 `Call::Mcp`，在发送前检�
 
 本节 `get_new_messages` 返回会话摘要，使用每个 `Protocol` 自己的游标。它不接收完整 `NewMessages` 状态，也不暴露 monitor 的认证分块上传接口；两者不能互换。monitor 的帧限额、完整状态查询及回收语义见[监控入口](../../docs/daemon-entrypoints.md#监控与增量状态)。
 
-| 已注册旧工具 | 参数与真实Request | 返回差异 |
+| 已注册工具 | 参数与真实Request | 返回差异 |
 | --- | --- | --- |
 | get_recent_sessions | limit默认20 -> Sessions，1..500 | JSON编码的MCP text，保留此前接口；非旧Python中文排版 |
-| get_contacts | query省略/空串、limit默认50 -> Contacts(legacy_view=true) | 已接固定账号 contact.db；返回 contacts/total，每行含 username/nick_name/remark/display/alias/description/phone。按 username/nick_name/remark 小写子串搜索；JSON-text，不是旧中文排版 |
-| get_chat_history | chat_name -> chat，limit默认50、offset默认0；日期与类型转换如下 -> History | 保留JSON-text；默认选最新页，oldest_first=true 选最早页；两者最终按时间升序展示，不保证旧内容格式器逐字一致 |
-| search_messages | keyword必填、chat_name为null/字符串/字符串数组 -> chats；默认limit20/offset0；日期转换；取offset+limit候选再全局裁剪results | JSON-text/count更新，非旧中文标题及分页提示；模糊匹配和同时间排序依赖原生查询 |
+| get_contacts | 仅 query、limit；query省略/空串、limit默认50 -> Contacts(ContactsRequest) | 与 CLI/HTTP 共用当前账号查询租约的正式联系人业务；仅列真人，返回 contacts/total，每行仅 username/display。按 username 或首选 display 不区分大小写子串搜索，按 display、username 稳定排序；total 为截取前数量，limit=0 返回空列表及 total。MCP 只包 JSON-text；legacy_view（包括 false/null）及其他未知字段在 MCP 和 Contacts IPC 均明确拒绝，不保留旧视图 |
+| get_chat_history | chat_name -> chat，limit默认50、offset默认0，since/until 为 Unix 秒；类型转换如下 -> History | 保留JSON-text；默认选最新页，oldest_first=true 选最早页；两者最终按时间升序展示，不保证旧内容格式器逐字一致 |
+| search_messages | keyword必填，chats 为可选字符串数组；默认limit20/offset0，since/until 为 Unix 秒；取offset+limit候选再全局裁剪results | JSON-text/count更新，非旧中文标题及分页提示；模糊匹配和同时间排序依赖原生查询 |
 | decode_transfer | chat_name/local_id/create_time默认0 -> DecodeTransfer | JSON-text；exit_code非零改为安全工具错误，不回显text内部数据；不执行付款 |
 | decode_location | 同上 -> DecodeLocation | 同上，成功保留原生结构与文本 |
 | get_new_messages | 无参数 -> Sessions(limit=10001)，**不用语义不同的NewMessages** | 中文text：首轮未读会话摘要，之后发生时间变化的会话摘要；每个Protocol独立游标，不是全量消息流 |
-| get_chat_images | chat_name/limit默认20/offset默认0/start_time/end_time或since/until -> Attachments(kinds=[image],image_metadata=true) | 已接资源元数据查询与白名单投影：local_id/create_time/md5/size/resource_status/size_status/size_kind/binding；缺失与歧义用状态及 null 表达，不补造数值；不是明文图片摘要/大小，也不解码或回传任意附件路径 |
+| get_chat_images | chat_name/limit默认20/offset默认0/since/until -> Attachments(kinds=[image],image_metadata=true) | 已接资源元数据查询与白名单投影：local_id/create_time/md5/size/resource_status/size_status/size_kind/binding；缺失与歧义用状态及 null 表达，不补造数值；不是明文图片摘要/大小，也不解码或回传任意附件路径 |
 
 参数规则：
 
-- 原六工具的since/until Unix秒、msg_type数字及搜索chats扩展保留。
-- start_time/end_time按旧Python的服务器本机时区，支持YYYY-MM-DD、YYYY-MM-DD HH:MM、YYYY-MM-DD HH:MM:SS；仅日期end取23:59:59，空串无限定。
-- DST歧义/空洞报安全参数错误，要求Unix秒。非空旧日期与对应新边界同时指定拒绝。
-- 搜索旧chat_name去两端空白/空项/重复项，空值表示全库；同时传chats拒绝。不接受旧Python宽松的非字符串列表项str()转换。
-- msg_types null/[]无限定，支持text=1/image=3/voice=34/namecard=42/video=43/emoji=47/location=48/app或file=49/voip=50/system=10000；忽略大小写/两端空格，去重同义类型。
+- since/until 只接受 Unix 秒整数；`start_time`/`end_time` 已移除，传入会作为未知属性拒绝。
+- `search_messages` 只接受 `chats` 字符串数组限定会话；旧 `chat_name` 参数已移除。省略 `chats` 表示全库。
+- msg_types null/[]无限定，正式词汇为text=1/image=3/voice=34/video=43/sticker=47/location=48/link或file=49/call=50/system=10000；忽略大小写/两端空格，去重同值类型。`emoji`/`voip`/`app`/`namecard` 已移除并拒绝。
 - 一个不同 msg_types 映射 msg_type，多个映射原生 msg_types 数字列表；非空列表与显式 msg_type 冲突拒绝。oldest_first 默认 false，true 从全分片最早消息分页。先在每片过滤并取 offset+limit 候选，再合并选页；不是反转原最新页。
 - 新多类型/最早页路径中的数字 base 类型匹配低 32 位，完整高位类型精确匹配；前者保留 Rust 的扩展行为，旧 Python 多类型 SQL 使用完整值精确匹配。默认单类型路径仍保留原 Rust 过滤规则。同时间行沿用稳定排序，不声称 SQLite 的同时间行次序跨快照恒定。
 - 字符串最大4096字符、数组100项、limit 1..500，offset通常0..1000000，搜索offset+limit不超过10000。旧History允许更大limit，本实现故意保留安全上限。
-- 未知属性拒绝；null仅在公布的旧参数分支允许；history/decode/images的chat_name不得空白。
+- 未知属性拒绝；msg_types 允许 null 表示不限类型；history/decode/images的chat_name不得空白。
 
 `get_chat_history` 不要求每个合法联系人都有普通消息表。只有全部已知消息分片成功扫描且未发现未知消息库时，才允许对没有对应表的会话返回空结果；没有可扫描的消息库、缺失分片或 SQL 错误仍返回错误。首次读取较大冷库可能超过调用期限；暖缓存成功不能证明冷启动在同一期限内可用，超时也不代表缓存文件与索引已同步完成。
 
@@ -120,7 +118,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 | get_contact_tags | 无参数 -> ContactTags，返回 tags/name/member_count、total_tags、total_associations |
 | get_tag_members | tag_name -> TagMembers，精确优先再模糊匹配，歧义拒绝 |
 | decode_refer | chat_name/local_id/create_time默认0 -> DecodeRefer，结构化回复正文及引用对象 |
-| get_voice_messages | chat_name/limit默认20/offset默认0/start_time/end_time或since/until -> VoiceMessages，返回 voices/count；真实音频大小未知时保持 null |
+| get_voice_messages | chat_name/limit默认20/offset默认0/since/until -> VoiceMessages，返回 voices/count；真实音频大小未知时保持 null |
 | decode_file_message | chat_name/local_id/create_time默认0 -> DecodeFileMessage，仅查当前固定账号 msg/file 内原始副本 |
 | decode_record_item | chat_name/local_id/item_index/create_time默认0 -> DecodeRecordItem，完整 datalist 的从零开始索引，仅查该联系人 Rec 内原始副本 |
 
@@ -164,7 +162,7 @@ handle返回后已提交，外部transport发送失败应丢弃Protocol，不提
 | 工具/参数 | 当前接口与语义 |
 | --- | --- |
 | decode_voice(chat_name,local_id) | `DecodeVoice {chat,local_id}`；local_id 为正数媒体 ID，不是 message_local_id。host 要求预存 `--media-output-root`，原生 SILK 解码为 24kHz 单声道 PCM16 WAV，守卫复核后不覆盖发布 |
-| transcribe_voice(chat_name,local_id) | `TranscribeVoice {chat,local_id}`；host 默认显式 whisper.cpp；也支持上表的宿主配置式 Python；云端须 explicit-open-ai + allow-upload + 显式端点/模型/凭证，均不自动失败回退 |
+| transcribe_voice(chat_name,local_id) | `TranscribeVoice {chat,local_id}`；host 默认显式 whisper.cpp；也支持上表的宿主配置式 Python；云端须 openai_compatible + allow-upload + 显式端点/模型/凭证，均不自动失败回退 |
 
 执行链：`cli/mcp → authenticated Call::Mcp → daemon/mcp_service → voice::Args::prepare → 固定账号 → Pending::bind → 内部查询回调 → mcp_audio::q_prepare_voice → prepared_audio → Pending::finish`。准备音频、解码、识别、读取显式 ASR 凭证与 WAV 发布均在 daemon 中完成；下文 host 指 daemon 内的宿主策略执行器，不再指 stdio 进程。原始音频上限 16 MiB，内部准备结果上限 24 MiB，公开 MCP 帧预算不因此扩大。执行器验证版本、尺寸、SHA-256、SILK 和关联证据，并核对请求的 media_local_id；prepared_audio 不经过 stdio，也不对工具调用方公开。
 
@@ -174,7 +172,7 @@ host 路径先拒绝原始 `..` 再转绝对路径；共享 `local_files::HostOu
 
 后端构造及 IPC 之后重新检查 context，再取实际 remaining 收紧 LocalConfig.timeout、LocalPythonConfig::tighten_timeout 或 OpenAiTranscriber::tighten_timeout；只缩短，不重新授予完整超时。Python 的绝对截止时间覆盖初始化、缓存身份和识别。`--voice-cache-file` 显式启用缓存，使用绑定 RuntimeContext.id，不接收工具提供的账号标签；未配置时调用现有字节转录。授权先于缓存读取，成功空文本可以命中。消息来源、时间、音频摘要和识别配置仍参与缓存身份，**执行 timeout 不再参与本地成功缓存键**：旧配置摘要记录不删除，但不立即命中新摘要。
 
-两个本地后端已共享 `asr/windows_supervision.rs`：`OwnedHandle` 持有 Job，使用现有 windows 类型绑定；共用有界 PeekNamedPipe 读取，每管道每轮最多 64KiB，累计上限仍由各后端控制。Job 启用 KILL_ON_JOB_CLOSE，终止后最多等待 2 秒归零；Python 成功请求保持 worker 复用，错误或释放时回收。Python 在 Job 握手后才导入第三方模块，命名模型可能下载；这是可信本地推理环境，不是对任意程序的权限沙箱。完整预算、Python 包/模型边界见 [LOCAL.md](../toolkit/asr/LOCAL.md)。
+两个本地后端已共享 `infrastructure/transcription/windows_supervision.rs`：`OwnedHandle` 持有 Job，使用现有 windows 类型绑定；共用有界 PeekNamedPipe 读取，每管道每轮最多 64KiB，累计上限仍由各后端控制。Job 启用 KILL_ON_JOB_CLOSE，终止后最多等待 2 秒归零；Python 成功请求保持 worker 复用，错误或释放时回收。Python 在 Job 握手后才导入第三方模块，命名模型可能下载；这是可信本地推理环境，不是对任意程序的权限沙箱。完整预算、Python 包/模型边界见 [LOCAL.md](../infrastructure/transcription/LOCAL.md)。
 
 缓存提交边界：host 已调用 `cached::transcribe_cached_with_receipt_checked`，识别后以完整成功模板预检；checked 缓存发布在暂存、sync 和快照复核后、实际 persist 前再次回调。host 核验真实请求 ID 的 `check_text_result`、原始路径守卫、context 和账号 before_commit。预算超限、取消或账号/守卫拒绝时，不发布本次缓存，保留原 DispatchError；普通 CLI 缓存 I/O 失败仍为独立状态，不丢弃成功识别。receipt 命中是只读，不新增缓存条目。
 

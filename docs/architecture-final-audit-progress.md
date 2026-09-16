@@ -53,7 +53,7 @@ successfully before this record. Logs are outside the repository:
 ## Local Audio Publication
 
 The production `ToolkitOperation::VoiceToMp3` path now obtains a short-lived
-`ExportContext`, supplies its protected account/input paths to the existing
+`application::publication_context::PublicationContext`, supplies its protected account/input paths to the existing
 `ExportTarget`, and revalidates that context before final publication. The
 destination fingerprint is captured before SILK decoding or encoder startup.
 The source is pinned and revalidated as before.

@@ -58,15 +58,8 @@ impl Fixture {
     }
 
     fn write_keys(&self, keys: Value) {
-        self.write_legacy_keys(keys);
         self.configure("key_store", "encrypted_keys.db");
-        key_store_fixture::migrate_with_unverified(
-            Path::new(env!("CARGO_BIN_EXE_wx")),
-            &self.config,
-            &self.root.path().join("isolated-runtime"),
-            true,
-        );
-        self.stop_daemon();
+        key_store_fixture::seed_unverified(&self.config, &keys);
         let encrypted = fs::read(&self.store).unwrap();
         assert!(encrypted.starts_with(b"WXKEYS\0\x01"));
         let plaintext_key = "11".repeat(32);
@@ -76,36 +69,9 @@ impl Fixture {
     }
 
     fn write_legacy_keys(&self, mut keys: Value) {
-        // Missing synthetic databases require explicit account binding during migration.
+        // Unsupported input for rejection-only tests; never used to seed a store.
         keys["_db_dir"] = json!(self.source);
         fs::write(&self.keys, serde_json::to_vec(&keys).unwrap()).unwrap();
-    }
-
-    fn stop_daemon(&self) {
-        success(
-            &command(self.root.path(), &self.config)
-                .args(["daemon", "stop"])
-                .output()
-                .unwrap(),
-        );
-    }
-
-    fn reject_migration(&self) {
-        let before = self.protected();
-        let output = command(self.root.path(), &self.config)
-            .args(["migrate-keys", "--allow-unverified"])
-            .output()
-            .unwrap();
-        assert!(!output.status.success(), "{}", diagnostic(&output));
-        assert!(
-            diagnostic(&output).contains("Legacy database key"),
-            "{}",
-            diagnostic(&output)
-        );
-        assert!(!self.store.exists());
-        assert!(!self.config.parent().unwrap().join("keys.dpapi").exists());
-        assert_eq!(self.protected(), before);
-        self.stop_daemon();
     }
 
     fn configure(&self, field: &str, value: &str) {
@@ -127,8 +93,8 @@ impl Fixture {
         encrypted_sqlite::encrypt(&plain, &output);
     }
 
-    fn command(&self, direct: bool, args: &[&str]) -> Output {
-        // Never let the prepared workflow receive Missing and enter memory acquisition.
+    fn command(&self, args: &[&str]) -> Output {
+        // Never let the worker receive Missing and enter memory acquisition.
         let config: Value = serde_json::from_slice(&fs::read(&self.config).unwrap()).unwrap();
         if config
             .get("key_store")
@@ -140,11 +106,7 @@ impl Fixture {
             );
         }
         let mut command = command(self.root.path(), &self.config);
-        if direct {
-            command.args(["toolkit", "decrypt"]);
-        } else {
-            command.args(["toolkit", "run", "decrypt", "--"]);
-        }
+        command.args(["toolkit", "decrypt"]);
         command.args(args).output().unwrap()
     }
 
@@ -174,7 +136,6 @@ fn command(root: &Path, config: &Path) -> Command {
         .env_remove("WX_CLI_EXPECTED_RUNTIME")
         .env("WX_CLI_CONFIG", config)
         .env("WX_CLI_HOME", root.join("isolated-runtime"))
-        .env("WX_WECHAT_DECRYPT_PYTHON", root.join("missing-python.exe"))
         .env("PATH", "")
         .current_dir(root);
     command
@@ -255,7 +216,7 @@ fn marker(path: &Path) -> String {
 }
 
 #[test]
-fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
+fn decrypt_batch_reports_partial_failure_and_retains_failed_output() {
     let f = Fixture::new();
     for (name, value) in [
         ("a/valid.db", "first"),
@@ -266,13 +227,12 @@ fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
         f.database(name, value);
     }
     f.write_keys(json!({
-        "a\\valid.db": {"enc_key": "11".repeat(32)},
+        "a\\valid.db": "11".repeat(32),
         "b/valid.db": "11".repeat(32),
         "bad.db": "11".repeat(32),
-        "unrelated/missing.db": "11".repeat(32),
-        "_db_dir": ""
+        "unrelated/missing.db": "11".repeat(32)
     }));
-    // Migration verifies the original page; corruption is the decrypt-time failure.
+    // Seed the current store, then corrupt the page to test a decrypt-time failure.
     let mut damaged = fs::read(f.source.join("bad.db")).unwrap();
     damaged[4032] ^= 1;
     fs::write(f.source.join("bad.db"), damaged).unwrap();
@@ -280,17 +240,11 @@ fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
     fs::write(f.destination.join("bad.db"), b"old target must survive").unwrap();
     let protected = f.protected();
     let source = snapshot(&f.source);
-    let output = f.command(false, &[]);
-    success(&output);
+    let output = f.command(&[]);
+    assert!(!output.status.success(), "{}", diagnostic(&output));
+    assert_eq!(output.status.code(), Some(20), "{}", diagnostic(&output));
     count(&output, &["written", "success", "succeeded"], "成功", 2);
-    count(&output, &["failures", "failed"], "失败", 1);
-    count(&output, &["skipped"], "跳过", 1);
-    count(
-        &output,
-        &["no_key", "missing_keys", "missing_key"],
-        r"跳过\(无密钥\)",
-        1,
-    );
+    count(&output, &["failures", "failed"], "失败", 2);
     assert_eq!(marker(&f.destination.join("a/valid.db")), "first");
     assert_eq!(marker(&f.destination.join("b/valid.db")), "second");
     assert!(!f.destination.join("missing.db").exists());
@@ -303,7 +257,7 @@ fn run_decrypt_native_batch_reuses_keys_and_retains_failed_output() {
 }
 
 #[test]
-fn direct_decrypt_needs_no_process_and_returns_nonzero_for_item_failure() {
+fn decrypt_needs_no_process_and_returns_nonzero_for_item_failure() {
     let f = Fixture::new();
     f.configure(
         "wechat_process",
@@ -312,10 +266,10 @@ fn direct_decrypt_needs_no_process_and_returns_nonzero_for_item_failure() {
     f.database("valid.db", "offline");
     f.write_keys(json!({"valid.db": "11".repeat(32)}));
     let protected = f.protected();
-    success(&f.command(true, &[]));
+    success(&f.command(&[]));
     assert_eq!(marker(&f.destination.join("valid.db")), "offline");
     f.database("missing.db", "no-key");
-    let output = f.command(true, &[]);
+    let output = f.command(&[]);
     assert!(!output.status.success(), "{}", diagnostic(&output));
     assert_eq!(output.status.code(), Some(20), "{}", diagnostic(&output));
     count(&output, &["failures", "failed"], "失败", 1);
@@ -344,7 +298,7 @@ fn incremental_aliases_skip_newer_targets_with_valid_store() {
             .unwrap();
         let before = snapshot(&f.destination);
         let protected = f.protected();
-        let output = f.command(false, &[flag]);
+        let output = f.command(&[flag]);
         success(&output);
         count(&output, &["unchanged", "skipped"], "未变更", 1);
         count(&output, &["failures", "failed"], "失败", 0);
@@ -354,7 +308,7 @@ fn incremental_aliases_skip_newer_targets_with_valid_store() {
 }
 
 #[test]
-fn dry_run_preserves_source_targets_and_does_not_create_output_directory() {
+fn dry_run_reports_missing_keys_without_writing_output() {
     for existing_output in [false, true] {
         let f = Fixture::new();
         f.database("valid.db", "preview");
@@ -367,20 +321,73 @@ fn dry_run_preserves_source_targets_and_does_not_create_output_directory() {
         let source = snapshot(&f.source);
         let destination = snapshot(&f.destination);
         let protected = f.protected();
-        let output = f.command(false, &["--dry-run"]);
-        success(&output);
-        count(
-            &output,
-            &["no_key", "missing_keys", "missing_key"],
-            r"跳过\(无密钥\)",
-            1,
-        );
-        count(&output, &["failures", "failed"], "失败", 0);
+        let output = f.command(&["--dry-run"]);
+        assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert_eq!(output.status.code(), Some(20), "{}", diagnostic(&output));
+        count(&output, &["planned"], "计划", 1);
+        count(&output, &["failures", "failed"], "失败", 1);
         assert_eq!(snapshot(&f.source), source);
         assert_eq!(snapshot(&f.destination), destination);
         assert_eq!(f.destination.exists(), existing_output);
         assert_eq!(f.protected(), protected);
     }
+}
+
+#[test]
+fn decrypt_missing_store_requires_explicit_initialization_without_writes() {
+    let f = Fixture::new();
+    f.database("valid.db", "missing-material");
+    f.write_keys(json!({"valid.db": "11".repeat(32)}));
+    fs::remove_file(&f.store).unwrap();
+    let protected = f.protected();
+    let source = snapshot(&f.source);
+    let output = command(f.root.path(), &f.config)
+        .args(["toolkit", "decrypt", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", diagnostic(&output));
+    assert!(
+        diagnostic(&output).contains("explicitly initialize"),
+        "{}",
+        diagnostic(&output)
+    );
+    assert_eq!(f.protected(), protected);
+    assert_eq!(snapshot(&f.source), source);
+    assert!(!f.destination.exists());
+    assert!(!f.store.exists());
+}
+
+#[test]
+fn decrypt_uses_daemon_snapshot_and_restart_rejects_corrupt_store() {
+    let f = Fixture::new();
+    f.database("valid.db", "daemon-snapshot");
+    f.write_keys(json!({"valid.db": "11".repeat(32)}));
+    let source = snapshot(&f.source);
+    success(&f.command(&["--dry-run"]));
+    assert!(!f.destination.exists());
+
+    fs::write(&f.store, b"corrupt synthetic ciphertext").unwrap();
+    success(&f.command(&[]));
+    let db = Connection::open_with_flags(
+        f.destination.join("valid.db"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let marker: String = db
+        .query_row("SELECT value FROM marker", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(marker, "daemon-snapshot");
+    drop(db);
+    let published = snapshot(&f.destination);
+
+    drop(bootstrap::RuntimeCleanup(
+        f.root.path().join("isolated-runtime"),
+    ));
+    let output = f.command(&[]);
+    assert!(!output.status.success(), "{}", diagnostic(&output));
+    assert_eq!(snapshot(&f.destination), published);
+    assert_eq!(snapshot(&f.source), source);
+    assert_eq!(fs::read(&f.store).unwrap(), b"corrupt synthetic ciphertext");
 }
 
 #[test]
@@ -397,8 +404,8 @@ fn output_sidecars_are_rejected_and_never_removed() {
         )
         .unwrap();
         let before = snapshot(&f.destination);
-        let output = f.command(false, &[]);
-        success(&output);
+        let output = f.command(&[]);
+        assert!(!output.status.success(), "{}", diagnostic(&output));
         assert!(
             snapshot(&f.destination) == before,
             "sidecar {suffix}: {}",
@@ -409,20 +416,20 @@ fn output_sidecars_are_rejected_and_never_removed() {
 }
 
 #[test]
-fn raw_key_slash_and_case_collisions_are_rejected_before_output() {
+fn legacy_key_aliases_do_not_bypass_the_current_snapshot_or_create_output() {
     for alias in ["nested\\valid.db", "NESTED/VALID.DB"] {
         let f = Fixture::new();
         f.database("nested/valid.db", "collision");
         let mut keys = json!({"nested/valid.db": "11".repeat(32)});
         keys[alias] = json!("11".repeat(32));
         f.write_legacy_keys(keys);
-        f.reject_migration();
         let protected = f.protected();
         let source = snapshot(&f.source);
-        let output = f.command(false, &[]);
+        let output = f.command(&[]);
         assert!(!output.status.success(), "{}", diagnostic(&output));
         assert!(
-            diagnostic(&output).contains("Legacy key material requires explicit migration"),
+            diagnostic(&output).contains("key_read_failed")
+                && diagnostic(&output).contains("Worker database snapshot unavailable"),
             "{}",
             diagnostic(&output)
         );
@@ -443,22 +450,19 @@ fn output_cannot_overwrite_config_or_saved_keys() {
         f.configure("decrypted_dir", ".");
         let protected = f.protected();
         let source = snapshot(&f.source);
-        let output = f.command(false, &[]);
+        let output = f.command(&[]);
         assert_eq!(f.protected(), protected, "{}", diagnostic(&output));
         assert_eq!(snapshot(&f.source), source);
-        // 可在全局预检拒绝，也可作为明确的逐项失败；两种情况均不得修改源文件。
-        if output.status.success() {
-            count(&output, &["failures", "failed"], "失败", 1);
-        }
+        assert!(!output.status.success(), "{}", diagnostic(&output));
     }
 }
 
 #[test]
-fn run_decrypt_help_requires_neither_config_nor_python() {
+fn decrypt_help_requires_neither_config_nor_python() {
     let root = tempfile::tempdir().unwrap();
     for args in [
-        vec!["toolkit", "run", "decrypt", "--", "--help"],
-        vec!["toolkit", "run", "decrypt", "--", "-h"],
+        vec!["toolkit", "decrypt", "--help"],
+        vec!["toolkit", "decrypt", "-h"],
     ] {
         let output = command(root.path(), &root.path().join("absent/config.json"))
             .args(args)
@@ -473,27 +477,36 @@ fn run_decrypt_help_requires_neither_config_nor_python() {
 }
 
 #[test]
-fn legacy_run_includes_migrate_while_direct_decrypt_skips_it() {
-    for direct in [false, true] {
-        let f = Fixture::new();
-        f.database("valid.db", "ordinary");
-        f.database("migrate/old.db", "migration");
-        f.write_keys(json!({
-            "valid.db": "11".repeat(32),
-            "migrate/old.db": "11".repeat(32)
-        }));
-        let output = f.command(direct, &[]);
-        success(&output);
-        assert_eq!(marker(&f.destination.join("valid.db")), "ordinary");
-        assert_eq!(f.destination.join("migrate/old.db").exists(), !direct);
-        if !direct {
-            assert_eq!(marker(&f.destination.join("migrate/old.db")), "migration");
-        }
+fn decrypt_skips_migration_working_directory() {
+    let f = Fixture::new();
+    f.database("valid.db", "ordinary");
+    f.database("migrate/old.db", "migration");
+    f.write_keys(json!({
+        "valid.db": "11".repeat(32),
+        "migrate/old.db": "11".repeat(32)
+    }));
+    let output = f.command(&[]);
+    success(&output);
+    assert_eq!(marker(&f.destination.join("valid.db")), "ordinary");
+    assert!(!f.destination.join("migrate/old.db").exists());
+}
+
+#[test]
+fn removed_compatibility_commands_are_rejected_without_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("absent/config.json");
+    for args in [
+        &["toolkit", "run", "decrypt"][..],
+        &["toolkit", "export-chats"][..],
+    ] {
+        let output = command(root.path(), &config).args(args).output().unwrap();
+        assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
     }
 }
 
 #[test]
-fn invalid_legacy_key_is_rejected_before_incremental_or_dry_run() {
+fn invalid_legacy_key_never_reaches_incremental_or_dry_run_planning() {
     for flag in ["-i", "--incremental", "--dry-run"] {
         let f = Fixture::new();
         f.database("valid.db", "invalid material must not reach planning");
@@ -513,20 +526,18 @@ fn invalid_legacy_key_is_rejected_before_incremental_or_dry_run() {
             .unwrap();
         let source = snapshot(&f.source);
         let before = snapshot(&f.destination);
-        f.reject_migration();
         let protected = f.protected();
-        for direct in [false, true] {
-            let output = f.command(direct, &[flag]);
-            assert!(!output.status.success(), "{}", diagnostic(&output));
-            assert!(
-                diagnostic(&output).contains("Legacy key material requires explicit migration"),
-                "{}",
-                diagnostic(&output)
-            );
-            assert_eq!(snapshot(&f.source), source);
-            assert_eq!(snapshot(&f.destination), before);
-            assert_eq!(f.protected(), protected);
-        }
+        let output = f.command(&[flag]);
+        assert!(!output.status.success(), "{}", diagnostic(&output));
+        assert!(
+            diagnostic(&output).contains("key_read_failed")
+                && diagnostic(&output).contains("Worker database snapshot unavailable"),
+            "{}",
+            diagnostic(&output)
+        );
+        assert_eq!(snapshot(&f.source), source);
+        assert_eq!(snapshot(&f.destination), before);
+        assert_eq!(f.protected(), protected);
     }
 }
 
@@ -538,16 +549,15 @@ fn corrupt_store_never_falls_back_to_valid_legacy_keys() {
     fs::write(&f.store, b"invalid encrypted store").unwrap();
     let source = snapshot(&f.source);
     let protected = f.protected();
-    for direct in [false, true] {
-        let output = f.command(direct, &[]);
-        assert!(!output.status.success(), "{}", diagnostic(&output));
-        assert!(
-            diagnostic(&output).contains("Invalid key store format"),
-            "{}",
-            diagnostic(&output)
-        );
-        assert!(!f.destination.exists());
-        assert_eq!(snapshot(&f.source), source);
-        assert_eq!(f.protected(), protected);
-    }
+    let output = f.command(&[]);
+    assert!(!output.status.success(), "{}", diagnostic(&output));
+    assert!(
+        diagnostic(&output).contains("key_read_failed")
+            && diagnostic(&output).contains("Worker database snapshot unavailable"),
+        "{}",
+        diagnostic(&output)
+    );
+    assert!(!f.destination.exists());
+    assert_eq!(snapshot(&f.source), source);
+    assert_eq!(f.protected(), protected);
 }

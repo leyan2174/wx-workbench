@@ -12,38 +12,6 @@ pub(crate) fn media_root(source_dir: Option<&Path>, media_dir: Option<&Path>) ->
         .or_else(|| source_dir.map(|path| path.join("msg")))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cache_layout_and_missing_lane_meaning_remain_wechat_specific() {
-        let root = tempfile::tempdir().unwrap();
-        let media = media_root(Some(root.path()), None).unwrap();
-        assert_eq!(media, root.path().join("msg"));
-        assert_eq!(
-            media_root(None, Some(root.path())),
-            Some(root.path().to_path_buf())
-        );
-        assert!(media_root(None, None).is_none());
-        let hash = crate::adapters::wechat::messages::read::layout::username_hash("synthetic");
-        fs::create_dir_all(media.join("attach").join(&hash)).unwrap();
-        fs::write(media.join("attach").join(&hash).join("one.bin"), [1; 7]).unwrap();
-        let first = scan_username(&media, "synthetic");
-        assert_eq!(first.bytes, 7);
-        assert!(first.statuses.is_empty());
-        // An absent lane is skipped; an existing non-attach lane without the
-        // username directory is limited. It must not discard prior bytes.
-        fs::create_dir(media.join("file")).unwrap();
-        let second = scan_username(&media, "synthetic");
-        assert_eq!(second.bytes, 7);
-        assert_eq!(
-            second.statuses,
-            std::collections::BTreeSet::from([Partial::ScanLimited])
-        );
-    }
-}
-
 pub(crate) type ScanTotal = ScanContribution;
 
 pub(crate) struct ScanPin {
@@ -227,5 +195,37 @@ pub(crate) fn scan_tree(path: &Path, _pin: ScanPin, depth: usize, total: &mut Sc
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_layout_and_missing_lane_meaning_remain_wechat_specific() {
+        let root = tempfile::tempdir().unwrap();
+        let media = media_root(Some(root.path()), None).unwrap();
+        assert_eq!(media, root.path().join("msg"));
+        assert_eq!(
+            media_root(None, Some(root.path())),
+            Some(root.path().to_path_buf())
+        );
+        assert!(media_root(None, None).is_none());
+        let hash = crate::adapters::wechat::messages::read::layout::username_hash("synthetic");
+        fs::create_dir_all(media.join("attach").join(&hash)).unwrap();
+        fs::write(media.join("attach").join(&hash).join("one.bin"), [1; 7]).unwrap();
+        let first = scan_username(&media, "synthetic");
+        assert_eq!(first.bytes, 7);
+        assert!(first.statuses.is_empty());
+        // An absent lane is skipped; an existing non-attach lane without the
+        // username directory is limited. It must not discard prior bytes.
+        fs::create_dir(media.join("file")).unwrap();
+        let second = scan_username(&media, "synthetic");
+        assert_eq!(second.bytes, 7);
+        assert_eq!(
+            second.statuses,
+            std::collections::BTreeSet::from([Partial::ScanLimited])
+        );
     }
 }

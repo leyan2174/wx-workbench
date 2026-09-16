@@ -29,7 +29,7 @@ pub struct McpArgs {
     #[arg(long, requires = "media_output_root")]
     pub image_key_file: Option<PathBuf>,
     /// 允许使用固定账号配置明确选定的 local Python Whisper；不接受工具请求指定后端。
-    #[arg(long, conflicts_with_all = ["whisper_binary", "whisper_model", "allow_upload",
+    #[arg(long, conflicts_with_all = ["backend", "whisper_binary", "whisper_model", "allow_upload",
         "openai_base_url", "openai_model", "api_key_file", "temp_root"])]
     pub configured_local_python: bool,
     #[command(flatten)]
@@ -53,11 +53,16 @@ impl Default for McpArgs {
 
 impl McpArgs {
     fn host_settings(&self) -> HostSettings {
+        let mut voice: crate::service::mcp::VoiceSettings = self.voice.clone().into();
+        if self.configured_local_python {
+            voice.backend.backend =
+                crate::service::operation_requests::asr::BackendKind::PythonWhisper;
+        }
         HostSettings {
             media_output_root: self.media_output_root.clone(),
             image_key_file: self.image_key_file.clone(),
             configured_local_python: self.configured_local_python,
-            voice: self.voice.clone().into(),
+            voice,
         }
     }
 }
@@ -244,12 +249,18 @@ mod tests {
         assert!(args.configured_local_python);
         assert_eq!(args.voice.backend.language, "zh");
         assert_eq!(args.voice.backend.threads, Some(2));
+        let host = args.host_settings();
+        assert_eq!(
+            host.voice.backend.backend.identity(),
+            crate::service::operation_requests::asr::BackendId::PythonWhisper
+        );
     }
 
     #[test]
     fn configured_local_python_rejects_cloud_and_cpp_host_flags() {
         use clap::Parser;
         for extra in [
+            vec!["--backend", "whisper_cpp"],
             vec!["--allow-upload"],
             vec!["--whisper-binary", "synthetic.exe"],
             vec!["--whisper-model", "synthetic.bin"],

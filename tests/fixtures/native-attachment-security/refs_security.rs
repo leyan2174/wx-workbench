@@ -1,4 +1,5 @@
-use crate::attachment_refs::{self as refs, Binding, ErrorKind, MessageInput};
+use crate::attachment_refs::{self as refs, Binding};
+use attachment_refs_contract::wechat_content::{self as content, ErrorKind, MessageInput};
 use std::{
     fs,
     io::Read,
@@ -33,7 +34,7 @@ fn put(root: &Path, relative: &str, data: &[u8]) -> PathBuf {
 fn file_nested_hash_must_not_downgrade_to_wrong_heuristic_reference() {
     let root = tempfile::tempdir().unwrap();
     let file = put(root.path(), "msg/file/report.txt", b"bad");
-    let canonical = refs::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
+    let canonical = content::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
     assert_eq!(
         refs::find_reference(root.path(), &canonical)
             .unwrap_err()
@@ -41,7 +42,7 @@ fn file_nested_hash_must_not_downgrade_to_wrong_heuristic_reference() {
         ErrorKind::HashMismatch
     );
     let body = file_xml(&format!("<value>{ABC_MD5}</value>"));
-    let parsed = refs::parse_file_message(&input(&body));
+    let parsed = content::parse_file_message(&input(&body));
     if let Ok(meta) = &parsed {
         let found = refs::find_reference(root.path(), meta);
         println!("nested md5 parsed={meta:?}; resolution={:?}", found.as_ref().map(|value| value.as_ref().map(|r| serde_json::to_value(r).unwrap())));
@@ -61,7 +62,7 @@ fn record_nested_hash_must_not_downgrade_to_wrong_heuristic_reference() {
         md5::compute(b"synthetic_peer")
     );
     let file = put(root.path(), &relative, b"bad");
-    let canonical = refs::parse_record_item(&input(&record_xml(ABC_MD5)), 0).unwrap();
+    let canonical = content::parse_record_item(&input(&record_xml(ABC_MD5)), 0).unwrap();
     assert_eq!(
         refs::find_reference(root.path(), &canonical)
             .unwrap_err()
@@ -69,7 +70,7 @@ fn record_nested_hash_must_not_downgrade_to_wrong_heuristic_reference() {
         ErrorKind::HashMismatch
     );
     let body = record_xml(&format!("<value>{ABC_MD5}</value>"));
-    let parsed = refs::parse_record_item(&input(&body), 0);
+    let parsed = content::parse_record_item(&input(&body), 0);
     if let Ok(meta) = &parsed {
         let found = refs::find_reference(root.path(), meta);
         println!("nested fullmd5 parsed={meta:?}; resolution={:?}", found.as_ref().map(|value| value.as_ref().map(|r| serde_json::to_value(r).unwrap())));
@@ -84,7 +85,7 @@ fn record_nested_hash_must_not_downgrade_to_wrong_heuristic_reference() {
 #[test]
 fn mixed_hash_content_must_not_accept_only_valid_prefix() {
     let body = file_xml(&format!("{ABC_MD5}<suffix>not-a-hash</suffix>"));
-    let parsed = refs::parse_file_message(&input(&body));
+    let parsed = content::parse_file_message(&input(&body));
     println!("mixed hash parse={parsed:?}");
     assert!(parsed.is_err(), "不能只使用首个文本节点来通过 MD5 验证");
 }
@@ -95,7 +96,7 @@ fn nested_size_must_not_remove_the_declared_size_constraint() {
         "<totallen>3</totallen>",
         "<totallen><value>500</value></totallen>",
     );
-    let parsed = refs::parse_file_message(&input(&body));
+    let parsed = content::parse_file_message(&input(&body));
     println!("nested size parse={parsed:?}");
     assert!(
         parsed.is_err(),
@@ -109,7 +110,7 @@ fn controlled_account_roots_same_ids_do_not_cross_search() {
     let b = tempfile::tempdir().unwrap();
     let pa = put(a.path(), "msg/file/report.txt", b"abc");
     let pb = put(b.path(), "msg/file/report.txt", b"bad");
-    let meta = refs::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
+    let meta = content::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
     let found = refs::find_reference(a.path(), &meta).unwrap().unwrap();
     assert_eq!(found.path, pa);
     assert_eq!(found.binding, Binding::Md5);
@@ -138,7 +139,7 @@ fn cross_message_record_candidates_without_hash_remain_ambiguous() {
             b"abc",
         );
     }
-    let meta = refs::parse_record_item(&input(&record_xml("")), 0).unwrap();
+    let meta = content::parse_record_item(&input(&record_xml("")), 0).unwrap();
     assert_eq!(
         refs::find_reference(root.path(), &meta).unwrap_err().kind,
         ErrorKind::Ambiguous
@@ -151,7 +152,7 @@ fn readonly_reference_locks_all_hardlink_aliases_on_windows() {
     let path = put(root.path(), "msg/file/report.txt", b"abc");
     let alias = root.path().join("outside-alias.txt");
     fs::hard_link(&path, &alias).unwrap();
-    let meta = refs::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
+    let meta = content::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
     let found = refs::find_reference(root.path(), &meta).unwrap().unwrap();
     #[cfg(windows)]
     assert!(fs::OpenOptions::new().write(true).open(&alias).is_err());
@@ -163,7 +164,7 @@ fn readonly_reference_locks_all_hardlink_aliases_on_windows() {
 #[test]
 fn traversal_and_ads_base_aliases_are_rejected_before_search() {
     let root = tempfile::tempdir().unwrap();
-    let meta = refs::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
+    let meta = content::parse_file_message(&input(&file_xml(ABC_MD5))).unwrap();
     for path in [
         root.path().join("child/.."),
         root.path().join("."),

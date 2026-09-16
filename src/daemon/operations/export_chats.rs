@@ -1,10 +1,10 @@
 //! 原生批量导出编排；计划 CSV 只选择 username，不串联语音转录。
+use crate::application::{chat_archive_index::ChatIndex, chat_plan_selection::Plan};
 use crate::business::archive as domain;
 use crate::runtime::RuntimeContext;
 #[cfg(test)]
-use crate::toolkit::chat_plan_selection::Mode;
-use crate::toolkit::chat_plan_selection::Plan;
-use crate::{ipc::Request, message::export::Target, toolkit::chat_index::ChatIndex};
+use crate::service::operation_requests::plan::Mode;
+use crate::{ipc::Request, message::export::Target};
 use anyhow::{ensure, Context, Result};
 use chrono::{Local, TimeZone};
 use serde::Serialize;
@@ -115,7 +115,7 @@ struct BatchArchive<'a, 'p, 'd, F> {
     send: F,
     next: usize,
     path: Option<std::path::PathBuf>,
-    destination: Option<crate::toolkit::ExportTarget>,
+    destination: Option<crate::infrastructure::publication::ExportTarget>,
 }
 
 fn archive_failure(stage: domain::Stage, error: anyhow::Error) -> domain::Failure {
@@ -167,7 +167,10 @@ where
             );
             let path = self.index.choose(username, &target.chat, target.is_group)?;
             super::export_chat::validate_output_for(self.runtime, &path)?;
-            self.destination = Some(crate::toolkit::ExportTarget::capture(self.runtime, &path)?);
+            self.destination = Some(crate::infrastructure::publication::ExportTarget::capture(
+                self.runtime,
+                &path,
+            )?);
             self.path = Some(path);
             Ok(())
         })()
@@ -215,7 +218,8 @@ where
                     let old = serde_json::from_reader(std::io::BufReader::new(
                         std::fs::File::open(previous)?,
                     ))?;
-                    let merged = crate::toolkit::chat_merge::merge_chat_json(&old, &document)?;
+                    let merged =
+                        crate::application::chat_archive_merge::merge_chat_json(&old, &document)?;
                     added = merged.report.added;
                     let mut merged_document = merged.document;
                     for key in ["chat", "exported_at"] {
@@ -718,14 +722,17 @@ mod tests {
             "whitelist"
         ])
         .is_ok());
-        let bytes = crate::toolkit::chat_plan::render_plan_csv(&[]).unwrap();
-        assert_eq!(crate::toolkit::chat_plan::PLAN_CSV_FIELDS.len(), 12);
+        let bytes = crate::application::chat_export_plan::render_plan_csv(&[]).unwrap();
+        assert_eq!(
+            crate::application::chat_export_plan::PLAN_CSV_FIELDS.len(),
+            12
+        );
         assert!(Plan::read(bytes.as_slice(), Mode::Blacklist)
             .unwrap()
             .select(["peer"])
             .unwrap()
             .is_empty());
-        let row = crate::toolkit::chat_plan::PlanRow {
+        let row = crate::application::chat_export_plan::PlanRow {
             export: "1".into(),
             index: 999,
             username: "peer".into(),
@@ -742,7 +749,7 @@ mod tests {
             total_estimated_bytes: 0,
             size_status: "ok".into(),
         };
-        let bytes = crate::toolkit::chat_plan::render_plan_csv(&[row]).unwrap();
+        let bytes = crate::application::chat_export_plan::render_plan_csv(&[row]).unwrap();
         assert_eq!(
             Plan::read(bytes.as_slice(), Mode::Whitelist)
                 .unwrap()

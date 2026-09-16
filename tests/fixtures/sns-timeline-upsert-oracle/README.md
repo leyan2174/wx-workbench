@@ -1,19 +1,15 @@
 # SNS 时间线更新参考测试
 
-oracle.py 提取 vendor/wechat-decrypt/export_sns.py 中白名单 AST 定义、解析常量及真实导出函数。它是参考实现的受控执行，不是另写一套预期导出器；不执行模块顶层代码或自动账号配置。
+该 fixture 保存迁移时由历史 wechat-decrypt SNS 导出流程生成的合成结果。当前回归只消费固定输入与 golden，不再执行或携带 Python oracle。
 
 ## 运行
 
 从仓库根目录使用 Python 标准库运行：
 
-```powershell
-python -B tests/fixtures/sns-timeline-upsert-oracle/oracle.py
-```
-
 Rust 核心定向入口：
 
 ```powershell
-cargo test --bin wx toolkit::sns::tests -- --nocapture
+cargo test --bin wx application::moments::tests -- --nocapture
 ```
 
 环境与输出要求见[测试说明](../../README.md)。生成或更新 golden 是单独操作，不应为了得到通过结果覆盖预期文件。

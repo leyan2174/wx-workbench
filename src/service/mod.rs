@@ -1,6 +1,7 @@
 //! Shared daemon protocol and planning, independent of HTTP and CLI argument types.
 pub mod client;
 pub mod config_pin;
+pub mod favorite_filter;
 pub mod mcp;
 pub mod message_filter;
 pub mod operation_client;
@@ -15,4 +16,4 @@ pub mod settings;
 pub mod time;
 pub mod transport;
 pub mod web;
-pub mod favorite_filter;
+pub mod worker_keys;

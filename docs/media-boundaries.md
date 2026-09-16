@@ -6,7 +6,7 @@
 
 - `business::attachment_content` 拥有解码后的附件内容、容器种类和具名媒体结果；不依赖 XML、JSON、微信来源路径、消息分库或原始 datatype。媒体引用和严格关联仍复用 `business::media` 与既有 ImageSource，不创建替代关联实现。
 - `adapters::wechat::media::attachment_content` 复用原有文件/合并记录 XML 算法，拥有消息来源校验、私有字段映射、记录缓存命名和文件候选命名。业务内容与旧 evidence 投影分开；Identity/datatype 仅留在明确的兼容元数据包装中。
-- `toolkit::attachment_refs` 不再解析 XML 或拼接微信缓存目录；保留有界遍历、目录/文件 Pin、句柄复核、累计 hash 预算和只读引用。旧解析名称仅重导出唯一适配器实现，未保留替代解析器。旧序列化字段继续平铺，未增加 content 嵌套。
+- `application::attachment_references` 负责有界遍历、目录/文件 Pin、句柄复核、累计 hash 预算和只读引用；不解析 XML 或拼接微信缓存目录。微信内容解析与缓存布局只由 `adapters::wechat::media::attachment_content` 提供，应用层不再重导出适配器类型。旧序列化字段继续在协议边界平铺，未增加 content 嵌套。
 - `directory_layout` 拥有聊天目录图片/视频缓存规则；目录宿主消费 typed 内容，继续负责启用开关、账号根约束、受限读取、解码、暂存输出与错误投影。具名媒体拒绝重复节点、命名空间伪装、缺失/无效 MD5、未知节点和超限 XML，不回退为文件名猜测。
 - `legacy_dat` 仅供显式历史 DAT 入口，文件系统能力由 resolver 宿主提供。保留本地时区的“前 31 天、当前、后 31 天”顺序，再按目录排序兜底；每个目录内 full > HD > thumbnail。这不是严格图片关联失败后的回退，也不新增账号或输出授权。
 - 聊天目录图片依旧 HD > full > wide > thumbnail > wide-thumbnail，同级候选拒绝歧义；其词法月份识别和旧 MsgAttach 布局不改成 legacy DAT 的策略。无 MD5 的附件仍仅允许单候选弱绑定，带警告；多个候选拒绝。相同 MD5 的多份副本仍明确计数，不冒充唯一物理副本。

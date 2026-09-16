@@ -21,17 +21,16 @@ pub mod config;
 #[path = "../../../src/runtime.rs"]
 #[allow(dead_code)] // This fixed-account fixture omits bootstrap and other operation lifecycle entry points.
 pub mod runtime;
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // Image fixture uses publication guards, not directory collection.
 pub mod files;
-#[path = "../../../src/toolkit/setup.rs"]
-#[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
-pub mod setup;
-#[path = "../../../src/toolkit/private_file.rs"]
+pub mod infrastructure {
+    pub(crate) use crate::files as publication;
+}
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
 pub mod toolkit {
-    pub use super::{files, private_file, setup};
-    pub(crate) use super::files::ExportTarget;
+    pub use super::files;
 }
 pub mod attachment {
     pub use super::AttachmentKind;

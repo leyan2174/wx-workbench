@@ -17,7 +17,7 @@ cargo test --target x86_64-pc-windows-msvc
 
 ```powershell
 cargo test --target x86_64-pc-windows-msvc --test mcp_readonly_runtime
-cargo test --target x86_64-pc-windows-msvc --bin wx toolkit::asr::receipt::tests
+cargo test --target x86_64-pc-windows-msvc --bin wx application::transcription::receipt::tests
 cargo test --target x86_64-pc-windows-msvc --bin wx service:: -- --test-threads=1
 cargo test --target x86_64-pc-windows-msvc --bin wx daemon::tasks:: -- --test-threads=1
 cargo test --target x86_64-pc-windows-msvc --test runtime_isolation -- --test-threads=1

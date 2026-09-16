@@ -1,17 +1,15 @@
 //! Daemon-owned MCP voice authorization, cache, ASR and WAV publication.
-use crate::service::operation_requests::asr::BackendArgs;
 #[cfg(test)]
 use crate::service::operation_requests::asr::BackendKind;
-use crate::toolkit::asr::backend::{self, BackendId, Entry};
+use crate::service::operation_requests::asr::{self as backend, BackendArgs, BackendId};
 use crate::{
+    application::transcription::{self as asr, cached, prepared_audio, receipt},
     attachment::local_files::HostOutputGuard,
+    infrastructure::audio::publish::publish_wav_noclobber,
+    infrastructure::transcription::local_python,
     ipc::{Response, MAX_PREPARED_VOICE_RESPONSE_BYTES},
     mcp::protocol::{CallContext, DispatchError},
     runtime::RuntimeContext,
-    toolkit::{
-        asr::{self, cached, prepared_audio, receipt},
-        audio::publish::publish_wav_noclobber,
-    },
 };
 use chrono::{Local, TimeZone};
 use serde_json::json;
@@ -82,7 +80,7 @@ impl Args {
             Operation::Transcribe => {
                 let b = &self.backend;
                 let valid = if configured_local_python {
-                    b.backend.identity(Entry::ConfiguredBatch) == BackendId::PythonWhisper
+                    b.backend.identity() == BackendId::PythonWhisper
                         && b.validate_for(BackendId::PythonWhisper).is_ok()
                         && b.temp_root.is_none()
                 } else {
@@ -103,11 +101,7 @@ impl Args {
                 {
                     *path = host_path(path)?;
                 }
-                match b.backend.identity(if configured_local_python {
-                    Entry::ConfiguredBatch
-                } else {
-                    Entry::Native
-                }) {
+                match b.backend.identity() {
                     BackendId::WhisperCpp | BackendId::PythonWhisper => {
                         if args.backend.temp_root.is_none() {
                             let directory = tempfile::Builder::new()
@@ -246,7 +240,7 @@ impl Pending {
                         .pin_input(path)
                         .map_err(|_| DispatchError::Unavailable)?;
                 }
-                if let Some(asr::Backend::LegacyPythonLocal(config)) = &self.prepared_backend {
+                if let Some(asr::Backend::PythonWhisper(config)) = &self.prepared_backend {
                     for path in config.host_input_paths() {
                         guard
                             .pin_input(&path)
@@ -303,7 +297,7 @@ impl Pending {
         let voice = prepared_audio::decode(
             &payload.0,
             prepared_audio::Limits {
-                max_audio_bytes: asr::database_media::MAX_VOICE_BYTES,
+                max_audio_bytes: crate::adapters::wechat::media::voice::MAX_VOICE_BYTES,
                 max_response_bytes: MAX_PREPARED_VOICE_RESPONSE_BYTES,
             },
         )
@@ -321,8 +315,8 @@ impl Pending {
         before_commit()?;
         match self.operation {
             Operation::Decode => {
-                let wav =
-                    asr::prepare_wav_bytes(&voice.silk).map_err(|_| DispatchError::QueryFailed)?;
+                let wav = crate::infrastructure::audio::prepare_wav_bytes(&voice.silk)
+                    .map_err(|_| DispatchError::QueryFailed)?;
                 let guard = self.output.as_ref().ok_or(DispatchError::Unavailable)?;
                 let mut ready = None;
                 let mut failure = None;
@@ -438,7 +432,7 @@ fn configured_local_backend(
         anyhow::ensure!(bytes.len() <= 1024 * 1024, "configuration exceeds limit");
         let config: serde_json::Value = serde_json::from_slice(&bytes)?;
         let model = configured_local_model(&config)?;
-        let local = asr::local_python::LocalPythonConfig::discover(
+        let local = local_python::LocalPythonConfig::discover(
             model,
             (args.language != "auto").then(|| args.language.clone()),
             args.threads,
@@ -452,7 +446,7 @@ fn configured_local_backend(
                 .ok_or_else(|| anyhow::anyhow!("configuration parent missing"))?
                 .to_owned(),
         )?;
-        Ok(asr::Backend::LegacyPythonLocal(local))
+        Ok(asr::Backend::PythonWhisper(local))
     };
     build().map_err(|_| DispatchError::Unavailable)
 }
@@ -470,18 +464,18 @@ fn limit_backend(backend: &mut asr::Backend, context: &CallContext) -> Result<()
     context.check()?;
     let remaining = context.remaining();
     match backend {
-        asr::Backend::LegacyPythonLocal(config) => {
+        asr::Backend::PythonWhisper(config) => {
             config
                 .tighten_timeout(remaining)
                 .map_err(|_| DispatchError::TimedOut)?;
         }
-        asr::Backend::Local(config) => {
+        asr::Backend::WhisperCpp(config) => {
             config.timeout = config.timeout.min(remaining);
             if config.timeout.is_zero() {
                 return Err(DispatchError::TimedOut);
             }
         }
-        asr::Backend::ExplicitOpenAi { client, .. } => {
+        asr::Backend::OpenAiCompatible { client, .. } => {
             client
                 .tighten_timeout(remaining)
                 .map_err(|_| DispatchError::TimedOut)?;
@@ -562,6 +556,16 @@ mod configured_local_tests {
 
     const PRIVATE: &str = "SYNTHETIC_PRIVATE_LOCAL_MODEL";
 
+    fn configured_args() -> Args {
+        Args {
+            backend: BackendArgs {
+                backend: BackendKind::PythonWhisper,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
     fn runtime(root: &Path, config: serde_json::Value) -> RuntimeContext {
         let config_path = root.join("config.json");
         fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
@@ -599,7 +603,7 @@ mod configured_local_tests {
                 ..Default::default()
             },
             BackendArgs {
-                backend: BackendKind::ExplicitOpenAi,
+                backend: BackendKind::OpenAiCompatible,
                 ..Default::default()
             },
             BackendArgs {
@@ -676,7 +680,7 @@ mod configured_local_tests {
         for config in [
             json!({}),
             json!(null),
-            json!({"transcription_backend":"openai", "openai_api_key":PRIVATE}),
+            json!({"transcription_backend":"openai_compatible", "openai_api_key":PRIVATE}),
             json!({"transcription_backend":"whisper_cpp"}),
             json!({"transcription_backend":true}),
             json!({"transcription_backend":PRIVATE}),
@@ -685,12 +689,12 @@ mod configured_local_tests {
             assert!(!format!("{error:#} {error:?}").contains(PRIVATE));
         }
         assert_eq!(
-            configured_local_model(&json!({"transcription_backend":"local"})).unwrap(),
+            configured_local_model(&json!({"transcription_backend":"python_whisper"})).unwrap(),
             "base"
         );
         assert_eq!(
             configured_local_model(
-                &json!({"transcription_backend":"local", "local_whisper_model":"small"})
+                &json!({"transcription_backend":"python_whisper", "local_whisper_model":"small"})
             )
             .unwrap(),
             "small"
@@ -703,7 +707,7 @@ mod configured_local_tests {
             json!({"secret":PRIVATE}),
         ] {
             assert!(configured_local_model(
-                &json!({"transcription_backend":"local", "local_whisper_model":model})
+                &json!({"transcription_backend":"python_whisper", "local_whisper_model":model})
             )
             .is_err());
         }
@@ -714,7 +718,7 @@ mod configured_local_tests {
         let root = tempfile::tempdir().unwrap();
         let rt = runtime(
             root.path(),
-            json!({"transcription_backend":"openai", "openai_api_key":PRIVATE}),
+            json!({"transcription_backend":"openai_compatible", "openai_api_key":PRIVATE}),
         );
         let args = BackendArgs {
             temp_root: Some(root.path().join("private-work")),
@@ -725,7 +729,7 @@ mod configured_local_tests {
             DispatchError::Unavailable
         );
         for bytes in [format!("{{invalid-{PRIVATE}"), PRIVATE.repeat(40_000),
-            serde_json::to_string(&json!({"transcription_backend":"local", "local_whisper_model":format!("{PRIVATE}\n")})).unwrap()] {
+            serde_json::to_string(&json!({"transcription_backend":"python_whisper", "local_whisper_model":format!("{PRIVATE}\n")})).unwrap()] {
             fs::write(&rt.config_path, bytes).unwrap();
             let error = configured_local_backend(&rt, &args).unwrap_err();
             assert_eq!(error, DispatchError::Unavailable);
@@ -743,14 +747,14 @@ mod configured_local_tests {
             fs::write(&model, b"synthetic model, never loaded").unwrap();
             let rt = runtime(
                 root.path(),
-                json!({"transcription_backend":"local", "local_whisper_model":model}),
+                json!({"transcription_backend":"python_whisper", "local_whisper_model":model}),
             );
             let context = CallContext::default();
             let cache_dir = root.path().join("host-cache");
             fs::create_dir(&cache_dir).unwrap();
             let args = Args {
                 voice_cache_file: cache_enabled.then(|| cache_dir.join("voices.json")),
-                ..Default::default()
+                ..configured_args()
             };
             let pending = args.prepare_configured_local(1, &context).unwrap();
             let work = pending.args.backend.temp_root.clone().unwrap();
@@ -758,7 +762,7 @@ mod configured_local_tests {
             let mut pending = pending.bind(&rt).unwrap();
             assert!(matches!(
                 pending.prepared_backend,
-                Some(asr::Backend::LegacyPythonLocal(_))
+                Some(asr::Backend::PythonWhisper(_))
             ));
             assert!(!format!("{:?}", pending.prepared_backend).contains(PRIVATE));
             limit_backend(pending.prepared_backend.as_mut().unwrap(), &context).unwrap();
@@ -775,9 +779,12 @@ mod configured_local_tests {
     #[test]
     fn configured_local_account_switch_is_rejected_before_inference() {
         let root = tempfile::tempdir().unwrap();
-        let rt = runtime(root.path(), json!({"transcription_backend":"local"}));
+        let rt = runtime(
+            root.path(),
+            json!({"transcription_backend":"python_whisper"}),
+        );
         let context = CallContext::default();
-        let pending = Args::default()
+        let pending = configured_args()
             .prepare_configured_local(1, &context)
             .unwrap()
             .bind(&rt)

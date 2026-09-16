@@ -234,7 +234,7 @@ impl Session {
         if !matches!(
             request,
             Request::Sessions { .. }
-                | Request::Contacts { .. }
+                | Request::Contacts(_)
                 | Request::History { .. }
                 | Request::Search { .. }
                 | Request::NewMessages { .. }
@@ -721,7 +721,8 @@ mod tests {
         session
             .execute(call.clone(), &runtime, &CallContext::default(), query)
             .unwrap();
-        let snapshot = crate::toolkit::setup::Snapshot::capture(&runtime.config_path).unwrap();
+        let snapshot =
+            crate::infrastructure::configuration::Snapshot::capture(&runtime.config_path).unwrap();
         snapshot
             .write_bytes(snapshot.bytes().unwrap(), &[])
             .unwrap();
@@ -769,7 +770,7 @@ mod tests {
         let mut host = HostSettings::default();
         host.voice.backend.allow_upload = true;
         host.voice.backend.backend =
-            crate::service::operation_requests::asr::BackendKind::ExplicitOpenAi;
+            crate::service::operation_requests::asr::BackendKind::OpenAiCompatible;
         host.voice.backend.api_key_file = Some(PathBuf::from("explicit-key"));
         let value = serde_json::to_value(&host).unwrap();
         let restored: HostSettings = serde_json::from_value(value.clone()).unwrap();
@@ -830,9 +831,9 @@ mod tests {
 
     #[test]
     fn daemon_dispatch_publishes_wav_and_never_returns_prepared_audio() {
-        use crate::toolkit::asr::{
-            database_media::{DatabaseVoice, VoiceEvidence},
-            prepared_audio,
+        use crate::{
+            adapters::wechat::media::voice::{DatabaseVoice, VoiceEvidence},
+            application::transcription::prepared_audio,
         };
         let (temp, runtime, mut call) = fixture();
         let output = temp.path().join("output");

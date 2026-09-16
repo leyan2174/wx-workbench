@@ -5,6 +5,10 @@
 use super::protocol::{
     Call, Envelope, Reply, ServiceError, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, VERSION,
 };
+use super::worker_keys::{
+    encode_database_reply, encode_image_reply, DatabaseReadRequest, DatabaseSnapshot,
+    ImageReadRequest, ImageSnapshot,
+};
 use crate::runtime::RuntimeContext;
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
@@ -20,6 +24,7 @@ use std::{
         io::AsRawHandle,
     },
     path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -44,11 +49,66 @@ use zeroize::{Zeroize, Zeroizing};
 pub(crate) mod framing;
 
 pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) type DatabaseKeyHandler = Arc<
+    dyn Fn(
+            DatabaseReadRequest,
+            u32,
+        ) -> Pin<
+            Box<dyn Future<Output = std::result::Result<DatabaseSnapshot, ServiceError>> + Send>,
+        > + Send
+        + Sync,
+>;
+pub(crate) type ImageKeyHandler = Arc<
+    dyn Fn(
+            ImageReadRequest,
+            u32,
+        )
+            -> Pin<Box<dyn Future<Output = std::result::Result<ImageSnapshot, ServiceError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+pub(crate) struct WorkerKeyHandlers {
+    pub databases: DatabaseKeyHandler,
+    pub image: ImageKeyHandler,
+}
 const READ_SHARE: u32 = 1;
 const ALL_SHARE: u32 = 7;
 const OPEN_REPARSE: u32 = 0x00200000;
 const BACKUP_SEMANTICS: u32 = 0x02000000;
 const REPARSE: u32 = 0x400;
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetNamedPipeClientProcessId(pipe: *mut std::ffi::c_void, client_pid: *mut u32) -> i32;
+}
+
+fn client_process_id(stream: &NamedPipeServer) -> Result<u32> {
+    let mut pid = 0;
+    ensure!(
+        unsafe { GetNamedPipeClientProcessId(stream.as_raw_handle(), &mut pid) } != 0 && pid != 0,
+        "Unable to verify service client process"
+    );
+    Ok(pid)
+}
+
+pub(crate) fn random_secret() -> Result<Zeroizing<String>> {
+    use windows::Win32::Security::Cryptography::{
+        BCryptGenRandom, BCRYPT_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    };
+    let mut bytes = Zeroizing::new([0u8; 32]);
+    unsafe {
+        BCryptGenRandom(
+            BCRYPT_ALG_HANDLE::default(),
+            &mut *bytes,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        )
+        .ok()?;
+    }
+    Ok(Zeroizing::new(
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+    ))
+}
 
 // The closure cannot outlive any SID, ACL, or descriptor backing storage.
 fn with_user_security<T>(
@@ -343,7 +403,7 @@ impl TokenFile {
         let (file, _untracked_path) = staged.into_parts();
         let mut file = OwnedToken(file);
         regular_file(&file.0)?;
-        crate::toolkit::private_file::restrict(&file.0)?;
+        crate::private_file::restrict(&file.0)?;
         with_user_security(|_, attributes| unsafe {
             SetKernelObjectSecurity(
                 HANDLE(file.0.as_raw_handle()),
@@ -353,19 +413,7 @@ impl TokenFile {
             Ok(())
         })?;
         verify_private_security(HANDLE(file.0.as_raw_handle()))?;
-        use windows::Win32::Security::Cryptography::{
-            BCryptGenRandom, BCRYPT_ALG_HANDLE, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-        };
-        let mut bytes = Zeroizing::new([0u8; 32]);
-        unsafe {
-            BCryptGenRandom(
-                BCRYPT_ALG_HANDLE::default(),
-                &mut *bytes,
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-            )
-            .ok()?;
-        }
-        let value = Zeroizing::new(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+        let value = random_secret()?;
         file.0.write_all(value.as_bytes())?;
         file.0.sync_all()?;
         if let Some(stale) = stale {
@@ -470,13 +518,40 @@ fn authenticate(
 /// instance is acquired before any token mutation, also excluding rival servers.
 /// The service validates event long-poll limits. Submissions require idempotency
 /// keys: a timeout/disconnect does not prove non-execution.
+#[cfg(test)]
 pub(crate) async fn serve<F, Fut>(
     runtime: RuntimeContext,
     handler: Arc<F>,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()>
+where
+    F: Fn(Call, u32) -> Fut + Send + Sync + 'static + ?Sized,
+    Fut: Future<Output = std::result::Result<Value, ServiceError>> + Send + 'static,
+{
+    serve_inner(runtime, handler, None, shutdown).await
+}
+
+pub(crate) async fn serve_with_worker_keys<F, Fut>(
+    runtime: RuntimeContext,
+    handler: Arc<F>,
+    worker_keys: WorkerKeyHandlers,
+    shutdown: watch::Receiver<bool>,
+) -> Result<()>
+where
+    F: Fn(Call, u32) -> Fut + Send + Sync + 'static + ?Sized,
+    Fut: Future<Output = std::result::Result<Value, ServiceError>> + Send + 'static,
+{
+    serve_inner(runtime, handler, Some(Arc::new(worker_keys)), shutdown).await
+}
+
+async fn serve_inner<F, Fut>(
+    runtime: RuntimeContext,
+    handler: Arc<F>,
+    worker_keys: Option<Arc<WorkerKeyHandlers>>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()>
 where
-    F: Fn(Call) -> Fut + Send + Sync + 'static + ?Sized,
+    F: Fn(Call, u32) -> Fut + Send + Sync + 'static + ?Sized,
     Fut: Future<Output = std::result::Result<Value, ServiceError>> + Send + 'static,
 {
     if *shutdown.borrow() {
@@ -504,11 +579,13 @@ where
             let mut stream = std::mem::replace(&mut listener, next);
             let token = token.clone();
             let handler = handler.clone();
+            let worker_keys = worker_keys.clone();
             let runtime_id = runtime.id.clone();
             connections.spawn(async move {
                 let _permit = permit;
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(80);
                 let _ = tokio::time::timeout_at(deadline, async {
+                    let peer_pid = client_process_id(&stream)?;
                     let bytes = Zeroizing::new(tokio::time::timeout(CALL_TIMEOUT, read_frame(&mut stream, MAX_REQUEST_BYTES)).await??);
                     let mut envelope: Envelope = match serde_json::from_slice(&bytes) {
                         Ok(envelope) => envelope,
@@ -525,19 +602,80 @@ where
                     };
                     let auth = authenticate(envelope.version, &envelope.runtime_id, &envelope.token, &runtime_id, &token.value);
                     envelope.token.zeroize();
-                    let max_response_bytes = envelope.request.response_limit();
-                    let outcome = match auth {
-                        Ok(()) => tokio::time::timeout(Duration::from_secs(60), handler(envelope.request)).await
-                            .unwrap_or_else(|_| Err(error("deadline", "Operation deadline exceeded; outcome may be unknown"))),
-                        Err(error) => Err(error),
-                    };
-                    let reply = match outcome {
-                        Ok(data) => Reply::success(runtime_id.clone(), data),
-                        Err(error) => Reply::failure(runtime_id.clone(), error),
-                    };
-                    let bytes = match encode(&reply, max_response_bytes) {
-                        Ok(bytes) => bytes,
-                        Err(_) => encode(&Reply::failure(runtime_id, error("response_too_large", "task response exceeds size limit")), MAX_RESPONSE_BYTES)?,
+                    let request = envelope.request;
+                    let max_response_bytes = request.response_limit();
+                    let bytes = match request {
+                        Call::WorkerDatabaseKeys { request } => {
+                            let outcome = match (auth, worker_keys.as_ref()) {
+                                (Ok(()), Some(handlers)) => tokio::time::timeout(
+                                    Duration::from_secs(60),
+                                    (handlers.databases)(request, peer_pid),
+                                )
+                                .await
+                                .unwrap_or_else(|_| {
+                                    Err(error("deadline", "Worker database read timed out"))
+                                }),
+                                (Ok(()), None) => Err(error(
+                                    "unauthorized",
+                                    "Worker database access denied",
+                                )),
+                                (Err(error), _) => Err(error),
+                            };
+                            encode_database_reply(&runtime_id, outcome).or_else(|_| {
+                                encode_database_reply(
+                                    &runtime_id,
+                                    Err(error(
+                                        "response_too_large",
+                                        "Worker database snapshot exceeds the response limit",
+                                    )),
+                                )
+                            })?
+                        }
+                        Call::WorkerImageMaterial { request } => {
+                            let outcome = match (auth, worker_keys.as_ref()) {
+                                (Ok(()), Some(handlers)) => tokio::time::timeout(
+                                    Duration::from_secs(60),
+                                    (handlers.image)(request, peer_pid),
+                                )
+                                .await
+                                .unwrap_or_else(|_| {
+                                    Err(error("deadline", "Worker image read timed out"))
+                                }),
+                                (Ok(()), None) => Err(error(
+                                    "unauthorized",
+                                    "Worker image access denied",
+                                )),
+                                (Err(error), _) => Err(error),
+                            };
+                            encode_image_reply(&runtime_id, outcome).or_else(|_| {
+                                encode_image_reply(
+                                    &runtime_id,
+                                    Err(error(
+                                        "response_too_large",
+                                        "Worker image snapshot exceeds the response limit",
+                                    )),
+                                )
+                            })?
+                        }
+                        request => {
+                            let outcome = match auth {
+                                Ok(()) => tokio::time::timeout(
+                                    Duration::from_secs(60),
+                                    handler(request, peer_pid),
+                                )
+                                .await
+                                .unwrap_or_else(|_| Err(error("deadline", "Operation deadline exceeded; outcome may be unknown"))),
+                                Err(error) => Err(error),
+                            };
+                            let reply = match outcome {
+                                Ok(data) => Reply::success(runtime_id.clone(), data),
+                                Err(error) => Reply::failure(runtime_id.clone(), error),
+                            };
+                            match encode(&reply, max_response_bytes) {
+                                Ok(bytes) => bytes,
+                                Err(_) => encode(&Reply::failure(runtime_id, error("response_too_large", "task response exceeds size limit")), MAX_RESPONSE_BYTES)?,
+                            }
+                        }
                     };
                     tokio::time::timeout(CALL_TIMEOUT, async {
                         write_frame(&mut stream, &bytes).await?;
@@ -585,7 +723,7 @@ mod tests {
             .access_mode(0xC00D0000)
             .open(path)
             .unwrap();
-        crate::toolkit::private_file::restrict(&file).unwrap();
+        crate::private_file::restrict(&file).unwrap();
         with_user_security(|_, attributes| unsafe {
             SetKernelObjectSecurity(
                 HANDLE(file.as_raw_handle()),
@@ -623,7 +761,8 @@ mod tests {
         let runtime_id = runtime.id.clone();
         let path = dir.path().join("service-token.key");
         let (shutdown, receiver) = watch::channel(false);
-        let handler = Arc::new(move |call| {
+        let handler = Arc::new(move |call, peer_pid| {
+            assert_eq!(peer_pid, std::process::id());
             assert!(matches!(call, Call::Shutdown {}));
             shutdown.send(true).unwrap();
             async { Ok(Value::Null) }
@@ -698,7 +837,7 @@ mod tests {
         let token =
             TokenFile::create(DirectoryGuard::open(dir.path()).unwrap(), &listener).unwrap();
         assert!(*token.value != *old);
-        crate::toolkit::private_file::assert_private_acl(&path);
+        crate::private_file::assert_private_acl(&path);
         assert!(create_pipe(&name, true).is_err());
         assert!(read_identity(&path, 64).unwrap().as_slice() == token.value.as_bytes());
         drop(token);
@@ -833,7 +972,7 @@ mod tests {
         let listener = create_pipe(&test_name(dir.path()), true).unwrap();
         let token =
             TokenFile::create(DirectoryGuard::open(dir.path()).unwrap(), &listener).unwrap();
-        crate::toolkit::private_file::assert_private_acl(&path);
+        crate::private_file::assert_private_acl(&path);
         assert_eq!(read_identity(&path, 64).unwrap().len(), 64);
         assert!(OpenOptions::new().write(true).open(&path).is_err());
         assert!(std::fs::remove_file(&path).is_err());

@@ -30,7 +30,7 @@ pub enum Kind {
 }
 
 pub fn parse_task_kind(value: &str) -> Result<Kind, String> {
-    serde_json::from_value(Value::String(value.replace('-', "_")))
+    serde_json::from_value(Value::String(value.into()))
         .map_err(|_| format!("Unknown task kind: {value}"))
 }
 
@@ -126,6 +126,18 @@ impl Task {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    WorkerKeyRevision {
+        request: super::worker_keys::RevisionRequest,
+    },
+    WorkerKeys {
+        request: super::worker_keys::UpdateRequest,
+    },
+    WorkerDatabaseKeys {
+        request: super::worker_keys::DatabaseReadRequest,
+    },
+    WorkerImageMaterial {
+        request: super::worker_keys::ImageReadRequest,
+    },
     Monitor {
         request: monitor::Call,
     },
@@ -171,6 +183,8 @@ pub enum Call {
 impl Call {
     pub(crate) fn response_limit(&self) -> usize {
         match self {
+            Self::WorkerDatabaseKeys { .. } => super::worker_keys::MAX_DATABASE_REPLY_BYTES,
+            Self::WorkerImageMaterial { .. } => super::worker_keys::MAX_IMAGE_REPLY_BYTES,
             Self::Monitor { request } => request.response_limit(),
             Self::Web { .. } => super::web::MAX_RESPONSE_BYTES,
             Self::Mcp { request } => request

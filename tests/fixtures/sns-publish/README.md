@@ -19,7 +19,7 @@
 按[测试说明](../../README.md)准备依赖，从仓库根目录执行：
 
 ```powershell
-cargo test --bin wx toolkit::directory_publish::tests -- --nocapture
+cargo test --bin wx infrastructure::output_tree::tests -- --nocapture
 cargo test --manifest-path tests/fixtures/sns-publish/Cargo.toml --target x86_64-pc-windows-msvc publish::tests -- --nocapture
 ```
 

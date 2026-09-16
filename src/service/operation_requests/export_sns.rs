@@ -35,7 +35,7 @@ pub struct Args {
 impl LocalCacheArgs {
     pub(crate) fn validate_request(&self) -> anyhow::Result<()> {
         if let Some(raw) = &self.image_xor_key {
-            crate::toolkit::parse_image_xor(raw.trim())?;
+            crate::application::image_publication::parse_xor(raw.trim())?;
         }
         Ok(())
     }

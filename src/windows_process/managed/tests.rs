@@ -59,6 +59,10 @@ fn helper_process() {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .creation_flags(0x0800_0000);
+        #[expect(
+            clippy::zombie_processes,
+            reason = "The orphan fixture deliberately leaves a descendant for the supervising Job to reap"
+        )]
         let mut child = command.spawn().unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while !root.join("descendant.pid").exists() && Instant::now() < deadline {

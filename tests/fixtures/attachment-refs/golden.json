@@ -1,5 +1,5 @@
 {
-  "source": "vendor/wechat-decrypt/mcp_server.py",
+  "source": "upstream:ylytdeng/wechat-decrypt/mcp_server.py",
   "source_sha256": "cb1fec139d911c6b8f78c85805e88c77c5be4d215c33ef007536410c2424c180",
   "cases": [
     {

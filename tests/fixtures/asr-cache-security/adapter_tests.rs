@@ -1,4 +1,4 @@
-use super::{asr::openai, cached::*, local, Backend};
+use super::{cached::*, local, openai, Backend};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -60,7 +60,7 @@ fn denied_cloud_checks_authorization_before_invalid_audio_account_or_cache() {
         max_audio_bytes: 1024,
     })
     .unwrap();
-    let backend = Backend::ExplicitOpenAi {
+    let backend = Backend::OpenAiCompatible {
         client,
         allow_upload: false,
     };
@@ -82,7 +82,7 @@ fn backend_failure_and_corrupt_cache_keep_separate_error_models() {
     let model = dir.path().join("model.bin");
     let path = dir.path().join("cache.json");
     fs::write(&model, "fail").unwrap();
-    let backend = Backend::Local(local::LocalConfig::new(program().to_owned(), model.clone()));
+    let backend = Backend::WhisperCpp(local::LocalConfig::new(program().to_owned(), model.clone()));
     let req = request(&path);
     let error = transcribe_cached(&req, &backend).err().unwrap();
     assert!(!format!("{error:#}").contains("SYNTHETIC_SECRET"));
@@ -102,7 +102,7 @@ fn backend_cannot_modify_pinned_model_and_wrong_model_never_hits() {
     let model = dir.path().join("model.bin");
     let path = dir.path().join("cache.json");
     fs::write(&model, "probe").unwrap();
-    let backend = Backend::Local(local::LocalConfig::new(program().to_owned(), model.clone()));
+    let backend = Backend::WhisperCpp(local::LocalConfig::new(program().to_owned(), model.clone()));
     let req = request(&path);
     assert_eq!(
         transcribe_cached(&req, &backend).unwrap().cache_state,
@@ -123,7 +123,7 @@ fn malformed_hit_or_wrong_timestamp_preserves_record_and_returns_fresh_success()
     let model = dir.path().join("model.bin");
     let path = dir.path().join("cache.json");
     fs::write(&model, "ok").unwrap();
-    let backend = Backend::Local(local::LocalConfig::new(program().to_owned(), model));
+    let backend = Backend::WhisperCpp(local::LocalConfig::new(program().to_owned(), model));
     let req = request(&path);
     assert_eq!(
         transcribe_cached(&req, &backend).unwrap().cache_state,
@@ -159,7 +159,7 @@ fn existing_cache_never_bypasses_audio_validation_or_input_limit() {
     let model = dir.path().join("model.bin");
     let path = dir.path().join("cache.json");
     fs::write(&model, "ok").unwrap();
-    let backend = Backend::Local(local::LocalConfig::new(program().to_owned(), model));
+    let backend = Backend::WhisperCpp(local::LocalConfig::new(program().to_owned(), model));
     let mut req = request(&path);
     transcribe_cached(&req, &backend).unwrap();
     let before = fs::read(&path).unwrap();

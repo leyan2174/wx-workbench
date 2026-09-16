@@ -14,11 +14,11 @@
 
 use anyhow::{anyhow, bail, Result};
 
-use super::{detect_image_format, DecodedImage, V2KeyMaterial, V1_MAGIC, V2_MAGIC};
+use super::{detect_image_format, RestoredImage, V2KeyMaterial, V1_MAGIC, V2_MAGIC};
 
 const HEADER_SIZE: usize = 15;
 
-pub fn decode(file_bytes: &[u8], key: V2KeyMaterial<'_>) -> Result<DecodedImage> {
+pub fn restore(file_bytes: &[u8], key: V2KeyMaterial<'_>) -> Result<RestoredImage> {
     if file_bytes.len() < HEADER_SIZE {
         bail!(
             "V2 .dat: 文件过短（{} < {} 字节）",
@@ -31,9 +31,9 @@ pub fn decode(file_bytes: &[u8], key: V2KeyMaterial<'_>) -> Result<DecodedImage>
         bail!("V2 .dat: header magic 不匹配 V1/V2");
     }
 
-    let aes_key = key
-        .aes_key
-        .ok_or_else(|| anyhow!("V2 .dat: 需要 image AES key，请配置 image_aes_key"))?;
+    let aes_key = key.aes_key.ok_or_else(|| {
+        anyhow!("V2 .dat: 缺少当前账号 image AES key；请通过显式授权入口初始化图片密钥")
+    })?;
 
     let aes_size = u32::from_le_bytes(file_bytes[6..10].try_into().unwrap()) as usize;
     let xor_size = u32::from_le_bytes(file_bytes[10..14].try_into().unwrap()) as usize;
@@ -101,7 +101,7 @@ pub fn decode(file_bytes: &[u8], key: V2KeyMaterial<'_>) -> Result<DecodedImage>
             bail!("V2 .dat: PNG trailer is invalid (XOR key may be wrong)");
         }
     }
-    Ok(DecodedImage {
+    Ok(RestoredImage {
         data: out,
         format,
         decoder: "v2",
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn rejects_short_file() {
-        let r = decode(&[0u8; 4], V2KeyMaterial::default());
+        let r = restore(&[0u8; 4], V2KeyMaterial::default());
         assert!(r.is_err());
     }
 
@@ -150,7 +150,7 @@ mod tests {
     fn rejects_v2_without_key() {
         let mut buf = V2_MAGIC.to_vec();
         buf.extend_from_slice(&[0u8; HEADER_SIZE - 6]);
-        let r = decode(&buf, V2KeyMaterial::default());
+        let r = restore(&buf, V2KeyMaterial::default());
         let err = r.unwrap_err().to_string();
         assert!(err.contains("AES key"), "{}", err);
     }

@@ -9,6 +9,13 @@ pub mod attachment {
 pub mod config;
 #[path = "../../../src/crypto/mod.rs"]
 pub mod crypto;
+#[path = "../../../src/service/monitor.rs"]
+pub mod monitor_contract;
+pub mod service {
+    pub mod protocol {
+        pub use crate::monitor_contract as monitor;
+    }
+}
 #[path = "../../../src/daemon/cache.rs"]
 #[allow(dead_code, unused_imports)] // This slice omits snapshot re-exports and unrelated cache lifecycle entry points.
 pub mod production_cache;
@@ -32,21 +39,25 @@ pub mod adapters {
         pub use crate::emoticon_adapter as emoticons;
     }
 }
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // Download fixture uses publication guards, not directory collection.
 pub mod files;
+pub mod infrastructure {
+    pub(crate) use crate::setup as configuration;
+    pub(crate) use crate::files as publication;
+}
 #[path = "../../../src/key_store/mod.rs"]
 #[allow(dead_code)] // Store is embedded for fixed-runtime protection, not migration orchestration.
 pub mod key_store;
-#[path = "../../../src/toolkit/private_file.rs"]
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
-#[path = "../../../src/toolkit/setup.rs"]
+#[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
 pub mod toolkit {
-    pub use crate::{files, private_file, setup};
+    pub use crate::files;
 }
-#[path = "../../../src/toolkit/emoticons/download.rs"]
+#[path = "../../../src/application/emoticons/download.rs"]
 pub mod download;
 #[path = "../../support/managed_process.rs"]
 pub mod windows_process;

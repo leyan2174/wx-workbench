@@ -13,18 +13,13 @@ pub struct Config {
     pub wechat_process: String,
 }
 
-/// 从当前工作目录 / <exe_dir> / $HOME/.wx-cli 加载配置
-pub fn load_config() -> Result<Config> {
-    let config_path = find_config_file()?;
-    load_config_at(&config_path)
-}
-
 /// 从指定文件加载一次配置，避免后台启动过程中重复发现配置而切换账号。
 pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
     let content = std::fs::read_to_string(config_path)
         .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
     let raw: serde_json::Value =
         serde_json::from_str(&content).with_context(|| "config.json 格式错误")?;
+    validate_key_configuration(&raw)?;
 
     let mut db_dir = raw
         .get("db_dir")
@@ -89,6 +84,15 @@ pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
         decrypted_dir,
         wechat_process,
     })
+}
+
+pub(crate) fn validate_key_configuration(raw: &serde_json::Value) -> Result<()> {
+    anyhow::ensure!(raw.is_object(), "Configuration must be a JSON object");
+    anyhow::ensure!(
+        raw.get("image_aes_key").is_none() && raw.get("image_xor_key").is_none(),
+        "Legacy inline image keys are unsupported; remove the legacy fields from the selected configuration and initialize image material in key_store. No files were changed"
+    );
+    Ok(())
 }
 
 pub(crate) fn find_config_file() -> Result<PathBuf> {
@@ -304,6 +308,28 @@ fn known_documents_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_inline_material_is_rejected_even_with_a_current_store() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        for field in ["image_aes_key", "image_xor_key"] {
+            for material in [
+                serde_json::json!("synthetic-secret"),
+                serde_json::Value::Null,
+            ] {
+                let mut value = serde_json::json!({"key_store":"keys.dpapi"});
+                value[field] = material;
+                let bytes = serde_json::to_vec(&value).unwrap();
+                std::fs::write(&path, &bytes).unwrap();
+                let error = super::load_config_at(&path).unwrap_err().to_string();
+                assert!(error.contains("Legacy inline image keys"));
+                assert!(!error.contains("synthetic-secret"));
+                assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            }
+        }
+        assert!(!root.path().join("keys.dpapi").exists());
+    }
+
     #[test]
     fn absent_key_store_is_omitted_in_serialized_legacy_configuration() {
         let config: super::Config = serde_json::from_value(serde_json::json!({

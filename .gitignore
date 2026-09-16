@@ -35,3 +35,6 @@ find_all_keys_macos
 .claude/
 .codex/
 *.log
+
+# Local audit-only asset without verified redistribution permission
+/src/adapters/wechat/media/assets/wasm_video_decode.wasm

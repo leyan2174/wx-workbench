@@ -6,6 +6,10 @@ publish = false
 
 [workspace]
 
+[features]
+default = []
+sns-wasm-test-asset = []
+
 [[test]]
 name = "asr_video_security"
 path = "../../asr_video_security.rs"

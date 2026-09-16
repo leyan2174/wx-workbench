@@ -1,21 +1,29 @@
 //! Compatibility projection for existing numeric queries, not a storage classifier.
 use crate::business::messages::{filter_label::FilterLabel, Kind};
 
+fn canonical_label(value: &str) -> Option<FilterLabel> {
+    Some(match value {
+        "text" => FilterLabel::Kind(Kind::Text),
+        "image" => FilterLabel::Kind(Kind::Image),
+        "voice" => FilterLabel::Kind(Kind::Voice),
+        "video" => FilterLabel::Kind(Kind::Video),
+        "call" => FilterLabel::Kind(Kind::Call),
+        "system" => FilterLabel::Kind(Kind::System),
+        "sticker" => FilterLabel::Sticker,
+        "location" => FilterLabel::Location,
+        "link" => FilterLabel::Link,
+        "file" => FilterLabel::File,
+        _ => return None,
+    })
+}
+
 fn cli_label(value: &str) -> Option<FilterLabel> {
-    match value {
-        "app" | "namecard" => None,
-        _ => FilterLabel::parse(value),
-    }
+    canonical_label(value)
 }
 
 fn mcp_label(value: &str) -> Option<FilterLabel> {
     let normalized = value.trim().to_ascii_lowercase();
-    FilterLabel::parse(match normalized.as_str() {
-        "emoji" => "sticker",
-        "voip" => "call",
-        "sticker" | "call" | "link" => return None,
-        other => other,
-    })
+    canonical_label(&normalized)
 }
 
 /// Preserve Video=43 (not 62) and System=10000 (not 10002).
@@ -26,7 +34,6 @@ pub fn legacy_wire_type(label: FilterLabel) -> Option<i64> {
         FilterLabel::Kind(Kind::Text) => 1,
         FilterLabel::Kind(Kind::Image) => 3,
         FilterLabel::Kind(Kind::Voice) => 34,
-        FilterLabel::ContactCard => 42,
         FilterLabel::Kind(Kind::Video) => 43,
         FilterLabel::Sticker => 47,
         FilterLabel::Location => 48,
@@ -73,18 +80,17 @@ mod tests {
     }
 
     #[test]
-    fn mcp_aliases_case_and_intent_differences_are_preserved() {
+    fn mcp_uses_formal_business_labels_without_compatibility_words() {
         for (label, number) in [
             ("text", 1),
             ("image", 3),
             ("voice", 34),
-            ("namecard", 42),
             ("video", 43),
-            ("emoji", 47),
+            ("sticker", 47),
             ("location", 48),
-            ("app", 49),
+            ("link", 49),
             ("file", 49),
-            ("voip", 50),
+            ("call", 50),
             ("system", 10000),
         ] {
             assert_eq!(
@@ -92,13 +98,12 @@ mod tests {
                 Some(number)
             );
         }
-        for label in ["sticker", "call", "link", "", "49"] {
+        for label in ["emoji", "voip", "app", "namecard", "", "49"] {
             assert_eq!(mcp_type(label), None);
         }
-        assert_eq!(cli_label("sticker"), mcp_label("EMOJI"));
-        assert_eq!(cli_label("call"), mcp_label(" VOIP "));
-        assert_ne!(cli_label("file"), mcp_label("app"));
-        assert_eq!(cli_type("file"), mcp_type("app"));
+        assert_eq!(cli_label("sticker"), mcp_label(" STICKER "));
+        assert_eq!(cli_label("call"), mcp_label(" CALL "));
+        assert_eq!(cli_type("file"), mcp_type(" FILE "));
         assert_eq!(legacy_wire_type(FilterLabel::Kind(Kind::Unknown)), None);
     }
 }

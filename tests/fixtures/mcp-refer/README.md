@@ -54,4 +54,4 @@ pub async fn q_decode_refer(
 cargo test --bin wx daemon::query::mcp_refer -- --nocapture
 ```
 
-oracle.py 使用 AST 提取参考纯函数和 decode_refer，只访问临时合成 SQLite，不导入旧 MCP 服务。`--write` 会重建 golden，普通回归不需要执行。测试用受控调度在查询后注入新分片，检查前后清单一致性；源字节不变和歧义拒绝见[安全回归](../mcp-readonly-security/README.md)。
+固定 golden 保存迁移时的合成引用消息契约，当前回归不再执行 Python 参考源码。测试用受控调度在查询后注入新分片，检查前后清单一致性；源字节不变和歧义拒绝见[安全回归](../mcp-readonly-security/README.md)。

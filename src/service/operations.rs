@@ -9,10 +9,6 @@ use std::path::PathBuf;
     deny_unknown_fields
 )]
 pub enum Operation {
-    FirstRunCheck,
-    MigrateKeys {
-        args: crate::service::operation_requests::key_migration::Args,
-    },
     Extract {
         attachment_id: String,
         output: String,
@@ -121,15 +117,6 @@ pub enum Operation {
     },
     ExportAll {
         args: crate::service::operation_requests::export_all::Args,
-        prepare: bool,
-        announce: bool,
-    },
-    PreparedEmoticons {
-        args: crate::service::operation_requests::export_emoticons::Args,
-    },
-    PreparedDecrypt {
-        incremental: bool,
-        dry_run: bool,
     },
     RunStatus {
         exported_dir: Option<PathBuf>,
@@ -147,16 +134,11 @@ pub struct SetupReview {
 
 impl Operation {
     /// Successful mutations which can invalidate cached database keys or configuration.
-    pub fn invalidates_query(&self) -> bool {
+    /// Operations that still require a host refresh after execution.
+    /// Key acquisition operations publish their snapshots in the daemon transaction instead.
+    pub fn requires_snapshot_reload(&self) -> bool {
         match self {
-            Self::Initialize { .. }
-            | Self::MigrateKeys { .. }
-            | Self::DatabaseKeys { .. }
-            | Self::PreparedDecrypt { .. }
-            | Self::PreparedEmoticons { .. } => true,
-            Self::ImageKeys { args } => !args.no_save,
-            Self::ImageKeyMonitor { args } => args.saves_keys(),
-            Self::ExportAll { args, prepare, .. } => *prepare && !args.dry_run,
+            Self::Initialize { .. } => true,
             Self::Setup { args } => args.apply && !args.check,
             Self::SetupApply { .. } => true,
             Self::Cleanup { args } => args.execute,
@@ -236,7 +218,7 @@ pub mod key_provider {
         rename_all = "snake_case"
     )]
     pub enum Wire {
-        Auto,
+        Saved,
         Memory,
         Account,
     }
@@ -318,6 +300,18 @@ mod tests {
     }
 
     #[test]
+    fn retired_key_migration_requests_are_rejected_without_execution() {
+        for args in [
+            serde_json::json!({}),
+            serde_json::json!({"allow_unverified":false,"cleanup_legacy":false}),
+            serde_json::json!({"allow_unverified":true,"cleanup_legacy":true}),
+        ] {
+            let request = serde_json::json!({"kind":"migrate_keys","args":args});
+            assert!(serde_json::from_value::<Operation>(request).is_err());
+        }
+    }
+
+    #[test]
     fn unknown_commands_and_arbitrary_argv_are_rejected() {
         for value in [
             serde_json::json!({"kind":"run","args":{"command":"cmd.exe","argv":["/c","echo"]}}),
@@ -348,6 +342,18 @@ mod tests {
                 ..
             }
         ));
+        assert!(serde_json::from_value::<Operation>(serde_json::json!({
+            "kind": "initialize",
+            "args": {
+                "force": false,
+                "db_dir_override": null,
+                "provider": "auto",
+                "restart": false,
+                "executable": null,
+                "timeout": 300
+            }
+        }))
+        .is_err());
     }
 
     #[test]
@@ -367,7 +373,7 @@ mod tests {
             args: asr::TranscribeAudioNativeArgs {
                 input: "must-not-read.silk".into(),
                 backend: asr::BackendArgs {
-                    backend: asr::BackendKind::ExplicitOpenAi,
+                    backend: asr::BackendKind::OpenAiCompatible,
                     api_key_file: Some("must-not-read.key".into()),
                     ..Default::default()
                 },

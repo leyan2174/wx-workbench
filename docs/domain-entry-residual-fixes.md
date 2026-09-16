@@ -8,18 +8,17 @@ real-account access were performed. Test execution: pending parent validation.
 ## Contacts
 
 `adapters::wechat::contacts::source_keys` owns the ordered cache source descriptor.
-`daemon::query::mcp_contacts::source` and
-`daemon::query::mcp_contacts_legacy::q_contacts_legacy` use those keys instead of
-embedding WeChat database paths. The host still resolves through its fixed
-DbCache; it does not discover another account. Primary absence permits the same
-backslash-key fallback as before; primary errors do not fall back. Contact/tag
-selection, output projection and error text are unchanged.
+`daemon::query::mcp_contacts::source` uses those keys for tag queries instead of
+embedding WeChat database paths. The host resolves through its fixed DbCache;
+it does not discover another account. Primary errors do not fall back.
+The subsequent contacts cleanup removed the separate MCP contact-directory
+module: all contacts entries now call `q_contacts` over the account's leased
+Names snapshot and share the native people-only projection.
 
-`mcp_contacts_legacy/tests.rs` adds
-`adapter_descriptors_keep_legacy_contacts_and_tags_bound_to_both_cache_key_spellings`.
-It uses the existing SQLCipher fixture helpers and real DbCache against two
-synthetic accounts, one key spelling each, and checks both legacy contacts and
-tag queries, display-name overrides, repeat reads and unchanged encrypted files.
+`query/contacts_source_tests.rs` uses the existing SQLCipher fixture helpers and
+real DbCache against two synthetic accounts. It checks formal contact and tag
+queries, display-name overrides, repeat reads and unchanged encrypted files.
+A separate tag test retains coverage of its account-scoped alternate cache key.
 `primary_contact_source_error_does_not_fall_back_to_a_valid_alias` supplies a wrong
 primary key alongside a valid compatibility key and requires all three reads to
 fail rather than hide the primary error.

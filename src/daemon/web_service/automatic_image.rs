@@ -87,7 +87,7 @@ fn key_bytes(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         .image_aes_key
         .as_deref()
         .filter(|value| !value.is_empty())
-        .map(crate::toolkit::parse_image_aes)
+        .map(crate::application::image_publication::parse_aes)
         .transpose()?
         .map(Zeroizing::new);
     let xor = match config
@@ -95,7 +95,7 @@ fn key_bytes(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         .as_ref()
         .filter(|value| !value.is_null())
     {
-        Some(value) => crate::toolkit::parse_image_xor(
+        Some(value) => crate::application::image_publication::parse_xor(
             &value
                 .as_str()
                 .map(str::to_owned)
@@ -180,7 +180,7 @@ fn create_key_file(path: &Path) -> Result<fs::File> {
         .create_new(true)
         .share_mode(0)
         .open(path)?;
-    crate::toolkit::private_file::restrict(&file)?;
+    crate::private_file::restrict(&file)?;
     Ok(file)
 }
 
@@ -369,7 +369,8 @@ mod tests {
         )?;
         crate::key_store::Store::for_runtime(&runtime)?.update(
             Some(0),
-            &[crate::key_store::Update::ImageXor(
+            &[crate::key_store::Update::Image(
+                b"syntheticAESkey1",
                 0xa2,
                 crate::key_store::Verification::Verified,
             )],
@@ -414,12 +415,12 @@ mod tests {
         let path = root.path().join("image-key.json");
         let mut file = create_key_file(&path).unwrap();
         assert_eq!(file.metadata().unwrap().len(), 0);
-        crate::toolkit::private_file::assert_private_acl(&path);
+        crate::private_file::assert_private_acl(&path);
         assert_eq!(fs::File::open(&path).unwrap_err().raw_os_error(), Some(32));
         file.write_all(b"synthetic image key").unwrap();
         file.sync_all().unwrap();
         drop(file);
-        crate::toolkit::private_file::assert_private_acl(&path);
+        crate::private_file::assert_private_acl(&path);
         assert_eq!(fs::read(&path).unwrap(), b"synthetic image key");
         assert!(create_key_file(&path).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"synthetic image key");
@@ -484,7 +485,7 @@ mod tests {
             assert_eq!(bridged, json!({"xor_key":162}));
             let consumed = bridged
                 .get("aes_key")
-                .map(|key| crate::toolkit::parse_image_aes(key.as_str().unwrap()))
+                .map(|key| crate::application::image_publication::parse_aes(key.as_str().unwrap()))
                 .transpose()
                 .unwrap();
             assert!(consumed.is_none());
@@ -503,12 +504,14 @@ mod tests {
             .unwrap();
             let bridged: Value = serde_json::from_slice(&key_bytes(&config).unwrap()).unwrap();
             // 与 daemon::query::mcp_image::parse_key_json 使用同一个消费解析器。
-            let consumed =
-                crate::toolkit::parse_image_aes(bridged["aes_key"].as_str().unwrap()).unwrap();
+            let consumed = crate::application::image_publication::parse_aes(
+                bridged["aes_key"].as_str().unwrap(),
+            )
+            .unwrap();
             assert_eq!(consumed.as_slice(), &configured.as_bytes()[..16]);
             assert_eq!(
                 consumed,
-                crate::toolkit::parse_image_aes(configured).unwrap()
+                crate::application::image_publication::parse_aes(configured).unwrap()
             );
             assert_eq!(bridged["aes_key"].as_str().unwrap().len(), 16);
             assert_eq!(bridged["xor_key"], 162);

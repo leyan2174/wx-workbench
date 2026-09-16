@@ -4,9 +4,6 @@ use std::path::Path;
 
 #[cfg(target_os = "windows")]
 mod windows;
-pub(crate) use windows::account::{
-    load_legacy as load_legacy_account, verify_material as verify_account_material,
-};
 
 pub use crate::service::operation_requests::key_provider::KeyProvider;
 
@@ -31,17 +28,24 @@ pub fn scan_with_provider(
             anyhow::ensure!(restart, "账号级捕获会重启微信，请显式添加 --restart-wechat");
             return windows::account::capture(db_dir, executable, timeout);
         }
-        if provider == KeyProvider::Auto {
-            if let Some(key) = saved_account_key {
-                let entries = windows::account::verify_material(db_dir, key)?;
-                eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
-                return Ok(AcquiredKeys {
-                    entries,
-                    account_key: None,
-                });
-            }
+        if provider == KeyProvider::Saved {
+            let key = saved_account_key.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "当前账号没有已保存的账号密钥；请显式使用 --key-provider memory，或使用 --key-provider account --restart-wechat"
+                )
+            })?;
+            let entries = windows::account::verify_material(db_dir, key)?;
+            eprintln!("已使用保存的账号密钥验证 {} 个数据库", entries.len());
+            return Ok(AcquiredKeys {
+                entries,
+                account_key: None,
+            });
         }
     }
+    anyhow::ensure!(
+        provider == KeyProvider::Memory,
+        "Unsupported key provider on this platform"
+    );
     Ok(AcquiredKeys {
         entries: scan_keys_with_options(db_dir, process_name)?,
         account_key: None,
@@ -67,12 +71,6 @@ impl std::fmt::Debug for KeyEntry {
             .field("salt", &"[REDACTED]")
             .finish()
     }
-}
-
-/// 从进程内存中扫描所有 SQLCipher 密钥。
-#[allow(dead_code)]
-pub fn scan_keys(db_dir: &Path) -> Result<Vec<KeyEntry>> {
-    scan_keys_with_options(db_dir, "Weixin.exe")
 }
 
 /// 从进程内存中扫描所有 SQLCipher 密钥，并允许 Windows 端指定进程名。

@@ -10,4 +10,4 @@
 cargo test --offline --manifest-path tests/fixtures/mcp-audio/Cargo.toml -- --nocapture
 ```
 
-此层不证明 WAV 发布、模型质量或上传授权；完整执行见[MCP 契约](../../../src/mcp/PROTOCOL.md)，关联规则见[数据库媒体说明](../../../src/toolkit/asr/DATABASE_MEDIA.md)。
+此层不证明 WAV 发布、模型质量或上传授权；完整执行见[MCP 契约](../../../src/mcp/PROTOCOL.md)，关联规则见[数据库媒体说明](../../../src/adapters/wechat/media/VOICE_DATABASE.md)。

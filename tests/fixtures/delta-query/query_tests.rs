@@ -146,7 +146,8 @@ async fn real_cache_sqlite_adapter_matches_ast_oracle() {
         assert_eq!(value, case["model"]);
         let chat: DeltaChat = serde_json::from_value(value).unwrap();
         let window = serde_json::from_value(g["window"].clone()).unwrap();
-        let prepared = crate::toolkit::chat_delta::prepare_delta(&chat, &window).unwrap();
+        let prepared =
+            crate::application::chat_delta_export::prepare_delta(&chat, &window).unwrap();
         assert_eq!(prepared.result, case["result"]);
         let mut document = prepared.document.unwrap_or(Value::Null);
         // source 是原生导出新增的证据字段，除此之外逐字段对照旧实际文件。
@@ -300,7 +301,7 @@ fn sqlite_raw_types_and_uid_are_not_replaced_by_rendered_body() {
     let first = &chat.messages[0];
     assert!(matches!(first.raw_content, RawContent::Bytes(_)));
     assert_eq!(first.rendered.as_ref().unwrap(), "压缩正文不是摘要");
-    let raw_uid = crate::toolkit::chat_delta::delta_msg_uid(
+    let raw_uid = crate::application::chat_delta_export::delta_msg_uid(
         &chat.username,
         &first.db_path,
         first.local_id,
@@ -308,7 +309,7 @@ fn sqlite_raw_types_and_uid_are_not_replaced_by_rendered_body() {
         &first.msg_type,
         &first.raw_content,
     );
-    let wrong_uid = crate::toolkit::chat_delta::delta_msg_uid(
+    let wrong_uid = crate::application::chat_delta_export::delta_msg_uid(
         &chat.username,
         &first.db_path,
         first.local_id,
@@ -331,7 +332,7 @@ fn sqlite_raw_types_and_uid_are_not_replaced_by_rendered_body() {
         .find(|m| m["local_id"] == 6)
         .unwrap();
     assert_eq!(
-        crate::toolkit::chat_delta::delta_msg_uid(
+        crate::application::chat_delta_export::delta_msg_uid(
             &chat.username,
             &transfer.db_path,
             transfer.local_id,

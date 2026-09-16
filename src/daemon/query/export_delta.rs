@@ -1,7 +1,7 @@
 //! 显式缓存及联系人上下文的 delta 原始消息查询；不经过 history 阅读摘要。
 use super::{current_unknown_shards, ensure_complete_message_inventory, DbCache, Names};
 use crate::adapters::wechat::messages::export_content::{extract_with_context, ExportContext};
-use crate::toolkit::chat_delta::{ContactMetadata, DeltaChat, DeltaMessage, RawContent};
+use crate::application::chat_delta_export::{ContactMetadata, DeltaChat, DeltaMessage, RawContent};
 use anyhow::{ensure, Context, Result};
 #[cfg(test)]
 use rusqlite::{types::ValueRef, Connection};

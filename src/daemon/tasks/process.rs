@@ -5,18 +5,17 @@ use crate::{
     service::{plan::Step, protocol::MAX_REQUEST_BYTES},
 };
 use anyhow::{ensure, Context, Result};
-use std::process::Stdio;
+use std::{process::Stdio, sync::Arc};
 use tokio::{
     io::AsyncWriteExt,
     process::{Child, Command},
 };
 
-pub async fn spawn(runtime: &RuntimeContext, step: &Step) -> Result<(Child, Job)> {
-    let bytes = serde_json::to_vec(step)?;
-    ensure!(
-        !bytes.is_empty() && bytes.len() <= MAX_REQUEST_BYTES,
-        "Worker frame exceeds limit"
-    );
+pub async fn spawn(
+    runtime: &RuntimeContext,
+    step: &Step,
+    keys: &Arc<super::super::worker_keys::Broker>,
+) -> Result<(Child, Job, Option<super::super::worker_keys::Registration>)> {
     let job = Job::new()?;
     let mut command = Command::new(std::env::current_exe()?.canonicalize()?);
     command
@@ -45,6 +44,19 @@ pub async fn spawn(runtime: &RuntimeContext, step: &Step) -> Result<(Child, Job)
     let mut child = command.spawn().context("Unable to create task worker")?;
     let result = async {
         job.attach(&child)?;
+        let (access, registration) = match keys.register_step(&child, step).await? {
+            Some((access, registration)) => (Some(access), Some(registration)),
+            None => (None, None),
+        };
+        let bytes =
+            zeroize::Zeroizing::new(serde_json::to_vec(&crate::service::worker_keys::Input {
+                operation: step,
+                access,
+            })?);
+        ensure!(
+            bytes.len() <= MAX_REQUEST_BYTES,
+            "Worker frame exceeds limit"
+        );
         let mut input = child.stdin.take().context("Missing worker input")?;
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             input.write_all(&(bytes.len() as u32).to_le_bytes()).await?;
@@ -52,16 +64,18 @@ pub async fn spawn(runtime: &RuntimeContext, step: &Step) -> Result<(Child, Job)
             input.shutdown().await
         })
         .await??;
-        Ok::<_, anyhow::Error>(())
+        Ok::<_, anyhow::Error>(registration)
     }
     .await;
-    if let Err(error) = result {
-        reap(child, job)
-            .await
-            .context("Unable to confirm failed worker cleanup")?;
-        return Err(error);
+    match result {
+        Ok(registration) => Ok((child, job, registration)),
+        Err(error) => {
+            reap(child, job)
+                .await
+                .context("Unable to confirm failed worker cleanup")?;
+            Err(error)
+        }
     }
-    Ok((child, job))
 }
 
 pub async fn reap(mut child: Child, job: Job) -> Result<()> {

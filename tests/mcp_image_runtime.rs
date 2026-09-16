@@ -2,6 +2,9 @@
 #![cfg(windows)]
 #[path = "fixtures/mcp-image-runtime/images.rs"]
 mod images;
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 #[allow(dead_code)]
 #[path = "fixtures/mcp-readonly-runtime/support.rs"]
 mod support;

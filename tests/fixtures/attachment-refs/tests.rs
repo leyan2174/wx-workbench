@@ -1,4 +1,7 @@
 use super::*;
+use crate::adapters::wechat::media::attachment_content::{
+    parse_file_message, parse_record_item, AttachmentMetadata, ErrorKind, MessageInput,
+};
 use serde_json::{json, Value};
 use std::io::Cursor;
 

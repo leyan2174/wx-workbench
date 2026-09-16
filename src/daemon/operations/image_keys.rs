@@ -16,6 +16,29 @@ use zeroize::{Zeroize, Zeroizing};
 
 pub use crate::service::operation_requests::image_keys::Args;
 
+pub(super) fn publication_material(
+    runtime: &RuntimeContext,
+) -> Result<crate::application::image_publication::StoredImageKeys> {
+    let material = crate::service::worker_keys::image_material(runtime)?;
+    let revision = crate::service::worker_keys::expected_revision(runtime)?;
+    let material = match material {
+        Some(material) => crate::application::image_publication::StoredImageKeys {
+            aes: Some(material.aes),
+            xor: material.xor,
+        },
+        None if revision != 0 => crate::application::image_publication::StoredImageKeys {
+            aes: None,
+            xor: 0x88,
+        },
+        None if runtime.config.key_store.is_none() => {
+            return Err(crate::key_store::Error::LegacyMigrationRequired.into())
+        }
+        None => return Err(crate::key_store::Error::Missing.into()),
+    };
+    crate::service::worker_keys::verify_image_revision(runtime)?;
+    Ok(material)
+}
+
 pub fn cmd(args: Args) -> Result<()> {
     ensure!(
         args.offline != args.authorize_memory_scan,
@@ -36,22 +59,6 @@ fn read_config(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
         .read_to_end(&mut bytes)?;
     ensure!(bytes.len() <= 1024 * 1024, "配置超过 1 MiB 限制");
     Ok(bytes)
-}
-
-fn save_image_material(
-    store: &crate::key_store::Store,
-    revision: u64,
-    material: &crate::attachment::image_key::ImageKeyMaterial,
-) -> Result<()> {
-    store.update(
-        Some(revision),
-        &[crate::key_store::Update::Image(
-            &material.aes_key,
-            material.xor_key,
-            crate::key_store::Verification::Verified,
-        )],
-    )?;
-    Ok(())
 }
 
 pub(super) fn extract_for(runtime: &RuntimeContext, args: Args) -> Result<Value> {
@@ -84,67 +91,53 @@ fn extract_cancellable(
     let guard = HostOutputGuard::new(parent)?;
     guard.verify_replaceable_file(&runtime.config_path)?;
     let original = read_config(&runtime.config_path)?;
-    let store = if !args.no_save || reuse_existing {
-        Some(crate::key_store::Store::for_runtime(runtime)?)
+    let existing = if reuse_existing {
+        crate::service::worker_keys::image_material(runtime)?
     } else {
         None
     };
-    let snapshot = match store.as_ref().map(|store| store.load()).transpose() {
-        Ok(snapshot) => snapshot,
-        Err(crate::key_store::Error::Missing) => None,
-        Err(error) => return Err(error.into()),
-    };
-    let revision = snapshot.as_ref().map_or(0, |snapshot| snapshot.revision());
+    if !args.no_save {
+        crate::service::worker_keys::expected_revision(runtime)?;
+    }
     let current = RuntimeContext::load()?;
     ensure!(
         runtime.same_account(&current)?,
         "选中账号配置发生变化，未开始扫描"
     );
-    if reuse_existing {
-        if let Some((Some(aes), xor)) = snapshot.as_ref().map(|snapshot| snapshot.image_material())
-        {
-            let key = Zeroizing::new(aes);
-            let valid = crate::attachment::image_key::windows::validate_existing_for_db_dir(
-                &runtime.config.db_dir,
-                &key,
-                Duration::from_secs(args.timeout),
-                args.max_mib * 1024 * 1024,
-            )?;
-            ensure!(!cancelled.load(Ordering::SeqCst), "图片取钥已取消");
-            if valid {
-                ensure!(
-                    store
-                        .as_ref()
-                        .context("encrypted key store unavailable")?
-                        .load()?
-                        .revision()
-                        == revision,
-                    "图片密钥在验证期间变化"
-                );
-                guard.verify_replaceable_file(&runtime.config_path)?;
-                ensure!(
-                    read_config(&runtime.config_path)?.as_slice() == original.as_slice(),
-                    "验证期间账号配置发生变化"
-                );
-                let sample_report = if let Some(sample) = sample {
-                    let mut material = crate::attachment::image_key::ImageKeyMaterial {
-                        aes_key: *key,
-                        xor_key: xor,
-                    };
-                    let staged = sample.stage(&material);
-                    material.aes_key.zeroize();
-                    let staged = staged?;
-                    ensure!(
-                        !cancelled.load(Ordering::SeqCst),
-                        "图片取钥已取消，未发布样本"
-                    );
-                    Some(staged.publish()?)
-                } else {
-                    None
+    if let Some(existing) = existing {
+        let key = Zeroizing::new(existing.aes);
+        let valid = crate::attachment::image_key::windows::validate_existing_for_db_dir(
+            &runtime.config.db_dir,
+            &key,
+            Duration::from_secs(args.timeout),
+            args.max_mib * 1024 * 1024,
+        )?;
+        ensure!(!cancelled.load(Ordering::SeqCst), "图片取钥已取消");
+        if valid {
+            crate::service::worker_keys::verify_image_revision(runtime)?;
+            guard.verify_replaceable_file(&runtime.config_path)?;
+            ensure!(
+                read_config(&runtime.config_path)?.as_slice() == original.as_slice(),
+                "验证期间账号配置发生变化"
+            );
+            let sample_report = if let Some(sample) = sample {
+                let mut material = crate::attachment::image_key::ImageKeyMaterial {
+                    aes_key: *key,
+                    xor_key: existing.xor,
                 };
-                return Ok(json!({"engine":"rust", "account_id":runtime.id,
+                let staged = sample.stage(&material);
+                material.aes_key.zeroize();
+                let staged = staged?;
+                ensure!(
+                    !cancelled.load(Ordering::SeqCst),
+                    "图片取钥已取消，未发布样本"
+                );
+                Some(staged.publish()?)
+            } else {
+                None
+            };
+            return Ok(json!({"engine":"rust", "account_id":runtime.id,
                     "existing_key_valid":true, "config_updated":false, "key_store_updated":false, "keys_redacted":true, "sample":sample_report}));
-            }
         }
     }
     let mut material = if args.offline {
@@ -178,10 +171,12 @@ fn extract_cancellable(
                 !cancelled.load(Ordering::SeqCst),
                 "图片取钥已取消，未更新配置"
             );
-            save_image_material(
-                store.as_ref().context("encrypted key store unavailable")?,
-                revision,
-                &material,
+            crate::service::worker_keys::commit_sync(
+                runtime,
+                vec![crate::service::worker_keys::MaterialChange::Image {
+                    aes: material.aes_key,
+                    xor: material.xor_key,
+                }],
             )?;
         }
         let sample_report = staged_sample
@@ -276,54 +271,6 @@ pub fn cmd_monitor(args: MonitorArgs) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn encrypted_image_save_preserves_other_material_and_config() -> Result<()> {
-        use crate::key_store::{Store, Update, Verification};
-        let root = tempfile::tempdir()?;
-        let db = root.path().join("db_storage");
-        fs::create_dir(&db)?;
-        let config_path = root.path().join("config.json");
-        let original = br#"{"key_store":"keys.dpapi","unchanged":true}"#;
-        fs::write(&config_path, original)?;
-        let store = Store::new(
-            &db,
-            &root.path().join("all_keys.json"),
-            &root.path().join("keys.dpapi"),
-            vec![db.clone(), config_path.clone()],
-        )?;
-        let database_keys =
-            std::collections::HashMap::from([("contact/contact.db".into(), "31".repeat(32))]);
-        let before = store.update(
-            Some(0),
-            &[
-                Update::Account(&[0x17; 32], Verification::Verified),
-                Update::Databases(&database_keys, Verification::Verified),
-            ],
-        )?;
-        let material = crate::attachment::image_key::ImageKeyMaterial {
-            aes_key: *b"syntheticAESkey1",
-            xor_key: 0xa2,
-        };
-        save_image_material(&store, before.revision(), &material)?;
-        let after = store.load()?;
-        assert_eq!(
-            after.image_key(),
-            Some((material.aes_key, material.xor_key))
-        );
-        assert_eq!(after.account_key(), Some([0x17; 32].as_slice()));
-        assert_eq!(after.database_keys(), database_keys);
-        assert_eq!(fs::read(&config_path)?, original);
-        assert!(!fs::read(store.path())?
-            .windows(16)
-            .any(|bytes| bytes == material.aes_key));
-        assert!(!format!("{material:?}").contains("synthetic"));
-        assert!(!format!("{material:?}").contains("162"));
-        assert!(save_image_material(&store, before.revision(), &material).is_err());
-        assert_eq!(store.load()?.revision(), after.revision());
-        Ok(())
-    }
     use clap::Parser;
 
     #[derive(Parser)]

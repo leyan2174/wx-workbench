@@ -37,3 +37,16 @@ Frida's native code and Rust bindings retain their upstream licenses,
 including the wxWindows Library Licence. See https://github.com/frida/frida
 and https://github.com/frida/frida-rust. The hook runs in Frida's embedded
 JavaScript engine; it does not require Node.js or Python at runtime.
+
+## SNS WxIsaac64 WASM asset
+
+The SNS media adapter can use a fixed-hash `wasm_video_decode.wasm` binary.
+Its recorded source lineage is the
+WxIsaac64 media flow associated with hicccc77/WeFlow and
+LifeArchiveProject/WeChatDataAnalysis. The copy imported into this repository
+did not include a license or copyright notice, so this project's Apache-2.0
+license must not be assumed to cover that binary. It is excluded from the
+approved public source and binary release candidates. Public builds do not
+download or silently discover it; encrypted single-video decoding requires an
+explicit, authorized local file with the expected SHA-256. The internal
+verification feature and local audit copy do not grant redistribution rights.

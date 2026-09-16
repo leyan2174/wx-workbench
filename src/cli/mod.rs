@@ -22,9 +22,7 @@ pub mod favorites;
 pub mod history;
 mod image_keys;
 mod init;
-mod key_migration;
 mod key_provider;
-mod launcher;
 mod mcp;
 mod mcp_tasks;
 pub mod members;
@@ -119,26 +117,9 @@ mod contract_tests {
             .stack_size(8 * 1024 * 1024)
             .spawn(|| {
                 Cli::command().debug_assert();
-                for subcommand in ["run", "export-chats"] {
-                    let cli = Cli::try_parse_from([
-                        "wx",
-                        "toolkit",
-                        subcommand,
-                        "--",
-                        "--legacy-option",
-                        "value",
-                    ])
-                    .unwrap();
-                    let Commands::Toolkit { cmd } = cli.command else {
-                        panic!("wrong command")
-                    };
-                    let args = match cmd {
-                        toolkit::ToolkitCommands::Run { args, .. }
-                        | toolkit::ToolkitCommands::ExportChats { args, .. } => args,
-                        _ => panic!("wrong toolkit command"),
-                    };
-                    assert_eq!(args, ["--legacy-option", "value"]);
-                }
+                assert!(Cli::try_parse_from(["wx", "toolkit", "run", "decrypt"]).is_err());
+                assert!(Cli::try_parse_from(["wx", "toolkit", "export-chats"]).is_err());
+                assert!(Cli::try_parse_from(["wx", "toolkit", "export-all", "--dry-run"]).is_ok());
                 let cli = Cli::try_parse_from([
                     "wx",
                     "history",
@@ -163,6 +144,48 @@ mod contract_tests {
                 assert!(
                     Cli::try_parse_from(["wx", "history", "peer", "--types", "invalid"]).is_err()
                 );
+                let plan = [
+                    "wx",
+                    "toolkit",
+                    "chat-plan-native",
+                    "--decrypted-dir",
+                    "plain",
+                    "--user",
+                    "alice",
+                    "--output",
+                    "plan.csv",
+                ];
+                assert!(Cli::try_parse_from(plan).is_ok());
+                let mut old_users = plan;
+                old_users[5] = "--users";
+                assert!(Cli::try_parse_from(old_users).is_err());
+                let mut old_output = plan;
+                old_output[7] = "--write-plan-csv";
+                assert!(Cli::try_parse_from(old_output).is_err());
+                assert!(
+                    Cli::try_parse_from(["wx", "sns-album", "alice", "--output", "album"]).is_ok()
+                );
+                assert!(Cli::try_parse_from([
+                    "wx",
+                    "sns-album",
+                    "alice",
+                    "--output-root",
+                    "album"
+                ])
+                .is_err());
+                assert!(
+                    Cli::try_parse_from(["wx", "attachments", "alice", "--kind", "image"]).is_ok()
+                );
+                assert!(
+                    Cli::try_parse_from(["wx", "attachments", "alice", "--kind", "img"]).is_err()
+                );
+                let Commands::Init { key_provider, .. } =
+                    Cli::try_parse_from(["wx", "init"]).unwrap().command
+                else {
+                    panic!("wrong init command")
+                };
+                assert_eq!(key_provider, key_provider::KeyProvider::Saved);
+                assert!(Cli::try_parse_from(["wx", "init", "--key-provider", "auto"]).is_err());
             })
             .unwrap()
             .join()
@@ -175,7 +198,7 @@ mod contract_tests {
 #[command(
     name = "wx",
     version = env!("CARGO_PKG_VERSION"),
-    about = "微信本地数据命令行工具"
+    about = "wx-workbench · 微信本地数据工作台（CLI / MCP / Web）"
 )]
 pub struct Cli {
     /// 返回更重的 freshness/source 元数据（如 per-shard latest、cache modes）
@@ -190,8 +213,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Explicitly migrate this account's legacy keys into current-user DPAPI storage.
-    MigrateKeys(key_migration::Args),
     /// 原生 MCP stdio 入口：只读查询及受控图片导出，调用需显式 WX_CLI_CONFIG
     Mcp(mcp::McpArgs),
     /// 初始化：检测数据目录并扫描加密密钥
@@ -202,8 +223,8 @@ enum Commands {
         /// 显式指定微信账号的 db_storage 目录，避免多账号时自动选错
         #[arg(long)]
         db_dir: Option<String>,
-        /// 密钥来源：自动复用已保存密钥、只读扫描、或账号级捕获
-        #[arg(long, value_enum, default_value = "auto")]
+        /// 密钥来源：已保存账号密钥、显式只读扫描、或账号级捕获
+        #[arg(long, value_enum, default_value = "saved")]
         key_provider: key_provider::KeyProvider,
         /// 允许账号级捕获关闭并重新启动微信，需要再次登录
         #[arg(long, requires = "force")]
@@ -429,8 +450,7 @@ enum Commands {
         /// 会话名称（联系人显示名 / wxid / @chatroom username 都可以）
         chat: String,
         /// 类型（当前仅支持 image）
-        #[arg(long = "kind", value_name = "KIND",
-              value_parser = ["image", "img"])]
+        #[arg(long = "kind", value_name = "KIND", value_parser = ["image"])]
         kinds: Vec<String>,
         /// 显示数量
         #[arg(short = 'n', long, default_value = "50")]
@@ -464,7 +484,7 @@ enum Commands {
     },
     /// 导出微信语音消息为 .silk，并生成 .voice.json 证据文件
     Voices(voices::Args),
-    /// 调用本机 wechat-decrypt 工具箱能力（解密、图片、朋友圈、Web UI 等）
+    /// 调用本机原生工具箱能力（解密、图片、朋友圈、Web UI 等）
     Toolkit {
         #[command(subcommand)]
         cmd: toolkit::ToolkitCommands,
@@ -528,19 +548,6 @@ pub fn run() {
     finish_dispatch(cli);
 }
 
-pub fn run_toolbox() {
-    let raw: Vec<_> = std::env::args_os().collect();
-    if raw.len() == 1 {
-        match launcher::prepare_first_run() {
-            Ok(true) => {}
-            Ok(false) => return,
-            Err(error) => exit_dispatch_error(error),
-        }
-    }
-    let args = launcher::arguments(raw);
-    finish_dispatch(Cli::parse_from(args));
-}
-
 fn finish_dispatch(cli: Cli) {
     let json = match &cli.command {
         Commands::History(args) => args.json,
@@ -600,9 +607,6 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_debug_source = cli.debug_source;
     match cli.command {
         Commands::Mcp(args) => mcp::cmd(args),
-        Commands::MigrateKeys(args) => crate::service::operation_client::run(
-            crate::service::operations::Operation::MigrateKeys { args: args.into() },
-        ),
         Commands::Init {
             force,
             db_dir,

@@ -1,8 +1,5 @@
 //! Pure request checks. Never open files, load an account, or construct an ASR backend here.
-use super::{
-    asr::{BackendArgs, BackendKind},
-    asr_batch::BatchArgs,
-};
+use super::{asr::BackendArgs, asr_batch::BatchArgs};
 use crate::service::operations::{Operation, ToolkitOperation};
 use anyhow::{ensure, Result};
 use std::path::{Component, Path};
@@ -13,7 +10,7 @@ fn backend(args: &BackendArgs) -> Result<()> {
 }
 
 fn batch(args: &BatchArgs) -> Result<()> {
-    if args.explicit_backend || matches!(args.backend.backend, BackendKind::ExplicitOpenAi) {
+    if args.explicit_backend {
         backend(&args.backend)?;
     }
     Ok(())
@@ -53,7 +50,7 @@ fn output(path: &Path) -> Result<()> {
 
 fn delta(args: &super::export_delta::Args) -> Result<()> {
     range(Some(&args.start), args.end.as_deref())?;
-    let window = crate::toolkit::chat_delta::DeltaWindow {
+    let window = crate::application::chat_delta_export::DeltaWindow {
         start: Some(crate::service::time::parse_timestamp(&args.start)?),
         end: args
             .end
@@ -208,7 +205,7 @@ fn setup(args: &super::setup_native::Args) -> Result<()> {
         "非 TTY 写入需要 --apply --yes；缺省只预览"
     );
     if let Some(name) = &args.openai_key_env {
-        crate::toolkit::setup::valid_env_name(name)?;
+        crate::infrastructure::configuration::valid_env_name(name)?;
     }
     if let Some(model) = &args.local_model {
         ensure!(
@@ -224,12 +221,12 @@ fn setup(args: &super::setup_native::Args) -> Result<()> {
             "binary/model 参数需要 whisper_cpp 后端"
         );
         ensure!(
-            matches!(backend, Backend::Local) || args.local_model.is_none(),
-            "local-model 参数需要 local 后端"
+            matches!(backend, Backend::PythonWhisper) || args.local_model.is_none(),
+            "local-model 参数需要 python_whisper 后端"
         );
         ensure!(
-            matches!(backend, Backend::Openai) || args.openai_key_env.is_none(),
-            "凭据环境变量参数需要 openai 后端"
+            matches!(backend, Backend::OpenAiCompatible) || args.openai_key_env.is_none(),
+            "凭据环境变量参数需要 openai_compatible 后端"
         );
     }
     Ok(())
@@ -237,7 +234,7 @@ fn setup(args: &super::setup_native::Args) -> Result<()> {
 
 fn directory(args: &super::export_messages::Args) -> Result<()> {
     if let Some(formats) = &args.formats {
-        crate::toolkit::chat_directory::Format::parse_list(formats)?;
+        crate::application::chat_directory::Format::parse_list(formats)?;
     }
     if let Some(bytes) = args.max_media_bytes {
         ensure!(
@@ -256,7 +253,6 @@ fn directory(args: &super::export_messages::Args) -> Result<()> {
 
 pub(crate) fn validate(operation: &Operation) -> Result<()> {
     match operation {
-        Operation::MigrateKeys { .. } => Ok(()),
         Operation::Initialize {
             force,
             provider,
@@ -374,12 +370,9 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
         }
         Operation::Toolkit { operation } => toolkit(operation),
         Operation::Cleanup { args } => cleanup(args),
-        Operation::FirstRunCheck
-        | Operation::ExportChat { .. }
+        Operation::ExportChat { .. }
         | Operation::SnsArchive { .. }
         | Operation::NewMessages { .. }
-        | Operation::PreparedEmoticons { .. }
-        | Operation::PreparedDecrypt { .. }
         | Operation::RunStatus { .. } => Ok(()),
     }
 }
@@ -404,10 +397,10 @@ fn toolkit(operation: &ToolkitOperation) -> Result<()> {
             aes_key, xor_key, ..
         } => {
             if let Some(key) = aes_key {
-                crate::toolkit::parse_image_aes(key)?;
+                crate::application::image_publication::parse_aes(key)?;
             }
             if let Some(key) = xor_key {
-                crate::toolkit::parse_image_xor(key)?;
+                crate::application::image_publication::parse_xor(key)?;
             }
             Ok(())
         }

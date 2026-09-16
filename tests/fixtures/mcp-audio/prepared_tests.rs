@@ -37,8 +37,7 @@ fn shared_source_validation_preserves_prepared_profile_and_rejects_rebinding() {
     let mut value: Value = serde_json::from_slice(&payload).unwrap();
     value["evidence"]["username"] = json!("another-peer");
     let error = decode(&serde_json::to_vec(&value).unwrap(), limits())
-        .err()
-        .expect("foreign table must fail");
+        .expect_err("foreign table must fail");
     assert_eq!(error.to_string(), "invalid prepared audio evidence");
 }
 

@@ -1,12 +1,12 @@
 # 原生 WAV 无覆盖发布
 
-直接编译 `src/toolkit/audio/publish.rs`、ASR 单一 WAV parser 和 `attachment/local_files.rs`；不复制 Scan/Pin、WAV 解析或 SILK 解码。fixture 使用合成临时目录和已有静音 SILK，不读取真实账号、不调用网络转录或外部转换器。
+直接编译 `src/infrastructure/audio` 和 `attachment/local_files.rs`；不复制 Scan/Pin、WAV 解析或 SILK 解码。fixture 使用合成临时目录和已有静音 SILK，不读取真实账号、不调用网络转录或外部转换器。
 
 ## 接口
 
 `publish_wav_noclobber(wav, &HostOutputGuard, before_commit) -> Result<PublishedWav>` 为 crate 内接口。描述字段：`path: PathBuf`、`size: u64`、`pcm_bytes: u64`、`sample_rate: u32`。PCM16 单声道时长应由 `pcm_bytes / (2.0 * sample_rate)` 计算。
 
-完整 WAV 通过现有 ASR chunk parser 和 32 MiB 上限后，以完整字节的 SHA256 小写十六进制摘要加 `.wav` 为名。文件名不含 username。附加 chunk 不计入 PCM 字节数，不假设 44 字节头。
+完整 WAV 通过共享音频 chunk parser 和 32 MiB 上限后，以完整字节的 SHA256 小写十六进制摘要加 `.wav` 为名。文件名不含 username。附加 chunk 不计入 PCM 字节数，不假设 44 字节头。
 
 同目录临时文件写入、`sync_all`、`reopen` 身份/完整字节验证后，调用 `FnOnce(&PublishedWav) -> Result<()>`。宿主在此预构造并限制响应，检查身份、取消和其他上下文；回调前后以及无覆盖提交前复核共享 guard。成功提交后只返回内存描述，无后续可失败 I/O。
 

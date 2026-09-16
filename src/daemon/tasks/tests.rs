@@ -17,11 +17,9 @@ fn runtime(root: &std::path::Path, name: &str) -> RuntimeContext {
 }
 
 fn service(runtime: &RuntimeContext) -> (Arc<Service>, mpsc::Receiver<Work>) {
-    Service::new(
-        runtime.clone(),
-        Arc::new(super::super::query_state::QueryState::new(runtime.clone())),
-    )
-    .unwrap()
+    let query = Arc::new(super::super::query_state::QueryState::new(runtime.clone()));
+    let keys = super::super::worker_keys::Broker::new(runtime.clone(), query.clone());
+    Service::new(runtime.clone(), query, keys).unwrap()
 }
 
 fn submission(id: u64, kind: Kind) -> Call {
@@ -127,7 +125,7 @@ async fn retired_tasks_are_archived_without_losing_personal_history_or_outputs()
         Sha256::digest(&original)
     ));
     assert_eq!(fs::read(&archive).unwrap(), original);
-    crate::toolkit::private_file::assert_private_acl(&archive);
+    crate::private_file::assert_private_acl(&archive);
     let current: Value = serde_json::from_slice(&fs::read(&journal_path).unwrap()).unwrap();
     assert_eq!(current["requests"].as_object().unwrap().len(), 1);
     configure(&restored).await;
@@ -189,7 +187,7 @@ async fn queue_is_bounded_and_submit_is_durable_and_idempotent() {
             .unwrap();
     assert_eq!(journal["tasks"].as_array().unwrap().len(), QUEUE_LIMIT);
     assert_eq!(journal["requests"].as_object().unwrap().len(), QUEUE_LIMIT);
-    crate::toolkit::private_file::assert_private_acl(&runtime.directory.join("tasks-history.json"));
+    crate::private_file::assert_private_acl(&runtime.directory.join("tasks-history.json"));
 }
 
 #[tokio::test]
@@ -249,7 +247,7 @@ async fn settings_and_configuration_changes_never_mutate_a_queued_task() {
         "settings_conflict"
     );
     let mut config = serde_json::to_value(&runtime.config).unwrap();
-    config["transcription_backend"] = json!("openai");
+    config["transcription_backend"] = json!("openai_compatible");
     fs::write(&runtime.config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     assert_eq!(
         service

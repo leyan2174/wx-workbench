@@ -7,27 +7,36 @@ pub mod daemon {
     pub use super::asr_runtime::daemon::cache;
     pub mod operations { pub use crate::cli_asr as asr; }
 }
-#[path = "../../../src/toolkit/asr/mod.rs"]
+#[path = "../../../src/application/transcription/mod.rs"]
 #[allow(dead_code)] // Cache tests omit Python host-input discovery.
-pub mod asr;
-#[path = "../../../src/toolkit/audio/mod.rs"]
+pub mod transcription_app;
+#[path = "../../../src/infrastructure/audio/mod.rs"]
 #[allow(dead_code)] // Cache tests omit MP3/WAV publication entry points.
 pub mod audio;
+#[path = "../../../src/infrastructure/transcription/mod.rs"]
+#[allow(dead_code)] // The cache fixture exercises engines through the application pipeline.
+pub mod transcription_engine;
 #[path = "../../../src/attachment/local_files.rs"]
 #[allow(dead_code)] // Audio cache tests omit image scan and metadata guards.
 pub mod local_files;
 pub mod attachment {
     pub use super::local_files;
 }
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // 独立 harness 只使用路径隔离；不运行其他批处理入口。
 mod files;
-pub mod toolkit {
-    pub use super::asr_runtime::legacy;
-    pub(crate) use super::files::{separate, validate_export_target, ExportTarget};
-    pub use super::{asr, audio, setup, private_file};
+pub mod infrastructure {
+    pub use crate::audio;
+    pub(crate) use crate::setup as configuration;
+    pub(crate) use crate::files as publication;
+    pub(crate) use crate::transcription_engine as transcription;
 }
-pub use asr::{cache, cached, local, openai, transcribe_audio_bytes, Backend, Transcription};
+pub mod application {
+    pub(crate) use crate::transcription_app as transcription;
+}
+pub use transcription_app::{cache, cached, transcribe_audio_bytes, Backend, Transcription};
+#[cfg(test)]
+pub(crate) use transcription_engine::{local, openai};
 #[path = "../../../src/daemon/operations/asr.rs"]
 pub mod cli_asr;
 pub mod cli;
@@ -43,6 +52,9 @@ mod security_tests;
 pub mod asr_contracts;
 pub mod service {
     pub use super::asr_contracts as operation_requests;
+    pub mod protocol {
+        pub use crate::asr_runtime::monitor_contract as monitor;
+    }
 }
 
 #[path = "../../support/media_business.rs"]
@@ -55,10 +67,10 @@ pub mod windows_process;
 #[path = "../../../src/key_store/mod.rs"]
 #[allow(dead_code)] // Cache fixture embeds the store but does not run legacy migration.
 pub mod key_store;
-#[path = "../../../src/toolkit/setup.rs"]
+#[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed by this slice.
 pub mod setup;
-#[path = "../../../src/toolkit/private_file.rs"]
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
 
 #[path = "../../../src/ipc.rs"]

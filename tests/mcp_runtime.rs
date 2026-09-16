@@ -445,7 +445,14 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
     let backend = tempfile::tempdir().unwrap();
     let model = voice::model(backend.path(), "A", 700, "合成语音识别");
     command
-        .args(["--backend", "local", "--language", "zh", "--threads", "2"])
+        .args([
+            "--backend",
+            "whisper_cpp",
+            "--language",
+            "zh",
+            "--threads",
+            "2",
+        ])
         .arg("--whisper-binary")
         .arg(voice::executable())
         .arg("--whisper-model")
@@ -578,7 +585,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
         ]
     );
     assert_eq!(queries[6]["limit"], 10001);
-    assert_eq!(queries[1]["legacy_view"], true);
+    assert_eq!(queries[1], &json!({"cmd":"contacts","limit":50}));
     assert_eq!(queries[7]["kinds"], json!(["image"]));
     assert_eq!(
         queries[8],

@@ -1,25 +1,31 @@
 [package]
-name = "wx-cli"
+name = "wx-workbench"
 version = "0.3.0"
 edition = "2021"
 default-run = "wx"
-description = "Windows WeChat 4.x local data CLI: decrypt databases, query and export records"
+description = "Windows WeChat local data workbench: query, archive and media workflows via CLI, MCP and Web"
 license = "Apache-2.0"
-repository = "https://github.com/jackwener/wx-cli"
+repository = "https://github.com/leyan2174/wx-workbench"
 keywords = ["wechat", "sqlcipher", "decrypt", "cli"]
 categories = ["command-line-utilities"]
 readme = "README.md"
-exclude = [".claude/**", ".codex/**", "**/*.log", "docs/diagrams/history/**", "docs/diagrams/**/*.png"]
+exclude = [
+    ".claude/**",
+    ".codex/**",
+    "**/*.log",
+    "docs/diagrams/history/**",
+    "docs/diagrams/**/*.png",
+    "src/adapters/wechat/media/assets/wasm_video_decode.wasm",
+]
+
+[features]
+default = []
+# Internal verification only. The referenced WASM is not distributed in the public source package.
+sns-wasm-test-asset = []
 
 [[bin]]
 name = "wx"
 path = "src/main.rs"
-
-[[bin]]
-name = "wx-toolbox"
-path = "src/toolbox_main.rs"
-test = false
-bench = false
 
 [dependencies]
 # CLI

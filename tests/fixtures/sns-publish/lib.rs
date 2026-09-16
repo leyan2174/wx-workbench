@@ -5,5 +5,5 @@ pub mod local_files;
 mod attachment {
     pub(crate) use crate::local_files;
 }
-#[path = "../../../src/toolkit/directory_publish/mod.rs"]
+#[path = "../../../src/infrastructure/output_tree/mod.rs"]
 mod publish;

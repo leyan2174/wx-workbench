@@ -4,11 +4,10 @@ use crate::service::query_client as transport;
 use anyhow::Result;
 
 pub fn cmd_contacts(query: Option<String>, limit: usize, json: bool) -> Result<()> {
-    let resp = transport::send(Request::Contacts {
+    let resp = transport::send(Request::Contacts(crate::ipc::ContactsRequest {
         query,
         limit,
-        legacy_view: false,
-    })?;
+    }))?;
     let contacts = resp
         .data
         .get("contacts")

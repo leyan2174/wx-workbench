@@ -1,22 +1,15 @@
-use crate::toolkit::asr::backend::{BackendId, Entry, Options};
+pub use super::asr_backend::{python_model, BackendId, Options};
 use anyhow::{ensure, Result};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub enum BackendKind {
-    #[serde(alias = "local")]
-    Local,
     #[serde(rename = "whisper_cpp")]
     WhisperCpp,
     #[serde(rename = "python_whisper")]
     PythonWhisper,
-    #[serde(
-        rename = "openai_compatible",
-        alias = "ExplicitOpenAi",
-        alias = "explicit-open-ai",
-        alias = "openai"
-    )]
-    ExplicitOpenAi,
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -59,7 +52,7 @@ pub struct TranscribeChatNativeArgs {
 impl Default for BackendArgs {
     fn default() -> Self {
         Self {
-            backend: BackendKind::Local,
+            backend: BackendKind::WhisperCpp,
             whisper_binary: None,
             whisper_model: None,
             language: "auto".into(),
@@ -75,14 +68,12 @@ impl Default for BackendArgs {
 }
 
 impl BackendKind {
-    pub fn identity(self, entry: Entry) -> BackendId {
-        let name = match self {
-            Self::Local => "local",
-            Self::WhisperCpp => "whisper_cpp",
-            Self::PythonWhisper => "python_whisper",
-            Self::ExplicitOpenAi => "openai_compatible",
-        };
-        BackendId::parse(name, entry).expect("known backend name")
+    pub const fn identity(self) -> BackendId {
+        match self {
+            Self::WhisperCpp => BackendId::WhisperCpp,
+            Self::PythonWhisper => BackendId::PythonWhisper,
+            Self::OpenAiCompatible => BackendId::OpenAiCompatible,
+        }
     }
 }
 impl BackendArgs {
@@ -101,7 +92,7 @@ impl BackendArgs {
 
     /// Pure preflight, before host paths, credentials or audio are read.
     pub fn validate_explicit(&self) -> Result<BackendId> {
-        let id = self.backend.identity(Entry::Native);
+        let id = self.backend.identity();
         self.validate_for(id)?;
         match id {
             BackendId::WhisperCpp => ensure!(

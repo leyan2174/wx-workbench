@@ -1,19 +1,24 @@
-#[path = "../../../src/toolkit/audio/mod.rs"]
+#[path = "../../../src/infrastructure/audio/mod.rs"]
 #[allow(dead_code)] // The voice probe uses PCM/WAV paths, not the MP3 checked wrapper.
 pub mod audio;
-#[path = "../../../src/toolkit/legacy.rs"]
-#[allow(dead_code)]
-pub mod legacy;
-#[path = "../../../src/toolkit/asr/mod.rs"]
-pub mod toolkit_asr;
-#[path = "../../../src/toolkit/setup.rs"]
+#[path = "../../../src/application/transcription/mod.rs"]
+pub mod transcription_app;
+#[path = "../../../src/infrastructure/transcription/mod.rs"]
+pub mod transcription_engine;
+#[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
-#[path = "../../../src/toolkit/private_file.rs"]
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // Voice host exercises publication guards, not directory collection.
 pub mod files;
+pub mod infrastructure {
+    pub use crate::audio;
+    pub(crate) use crate::setup as configuration;
+    pub(crate) use crate::files as publication;
+    pub(crate) use crate::transcription_engine as transcription;
+}
 #[path = "../../../src/key_store/mod.rs"]
 #[allow(dead_code)] // Embedded store retains legacy import/seed APIs; this host does not run migration.
 pub mod key_store;
@@ -24,18 +29,19 @@ pub mod windows_process;
 pub mod config_pin;
 #[path = "../../../src/service/message_filter.rs"]
 pub mod message_filter;
+#[path = "../../../src/service/monitor.rs"]
+pub mod monitor_contract;
 pub mod service {
     pub use crate::message_filter;
     pub use crate::asr_contracts as operation_requests;
     pub use crate::mcp_contract as mcp;
     pub use crate::config_pin;
+    pub mod protocol {
+        pub use crate::monitor_contract as monitor;
+    }
 }
-pub mod toolkit {
-    pub use super::{setup, private_file};
-    pub(crate) use super::files::{validate_export_target, ExportTarget};
-    pub use super::audio;
-    pub use super::legacy;
-    pub use super::toolkit_asr as asr;
+pub mod application {
+    pub use crate::transcription_app as transcription;
 }
 #[path = "../../../src/attachment/local_files.rs"]
 #[allow(dead_code)] // 独立宿主不使用图片目录枚举和图片密钥读取入口。

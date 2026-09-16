@@ -14,8 +14,8 @@ use crate::adapters::wechat::media::{
 use crate::business::voice_export::{self as domain, Selection};
 use crate::daemon::cache::DbCache;
 use crate::daemon::query::{chat_type_of, load_names, Names};
+use crate::infrastructure::publication::ExportTarget;
 use crate::runtime::RuntimeContext;
-use crate::toolkit::ExportTarget;
 
 #[derive(Debug, Serialize)]
 struct ExportedVoice {
@@ -66,10 +66,13 @@ pub fn cmd_voices(args: Args) -> Result<()> {
             &runtime,
             chat,
             PathBuf::from(output),
-            limit,
-            offset,
-            since_ts,
-            until_ts,
+            Selection {
+                limit,
+                offset,
+                since: since_ts,
+                until: until_ts,
+                ..Default::default()
+            },
             overwrite,
         )
         .await
@@ -81,32 +84,27 @@ async fn export_voices(
     runtime: &RuntimeContext,
     chat: Option<String>,
     out_dir: PathBuf,
-    limit: Option<usize>,
-    offset: usize,
-    since: Option<i64>,
-    until: Option<i64>,
+    selection: Selection<'_>,
     overwrite: bool,
 ) -> Result<Value> {
     let out_dir = std::path::absolute(out_dir)?;
-    crate::toolkit::validate_export_target(runtime, &out_dir)?;
+    crate::infrastructure::publication::validate_export_target(runtime, &out_dir)?;
+    let mut all_keys = crate::service::worker_keys::database_keys(runtime)?
+        .ok_or(crate::key_store::Error::Missing)?;
+    let media_paths = voice_export::media_database_paths(all_keys.0.keys());
+    if media_paths.is_empty() {
+        bail!("密钥库里没有 message/media_*.db 的密钥，请先运行 wx init --force");
+    }
     std::fs::create_dir_all(&out_dir)
         .with_context(|| format!("创建输出目录失败: {}", out_dir.display()))?;
     let output_guard = crate::attachment::local_files::HostOutputGuard::new(&out_dir)?;
     let summary_target =
         ExportTarget::capture(runtime, &out_dir.join("_voice_export_summary.json"))?;
-    let all_keys = crate::key_store::Store::for_runtime(runtime)?
-        .load()?
-        .database_keys();
-    let media_keys = voice_export::media_keys(all_keys.keys());
-    if media_keys.is_empty() {
-        bail!("密钥库里没有 message/media_*.db 的密钥，请先运行 wx init --force");
-    }
-
     let db = DbCache::with_dirs(
         runtime.config.db_dir.clone(),
         runtime.cache_dir(),
         runtime.mtime_file(),
-        all_keys,
+        std::mem::take(&mut all_keys.0),
     )
     .await?;
     let mut names = load_names(&db).await.unwrap_or_else(|_| Names {
@@ -131,7 +129,7 @@ async fn export_voices(
 
     let mut shards = Vec::new();
     let mut missing_shards = Vec::new();
-    for rel_key in media_keys {
+    for rel_key in media_paths {
         let Some(path) = db.get(&rel_key).await? else {
             missing_shards.push(rel_key);
             continue;
@@ -146,10 +144,7 @@ async fn export_voices(
         &source,
         &Selection {
             username: target_username.as_deref(),
-            since,
-            until,
-            offset,
-            limit,
+            ..selection
         },
     );
     let scanned = selected.len();
@@ -197,7 +192,7 @@ fn write_voice_row(
     let display = names.display(&row.chat_username);
     let safe_display = sanitize_path_component(&display);
     let chat_dir = out_root.join(lane).join(safe_display);
-    crate::toolkit::validate_export_target(runtime, &chat_dir)?;
+    crate::infrastructure::publication::validate_export_target(runtime, &chat_dir)?;
     std::fs::create_dir_all(&chat_dir)?;
 
     let stem = format!("{}_{}", row.create_time, row.local_id);
@@ -248,7 +243,10 @@ fn capture_voice_target(
     if overwrite {
         ExportTarget::capture(runtime, path)
     } else {
-        ExportTarget::new_file(path, &crate::toolkit::export_protected(runtime))
+        ExportTarget::new_file(
+            path,
+            &crate::infrastructure::publication::export_protected(runtime),
+        )
     }
 }
 

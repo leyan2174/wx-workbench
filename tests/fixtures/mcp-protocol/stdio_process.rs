@@ -40,7 +40,7 @@ fn actual_process_stdout_contains_only_responses() {
     assert_eq!(replies[1]["id"], "query");
     let data: Value =
         serde_json::from_str(replies[1]["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(data["request"], json!({"cmd":"contacts","limit":50,"legacy_view":true}));
+    assert_eq!(data["request"], json!({"cmd":"contacts","limit":50}));
     assert_eq!(data["text"], "first\nsecond");
     assert_eq!(replies[3]["result"]["isError"], true);
     assert_eq!(replies[3]["result"]["content"][0]["text"], "Query failed");

@@ -14,6 +14,6 @@ pub mod wechat {
     // The real attachment query is embedded by the library's query_boundary tests.
     #[cfg(test)]
     pub mod media {
-        pub(crate) use super::super::strict_message;
+        pub(crate) use super::super::{attachment_content, strict_message};
     }
 }

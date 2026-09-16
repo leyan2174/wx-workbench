@@ -1,12 +1,21 @@
-name: Release
+name: Release candidate
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish_github_release:
+        description: Publish the validated binary to the current v* tag
+        required: true
+        default: false
+        type: boolean
+      publish_npm:
+        description: Publish the validated Windows and launcher packages to npm
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -22,42 +31,73 @@ jobs:
           $clang = 'C:\Program Files\LLVM\bin'
           if (-not (Test-Path "$clang\libclang.dll")) { throw 'libclang.dll is required' }
           "LIBCLANG_PATH=$clang" >> $env:GITHUB_ENV
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Test distribution contracts
+        run: node --test npm/wx-workbench/test/launcher.test.js npm/wx-workbench/test/release.test.js
       - name: Check
         run: cargo check --locked --target x86_64-pc-windows-msvc
       - name: Test
-        run: cargo test --locked --target x86_64-pc-windows-msvc
+        run: cargo test --locked --no-fail-fast --target x86_64-pc-windows-msvc -- --test-threads=1
       - name: Build release
-        run: cargo build --release --locked --bin wx --bin wx-toolbox --target x86_64-pc-windows-msvc
-      - name: Package
+        run: cargo build --release --locked --bin wx --target x86_64-pc-windows-msvc
+      - name: Stage packages
         shell: pwsh
         run: |
-          Copy-Item target/x86_64-pc-windows-msvc/release/wx.exe wx-windows-x86_64.exe
-          Copy-Item target/x86_64-pc-windows-msvc/release/wx-toolbox.exe wx-toolbox-windows-x86_64.exe
+          Copy-Item target/x86_64-pc-windows-msvc/release/wx.exe wx-workbench-windows-x86_64.exe
           New-Item -ItemType Directory -Force npm/platforms/win32-x64/bin | Out-Null
-          Copy-Item wx-windows-x86_64.exe npm/platforms/win32-x64/bin/wx.exe
+          Copy-Item wx-workbench-windows-x86_64.exe npm/platforms/win32-x64/bin/wx.exe
+          Copy-Item LICENSE npm/wx-workbench/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md npm/wx-workbench/THIRD_PARTY_NOTICES.md
+          Copy-Item LICENSE npm/platforms/win32-x64/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md npm/platforms/win32-x64/THIRD_PARTY_NOTICES.md
+      - name: Validate npm contents
+        shell: pwsh
+        run: |
+          npm pack --dry-run --json --prefix npm/platforms/win32-x64 | Out-File npm-platform-pack.json -Encoding utf8
+          npm pack --dry-run --json --prefix npm/wx-workbench | Out-File npm-launcher-pack.json -Encoding utf8
       - uses: actions/upload-artifact@v4
         with:
-          name: wx-windows-x86_64
+          name: wx-workbench-windows-x86_64
           path: |
-            wx-windows-x86_64.exe
-            wx-toolbox-windows-x86_64.exe
+            wx-workbench-windows-x86_64.exe
+            LICENSE
             THIRD_PARTY_NOTICES.md
       - uses: actions/upload-artifact@v4
         with:
           name: npm-win32-x64
           path: npm/platforms/win32-x64/bin/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-pack-manifests
+          path: |
+            npm-platform-pack.json
+            npm-launcher-pack.json
+
+  publish-github-release:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_github_release == true && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    environment: github-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wx-workbench-windows-x86_64
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            wx-windows-x86_64.exe
-            wx-toolbox-windows-x86_64.exe
+            wx-workbench-windows-x86_64.exe
+            LICENSE
             THIRD_PARTY_NOTICES.md
 
   publish-npm:
     needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_npm == true && startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    environment: npm-publish
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,13 +108,20 @@ jobs:
         with:
           name: npm-win32-x64
           path: npm/platforms/win32-x64/bin/
+      - name: Stage package notices
+        shell: pwsh
+        run: |
+          Copy-Item LICENSE npm/wx-workbench/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md npm/wx-workbench/THIRD_PARTY_NOTICES.md
+          Copy-Item LICENSE npm/platforms/win32-x64/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md npm/platforms/win32-x64/THIRD_PARTY_NOTICES.md
       - name: Publish Windows package
         working-directory: npm/platforms/win32-x64
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish main package
-        working-directory: npm/wx-cli
+        working-directory: npm/wx-workbench
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -3,7 +3,7 @@ use std::{
     cell::{Cell, RefCell},
     path::Path,
 };
-#[path = "../../../src/toolkit/audio/publish.rs"]
+#[path = "../../../src/infrastructure/audio/publish.rs"]
 mod voice;
 pub use voice::PublishedWav;
 

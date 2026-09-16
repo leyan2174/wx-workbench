@@ -1,6 +1,6 @@
 use crate::service::operations::{Operation, ToolkitOperation};
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::Subcommand;
 use std::path::PathBuf;
 #[derive(Subcommand)]
 pub enum ToolkitCommands {
@@ -36,20 +36,11 @@ pub enum ToolkitCommands {
     ExportChatsNative(super::export_chats::Args),
     /// 使用已保存的账号密钥导出表情（Rust；不要求微信运行）
     ExportEmoticons(super::export_emoticons::Args),
-    /// 显示本机 wechat-decrypt 源码、Python 环境和可用能力
+    /// 显示当前原生工具能力
     Status {
         /// 输出 JSON（默认 YAML）
         #[arg(long)]
         json: bool,
-    },
-    /// 运行 wechat-decrypt 一键入口：status / decrypt / decode-images / export / all / emoticons / web
-    Run {
-        /// 原生工作流命令，省略时启动 Web UI
-        #[arg(default_value = "web", allow_hyphen_values = true)]
-        command: String,
-        /// 工作流参数，放在 -- 后；未知命令直接报错，不执行脚本
-        #[arg(last = true)]
-        args: Vec<String>,
     },
     /// 使用当前账号已保存的密钥解密数据库主文件（Rust；不合并 WAL）
     Decrypt {
@@ -63,16 +54,15 @@ pub enum ToolkitCommands {
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// 批量导出全部聊天记录
-    ExportChats {
-        /// 输出目录；默认使用选中配置旁的 exported_chats
-        output_dir: Option<String>,
-        /// 附带语音转录
-        #[arg(short = 't', long)]
-        with_transcriptions: bool,
-        /// 额外透传参数
-        #[arg(last = true)]
-        args: Vec<String>,
+    /// 批量导出全部聊天记录；数据库须先通过 decrypt 准备
+    ExportAll(super::export_all::Args),
+    /// 只读统计所选账号配置、数据库、导出文件和语音转录进度
+    Progress {
+        /// 覆盖导出目录；默认配置文件旁的 exported_chats
+        #[arg(long)]
+        exported_dir: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
     },
     /// 原生导出选中配置的朋友圈；同来源更新，旧目录须显式认领
     ExportSns(super::sns_timeline::Args),
@@ -200,7 +190,6 @@ pub fn cmd_toolkit(cmd: ToolkitCommands) -> Result<()> {
         ToolkitCommands::ExportChatsNative(args) => return super::export_chats::cmd_export(args),
         ToolkitCommands::ExportEmoticons(args) => ToolkitOperation::ExportEmoticons(args.into()),
         ToolkitCommands::Status { json } => ToolkitOperation::Status { json },
-        ToolkitCommands::Run { command, args } => return cmd_run(command, args),
         ToolkitCommands::Decrypt {
             incremental,
             dry_run,
@@ -212,11 +201,17 @@ pub fn cmd_toolkit(cmd: ToolkitCommands) -> Result<()> {
                 dry_run,
             }
         }
-        ToolkitCommands::ExportChats {
-            output_dir,
-            with_transcriptions,
-            args,
-        } => return export_chats(output_dir, with_transcriptions, args),
+        ToolkitCommands::ExportAll(args) => {
+            return crate::service::operation_client::run(Operation::ExportAll {
+                args: args.into(),
+            })
+        }
+        ToolkitCommands::Progress { exported_dir, json } => {
+            return crate::service::operation_client::run(Operation::RunStatus {
+                exported_dir,
+                json,
+            })
+        }
         ToolkitCommands::ExportSns(args) => return super::sns_timeline::cmd(args),
         ToolkitCommands::ExportMessages(args) => return super::export_messages::cmd(args),
         ToolkitCommands::SnsArchive(args) => return super::sns_archive::cmd(args),
@@ -269,129 +264,4 @@ pub fn cmd_toolkit(cmd: ToolkitCommands) -> Result<()> {
         ToolkitCommands::Gui(args) => return super::web_native::cmd_gui(args),
     };
     crate::service::operation_client::run(Operation::Toolkit { operation })
-}
-
-#[derive(Parser)]
-struct NativeInvocation {
-    #[command(subcommand)]
-    command: ToolkitCommands,
-}
-
-fn cmd_run(command: String, args: Vec<String>) -> Result<()> {
-    if matches!(command.as_str(), "export-all" | "export" | "all") {
-        let parsed = super::export_all::Args::try_parse_from(
-            [format!("wx toolkit run {command}")]
-                .into_iter()
-                .chain(args),
-        )
-        .unwrap_or_else(|error| error.exit());
-        return crate::service::operation_client::run(Operation::ExportAll {
-            args: parsed.into(),
-            prepare: command != "export-all",
-            announce: command == "all",
-        });
-    }
-    if matches!(command.as_str(), "emoticons" | "decrypt") {
-        let invocation = NativeInvocation::try_parse_from(
-            [
-                "wx toolkit".to_owned(),
-                if command == "emoticons" {
-                    "export-emoticons"
-                } else {
-                    "decrypt"
-                }
-                .to_owned(),
-            ]
-            .into_iter()
-            .chain(args),
-        )
-        .unwrap_or_else(|error| error.exit());
-        if let ToolkitCommands::Decrypt { args, .. } = &invocation.command {
-            anyhow::ensure!(args.is_empty(), "decrypt 不支持额外参数，请使用 --help");
-        }
-        return match invocation.command {
-            ToolkitCommands::ExportEmoticons(args) => {
-                crate::service::operation_client::run(Operation::PreparedEmoticons {
-                    args: args.into(),
-                })
-            }
-            ToolkitCommands::Decrypt {
-                incremental,
-                dry_run,
-                ..
-            } => crate::service::operation_client::run(Operation::PreparedDecrypt {
-                incremental,
-                dry_run,
-            }),
-            _ => unreachable!(),
-        };
-    }
-    if matches!(command.as_str(), "status" | "-s") {
-        let parsed = RunStatusArgs::try_parse_from(
-            ["wx toolkit run status".to_owned()].into_iter().chain(args),
-        )
-        .unwrap_or_else(|error| error.exit());
-        return crate::service::operation_client::run(Operation::RunStatus {
-            exported_dir: parsed.exported_dir,
-            json: parsed.json,
-        });
-    }
-    if matches!(
-        command.as_str(),
-        "decode-images"
-            | "web"
-            | "gui"
-            | "decrypt-sns"
-            | "find-image-key"
-            | "find-image-key-monitor"
-            | "find-database-keys"
-            | "setup"
-            | "cleanup"
-            | "export-messages"
-            | "export-sns"
-            | "transcribe-chat"
-            | "export-emoticons"
-            | "monitor"
-            | "latency"
-    ) {
-        let invocation = NativeInvocation::try_parse_from(
-            ["wx toolkit".to_string(), command].into_iter().chain(args),
-        )
-        .unwrap_or_else(|error| error.exit());
-        return cmd_toolkit(invocation.command);
-    }
-    if matches!(command.as_str(), "help" | "-h" | "--help") {
-        use clap::CommandFactory;
-        NativeInvocation::command().print_help()?;
-        println!();
-        return Ok(());
-    }
-    anyhow::bail!("未知原生工作流：{command}；使用 wx toolkit --help 查看可用命令")
-}
-
-#[derive(Parser)]
-#[command(about = "只读统计所选账号配置、数据库、导出文件和语音转录进度")]
-struct RunStatusArgs {
-    /// 覆盖导出目录；默认配置文件旁的 exported_chats
-    #[arg(long)]
-    exported_dir: Option<PathBuf>,
-    #[arg(long)]
-    json: bool,
-}
-
-fn export_chats(output: Option<String>, transcribe: bool, extra: Vec<String>) -> Result<()> {
-    let mut argv = vec!["wx toolkit export-chats".to_owned()];
-    if let Some(output) = output {
-        argv.push(output);
-    }
-    if transcribe {
-        argv.push("--with-transcriptions".into());
-    }
-    argv.extend(extra);
-    let args = super::export_all::Args::try_parse_from(argv).unwrap_or_else(|error| error.exit());
-    crate::service::operation_client::run(Operation::ExportAll {
-        args: args.into(),
-        prepare: false,
-        announce: false,
-    })
 }

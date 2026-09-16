@@ -32,7 +32,7 @@ fn args(
     if let Some(key) = key {
         values.extend([
             "--backend".into(),
-            "explicit-open-ai".into(),
+            "openai_compatible".into(),
             "--allow-upload".into(),
             "--openai-base-url".into(),
             "http://127.0.0.1:9/v1".into(),

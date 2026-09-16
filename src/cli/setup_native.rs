@@ -36,12 +36,16 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
             args.db_dir = ask("账号 db_storage 目录")?.map(Into::into);
         }
         if args.backend.is_none() {
-            args.backend = match ask("转写后端 local / whisper_cpp / openai")?.as_deref() {
+            args.backend = match ask("转写后端 python_whisper / whisper_cpp / openai_compatible")?
+                .as_deref()
+            {
                 None => None,
-                Some("local") => Some(Backend::Local),
+                Some("python_whisper") => Some(Backend::PythonWhisper),
                 Some("whisper_cpp") => Some(Backend::WhisperCpp),
-                Some("openai") => Some(Backend::Openai),
-                Some(_) => anyhow::bail!("转写后端必须为 local、whisper_cpp 或 openai"),
+                Some("openai_compatible") => Some(Backend::OpenAiCompatible),
+                Some(_) => {
+                    anyhow::bail!("转写后端必须为 python_whisper、whisper_cpp 或 openai_compatible")
+                }
             };
         }
         match args.backend {
@@ -53,10 +57,10 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
                     args.whisper_model = ask("本地 ggml 模型文件路径")?.map(Into::into);
                 }
             }
-            Some(Backend::Local) if args.local_model.is_none() => {
+            Some(Backend::PythonWhisper) if args.local_model.is_none() => {
                 args.local_model = ask("本地 Whisper 模型名称或路径")?
             }
-            Some(Backend::Openai) if args.openai_key_env.is_none() => {
+            Some(Backend::OpenAiCompatible) if args.openai_key_env.is_none() => {
                 args.openai_key_env = ask("OpenAI 凭据环境变量名（不要输入 key）")?
             }
             _ => {}

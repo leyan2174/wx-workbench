@@ -60,9 +60,9 @@ Specialized image adapters must preserve their existing code 1/2 distinctions
 through `BusinessFailure::legacy_exit_code()` when receiving a checked query error.
 ASR chat/batch count transcribed and existing results as success; batch persistence
 warnings remain non-success while engine identity notices are informational.
-VoiceBatch and Strict decrypt also return typed partial results. Legacy
-`toolkit run decrypt` intentionally retains its zero batch exit code even with
-item failures; its summary remains authoritative for that compatibility route.
+VoiceBatch and decrypt also return typed partial results. Decrypt item failures
+are non-success: mixed results return the partial outcome code and total failure
+returns the failure code, while the report remains available to callers.
 A successful lookup of an already-failed task is still a
 successful lookup; task-page data is not recursively reclassified.
 

@@ -39,7 +39,7 @@ MCP 语音执行工具的 local_id 是 `VoiceInfo` 媒体 ID，不是消息 ID�
 
 daemon 内的宿主策略执行器完成 prepare、bind 和 finish，检查音频摘要、身份、请求预算与输出守卫。WAV 发布不覆盖，转录使用显式本地后端，或经授权的云端后端。配置式 Python 桥必须由宿主开启，命名模型可能下载权重，不能称为保证离线。
 
-语音关联见[数据库媒体契约](../src/toolkit/asr/DATABASE_MEDIA.md)，缓存和无源成功记录查询见[缓存说明](../src/toolkit/asr/CACHE.md)。
+语音关联见[数据库媒体契约](../src/adapters/wechat/media/VOICE_DATABASE.md)，缓存和无源成功记录查询见[缓存说明](../src/application/transcription/CACHE.md)。
 
 ## 富消息与其他入口
 

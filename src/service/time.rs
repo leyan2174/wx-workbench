@@ -42,33 +42,6 @@ pub fn parse_time_end(s: &str) -> Result<i64> {
     parse_time(s)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn date_only_upper_bound_includes_the_last_second() {
-        assert_eq!(
-            parse_time_end("2024-01-15").unwrap(),
-            parse_time("2024-01-15 23:59:59").unwrap()
-        );
-        assert_eq!(
-            parse_time("2024-01-15").unwrap(),
-            parse_time("2024-01-15 00:00:00").unwrap()
-        );
-    }
-
-    #[test]
-    fn explicit_time_and_invalid_inputs_keep_their_existing_semantics() {
-        assert_eq!(
-            parse_time_end("2024-01-15 12:34").unwrap(),
-            parse_time("2024-01-15 12:34:00").unwrap()
-        );
-        assert!(parse_time("1700000000").is_err());
-        assert!(parse_time_end("2024-02-30").is_err());
-    }
-}
-
 pub fn parse_timestamp(raw: &str) -> Result<i64> {
     let raw = raw.trim();
     let date = NaiveDate::parse_from_str(raw, "%Y-%m-%d")
@@ -95,4 +68,31 @@ pub fn parse_timestamp(raw: &str) -> Result<i64> {
         "时间超出支持范围: {raw}"
     );
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn date_only_upper_bound_includes_the_last_second() {
+        assert_eq!(
+            parse_time_end("2024-01-15").unwrap(),
+            parse_time("2024-01-15 23:59:59").unwrap()
+        );
+        assert_eq!(
+            parse_time("2024-01-15").unwrap(),
+            parse_time("2024-01-15 00:00:00").unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_time_and_invalid_inputs_keep_their_existing_semantics() {
+        assert_eq!(
+            parse_time_end("2024-01-15 12:34").unwrap(),
+            parse_time("2024-01-15 12:34:00").unwrap()
+        );
+        assert!(parse_time("1700000000").is_err());
+        assert!(parse_time_end("2024-02-30").is_err());
+    }
 }

@@ -6,9 +6,7 @@ use std::{
 };
 use wx_mcp_cli_harness::ipc::{Request, Response};
 pub use wx_mcp_cli_harness::{ipc, mcp, mcp_service, runtime};
-#[path = "../mcp-auth/mock.rs"]
-mod authenticated_mock;
-use authenticated_mock::{Mock, Reply};
+use wx_mcp_cli_harness::authenticated_mock::{Mock, Reply};
 
 fn command(config: Option<&Path>, home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mcp-cli-harness"));
@@ -55,10 +53,10 @@ fn mock(config: &Path, home: &Path) -> Mock {
         let response = match &request {
             Request::Ping => Response::ok(json!({"pong":true})),
             Request::Sessions { .. } => Response::ok(json!({"sessions":[]})),
-            Request::Contacts { query: Some(q), .. } if q == "synthetic-error" => {
+            Request::Contacts(args) if args.query.as_deref() == Some("synthetic-error") => {
                 Response::err("PRIVATE_MESSAGE SYNTHETIC_KEYS")
             }
-            Request::Contacts { .. } => Response::ok(
+            Request::Contacts(_) => Response::ok(
                 json!({"contacts":[{"username":"synthetic","display":"synthetic"}],"total":1}),
             ),
             Request::History { .. } => Response::ok(json!({"messages":[],"count":0})),
@@ -311,7 +309,7 @@ fn handshake_does_not_read_explicit_cloud_credentials_or_connect_backend() {
     let mut cmd = command(None, &home);
     cmd.args([
         "--backend",
-        "explicit-open-ai",
+        "openai_compatible",
         "--allow-upload",
         "--openai-model",
         "synthetic",

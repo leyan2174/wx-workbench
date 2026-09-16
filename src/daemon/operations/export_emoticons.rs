@@ -1,24 +1,23 @@
 //! 表情导出编排；预览不下载、不创建输出目录，下载不暴露 URL 或密钥。
 use anyhow::{ensure, Context, Result};
-use std::collections::HashMap;
 
 use crate::{
     adapters::wechat::emoticons::CatalogSource,
+    application::emoticons::download::{export_from, DownloadOptions},
     attachment::local_files::HostOutputGuard,
     business::emoticons::{self as domain, Source},
     daemon::cache::DbCache,
     runtime::RuntimeContext,
-    toolkit::emoticons::download::{export_from, DownloadOptions},
 };
 
 pub use crate::service::operation_requests::export_emoticons::Args;
 
 pub(super) fn export(
     runtime: RuntimeContext,
-    keys: HashMap<String, String>,
+    mut keys: crate::service::worker_keys::DatabaseKeys,
     args: Args,
 ) -> Result<()> {
-    ensure!(!keys.is_empty(), "密钥为空，请先提取密钥");
+    ensure!(!keys.0.is_empty(), "密钥为空，请先提取密钥");
     let output = std::path::absolute(args.output_dir.unwrap_or_else(|| {
         runtime
             .config_path
@@ -38,7 +37,7 @@ pub(super) fn export(
                     runtime.config.db_dir.clone(),
                     cache_dir.clone(),
                     cache_dir.join("_mtimes.json"),
-                    keys,
+                    std::mem::take(&mut keys.0),
                 )
                 .await?;
                 CatalogSource::load(&cache).await
@@ -71,7 +70,7 @@ pub(super) fn export(
     }
     guard.protect(&runtime.config.keys_file)?;
     let options = DownloadOptions::default();
-    let protected = crate::toolkit::export_protected(&runtime);
+    let protected = crate::infrastructure::publication::export_protected(&runtime);
     let mut executor = Executor {
         source: &source,
         guard: &guard,

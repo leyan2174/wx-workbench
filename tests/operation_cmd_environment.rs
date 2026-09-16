@@ -1,5 +1,8 @@
 //! Public operation CLI launched by cmd.exe against a synthetic account only.
 #![cfg(windows)]
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 
 #[path = "support/mcp_failure.rs"]
 mod mcp_failure;
@@ -31,7 +34,6 @@ fn cmd_drive_environment_allows_public_toolkit_status_operation() {
         other => panic!("cmd drive regression requires an absolute temp path: {other:?}"),
     };
     let config = account.root().join("config.json");
-    let missing_python = account.root().join("missing-python.exe");
     account.start();
 
     let system_root = std::env::var_os("SystemRoot").expect("Windows SystemRoot");
@@ -46,8 +48,6 @@ fn cmd_drive_environment_allows_public_toolkit_status_operation() {
         .env("TMP", home.path())
         .env("WX_CLI_CONFIG", &config)
         .env("WX_CLI_HOME", home.path())
-        .env("WX_WECHAT_DECRYPT_DIR", account.root())
-        .env("WX_WECHAT_DECRYPT_PYTHON", &missing_python)
         .env("WX_CMD_TEST_CWD", &cwd)
         .env("WX_CMD_TEST_EXE", env!("CARGO_BIN_EXE_wx"))
         .current_dir(account.root())
@@ -79,17 +79,14 @@ fn cmd_drive_environment_allows_public_toolkit_status_operation() {
     );
     let status: Value = serde_json::from_slice(&output.stdout)
         .unwrap_or_else(|error| panic!("invalid status JSON: {error}; stdout: {stdout}"));
-    assert_eq!(status["config_json"], config.to_string_lossy().as_ref());
-    assert_eq!(status["config_json_exists"], true);
-    assert_eq!(
-        status["wechat_decrypt_dir"],
-        account.root().to_string_lossy().as_ref()
-    );
-    assert_eq!(status["wechat_decrypt_dir_exists"], true);
-    assert_eq!(status["python"], missing_python.to_string_lossy().as_ref());
-    assert_eq!(status["python_exists"], false);
-    assert_eq!(
-        status["env_overrides"]["wx_wechat_decrypt_dir"],
-        account.root().to_string_lossy().as_ref()
-    );
+    assert_eq!(status["implementation"], "native-rust");
+    let commands = status["native_commands"]
+        .as_array()
+        .expect("toolkit status must enumerate native commands");
+    for expected in ["status", "progress", "decrypt"] {
+        assert!(commands.iter().any(|command| command == expected));
+    }
+    assert!(commands
+        .iter()
+        .all(|command| !command.as_str().unwrap().starts_with("run ")));
 }

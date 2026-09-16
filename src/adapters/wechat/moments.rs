@@ -9,7 +9,7 @@ use crate::business::moments as business;
 use crate::business::moments::*;
 use rusqlite::{types::ValueRef, Connection};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
 };
 
@@ -460,6 +460,101 @@ pub fn export_comments(
             });
     }
     Ok(result)
+}
+
+pub struct ExportRecord {
+    pub author: String,
+    pub post: legacy::Post,
+}
+
+pub struct ExportSnapshot {
+    pub display_names: BTreeMap<String, String>,
+    pub records: Vec<ExportRecord>,
+    pub rows_seen: usize,
+    pub filtered: usize,
+    pub unreadable_rows: Vec<usize>,
+    pub author_conflicts: usize,
+    pub contacts_available: bool,
+    pub interactions_available: bool,
+}
+
+/// Read and interpret an export snapshot from caller-provided connections.
+/// This is the single SQLite/XML boundary used by the moments export workflow.
+pub fn read_export_snapshot(
+    sns: &Connection,
+    contacts: Option<&Connection>,
+    authors: &BTreeSet<String>,
+    zone: legacy::TimeZone,
+) -> anyhow::Result<ExportSnapshot> {
+    let (display_names, contacts_available) = match contacts {
+        Some(connection) => match super::contacts::display_names(connection) {
+            Ok(names) => (names, true),
+            Err(_) => (BTreeMap::new(), false),
+        },
+        None => (BTreeMap::new(), true),
+    };
+    let (comments, interactions_available) = match export_comments(sns, zone) {
+        Ok(comments) => (comments, true),
+        Err(_) => (BTreeMap::new(), false),
+    };
+    let mut source = Timeline::new(sns, ReadPolicy::ExportCompatibility(zone));
+    let page = crate::business::moments::query(
+        &mut source,
+        &Query {
+            authors: authors.clone(),
+            author_policy: AuthorPolicy::RecordedCompatibility,
+            time: TimeRange::default(),
+            keyword: None,
+            limit: usize::MAX,
+            scan_limit: usize::MAX,
+        },
+    )?;
+    let unreadable_rows = page
+        .unreadable
+        .iter()
+        .map(|evidence| source.row_number(evidence))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut records = Vec::with_capacity(page.moments.len());
+    for moment in page.moments {
+        let mut post = source.export_projection(&moment)?;
+        let record_id = legacy_record_id(&moment.evidence)?;
+        post.comments = Some(comments.get(&record_id).cloned().unwrap_or_default());
+        records.push(ExportRecord {
+            author: moment
+                .author
+                .identity(AuthorPolicy::RecordedCompatibility)
+                .unwrap_or("unknown")
+                .to_owned(),
+            post,
+        });
+    }
+    Ok(ExportSnapshot {
+        display_names,
+        records,
+        rows_seen: page.scanned,
+        filtered: page.filtered,
+        unreadable_rows,
+        author_conflicts: page.author_conflicts.len(),
+        contacts_available,
+        interactions_available,
+    })
+}
+
+pub fn read_export_paths(
+    sns_path: &Path,
+    contacts_path: Option<&Path>,
+    authors: &BTreeSet<String>,
+    zone: legacy::TimeZone,
+) -> anyhow::Result<ExportSnapshot> {
+    let flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let sns = Connection::open_with_flags(sns_path, flags).map_err(|_| SourceError::Unavailable)?;
+    let contacts = contacts_path
+        .map(|path| Connection::open_with_flags(path, flags))
+        .transpose()
+        .map_err(|_| SourceError::Unavailable)?;
+    let snapshot = sns.unchecked_transaction()?;
+    read_export_snapshot(&snapshot, contacts.as_ref(), authors, zone)
 }
 
 pub fn open(path: &Path) -> Result<Connection, SourceError> {

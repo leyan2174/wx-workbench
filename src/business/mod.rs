@@ -11,5 +11,5 @@ pub mod messages;
 pub mod moments;
 pub mod sessions;
 pub mod structured_message;
-pub mod voice_export;
 pub mod voice;
+pub mod voice_export;

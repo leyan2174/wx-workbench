@@ -1,5 +1,8 @@
 //! 六个只读工具：真实合成加密库 -> 真实 daemon -> 真实 wx mcp。
 #![cfg(windows)]
+#[path = "../src/private_file.rs"]
+#[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.
+mod private_file;
 #[path = "fixtures/mcp-readonly-runtime/support.rs"]
 mod support;
 use serde_json::{json, Value};
@@ -25,6 +28,47 @@ const TOOLS: [&str; 17] = [
     "transcribe_voice",
 ];
 const REQUIRED_VOICE_ARGS: [&str; 2] = ["decode_voice", "transcribe_voice"];
+
+#[test]
+fn contacts_share_the_native_contract_and_reject_old_arguments_across_accounts() {
+    let home = tempfile::tempdir().unwrap();
+    let mut a = Account::new(home.path(), "A");
+    let mut b = Account::new(home.path(), "B");
+    a.start();
+    b.start();
+    for (account, marker) in [(&a, "A"), (&b, "B"), (&a, "A")] {
+        let expected = json!({"contacts":[
+            {"username":"other","display":"Other"},
+            {"username":"peer","display":format!("姓名{marker}")}
+        ],"total":2});
+        let direct = account.ipc(json!({"cmd":"contacts","limit":50})).unwrap();
+        assert_eq!(direct["ok"], true);
+        assert_eq!(direct["contacts"], expected["contacts"]);
+        assert_eq!(direct["total"], expected["total"]);
+        let mut mcp = account.mcp();
+        mcp.ready();
+        assert_eq!(mcp.data("get_contacts", json!({})), expected);
+        assert_eq!(
+            mcp.data("get_contacts", json!({"limit":0})),
+            json!({"contacts":[],"total":2})
+        );
+        assert_eq!(
+            mcp.data("get_contacts", json!({"query":"Other"})),
+            json!({"contacts":[{"username":"other","display":"Other"}],"total":1})
+        );
+        for args in [
+            json!({"legacy_view":true}),
+            json!({"legacy_view":false}),
+            json!({"legacy_view":null}),
+            json!({"output":"synthetic.json"}),
+            json!({"db_dir":"synthetic"}),
+        ] {
+            assert_eq!(mcp.call("get_contacts", args)["error"]["code"], -32602);
+        }
+        assert_eq!(mcp.data("get_contacts", json!({})), expected);
+        mcp.finish();
+    }
+}
 
 fn safe_failure(reply: Value, expected: &str) {
     assert_eq!(

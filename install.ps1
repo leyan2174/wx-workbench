@@ -1,12 +1,12 @@
-# wx-cli Windows installer
-# Run with: irm https://raw.githubusercontent.com/jackwener/wx-cli/main/install.ps1 | iex
+# wx-workbench Windows installer
+# Run with: irm https://raw.githubusercontent.com/leyan2174/wx-workbench/main/install.ps1 | iex
 
 $ErrorActionPreference = "Stop"
 
-$Repo    = "jackwener/wx-cli"
+$Repo    = "leyan2174/wx-workbench"
 $BinName = "wx.exe"
-$Asset   = "wx-windows-x86_64.exe"
-$InstallDir = "$env:LOCALAPPDATA\wx-cli"
+$Asset   = "wx-workbench-windows-x86_64.exe"
+$InstallDir = "$env:LOCALAPPDATA\wx-workbench"
 
 # ── 获取最新版本 ────────────────────────────────────────────
 Write-Host "正在获取最新版本..."
@@ -18,11 +18,15 @@ if (-not $Tag) {
     exit 1
 }
 
+if ($Release.assets.name -notcontains $Asset) {
+    throw 'This release has no supported wx-workbench Windows x64 binary.'
+}
+
 Write-Host "版本: $Tag"
 
 # ── 下载 ────────────────────────────────────────────────────
 $Url = "https://github.com/$Repo/releases/download/$Tag/$Asset"
-$TmpFile = Join-Path $env:TEMP "wx-cli-download.exe"
+$TmpFile = Join-Path $env:TEMP ("wx-workbench-" + [guid]::NewGuid().ToString("N") + ".exe")
 
 Write-Host "下载中: $Url"
 Invoke-WebRequest -Uri $Url -OutFile $TmpFile -UseBasicParsing

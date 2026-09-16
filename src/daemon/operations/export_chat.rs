@@ -6,7 +6,7 @@ pub fn cmd_export(chat: String, output: PathBuf) -> Result<()> {
     let runtime = crate::runtime::RuntimeContext::load()?;
     let output = std::path::absolute(output)?;
     validate_output_for(&runtime, &output)?;
-    let target = crate::toolkit::ExportTarget::capture(&runtime, &output)?;
+    let target = crate::infrastructure::publication::ExportTarget::capture(&runtime, &output)?;
     let response =
         crate::service::query_client::send_for(&runtime, crate::ipc::Request::ExportChat { chat })?;
     target.write_json(&response.data)?;
@@ -22,7 +22,7 @@ pub(super) fn validate_output_for(
     runtime: &crate::runtime::RuntimeContext,
     output: &std::path::Path,
 ) -> Result<()> {
-    crate::toolkit::validate_export_target(runtime, output)
+    crate::infrastructure::publication::validate_export_target(runtime, output)
 }
 
 /// 固定账号的校验与原子发布，不重新读取配置。
@@ -32,7 +32,7 @@ pub(super) fn write_document_for(
     output: &std::path::Path,
     data: &serde_json::Value,
 ) -> Result<()> {
-    crate::toolkit::ExportTarget::capture(runtime, output)?.write_json(data)
+    crate::infrastructure::publication::ExportTarget::capture(runtime, output)?.write_json(data)
 }
 
 #[cfg(test)]

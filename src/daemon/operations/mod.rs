@@ -6,6 +6,7 @@ pub(crate) mod asr_batch;
 pub(crate) mod asr_database;
 pub(crate) mod chat_plan;
 pub(crate) mod cleanup_native;
+pub(crate) mod database_key_validation;
 pub(crate) mod database_keys;
 pub(crate) mod export;
 pub(crate) mod export_all;
@@ -20,7 +21,6 @@ pub(crate) mod history;
 pub(crate) mod image_key_sample;
 pub(crate) mod image_keys;
 pub(crate) mod init;
-pub(crate) mod key_migration;
 pub(crate) mod monitor_native;
 pub(crate) mod new_messages;
 pub(crate) mod output;
@@ -31,28 +31,17 @@ pub(crate) mod sns_timeline;
 pub(crate) mod sns_video;
 pub(crate) mod task_worker;
 pub(crate) mod toolkit;
-pub(crate) mod toolkit_run_prepare;
 pub(crate) mod voices;
 
 pub(crate) fn execute(operation: Operation) -> Result<()> {
     operation.validate_request()?;
     match operation {
-        Operation::MigrateKeys { args } => key_migration::cmd(args),
         Operation::Extract {
             attachment_id,
             output,
             overwrite,
             json,
         } => extract::execute(attachment_id, output, overwrite, json),
-        Operation::FirstRunCheck => {
-            match std::fs::symlink_metadata(crate::config::find_config_file()?) {
-                Ok(_) => Ok(()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    std::process::exit(10)
-                }
-                Err(error) => Err(error.into()),
-            }
-        }
         Operation::TranscribeAudio { args } => asr::cmd_transcribe_audio_native(args),
         Operation::TranscribeChat { args } => asr::cmd_transcribe_chat_native(args),
         Operation::TranscribeBatch { args } => asr_batch::cmd(args),
@@ -121,51 +110,14 @@ pub(crate) fn execute(operation: Operation) -> Result<()> {
             json: json_output,
         }),
         Operation::Toolkit { operation } => toolkit::execute(operation),
-        Operation::ExportAll {
-            args,
-            prepare,
-            announce,
-        } => {
+        Operation::ExportAll { args } => {
             args.validate()?;
-            let transcribed = args.with_transcriptions;
-            let runtime = if prepare && !args.dry_run {
-                let prepared = toolkit_run_prepare::prepare()?;
-                crate::toolkit::decrypt(
-                    &prepared.runtime,
-                    &prepared.keys,
-                    false,
-                    false,
-                    crate::toolkit::DecryptMode::Legacy,
-                )?;
-                prepared.runtime
-            } else {
-                crate::runtime::RuntimeContext::load()?
-            };
+            let runtime = crate::runtime::RuntimeContext::load()?;
             export_all::emit(export_all::export_for(&runtime, args)?)?;
-            if announce && !transcribed {
-                eprintln!("全量导出完成；语音转录需显式指定 --with-transcriptions 及后端配置。");
-            }
             Ok(())
         }
-        Operation::PreparedEmoticons { args } => {
-            let prepared = toolkit_run_prepare::prepare()?;
-            export_emoticons::export(prepared.runtime, prepared.keys, args)
-        }
-        Operation::PreparedDecrypt {
-            incremental,
-            dry_run,
-        } => {
-            let prepared = toolkit_run_prepare::prepare()?;
-            crate::toolkit::decrypt(
-                &prepared.runtime,
-                &prepared.keys,
-                incremental,
-                dry_run,
-                crate::toolkit::DecryptMode::Legacy,
-            )
-        }
         Operation::RunStatus { exported_dir, json } => {
-            let status = crate::toolkit::run_status::inspect(
+            let status = crate::application::run_status::inspect(
                 &crate::config::find_config_file()?,
                 exported_dir.as_deref(),
             )?;

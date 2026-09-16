@@ -16,12 +16,12 @@ counted. Root test targets account for 18 warning records:
 
 ## Shared helper members
 
-- `key_store::migrate` is still used by voice, delta, emoticon, album and isolation
-  runtime tests. Decrypt/timeline targets use `migrate_with_unverified` instead.
-  Only the convenience member permits dead_code, with its caller distinction
-  documented. Both paths keep the real explicit migration operation.
-- The shared Account `migrate_keys` method is used by mcp-image-runtime after
-  adding synthetic image keys, but not by mcp-readonly-runtime. The allowance is
+- `key_store::seed`, `seed_unverified` and `seed_image` build current-format DPAPI
+  fixtures from explicit synthetic values. They do not read legacy key files or
+  launch migration/acquisition commands. Individual convenience members permit
+  dead_code because different integration targets seed different material types.
+- The shared Account `seed_keys` method is used by mcp-image-runtime after
+  adding synthetic keys, but not by mcp-readonly-runtime. The allowance is
   on this one method, not its fixture module or all warnings.
 - cfg(test) cannot distinguish these consumers: both are test targets. An expect
   would be unfulfilled in targets that do use the member, so these shared
@@ -35,10 +35,10 @@ unit tests; they do not create fake references just to mark code used.
 
 - files: voice/WAV/image/download fixtures use publication guards, not the full
   directory collector surface. File-module dead_code is expected in those hosts.
-- key_store: embedded stores expose legacy import and test-seeding helpers whose
-  migration host is not included in every fixture. This also covers the private
-  legacy_json child, which cannot be individually annotated from an external
-  path-module declaration without copying/replacing production structure.
+- key_store: not every embedded fixture consumes every current snapshot/update
+  member. Legacy import, its JSON reader, counts and XOR-only construction have
+  been removed. Image fixtures always supply a complete artificial AES+XOR pair;
+  one-byte image records exist only in explicit protected-format rejection tests.
 - windows_process / managed: managed execution is real, but account-capture Job
   construction and attachment are outside the ASR/voice/download host scope.
   Existing lifecycle tests remain included.

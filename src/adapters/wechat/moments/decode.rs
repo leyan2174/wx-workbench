@@ -73,9 +73,8 @@ fn numeric_entity(value: &str) -> String {
 pub(crate) fn html_unescape(text: &str) -> String {
     static ENTITIES: OnceLock<HashMap<String, String>> = OnceLock::new();
     static RE: OnceLock<Regex> = OnceLock::new();
-    let entities = ENTITIES.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../toolkit/sns/html_entities.json")).unwrap()
-    });
+    let entities =
+        ENTITIES.get_or_init(|| serde_json::from_str(include_str!("html_entities.json")).unwrap());
     let re = RE.get_or_init(|| {
         Regex::new(r"&(#(?:[0-9]+|[xX][0-9a-fA-F]+);?|[^\t\n\x0c <&#;]{1,32};?)").unwrap()
     });

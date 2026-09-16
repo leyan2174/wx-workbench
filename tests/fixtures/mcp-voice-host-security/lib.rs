@@ -4,14 +4,30 @@ pub mod config;
 #[path = "../../../src/runtime.rs"]
 #[allow(dead_code)] // This fixed-account fixture omits bootstrap and other operation lifecycle entry points.
 pub mod runtime;
-#[path = "../../../src/toolkit/private_file.rs"]
+#[path = "../../../src/private_file.rs"]
 pub mod private_file;
-#[path = "../../../src/toolkit/setup.rs"]
+#[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
-#[path = "../../../src/toolkit/files.rs"]
+#[path = "../../../src/infrastructure/publication.rs"]
 #[allow(dead_code)] // Host security exercises publication guards, not directory collection.
 pub mod files;
+#[path = "../../../src/infrastructure/audio/wav.rs"]
+pub mod audio_wav;
+pub mod infrastructure {
+    pub(crate) use crate::setup as configuration;
+    pub(crate) use crate::files as publication;
+    pub mod audio {
+        pub use crate::audio_wav::validate_wav;
+        pub use mcp_voice_host::audio::{
+            decode_silk_to_pcm, normalize_silk, pcm24k_to_wav, prepare_wav_bytes,
+        };
+        pub(crate) mod publish {
+            pub(crate) use crate::publish::publish_wav_noclobber;
+        }
+    }
+    pub(crate) use crate::transcription_engine as transcription;
+}
 #[path = "../../../src/key_store/mod.rs"]
 #[allow(dead_code)] // Embedded store keeps migration/seed APIs for other harnesses.
 pub mod key_store;
@@ -24,13 +40,17 @@ pub mod local_files;
 pub mod attachment {
     pub use crate::local_files;
 }
-#[path = "../../../src/toolkit/audio/publish.rs"]
+#[path = "../../../src/infrastructure/audio/publish.rs"]
 pub mod publish;
-#[path = "../../../src/toolkit/asr/mod.rs"]
-pub mod toolkit_asr;
+#[path = "../../../src/application/transcription/mod.rs"]
+pub mod transcription_app;
+#[path = "../../../src/infrastructure/transcription/mod.rs"]
+pub mod transcription_engine;
 #[path = "../../../src/daemon/cache.rs"]
 #[allow(dead_code, unused_imports)] // Voice-only host does not consume the ResourceSnapshot re-export.
 pub mod db_cache;
+#[path = "../../../src/service/monitor.rs"]
+pub mod monitor_contract;
 #[cfg(test)]
 #[path = "../../../src/crypto/test_support.rs"]
 pub mod crypto_test_support;
@@ -39,19 +59,8 @@ pub mod crypto {
     #[cfg(test)]
     pub use crate::crypto_test_support as test_support;
 }
-#[path = "../../../src/toolkit/legacy.rs"]
-#[allow(dead_code)]
-pub mod legacy;
-pub mod toolkit {
-    pub use crate::setup;
-    pub(crate) use crate::files::{validate_export_target, ExportTarget};
-    pub use crate::private_file;
-    pub use crate::toolkit_asr as asr;
-    pub use crate::legacy;
-    pub mod audio {
-        pub use crate::publish;
-        pub use mcp_voice_host::audio::*;
-    }
+pub mod application {
+    pub use crate::transcription_app as transcription;
 }
 pub mod asr {
     include!(concat!(env!("OUT_DIR"), "/asr.rs"));
@@ -82,7 +91,11 @@ pub mod service {
     pub mod config_pin { include!(concat!(env!("OUT_DIR"), "/service_config_pin.rs")); }
     pub mod plan { include!(concat!(env!("OUT_DIR"), "/service_plan.rs")); }
     pub mod settings { include!(concat!(env!("OUT_DIR"), "/service_settings.rs")); }
-    pub mod protocol { include!(concat!(env!("OUT_DIR"), "/service_protocol.rs")); }
+    pub mod protocol {
+        include!(concat!(env!("OUT_DIR"), "/service_protocol.rs"));
+        pub use crate::monitor_contract as monitor;
+    }
+    pub mod worker_keys { include!(concat!(env!("OUT_DIR"), "/service_worker_keys.rs")); }
     pub mod client { include!(concat!(env!("OUT_DIR"), "/service_client.rs")); }
     pub mod transport { include!(concat!(env!("OUT_DIR"), "/service_transport.rs")); }
 }

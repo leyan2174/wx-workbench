@@ -72,10 +72,10 @@ impl KeyStoreDiagnostic {
     pub fn message(self) -> &'static str {
         match self {
             Self::Missing => {
-                "Encrypted key store is missing; explicit key acquisition or migration is required"
+                "Encrypted key store is missing; explicitly initialize keys for the selected account"
             }
             Self::LegacyMigrationRequired => {
-                "Legacy key material requires explicit migration; plaintext fallback is disabled"
+                "Legacy key material is unsupported; configure a current DPAPI key store and explicitly initialize the selected account; plaintext fallback is disabled"
             }
             Self::Invalid => "Invalid key store format, version or key material",
             Self::WrongAccount => "Key store belongs to a different account",

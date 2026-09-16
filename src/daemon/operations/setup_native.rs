@@ -1,7 +1,8 @@
 //! 原生配置向导；默认 dry-run，非 TTY 不读取 stdin，不接触扫描器或模型。
+use crate::infrastructure::configuration::{self, ConfigDocument};
+use crate::infrastructure::publication as path_guard;
 use crate::service::operation_requests::setup_native::argument_fingerprint;
 use crate::service::operations::SetupReview;
-use crate::toolkit::setup::{self, ConfigDocument};
 use anyhow::{ensure, Context, Result};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -15,9 +16,9 @@ pub use crate::service::operation_requests::setup_native::Backend;
 impl Backend {
     fn name(self) -> &'static str {
         match self {
-            Self::Local => "local",
+            Self::PythonWhisper => "python_whisper",
             Self::WhisperCpp => "whisper_cpp",
-            Self::Openai => "openai",
+            Self::OpenAiCompatible => "openai_compatible",
         }
     }
 }
@@ -76,7 +77,7 @@ fn ask(label: &str, default: &str) -> Result<String> {
 }
 
 fn selected_db(base: &Path, path: &Path) -> Result<PathBuf> {
-    let mut selected = setup::resolve(base, path)?;
+    let mut selected = path_guard::resolve(base, path)?;
     let _parent_guard = crate::attachment::local_files::HostOutputGuard::new(&selected)?;
     // 仅尝试用户指明目录的直属 db_storage，不枚举账号或按活跃度猜测。
     if !selected
@@ -84,7 +85,7 @@ fn selected_db(base: &Path, path: &Path) -> Result<PathBuf> {
         .is_some_and(|n| n.eq_ignore_ascii_case("db_storage"))
     {
         let child = selected.join("db_storage");
-        if setup::exists(&child)? {
+        if path_guard::exists(&child)? {
             let _child_guard = crate::attachment::local_files::HostOutputGuard::new(&child)?;
             selected = child;
         }
@@ -108,7 +109,7 @@ mod tests {
         let args = Args {
             config_path: Some(root.path().join("settings/config.json")),
             db_dir: Some(db),
-            backend: Some(Backend::Local),
+            backend: Some(Backend::PythonWhisper),
             ..Args::default()
         };
         (root, args)
@@ -221,7 +222,7 @@ mod tests {
         fs::write(&config_path, serde_json::to_vec(&value).unwrap()).unwrap();
         let result = run(Args {
             config_path: Some(config_path.clone()),
-            backend: Some(Backend::Local),
+            backend: Some(Backend::PythonWhisper),
             local_model: Some("synthetic-model-name".into()),
             apply: true,
             yes: true,
@@ -353,7 +354,7 @@ fn run_at_review(
     let document = match ConfigDocument::load(&config_path) {
         Ok(document) => document,
         Err(error) if args.check => {
-            let mut report = setup::environment(&config_path, &json!({}), false)?;
+            let mut report = configuration::environment(&config_path, &json!({}), false)?;
             report["config_exists"] = serde_json::Value::Null;
             report["config_status"] = json!("invalid_unreadable_or_unsafe");
             println!("{}", serde_json::to_string_pretty(&report)?);
@@ -376,7 +377,7 @@ fn run_at_review(
     if args.check {
         println!(
             "{}",
-            serde_json::to_string_pretty(&setup::environment(
+            serde_json::to_string_pretty(&configuration::environment(
                 &config_path,
                 &document.value,
                 document.snapshot.existed()
@@ -414,29 +415,32 @@ fn run_at_review(
     };
     let account_guard = crate::attachment::local_files::HostOutputGuard::new(&db)?;
     let mut value = document.with_db(&db)?;
-    let configured_backend = setup::text(&value, "transcription_backend")?.unwrap_or("local");
+    let configured_backend = configuration::text(&value, "transcription_backend")?.unwrap_or("");
     let backend = if let Some(backend) = args.backend {
         backend.name().to_owned()
     } else if interactive {
-        ask("转写后端 local / whisper_cpp / openai", configured_backend)?
+        ask(
+            "转写后端 python_whisper / whisper_cpp / openai_compatible",
+            configured_backend,
+        )?
     } else {
         configured_backend.into()
     };
     ensure!(
-        ["local", "whisper_cpp", "openai"].contains(&backend.as_str()),
-        "转写后端必须为 local、whisper_cpp 或 openai"
+        ["python_whisper", "whisper_cpp", "openai_compatible"].contains(&backend.as_str()),
+        "转写后端必须为 python_whisper、whisper_cpp 或 openai_compatible"
     );
     ensure!(
         backend == "whisper_cpp" || (args.whisper_binary.is_none() && args.whisper_model.is_none()),
         "binary/model 参数需要 whisper_cpp 后端"
     );
     ensure!(
-        backend == "local" || args.local_model.is_none(),
-        "local-model 参数需要 local 后端"
+        backend == "python_whisper" || args.local_model.is_none(),
+        "local-model 参数需要 python_whisper 后端"
     );
     ensure!(
-        backend == "openai" || args.openai_key_env.is_none(),
-        "凭据环境变量参数需要 openai 后端"
+        backend == "openai_compatible" || args.openai_key_env.is_none(),
+        "凭据环境变量参数需要 openai_compatible 后端"
     );
     value["transcription_backend"] = json!(backend);
     match backend.as_str() {
@@ -453,30 +457,30 @@ fn run_at_review(
                     "本地 ggml 模型文件路径",
                 ),
             ] {
-                let configured = setup::text(&value, field)?.unwrap_or("");
+                let configured = configuration::text(&value, field)?.unwrap_or("");
                 let path = match explicit {
-                    Some(path) => setup::resolve(&std::env::current_dir()?, &path)?,
+                    Some(path) => path_guard::resolve(&std::env::current_dir()?, &path)?,
                     None if interactive => {
                         let default = if configured.is_empty() {
                             String::new()
                         } else {
-                            setup::resolve(document.base(), Path::new(configured))?
+                            path_guard::resolve(document.base(), Path::new(configured))?
                                 .to_string_lossy()
                                 .into_owned()
                         };
-                        setup::resolve(
+                        path_guard::resolve(
                             &std::env::current_dir()?,
                             Path::new(&ask(label, &default)?),
                         )?
                     }
-                    None => setup::resolve(document.base(), Path::new(configured))?,
+                    None => path_guard::resolve(document.base(), Path::new(configured))?,
                 };
                 // 只验证路径形状，缺失模型或可执行文件由能力报告提示，绝不下载。
                 value[field] = json!(path);
             }
         }
-        "local" => {
-            let configured = setup::text(&value, "local_whisper_model")?.unwrap_or("base");
+        "python_whisper" => {
+            let configured = configuration::text(&value, "local_whisper_model")?.unwrap_or("base");
             let model = match args.local_model {
                 Some(model) => model,
                 None if interactive => ask("本地 Whisper 模型名称或路径", configured)?,
@@ -490,14 +494,15 @@ fn run_at_review(
             );
             value["local_whisper_model"] = json!(model);
         }
-        "openai" => {
-            let configured = setup::text(&value, "openai_api_key_env")?.unwrap_or("OPENAI_API_KEY");
+        "openai_compatible" => {
+            let configured =
+                configuration::text(&value, "openai_api_key_env")?.unwrap_or("OPENAI_API_KEY");
             let name = match args.openai_key_env {
                 Some(name) => name,
                 None if interactive => ask("OpenAI 凭据环境变量名（不要输入 key）", configured)?,
                 None => configured.into(),
             };
-            setup::valid_env_name(&name)?;
+            configuration::valid_env_name(&name)?;
             value["openai_api_key_env"] = json!(name);
         }
         _ => unreachable!(),
@@ -514,10 +519,10 @@ fn run_at_review(
         "whisper_cpp" => {
             json!({"binary":value.get("whisper_cpp_binary"),"model":value.get("whisper_cpp_model")})
         }
-        "local" => {
-            json!({"model":value.get("local_whisper_model"),"python_environment":"WX_WECHAT_DECRYPT_PYTHON"})
+        "python_whisper" => {
+            json!({"model":value.get("local_whisper_model"),"python_environment":"VIRTUAL_ENV or PATH"})
         }
-        "openai" => {
+        "openai_compatible" => {
             json!({"credential_environment":value.get("openai_api_key_env"),"credential_consumer":"pending_integration"})
         }
         _ => unreachable!(),
@@ -527,7 +532,7 @@ fn run_at_review(
         "backend":backend, "settings":settings, "keys_file":paths.keys_file,
         "changed_fields":changed, "applied":false,
         "preserved_original_fields":document.value.as_object().expect("配置为对象").len(),
-        "environment":setup::environment(&config_path, &value, document.snapshot.existed())?});
+        "environment":configuration::environment(&config_path, &value, document.snapshot.existed())?});
     if args.apply {
         if !args.yes {
             eprintln!(

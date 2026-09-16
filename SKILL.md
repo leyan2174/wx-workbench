@@ -1,9 +1,9 @@
 ---
-name: wx-cli
-description: "使用 wx-cli 查询和整理已授权的本地微信数据，包括会话、联系人、聊天历史、搜索、附件、导出和 MCP。"
+name: wx-workbench
+description: "使用 wx-workbench 查询和整理已授权的本地微信数据，包括会话、联系人、聊天历史、搜索、附件、导出和 MCP。"
 ---
 
-# wx-cli
+# wx-workbench
 
 ## 前置条件
 
@@ -14,7 +14,7 @@ description: "使用 wx-cli 查询和整理已授权的本地微信数据，包�
 当前源库首页校验失败时，不以旧缓存继续查询，也不自动重新捕获密钥。首页校验通过不等于整库完好；解密和 WAL 处理仍须完成各自认证。参见[数据库认证边界](docs/architecture.md#数据库认证与缓存发布)。
 
 ```powershell
-$account = Join-Path $env:USERPROFILE 'wx-cli-data/synthetic-account'
+$account = Join-Path $env:USERPROFILE 'wx-workbench-data/synthetic-account'
 $env:WX_CLI_CONFIG = Join-Path $account 'config.json'
 $env:WX_CLI_HOME = Join-Path $account 'runtime'
 wx sessions -n 20 --json
@@ -43,7 +43,7 @@ wx stats $chat --json
 
 使用当前子命令的 `--help` 核对参数，不能把保留的上游脚本说明当成现行接口。输出与源库、配置、密钥和运行缓存分离。清理先预览；覆盖、回写、下载分别获得授权。
 
-解码与识别是不同步骤。本地转录需要明确的程序、模型与依赖；命名 Python 模型可能下载。云端转录必须明确授权上传并指定端点、模型和凭据。缺少条件时不切换后端。参见[本地 ASR](src/toolkit/asr/LOCAL.md)与[云端授权](src/toolkit/asr/OPENAI.md)。
+解码与识别是不同步骤。本地转录需要明确的程序、模型与依赖；命名 Python 模型可能下载。云端转录必须明确授权上传并指定端点、模型和凭据。缺少条件时不切换后端。参见[本地 ASR](src/infrastructure/transcription/LOCAL.md)与[云端授权](src/infrastructure/transcription/OPENAI.md)。
 
 ## 账号捕获
 
@@ -53,7 +53,7 @@ provider 和 DPAPI 规则见[账号密钥](docs/account-key-provider.md)。强�
 
 `wx mcp` 提供逐行 JSON-RPC，必须显式指定配置。工具参数不能选择账号、输出根、模型或凭据。注册工具不等于所有媒体条件均已满足。详见[协议](src/mcp/PROTOCOL.md)。
 
-`wx toolkit run web` 启动本地界面，不暴露到不可信网络。只停止本任务创建且身份可验证的 daemon；不按进程名清理其他账号或用户应用。
+`wx toolkit web` 启动本地界面，不暴露到不可信网络。只停止本任务创建且身份可验证的 daemon；不按进程名清理其他账号或用户应用。
 
 ## 结果与验证
 

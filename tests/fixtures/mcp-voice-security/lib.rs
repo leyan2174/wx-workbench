@@ -26,13 +26,12 @@ pub mod daemon {
     }
 }
 
-#[path = "../../../src/toolkit/asr/database_media.rs"]
-pub mod database_media;
 #[path = "../../../src/daemon/query/mcp_voice.rs"]
 pub mod mcp_voice;
 
 #[path = "../../support/voice_media_adapters.rs"]
 pub mod adapters;
+pub use adapters::wechat::media::voice as database_media;
 #[path = "../../support/media_business.rs"]
 pub mod business;
 #[cfg(test)]

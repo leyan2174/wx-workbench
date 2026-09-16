@@ -19,7 +19,7 @@ pub enum Outcome {
     NotReply,
     InvalidContent,
     Found {
-        parsed: reply::ParsedReply,
+        parsed: Box<reply::ParsedReply>,
         source: LegacySource,
     },
 }
@@ -61,7 +61,7 @@ pub fn decode(
     })();
     Ok(match parsed {
         Ok(parsed) => Outcome::Found {
-            parsed,
+            parsed: Box::new(parsed),
             source: LegacySource {
                 username: username.clone(),
                 local_id,

@@ -2,7 +2,7 @@
 use crate::adapters::wechat::messages::catalog::{
     select_targets, RawDirectoryTarget as DirectoryTarget,
 };
-use crate::toolkit::chat_directory::{self, Format, Options};
+use crate::application::chat_directory::{self, Format, Options};
 use crate::{ipc::Request, runtime::RuntimeContext};
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
@@ -34,7 +34,7 @@ pub fn export_for(runtime: &RuntimeContext, args: Args) -> Result<Value> {
 fn export_with_sources(
     runtime: &RuntimeContext,
     args: Args,
-    sources: Option<&[crate::toolkit::asr::database_media::DecryptedSource]>,
+    sources: Option<&[crate::adapters::wechat::media::voice::DecryptedSource]>,
 ) -> Result<Value> {
     let config = chat_directory::read_config(runtime)?;
     let output = match &args.output_dir {
@@ -116,10 +116,16 @@ fn export_with_sources(
             json!({"engine":"rust","dry_run":true,"planned":planned,"failures":[],"media_issues":0}),
         );
     }
+    let image_material = if media_enabled {
+        crate::service::worker_keys::image_material(runtime)?
+            .map(|material| (material.aes, material.xor))
+    } else {
+        None
+    };
     // 复用 ASR 的固定账号快照，不从常驻后台缓存名推断源，不另写解密编排。
     let snapshot = if media_enabled && sources.is_none() && !targets.is_empty() {
         Some(
-            crate::toolkit::asr::batch::prepare_snapshot(runtime)
+            super::asr_batch::prepare_snapshot(runtime)
                 .context("准备聊天媒体静态快照失败；未回退到旧解密目录")?,
         )
     } else {
@@ -135,6 +141,9 @@ fn export_with_sources(
     for entry in targets {
         let target = entry.target;
         let result = (|| -> Result<_> {
+            if media_enabled {
+                crate::service::worker_keys::verify_image_revision(runtime)?;
+            }
             let response = crate::service::query_client::send_for(
                 runtime,
                 Request::ExportDirectoryByUsername {
@@ -142,7 +151,7 @@ fn export_with_sources(
                 },
             )?;
             let directory = output.join(chat_directory::directory_name(&target));
-            match sources {
+            let report = match sources {
                 Some(sources) => chat_directory::export_document_with_sources(
                     runtime,
                     &config,
@@ -150,7 +159,7 @@ fn export_with_sources(
                     &response.data,
                     &directory,
                     &options,
-                    sources,
+                    chat_directory::MediaInput::snapshot(sources, image_material),
                 ),
                 None => chat_directory::export_document(
                     runtime,
@@ -159,8 +168,13 @@ fn export_with_sources(
                     &response.data,
                     &directory,
                     &options,
+                    chat_directory::MediaInput::current(image_material),
                 ),
+            }?;
+            if media_enabled {
+                crate::service::worker_keys::verify_image_revision(runtime)?;
             }
+            Ok(report)
         })();
         match result {
             Ok(report) => {

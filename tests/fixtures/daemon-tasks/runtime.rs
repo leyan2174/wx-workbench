@@ -72,16 +72,12 @@ fn personal_messages(fixture: &Fixture, account: &Path, count: usize) -> PathBuf
     let encrypted = account.join("db_storage/message/message_0.db");
     fs::create_dir_all(encrypted.parent().unwrap()).unwrap();
     super::encrypt_fixture(&plain, &encrypted);
-    fs::write(
-        account.join("all_keys.json"),
-        json!({
-            "contact/contact.db":"11".repeat(32),
-            "message/message_0.db":"11".repeat(32)
-        })
-        .to_string(),
-    )
-    .unwrap();
-    fixture.migrate(account);
+    let keys = json!({
+        "contact/contact.db":"11".repeat(32),
+        "message/message_0.db":"11".repeat(32)
+    });
+    fs::write(account.join("all_keys.json"), keys.to_string()).unwrap();
+    fixture.seed_keys(account, &keys);
     encrypted
 }
 
@@ -89,7 +85,7 @@ pub(super) fn assert_personal_tasks(fixture: &Fixture, account: &Path, user: &st
     let task = call(
         fixture,
         account,
-        &["tasks", "submit", "wechat-decrypt", "--wait"],
+        &["tasks", "submit", "wechat_decrypt", "--wait"],
     );
     assert_eq!(task["status"], "succeeded");
     assert!(account.join("decrypted/contact/contact.db").is_file());
@@ -99,7 +95,7 @@ pub(super) fn assert_personal_tasks(fixture: &Fixture, account: &Path, user: &st
         &[
             "tasks",
             "submit",
-            "export-all",
+            "export_all",
             "--users",
             user,
             "--formats",
@@ -176,7 +172,7 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     let args = [
         "tasks",
         "submit",
-        "export-all",
+        "export_all",
         "--users",
         "task-peer",
         "--no-images",
@@ -202,7 +198,7 @@ fn daemon_task_worker_exports_once_and_history_survives_restart() {
     assert!(!fixture
         .run(
             &account,
-            &["tasks", "submit", "wechat-decrypt", "--request-id", &id]
+            &["tasks", "submit", "wechat_decrypt", "--request-id", &id]
         )
         .status
         .success());
@@ -449,7 +445,7 @@ fn cancelling_and_stopping_reap_running_workers_without_stopping_queries_early()
             &[
                 "tasks",
                 "submit",
-                "export-all",
+                "export_all",
                 "--users",
                 "task-peer",
                 "--no-images",

@@ -120,7 +120,7 @@ impl PreparedSample {
         self.guard.verify()?;
         self.guard.verify_replaceable_file(&self.output)?;
         require_absent(&self.output)?;
-        let decoded = decoder::dispatch(
+        let decoded = decoder::restore(
             &self.data,
             V2KeyMaterial {
                 aes_key: Some(&material.aes_key),
@@ -154,7 +154,10 @@ impl PreparedSample {
         );
         require_single_link(&staged_file)?;
         self.guard.verify()?;
-        crate::toolkit::ExportTarget::new_file(&self.output, &[temporary.to_path_buf()])?;
+        crate::infrastructure::publication::ExportTarget::new_file(
+            &self.output,
+            &[temporary.to_path_buf()],
+        )?;
         Ok(StagedSample {
             staged_file,
             temporary,
@@ -171,8 +174,10 @@ impl StagedSample {
     /// Called only after the caller's key-save/validated-existing-key decision.
     pub(super) fn publish(self) -> Result<Value> {
         self.verify_source()?;
-        let target =
-            crate::toolkit::ExportTarget::new_file(&self.output, &[self.temporary.to_path_buf()])?;
+        let target = crate::infrastructure::publication::ExportTarget::new_file(
+            &self.output,
+            &[self.temporary.to_path_buf()],
+        )?;
         target
             .write_with_checked(
                 |temporary| self.copy_verified(temporary),

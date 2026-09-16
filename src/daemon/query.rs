@@ -13,8 +13,10 @@ mod chat_identity;
 #[path = "query/chat_identity/tests.rs"]
 mod chat_identity_tests;
 mod contact_rows;
+#[cfg(test)]
+#[path = "query/contacts_source_tests.rs"]
+mod contacts_source_tests;
 mod decode;
-pub(super) mod mcp_contacts_legacy;
 pub use decode::{q_decode, DecodeKind};
 mod export;
 pub use export::{q_export_chat, q_export_chat_list, q_export_username};
@@ -596,7 +598,7 @@ pub async fn q_search(
 ///
 /// 普通协议投影只列真人；筛选与分页由联系人业务用例执行，分类由微信适配器解释。
 pub async fn q_contacts(names: &Names, query: Option<&str>, limit: usize) -> Result<Value> {
-    use crate::business::contacts::{self, ContactQuery, ContactView};
+    use crate::business::contacts::{self, ContactQuery};
     anyhow::ensure!(
         !names.map.is_empty(),
         "联系人缓存不可用，请执行 `wx daemon reload` 后重试"
@@ -607,12 +609,11 @@ pub async fn q_contacts(names: &Names, query: Option<&str>, limit: usize) -> Res
         &source,
         ContactQuery {
             text: query,
-            view: ContactView::People,
             offset: 0,
             limit,
         },
     )?;
-    contact_rows::project_page(page, ContactView::People)
+    contact_rows::project_page(page)
 }
 
 #[cfg(test)]
@@ -943,8 +944,6 @@ mod summary_regression_tests {
 
 #[cfg(test)]
 use crate::adapters::wechat::favorites::extract_url as extract_favorite_url;
-
-/// 从 appmsg XML 中提取链接 URL（优先取 <url>，fallback 到 <url1>）
 
 #[cfg(test)]
 mod appmsg_tests {
@@ -2379,7 +2378,8 @@ mod image_metadata_query_tests;
 /// 解码 attachment_id → 查 message_resource.db → 找本地 .dat → 解密 → 写盘。
 pub async fn q_extract(
     db: &DbCache,
-    _names: &Names,
+    runtime: &crate::runtime::RuntimeContext,
+    materials: &crate::key_store::Snapshot,
     attachment_id: &str,
     output: &str,
     overwrite: bool,
@@ -2387,32 +2387,32 @@ pub async fn q_extract(
     use crate::attachment::{
         attachment_id::AttachmentId,
         decoder::{self, V2KeyMaterial},
-        image_key, resolver,
+        resolver,
     };
 
     let id = AttachmentId::decode(attachment_id)
         .context("解析 attachment_id 失败（不是合法 base64url(json)？）")?;
 
-    let output_path = std::path::PathBuf::from(output);
-    if output_path.exists() && !overwrite {
-        anyhow::bail!(
-            "目标已存在：{}（加 --overwrite 覆盖）",
-            output_path.display()
-        );
-    }
-    if let Some(parent) = output_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("创建输出目录失败：{}", parent.display()))?;
-        }
-    }
+    let output_path = std::path::absolute(output)?;
+    let mut protected = crate::infrastructure::publication::export_protected(runtime);
+    let account_root = runtime
+        .config
+        .db_dir
+        .parent()
+        .context("db_dir has no account root")?;
+    protected.push(account_root.join("msg"));
+    let target = if overwrite {
+        crate::infrastructure::publication::ExportTarget::capture_paths(&output_path, &protected)?
+    } else {
+        crate::infrastructure::publication::ExportTarget::new_file(&output_path, &protected)?
+    };
+    let image_material = materials.image_key().map(zeroize::Zeroizing::new);
 
     // 1) 拿 message_resource.db
     let resource_path = db
         .get(crate::adapters::wechat::media::resource::source_key())
         .await?
-        .context("无法解密 message_resource.db（请确认 all_keys.json 包含该 DB 的密钥）")?;
+        .context("无法解密资源数据库；请显式初始化当前账号数据库密钥")?;
 
     // 2) 推 wxchat_base = db_dir.parent()，再拼 attach_root
     let wxchat_base = db
@@ -2426,57 +2426,25 @@ pub async fn q_extract(
     let id_for_task = id.clone();
     let resource_path2 = resource_path.clone();
     let attach_root2 = attach_root.clone();
-    let wxchat_base2 = wxchat_base.clone();
     let output_path2 = output_path.clone();
 
     let report: Value = tokio::task::spawn_blocking(move || -> Result<Value> {
         let resolved = resolver::resolve_blocking(&id_for_task, &resource_path2, &attach_root2)?;
 
-        let dat_bytes = std::fs::read(&resolved.dat_path)
-            .with_context(|| format!("读取 .dat 失败：{}", resolved.dat_path.display()))?;
+        let source_pin = crate::attachment::local_files::Pin::open(&resolved.dat_path, false)?;
+        let dat_bytes = source_pin.read_bounded(crate::attachment::native_image::MAX_DAT_BYTES)?;
 
-        // V2 image key — 平台相关。`ImageKeyMaterial` 同时给 aes_key + xor_key。
-        // xor_key 不能硬编码 0x88：实测 macOS 真实账号上是 `uin & 0xff` 派生的（0xa2 等），
-        // 所以这里桥接时必须把 provider 的 xor_key 透传给 V2KeyMaterial。
-        // 缺 key 时让 decoder 自己抛带诊断的错。
-        let provider = image_key::default_provider();
-        let key_material = if let Some(p) = provider.as_ref() {
-            // 从 wxchat_base 末段拿 wxid
-            let wxid = wxchat_base2
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or_default()
-                .to_string();
-            if wxid.is_empty() {
-                None
-            } else {
-                match p.get_key(&wxid) {
-                    Ok(km) => Some(km),
-                    Err(e) => {
-                        eprintln!(
-                            "[extract] image key 提取失败 (wxid={}): {} — V2 文件将无法解码",
-                            wxid, e
-                        );
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        };
-        let v2_key = match key_material.as_ref() {
-            Some(km) => V2KeyMaterial {
-                aes_key: Some(&km.aes_key),
-                xor_key: km.xor_key,
+        let v2_key = match image_material.as_ref() {
+            Some(material) => V2KeyMaterial {
+                aes_key: Some(&material.0),
+                xor_key: material.1,
             },
             None => V2KeyMaterial::default(),
         };
 
-        let decoded = decoder::dispatch(&dat_bytes, v2_key)?;
+        let decoded = decoder::restore(&dat_bytes, v2_key)?;
 
-        // 写盘
-        std::fs::write(&output_path2, &decoded.data)
-            .with_context(|| format!("写出文件失败：{}", output_path2.display()))?;
+        target.write_bytes_checked(&decoded.data, || source_pin.verify())?;
 
         // 注意：不要在这里塞 `ok: true`。dispatch 会用 Response::ok(v) 包一层，
         // Response 的 `data: Value` 字段是 #[serde(flatten)] 写出的，本 payload
@@ -2512,7 +2480,7 @@ fn parse_attachment_kinds(
     let mut seen = HashSet::<&'static str>::new();
     for k in raw {
         let (kind, t): (AttachmentKind, i64) = match k.to_ascii_lowercase().as_str() {
-            "image" | "img" => (AttachmentKind::Image, 3),
+            "image" => (AttachmentKind::Image, 3),
             "voice" | "audio" | "video" | "file" => {
                 anyhow::bail!(
                     "当前只支持 image 提取；video/file/voice 的资源路径与 decoder 还没接通"
@@ -2525,6 +2493,17 @@ fn parse_attachment_kinds(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod attachment_kind_tests {
+    use super::parse_attachment_kinds;
+
+    #[test]
+    fn only_the_canonical_image_name_is_accepted() {
+        assert!(parse_attachment_kinds(Some(&["image".into()])).is_ok());
+        assert!(parse_attachment_kinds(Some(&["img".into()])).is_err());
+    }
 }
 
 #[cfg(test)]
