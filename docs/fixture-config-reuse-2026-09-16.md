@@ -1,5 +1,7 @@
 # MCP 夹具配置复用
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 ## 问题与修改
 
 SNS 适配迁移后的独立图片夹具检查暴露 wx-mcp-cli-harness 依赖的 5 条未使用函数告警：find_config_file、find_existing_config_path、default_config_path、config_path_in_dir、home_config_path。它们在正式工程仍由 RuntimeContext 使用，不是应该删除的正式能力。

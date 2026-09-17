@@ -1,5 +1,7 @@
 # 转录分层与 Toolkit 删除
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 ## 基线与问题
 
 本轮基于 Windows x64 MSVC 当前脏工作区，使用独立 `CARGO_TARGET_DIR=C:/CodexLocal/wx-workbench-target-20260916`。迁移前 `src/toolkit` 剩余 27 个文件，全部属于 ASR，但其中同时混放应用编排、具体进程/网络后端和公共请求校验。

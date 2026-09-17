@@ -1,5 +1,7 @@
 # 聊天目录展示适配边界
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 ## 当前实现
 
 聊天目录导出继续保留现有 daemon 查询和 JSON wire，以避免同时改变媒体关联、增量摘要以及 CSV/HTML/JSON 输出。微信 `local_type` 的数字到展示标签映射、名片/位置/分享 XML 摘要、系统消息摘要和未知类型回退，已统一迁到 `adapters::wechat::messages::directory_display`。

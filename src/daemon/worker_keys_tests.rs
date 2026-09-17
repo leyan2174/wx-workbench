@@ -205,9 +205,14 @@ async fn saved_initialization_receives_only_redacted_account_material() {
         .unwrap()
         .unwrap();
     let debug = format!("{access:?}");
-    assert!(!debug.contains("17"));
+    // 运行路径和进程标识可能包含任意数字；精确检查秘密字段的脱敏表示。
+    assert!(debug.contains("account: Some(AccountMaterial([REDACTED]))"));
     let seed = access.initialization.unwrap();
     assert!(!seed.has_database_keys);
+    assert_eq!(
+        format!("{:?}", seed.account.as_ref().unwrap()),
+        "AccountMaterial([REDACTED])"
+    );
     assert_eq!(seed.account.unwrap().as_bytes(), &[0x17; 32]);
     worker.finish().await;
 }

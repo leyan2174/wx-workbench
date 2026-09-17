@@ -1,5 +1,7 @@
 # Domain audit snapshot
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 This records the read-only audit at baseline `5115419`, not a fresh validation of
 later parallel changes. Positive test evidence below was read in the existing
 `C:/CodexLocal/wx-cli-final-root-tests-2.log` and the fixture evidence recorded in

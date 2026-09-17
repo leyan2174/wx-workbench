@@ -4,7 +4,7 @@
 
 已接入 `infrastructure::audio` 和 [daemon 操作分派](../../daemon/operations/toolkit.rs)。
 SILK 解码使用 Rust 与静态 SILK C SDK，MP3 编码调用原生 ffmpeg；此转换路径不启动 Python 或 Node。
-批量数据库导出见 [BATCH.md](BATCH.md)，ASR 是独立流程，不能把 MP3 转换当作语音识别。
+批量数据库导出见 [批量语音导出](../../../docs/voice-batch-export.md)，ASR 是独立流程，不能把 MP3 转换当作语音识别。
 
 命令：
 

@@ -6,6 +6,10 @@
 
 项目在原版 [wx-cli](https://github.com/jackwener/wx-cli) 的 Rust 查询与解密基础上，吸收 [wechat-decrypt](https://github.com/ylytdeng/wechat-decrypt) 等开源项目的导出、媒体处理和微信数据解析能力，逐步完成 Rust 迁移与统一 daemon 执行。各部分来源见[工程演进](#工程演进)和[开源来源与致谢](#开源来源与致谢)。
 
+## 开发方式
+
+本项目当前开发与重构代码由 AI 生成和修改，项目负责人未手工编写代码；人类负责需求、方向与验收。继承、移植和参考的第三方代码与算法保留原作者归属，这一声明不表示上游代码也是 AI 原创。
+
 ## 主要能力
 
 当前实现已删除 `src/toolkit`：应用工作流位于 `src/application`，微信格式位于 `src/adapters/wechat`，文件、音频、转录后端和进程能力位于 `src/infrastructure`。查询与独立 worker 均通过 daemon 密钥快照取得运行材料，应用工作流不选择持久化格式；初始化 bootstrap 仍由 daemon 创建正式存储。当前结构与待验证项见[架构说明](docs/architecture.md)。
@@ -47,7 +51,7 @@ wx init --help
 首次初始化前确认 `$dbStorage` 是目标账号的实际 `db_storage` 目录：
 
 ```powershell
-wx init --db-dir $dbStorage
+wx init --db-dir $dbStorage --key-provider memory
 wx sessions --json
 wx contacts -n 20 --json
 ```
@@ -111,7 +115,7 @@ wx toolkit chat-plan-native --help
 wx toolkit export-emoticons --help
 ```
 
-工具箱提供批量导出、增量、计划、音频处理和本地界面。兼容命令名仍由当前 Rust 入口校验，不把未知命令交给任意脚本。具体参数以子命令 `--help` 为准。
+工具箱提供批量导出、增量、计划、音频处理和本地界面。`wx toolkit` 是当前正式命令分组，不是旧调用兼容层，也不对应 `src/toolkit` 目录。所有子命令由 Rust 入口校验。具体参数以子命令 `--help` 为准。
 
 清理先预览，再按明确账号和文件选择执行。覆盖、下载、回写和目录更新须分别获得授权；导出授权不等于修改原始微信数据库的授权。
 
@@ -226,6 +230,10 @@ DMCA 是美国《数字千年版权法》（Digital Millennium Copyright Act）�
 
 项目将按内容分别评估技术说明的发布范围；如收到通知，应结合具体指控、平台流程及专业法律意见处理，不将文档作为保证继续传播被投诉内容的替代途径。详见[核查记录与发布边界](docs/dmca-and-publication-risk.md)、[GitHub DMCA 政策](https://docs.github.com/en/site-policy/content-removal-policies/dmca-takedown-policy)和[美国版权局第 1201 条说明](https://www.copyright.gov/1201/)。
 
+## 贡献与安全报告
+
+参与开发见[贡献说明](CONTRIBUTING.md)，安全问题见[安全报告](SECURITY.md)。不要公开真实账号、聊天、配置、密钥或完整调试日志。
+
 ## 许可
 
-项目采用 [Apache-2.0](LICENSE)。第三方代码、资产及依赖遵循各自的许可证和版权声明，详见[第三方说明](THIRD_PARTY_NOTICES.md)。仅处理自己拥有或已获授权的数据。
+本项目原创部分采用 [Apache-2.0](LICENSE)，原版 wx-cli 的 MIT 声明完整保留。发布准备中仍有上游衍生实现的授权证据待确认，不能将根许可证理解为对全部第三方材料的重新授权。第三方代码、资产及依赖遵循各自的许可证和版权声明，详见[第三方说明](THIRD_PARTY_NOTICES.md)。仅处理自己拥有或已获授权的数据。

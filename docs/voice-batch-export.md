@@ -84,11 +84,11 @@ println!("{}", serde_json::to_string(&report)?);
 
 保留单文件核心限制：最大 16 MiB/6000 个 SILK 包，非流式解码。FFmpeg 使用受管进程、每次转换 120 秒期限和 1 MiB 进程输出上限。整批没有新设总期限，SILK 解码没有中途取消点。checked 库入口可传取消回调，每条记录和最终发布前检查；两个 worker 宿主目前仍依靠既有 Job 终止机制，没有伪造进程内取消信号，也不新增队列或后台服务。
 本核心仅覆盖旧 voice_to_mp3.py 的 media_0.db 批量职责，不含跨 media 分片自动发现或 ASR。
-Web 与 `wx tasks` 的任务由 [daemon 任务服务](../../daemon/tasks/mod.rs) 和[类型化计划](../../service/plan.rs) 编排，daemon 持有工作进程生命周期；音频核心没有逐条 GUI 回调。
+Web 与 `wx tasks` 的任务由 [daemon 任务服务](../src/daemon/tasks/mod.rs) 和[类型化计划](../src/service/plan.rs) 编排，daemon 持有工作进程生命周期；音频核心没有逐条 GUI 回调。
 未保证多个 batch 进程并发运行时的 exactly-once 语义；主程序应避免对同一输出目录并发启动。
 
 ## 测试
 
 `batch_tests.rs` 使用临时 SQLite 数据库，覆盖路径推导、联系人筛选、Name2Id 映射、安全目录名、同名联系人隔离、已有项跳过、源库保护、坏 BLOB、缺编码器和临时文件清理。发布竞争测试要求晚出现的目标不被覆盖。
 
-需要 FFmpeg 的端到端用例默认忽略，确认依赖后定向执行。测试命令见[测试说明](../../../tests/README.md)；本核心只处理配置指定的 `media_0.db`，不能用这些用例证明其他媒体分片均已导出。
+需要 FFmpeg 的端到端用例默认忽略，确认依赖后定向执行。测试命令见[测试说明](../tests/README.md)；本核心只处理配置指定的 `media_0.db`，不能用这些用例证明其他媒体分片均已导出。

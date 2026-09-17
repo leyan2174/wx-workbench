@@ -1,5 +1,7 @@
 # Final Architecture Audit: Work in Progress
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 This record follows the phase-five baseline `5115419`. It is not a claim that
 the entire architecture objective has passed acceptance. Existing successful
 test results remain recorded in `architecture-phase5-progress.md`; new changes

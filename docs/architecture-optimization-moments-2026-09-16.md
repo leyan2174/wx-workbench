@@ -1,5 +1,7 @@
 # 朋友圈应用工作流迁移
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 ## 边界
 
 朋友圈时间线、缓存恢复、归档、相册生成和宿主授权后的媒体获取已从 `src/toolkit/sns` 迁至 `src/application/moments`。daemon 操作直接调用应用用例；业务查询继续由 `business::moments` 表达，微信数据库、XML/DAT、缓存布局和密钥流由 `adapters::wechat` 实现，文件发布由 `infrastructure` 负责。

@@ -1,8 +1,10 @@
 # 架构清理与最终验证记录（2026-09-16）
 
+> 阶段记录：本文保留实施当时的路径、限制和测试结果，不是当前接口规范。当前职责与入口以[架构说明](architecture.md)和[文档索引](README.md)为准。
+
 ## 基线与范围
 
-- 当前 checkout：`C:\Users\leyan\Documents\skills\_external\wx-workbench`。
+- 当前 checkout：项目源码根目录；本机绝对路径不进入发布文档。
 - 分支与基线：`main`，读取时 HEAD 为 `d4e22a0`；工作区已有大量未提交修改，本轮没有重置、覆盖或合并其他修改。
 - 远端：`https://github.com/leyan2174/wx-workbench.git`。
 - 支持目标：Windows x64 MSVC；构建目录固定为本 checkout 专属的 `C:\CodexLocal\wx-workbench-target-20260916`。

@@ -2,6 +2,59 @@
 
 wx-workbench 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、输出与协议适配；daemon 装配账号能力、管理读取快照与执行生命周期，并按需要监督 worker。业务模型和规则按业务域独立，不因经过 daemon 就归执行宿主所有，也不意味着全部工作都运行在同一个进程或持久队列中。
 
+## 当前模块分层
+
+本页于 2026-09-17 对照源码基线 `f6f3ba9` 复核。下图表示职责依赖，不表示每个请求必经所有层。
+
+| 层 | 代码位置 | 职责与界限 |
+| --- | --- | --- |
+| 入口 | `cli`、`mcp`、`web` | 参数、协议、输出与宿主设置；不拥有微信表结构或另一套业务执行器。 |
+| 通信契约 | `service`、`ipc` | 类型化请求、认证通信及响应；不决定业务规则。 |
+| 执行宿主 | `daemon` | 账号、查询租约、密钥快照、前台操作、持久任务及 worker 生命周期。 |
+| 应用用例 | `application` | 导出、媒体发布、朋友圈、转录、监控与清理的步骤编排。 |
+| 业务契约 | `business` | 联系人、会话、消息、收藏、文章、朋友圈、媒体、语音和归档的对象与规则；不依赖 SQLite 表结构。 |
+| 微信适配 | `adapters/wechat` | 表字段、私有消息格式、资源关联及媒体字节格式；不替宿主授予下载或写入权限。 |
+| 基础能力 | `infrastructure`、`crypto`、`key_store`、`scanner`、`attachment`、`windows_process` | 文件与配置发布、音频和转录后端、数据库密码、材料存储和捕获、附件与进程支持；当前仍有专门的顶层模块，未强制归入单一目录。 |
+
+```mermaid
+flowchart TB
+    E[CLI / MCP / Web] --> S[service / ipc 契约与通信]
+    S --> D[daemon 账号与执行宿主]
+    D --> A[application 用例编排]
+    D --> B[business 业务契约]
+    A --> B
+    A --> W[adapters/wechat 微信适配]
+    W --> B
+    A --> I[文件 / 音频 / 转录基础设施]
+    D --> K[密钥快照 / key_store / crypto]
+```
+
+## 运行图
+
+查询、前台操作和持久任务是不同执行方式；MCP 默认工具不等于任务工具，后者需要宿主显式启用。worker 是独立进程，daemon 管理其权限和生命周期。
+
+```mermaid
+flowchart LR
+    C[CLI / Web] --> Q[认证查询请求]
+    M[MCP 默认工具] --> MS[daemon mcp_service]
+    MS --> QD[进程内查询分发与短租约]
+    Q --> QD
+    QD --> DB[DbCache / 微信适配器]
+    MS --> ME[受控同步媒体执行]
+    C --> O[前台 Operation / 租约]
+    C --> T[持久任务 RPC]
+    MT[MCP 显式任务授权] --> T
+    O --> W[受监督 worker]
+    T --> TS[daemon tasks 队列与历史]
+    TS --> W
+    W --> BK[进程绑定材料 broker]
+    BK --> KS[daemon QueryState 密钥快照]
+    QD --> KS
+    KS --> ST[账号绑定 DPAPI 存储]
+```
+
+媒体恢复、解码和转录不是同一种操作：数据库使用页面加密与认证；DAT 图片含 AES/XOR 格式；远端表情可使用 AES-CBC；SNS 使用单独的密钥流机制；SILK 是音频编码，不存在单独的语音级密钥。具体材料来源与限制见[密钥存储](key-store.md)及[媒体边界](media-boundaries.md)。
+
 ## 调用路径
 
 SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/media/sns_keystream.rs`。相册工作流和前台视频操作直接调用该微信格式适配器；工作流目录不保留同名实现或兼容转发。适配器不依赖 daemon 或 toolkit，不处理网络、账号授权及输出发布；这些仍由执行边界负责。固定资产、字节向量、资源预算和错误脱敏契约见 [SNS 密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)。
@@ -10,7 +63,7 @@ SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/med
 
 ### 本轮重构状态
 
-当前代码已移除旧工具箱启动器与密钥迁移入口，并由 daemon `QueryState` 按账号持有独立于数据库初始化的惰性密钥快照。查询初始化、Web 图片解码及任务脱敏已接入快照；独立 worker 和其他媒体路径的材料交付与更新协调尚未全部完成。因此不能宣称运行期所有密钥访问已经统一。SNS 密钥流迁入适配层后的中途全量回归为 33 个目标、2974 通过、0 失败、23 项原有忽略；它验证当前代码，不代表未实施目标已通过最终验收。证据见[本轮工作记录](current-contract-cleanup-2026-09-16.md)和[SNS 适配器迁移](sns-media-adapter-2026-09-16.md)。
+当前代码已移除旧工具箱启动器与密钥迁移入口。daemon `QueryState` 按账号持有惰性密钥快照，查询与已接入的独立 worker 通过查询租约或进程绑定 broker 取得所需材料；更新通过 revision 校验后发布。首次绑定及配置修复初始化仍在执行宿主中直接创建和更新正式 Store，不属于普通应用读取旁路，但也不能称所有存储访问均在同一 daemon 进程。历史测试数字不作为当前文档验收结果，分阶段证据见[清理记录](current-contract-cleanup-2026-09-16.md)。
 
 `src/toolkit` 及其聚合接口已删除：用例编排归 `application`，微信私有格式归 `adapters/wechat`，文件/配置/编解码与转录引擎归职责明确的基础设施，Web 与 CLI/MCP 并列作为入口；daemon 保留账号、密钥快照、租约、任务和受控 worker 生命周期。正式 `wx toolkit` 命令分组仍存在，但不再对应一个源码架构层。业务层不因此接管 SQL、文件系统、HTTP 或外部进程。
 
@@ -55,7 +108,7 @@ SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/med
 
 初始化的密钥与配置分别原子发布，不构成跨文件事务。即使正式密钥库已有材料，初始化也必须在配置锁内完成需要的配置提交后才报告成功；配置发布失败保留原有密钥，重试可复用材料补完配置，不强制重新扫描。该恢复修复不代表初始化已全部迁至 daemon 密钥事务，bootstrap 目标绑定及初始化直接存储路径仍待收敛。
 
-已绑定账号的 `Initialize(provider=Memory, force=false)` 是初始化迁移的首个窄切片：daemon 仅在完整配置与当前 `RuntimeContext` 一致时注册 `INIT_MEMORY | DATABASES`，并通过现有私有 stdin access 交付非秘密的初始化 seed。扫描出的数据库材料沿既有 `WorkerKeys` CAS 写入 `QueryState`，worker 不直接打开密钥库；daemon 立即更新快照。`force`、目录覆盖、`Auto`、`Account` 和 bootstrap 均不获得该 seed。首次账号绑定仍须另行冻结目标和发布协议。
+已绑定账号且完整配置匹配当前运行身份时，`Memory` 初始化取得非秘密初始化 seed，`Saved` 可取得已保存账号材料以派生和验证逐库密钥；显式 `Account` 捕获要求 `force` 与重启授权。扫描或派生结果通过 `worker_keys` 提交，账号材料与逐库材料在同一 revision 更新中保存。`force` 不再一概排除 broker；旧 `Auto` provider 已删除，默认 `Saved` 缺材料时失败，不自动扫描。首次绑定或配置修复走 `src/daemon/operations/init.rs` 的直接 Store 分支；密钥与配置各自原子发布，不构成跨文件事务。
 
 ## 查询与数据库
 
@@ -140,7 +193,7 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 ## 导出、SNS 与 Web
 
-`src/daemon/operations` 组织初始化、导出、增量、计划、音频和 SNS 操作。类型化调用不递归解析公共 CLI，也不因兼容命令名而执行任意脚本。
+`src/daemon/operations` 组织初始化、导出、增量、计划、音频和 SNS 操作。类型化调用不递归解析公共 CLI，不执行未知命令或任意业务脚本。
 
 全量归档的准备、读取、身份核对、转换、发布和索引顺序，以及增量归档的目标去重、部分失败与批次完成由 `business::archive` 负责。宿主装配既有查询传输及原始文档发布器。全量目录索引在发布聊天文件之前绑定 `RuntimeContext.id`，拒绝其他运行上下文复用；旧无绑定记录标记 `legacy_unverified`，损坏索引不静默回退。文件已发布但索引失败时报告 `artifact_published`，不推进成功计数。
 

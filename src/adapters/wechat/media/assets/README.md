@@ -1,8 +1,8 @@
 # SNS media WASM asset
 
-This directory contains a local audit copy of `wasm_video_decode.wasm`. It is
-not embedded by default and must not be included in the public source or binary
-release candidate.
+An authorized local audit copy of `wasm_video_decode.wasm` may be placed in
+this directory for internal verification. No copy is included in the public
+source or binary release candidate, and default builds do not embed it.
 
 - SHA-256: `dca796bacec37d8522c7983b3945e5d579bd74164e3b21f0ebc773be6dfc8b6e`
 - Size: `3,785,516` bytes
