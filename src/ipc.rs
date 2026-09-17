@@ -2,9 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// 内部语音响应含最多 16 MiB SILK 的 base64；不改变公开 MCP 帧上限。
-pub const MAX_PREPARED_VOICE_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
-
 pub const QUERY_VERSION: u32 = 3;
 pub const QUERY_REQUEST_LIMIT: usize = 64 * 1024;
 pub const QUERY_RESPONSE_LIMIT: usize = 32 * 1024 * 1024;
@@ -138,16 +135,6 @@ pub enum Request {
         output_root: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image_key_file: Option<String>,
-    },
-    /// daemon 仅准备音频；local_id 是媒体记录 ID，WAV 由 MCP 宿主发布。
-    DecodeVoice {
-        chat: String,
-        local_id: i64,
-    },
-    /// daemon 不读取识别后端或凭据；宿主校验准备数据后执行显式转录。
-    TranscribeVoice {
-        chat: String,
-        local_id: i64,
     },
     Sessions {
         #[serde(default = "default_limit_20")]
@@ -369,8 +356,6 @@ impl Request {
             Self::DecodeFileMessage { .. } => "decode_file_message",
             Self::DecodeRecordItem { .. } => "decode_record_item",
             Self::DecodeImage { .. } => "decode_image",
-            Self::DecodeVoice { .. } => "decode_voice",
-            Self::TranscribeVoice { .. } => "transcribe_voice",
             Self::Sessions { .. } => "sessions",
             Self::History { .. } => "history",
             Self::Search { .. } => "search",

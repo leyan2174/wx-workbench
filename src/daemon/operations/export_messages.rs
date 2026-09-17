@@ -122,12 +122,9 @@ fn export_with_sources(
     } else {
         None
     };
-    // 复用 ASR 的固定账号快照，不从常驻后台缓存名推断源，不另写解密编排。
+    // 固定账号的私有快照，不从常驻后台缓存名推断源。
     let snapshot = if media_enabled && sources.is_none() && !targets.is_empty() {
-        Some(
-            super::asr_batch::prepare_snapshot(runtime)
-                .context("准备聊天媒体静态快照失败；未回退到旧解密目录")?,
-        )
+        Some(prepare_snapshot(runtime).context("准备聊天媒体静态快照失败；未回退到旧解密目录")?)
     } else {
         None
     };
@@ -190,6 +187,13 @@ fn export_with_sources(
         json!({"engine":"rust","output":output,"complete":failures.is_empty() && media_issues==0,
         "completed":completed,"failures":failures,"media_issues":media_issues,"media_enabled":media_enabled}),
     )
+}
+
+fn prepare_snapshot(runtime: &RuntimeContext) -> Result<super::media_snapshot::Snapshot> {
+    let mut keys = crate::service::worker_keys::database_keys(runtime)?
+        .context("saved database keys unavailable")?;
+    let materials = super::media_snapshot::DatabaseMaterials::new(std::mem::take(&mut keys.0));
+    super::media_snapshot::prepare_snapshot(runtime, materials)
 }
 
 #[cfg(test)]

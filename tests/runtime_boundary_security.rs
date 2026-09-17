@@ -59,15 +59,6 @@ impl Drop for Fixture {
 fn arg(path: &Path) -> &str {
     path.to_str().unwrap()
 }
-fn success(output: Output) -> String {
-    assert!(
-        output.status.success(),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
-}
 fn failure(output: Output) -> String {
     assert!(
         !output.status.success(),
@@ -82,7 +73,7 @@ fn failure(output: Output) -> String {
 }
 
 #[test]
-fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools() {
+fn removed_audio_export_preserves_existing_files_without_tools() {
     use chrono::TimeZone;
     let f = Fixture::new();
     let config_dir = f.path("account");
@@ -112,7 +103,7 @@ fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools(
         .format("%Y%m%d_%H%M%S");
     let mp3 = own.join(format!("voice/{stamp}_1.mp3"));
     fs::write(&mp3, b"EXISTING").unwrap();
-    let report = success(f.run(&[
+    let error = failure(f.run(&[
         "audio",
         "export",
         "--config",
@@ -120,10 +111,7 @@ fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools(
         "--contacts",
         "alice",
     ]));
-    let report: serde_json::Value = serde_json::from_str(&report).unwrap();
-    assert_eq!(report["skipped_existing"], 1);
-    assert_eq!(report["converted"], 0);
-    assert_eq!(report["failed"], 0);
+    assert!(error.contains("unrecognized subcommand 'audio'"));
     {
         let target = config_dir.join("decrypted/new");
         failure(f.run(&[
@@ -219,7 +207,7 @@ fn sns_rejects_secret_and_cache_boundaries_before_creating_output() {
 }
 
 #[test]
-fn voice_rejects_parent_traversal_before_any_directory_creation() {
+fn removed_audio_export_rejects_paths_before_any_directory_creation() {
     let f = Fixture::new();
     fs::create_dir_all(f.path("decrypted/message")).unwrap();
     fs::create_dir(f.path("allowed")).unwrap();
@@ -244,14 +232,14 @@ fn voice_rejects_parent_traversal_before_any_directory_creation() {
         arg(&traversal),
     ]));
     assert_eq!(fs::read(&media).unwrap(), original);
-    // 不能先归一化掉父目录分量，再执行路径安全校验。
+    // Unsupported commands cannot create output, even with explicit source and target paths.
     assert!(
         !f.path("escaped").exists(),
         "父目录穿越已经产生写入，stderr/stdout: {error}"
     );
     assert!(
-        error.contains("parent"),
-        "应在读取语音数据前拒绝路径: {error}"
+        error.contains("unrecognized subcommand 'audio'"),
+        "unsupported command must fail before account access: {error}"
     );
 }
 

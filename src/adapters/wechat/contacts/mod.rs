@@ -9,7 +9,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(crate) mod batch;
 pub(crate) mod export_alias;
 mod label_values;
 mod labels;

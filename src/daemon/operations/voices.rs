@@ -22,12 +22,18 @@ struct ExportedVoice {
     chat: String,
     chat_username: String,
     chat_type: String,
-    timestamp: i64,
-    time: String,
-    local_id: i64,
-    svr_id: i64,
+    timestamp: Option<i64>,
+    time: Option<String>,
+    local_id: Option<i64>,
+    svr_id: Option<i64>,
     chat_name_id: i64,
-    data_index: String,
+    data_index: Option<String>,
+    media_rowid: i64,
+    relative_path: String,
+    message_id: Option<String>,
+    sender: Option<String>,
+    duration_ms: Option<u64>,
+    association: String,
     media_db: String,
     audio_file: String,
     evidence_file: String,
@@ -77,7 +83,13 @@ pub fn cmd_voices(args: Args) -> Result<()> {
         )
         .await
     })?;
-    print_value(&summary, &super::output::resolve(json_output))
+    print_value(&summary, &super::output::resolve(json_output))?;
+    crate::ipc::outcome::BusinessOutcome::from_counts(
+        summary["exported"].as_u64().unwrap_or(0),
+        summary["incomplete_items"].as_u64().unwrap_or(0),
+    )
+    .require_success()?;
+    Ok(())
 }
 
 async fn export_voices(
@@ -91,7 +103,28 @@ async fn export_voices(
     crate::infrastructure::publication::validate_export_target(runtime, &out_dir)?;
     let mut all_keys = crate::service::worker_keys::database_keys(runtime)?
         .ok_or(crate::key_store::Error::Missing)?;
+    // The cache indexes original key spellings; catalog identities use canonical sources.
+    let mut lookup_keys = HashMap::new();
+    for key in all_keys.0.keys() {
+        let source = key.replace('\\', "/").to_ascii_lowercase();
+        anyhow::ensure!(
+            lookup_keys.insert(source, key.clone()).is_none(),
+            "Ambiguous database source spelling"
+        );
+    }
     let media_paths = voice_export::media_database_paths(all_keys.0.keys());
+    let message_paths: Vec<_> = all_keys
+        .0
+        .keys()
+        .map(|key| key.replace('\\', "/").to_ascii_lowercase())
+        .filter(|key| {
+            key.strip_prefix("message/message_")
+                .and_then(|key| key.strip_suffix(".db"))
+                .is_some_and(|suffix| {
+                    !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+                })
+        })
+        .collect();
     if media_paths.is_empty() {
         bail!("密钥库里没有 message/media_*.db 的密钥，请先运行 wx init --force");
     }
@@ -129,15 +162,32 @@ async fn export_voices(
 
     let mut shards = Vec::new();
     let mut missing_shards = Vec::new();
+    let mut association_sources = Vec::new();
     for rel_key in media_paths {
-        let Some(path) = db.get(&rel_key).await? else {
+        let Some(path) = db.get(&lookup_keys[&rel_key]).await? else {
             missing_shards.push(rel_key);
             continue;
         };
         shards.push(MediaShard {
+            source: rel_key.clone(),
+            path: path.clone(),
+        });
+        association_sources.push(crate::adapters::wechat::media::voice::DecryptedSource {
             source: rel_key,
             path,
         });
+    }
+    let mut missing_message_shards = Vec::new();
+    for key in &message_paths {
+        match db.get(&lookup_keys[key]).await {
+            Ok(Some(path)) => {
+                association_sources.push(crate::adapters::wechat::media::voice::DecryptedSource {
+                    source: key.clone(),
+                    path,
+                })
+            }
+            _ => missing_message_shards.push(key.clone()),
+        }
     }
     let source = Catalog::open(shards)?;
     let selected = domain::select(
@@ -149,26 +199,96 @@ async fn export_voices(
     );
     let scanned = selected.len();
     let mut exported = Vec::new();
+    let mut manifest = Vec::new();
     for entry in selected {
-        exported.push(write_voice_row(
-            runtime,
-            &out_dir,
-            &mut names,
-            source.material(entry.slot)?,
-            overwrite,
-        )?);
+        let mut item = source.manifest(entry.slot, &runtime.id)?;
+        if item.status != "missing" {
+            if let Ok(row) = source.material(entry.slot) {
+                item.evidence.svr_id = row.svr_id;
+                item.evidence.data_index = row.data_index.clone();
+                if let Some(media_local_id) = row.local_id.filter(|_| {
+                    missing_shards.is_empty()
+                        && missing_message_shards.is_empty()
+                        && !message_paths.is_empty()
+                }) {
+                    match crate::adapters::wechat::media::voice::resolve_voice_media_row(
+                        &association_sources,
+                        &row.chat_username,
+                        media_local_id,
+                        &row.media_db,
+                        row.media_rowid,
+                    ) {
+                        Ok(proven) if proven.silk == row.voice_data => {
+                            item.timestamp = Some(proven.evidence.create_time);
+                            item.evidence.timestamp_source = "message";
+                            item.message_id = domain::stable_message_id(
+                                &row.chat_username,
+                                Some(proven.evidence.server_id),
+                            );
+                            item.sender = proven.sender;
+                            item.duration_ms = proven.duration_ms;
+                            item.association = "exact_message_media_join".into();
+                            item.evidence.message_join = Some(proven.evidence);
+                        }
+                        Ok(_) => {
+                            item.evidence.association_failure =
+                                Some("Media Revalidation: StaleEvidence".into())
+                        }
+                        Err(error) => {
+                            item.evidence.association_failure =
+                                Some(error.media_error().to_string())
+                        }
+                    }
+                } else {
+                    item.evidence.association_failure =
+                        Some("Media Discovery: IncompleteSources".into());
+                }
+                if crate::adapters::wechat::media::voice::is_raw_silk(&row.voice_data) {
+                    item.encoding = Some("silk".into());
+                    match write_voice_row(
+                        runtime,
+                        &out_dir,
+                        &mut names,
+                        row,
+                        overwrite,
+                        Some(&item),
+                    ) {
+                        Ok(voice) => {
+                            item.relative_path = Some(voice.relative_path.clone());
+                            item.status = "success".into();
+                            item.failure = None;
+                            exported.push(voice);
+                        }
+                        Err(_) => item.failure = Some("Media Publication: Refused".into()),
+                    }
+                }
+            }
+        }
+        manifest.push(item);
     }
 
+    let incomplete_items = source.unmapped_rows
+        + missing_shards.len()
+        + missing_message_shards.len()
+        + manifest
+            .iter()
+            .filter(|item| item.status != "success" || item.association == "unproven")
+            .count();
     let summary = json!({
+        "account_id": runtime.id,
         "output_dir": out_dir.to_string_lossy(),
         "chat_filter": chat,
         "target_username": target_username,
         "scanned_rows": scanned,
         "unmapped_rows": source.unmapped_rows,
         "missing_shards": missing_shards,
-        "partial": source.unmapped_rows > 0 || !missing_shards.is_empty(),
+        "missing_message_shards": missing_message_shards,
+        "partial": incomplete_items > 0,
+        "incomplete_items": incomplete_items,
+        "associated": manifest.iter().filter(|item| item.association == "exact_message_media_join").count(),
         "exported": exported.len(),
         "items": exported,
+        "manifest": manifest,
     });
     summary_target.write_bytes_checked(&serde_json::to_vec_pretty(&summary)?, || {
         output_guard.verify()
@@ -182,6 +302,7 @@ fn write_voice_row(
     names: &mut Names,
     row: VoiceRow,
     overwrite: bool,
+    association: Option<&domain::ManifestItem<voice_export::ExportEvidence>>,
 ) -> Result<ExportedVoice> {
     let chat_type = chat_type_of(&row.chat_username, names).to_string();
     let lane = if chat_type == "group" {
@@ -191,11 +312,25 @@ fn write_voice_row(
     };
     let display = names.display(&row.chat_username);
     let safe_display = sanitize_path_component(&display);
-    let chat_dir = out_root.join(lane).join(safe_display);
+    let chat_dir = out_root
+        .join(format!("account-{:x}", md5::compute(runtime.id.as_bytes())))
+        .join(lane)
+        .join(format!(
+            "{}--{:x}",
+            safe_display,
+            md5::compute(row.chat_username.as_bytes())
+        ));
     crate::infrastructure::publication::validate_export_target(runtime, &chat_dir)?;
     std::fs::create_dir_all(&chat_dir)?;
 
-    let stem = format!("{}_{}", row.create_time, row.local_id);
+    let stem = format!(
+        "{}_{:x}_{}",
+        row.create_time
+            .map(|time| time.to_string())
+            .unwrap_or_else(|| "unknown".into()),
+        md5::compute(row.media_db.as_bytes()),
+        row.media_rowid
+    );
     let silk_path = chat_dir.join(format!("{stem}.silk"));
     let json_path = chat_dir.join(format!("{stem}.voice.json"));
     if !overwrite && (silk_path.exists() || json_path.exists()) {
@@ -208,11 +343,12 @@ fn write_voice_row(
     let audio_target = capture_voice_target(runtime, &silk_path, overwrite)?;
     let evidence_target = capture_voice_target(runtime, &json_path, overwrite)?;
 
-    let (silk, raw_had_0x02_prefix) = normalize_silk(&row.voice_data);
-    let silk_header_ok = silk.starts_with(b"#!SILK_V3");
-    audio_target.write_bytes(silk)?;
+    let silk_header_ok = crate::adapters::wechat::media::voice::is_raw_silk(&row.voice_data);
+    anyhow::ensure!(silk_header_ok, "invalid raw SILK container");
+    let raw_had_0x02_prefix = row.voice_data.first() == Some(&2);
+    audio_target.write_bytes(&row.voice_data)?;
 
-    let time = fmt_time(row.create_time);
+    let time = row.create_time.map(fmt_time);
     let exported = ExportedVoice {
         chat: display,
         chat_username: row.chat_username,
@@ -223,6 +359,17 @@ fn write_voice_row(
         svr_id: row.svr_id,
         chat_name_id: row.chat_name_id,
         data_index: row.data_index,
+        media_rowid: row.media_rowid,
+        relative_path: silk_path
+            .strip_prefix(out_root)?
+            .to_string_lossy()
+            .replace('\\', "/"),
+        message_id: association.and_then(|item| item.message_id.clone()),
+        sender: association.and_then(|item| item.sender.clone()),
+        duration_ms: association.and_then(|item| item.duration_ms),
+        association: association
+            .map(|item| item.association.clone())
+            .unwrap_or_else(|| "unproven".into()),
         media_db: row.media_db,
         audio_file: silk_path.to_string_lossy().into_owned(),
         evidence_file: json_path.to_string_lossy().into_owned(),
@@ -250,17 +397,9 @@ fn capture_voice_target(
     }
 }
 
-fn normalize_silk(data: &[u8]) -> (&[u8], bool) {
-    if data.first() == Some(&0x02) && data.get(1..).is_some_and(|d| d.starts_with(b"#!SILK_V3")) {
-        (&data[1..], true)
-    } else {
-        (data, false)
-    }
-}
-
 fn sanitize_path_component(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
+    for ch in value.chars().take(64) {
         match ch {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => out.push('_'),
             c if c.is_control() => out.push('_'),
@@ -313,12 +452,13 @@ mod publication_tests {
     }
     fn row() -> VoiceRow {
         VoiceRow {
+            media_rowid: 1,
             chat_name_id: 1,
             chat_username: "chat".into(),
-            create_time: 10,
-            local_id: 2,
-            svr_id: 3,
-            data_index: String::new(),
+            create_time: Some(10),
+            local_id: Some(2),
+            svr_id: Some(3),
+            data_index: None,
             voice_data: b"\x02#!SILK_V3synthetic".to_vec(),
             media_db: "message/media_0.db".into(),
         }
@@ -330,14 +470,14 @@ mod publication_tests {
         let runtime = runtime(root.path());
         fs::write(&runtime.config_path, b"changed invalid configuration").unwrap();
         let output = root.path().join("out");
-        let first = write_voice_row(&runtime, &output, &mut names(), row(), false).unwrap();
-        assert_eq!(fs::read(&first.audio_file).unwrap(), b"#!SILK_V3synthetic");
+        let first = write_voice_row(&runtime, &output, &mut names(), row(), false, None).unwrap();
+        assert_eq!(fs::read(&first.audio_file).unwrap(), row().voice_data);
         let evidence: Value =
             serde_json::from_slice(&fs::read(&first.evidence_file).unwrap()).unwrap();
         assert_eq!(evidence["raw_had_0x02_prefix"], true);
         assert_eq!(evidence["voice_data_bytes"], row().voice_data.len());
-        assert!(write_voice_row(&runtime, &output, &mut names(), row(), false).is_err());
-        write_voice_row(&runtime, &output, &mut names(), row(), true).unwrap();
+        assert!(write_voice_row(&runtime, &output, &mut names(), row(), false, None).is_err());
+        write_voice_row(&runtime, &output, &mut names(), row(), true, None).unwrap();
         assert_eq!(
             fs::read(&runtime.config_path).unwrap(),
             b"changed invalid configuration"
@@ -361,7 +501,7 @@ mod publication_tests {
             &runtime.config.decrypted_dir,
             &runtime.directory,
         ] {
-            assert!(write_voice_row(&runtime, protected, &mut names(), row(), true).is_err());
+            assert!(write_voice_row(&runtime, protected, &mut names(), row(), true, None).is_err());
             assert!(!protected.exists());
         }
         let output = root.path().join("out");
@@ -375,12 +515,35 @@ mod publication_tests {
     }
 
     #[test]
+    fn raw_paths_isolate_accounts_chats_and_media_rows_without_repair() {
+        let root = tempfile::tempdir().unwrap();
+        let mut runtime = runtime(root.path());
+        let output = root.path().join("out");
+        let mut names = names();
+        names.map.insert("other".into(), "name".into());
+        let first = write_voice_row(&runtime, &output, &mut names, row(), false, None).unwrap();
+        let mut other = row();
+        other.chat_username = "other".into();
+        other.voice_data = b"#!SILK_V3\0\x7f".to_vec();
+        let second = write_voice_row(&runtime, &output, &mut names, other, false, None).unwrap();
+        assert_ne!(first.relative_path, second.relative_path);
+        assert_eq!(fs::read(&second.audio_file).unwrap(), b"#!SILK_V3\0\x7f");
+        let mut other = row();
+        other.media_db = "message/media_1.db".into();
+        let third = write_voice_row(&runtime, &output, &mut names, other, false, None).unwrap();
+        assert_ne!(first.relative_path, third.relative_path);
+        runtime.id = "other-account".into();
+        let fourth = write_voice_row(&runtime, &output, &mut names, row(), false, None).unwrap();
+        assert_ne!(first.relative_path, fourth.relative_path);
+    }
+
+    #[test]
     fn evidence_publication_failure_keeps_audio_and_old_evidence() {
         use std::os::windows::fs::OpenOptionsExt;
         let root = tempfile::tempdir().unwrap();
         let runtime = runtime(root.path());
         let output = root.path().join("out");
-        let first = write_voice_row(&runtime, &output, &mut names(), row(), false).unwrap();
+        let first = write_voice_row(&runtime, &output, &mut names(), row(), false, None).unwrap();
         fs::write(&first.audio_file, b"old audio").unwrap();
         fs::write(&first.evidence_file, b"old evidence").unwrap();
         let _locked = fs::OpenOptions::new()
@@ -388,8 +551,8 @@ mod publication_tests {
             .share_mode(1)
             .open(&first.evidence_file)
             .unwrap();
-        assert!(write_voice_row(&runtime, &output, &mut names(), row(), true).is_err());
-        assert_eq!(fs::read(&first.audio_file).unwrap(), b"#!SILK_V3synthetic");
+        assert!(write_voice_row(&runtime, &output, &mut names(), row(), true, None).is_err());
+        assert_eq!(fs::read(&first.audio_file).unwrap(), row().voice_data);
         assert_eq!(fs::read(&first.evidence_file).unwrap(), b"old evidence");
         assert_eq!(
             fs::read_dir(Path::new(&first.audio_file).parent().unwrap())

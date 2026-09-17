@@ -178,6 +178,7 @@ fn marker(kind: &str, status: &str, detail: impl Into<String>) -> Media {
         path: None,
         detail: detail.into(),
         binding: None,
+        evidence: Value::Null,
     }
 }
 
@@ -192,7 +193,19 @@ fn failure_marker(kind: &str, error: &anyhow::Error) -> Media {
                 .map(database_media::DatabaseMediaError::media_error)
         })
         .unwrap_or_else(|| Error::new(Stage::Discovery, Failure::Unavailable));
-    marker(kind, "unavailable", classified.to_string())
+    let status = if kind == "voice" {
+        if matches!(
+            classified.failure,
+            Failure::NotFound | Failure::IncompleteSources
+        ) {
+            "missing"
+        } else {
+            "failed"
+        }
+    } else {
+        "unavailable"
+    };
+    marker(kind, status, classified.to_string())
 }
 
 #[cfg(test)]
@@ -205,7 +218,7 @@ mod failure_tests {
         let error = anyhow::Error::new(Error::new(Stage::Revalidation, Failure::StaleEvidence))
             .context("SYNTHETIC_PRIVATE_PATH_AND_KEY");
         let report = failure_marker("voice", &error);
-        assert_eq!(report.status, "unavailable");
+        assert_eq!(report.status, "failed");
         assert_eq!(report.detail, "Media Revalidation: StaleEvidence");
         let unknown = failure_marker("file", &anyhow::anyhow!("SYNTHETIC_PRIVATE_PATH_AND_KEY"));
         assert!(!unknown.detail.contains("SYNTHETIC_PRIVATE_PATH_AND_KEY"));
@@ -393,6 +406,7 @@ pub(super) fn image_catalog(
                 }
                 .into(),
                 binding: Some("chat_directory_filename_heuristic".into()),
+                evidence: Value::Null,
             })
         })();
         catalog
@@ -522,6 +536,7 @@ fn store(
         path: Some(relative),
         detail,
         binding: Some(binding),
+        evidence: Value::Null,
     })
 }
 fn voice(
@@ -540,9 +555,10 @@ fn voice(
     } else {
         database_media::resolve_voice(&inputs.decrypted, identity)?
     };
+    use crate::business::media::{Error, Failure, Stage};
     ensure!(
         Some(audio.evidence.create_time) == row.create_time,
-        "语音关联时间与导出消息不符"
+        Error::new(Stage::Association, Failure::ConflictingEvidence)
     );
     let server = row
         .server_id
@@ -550,26 +566,23 @@ fn voice(
         .or_else(|| row.server_id.as_str().and_then(|s| s.parse().ok()));
     ensure!(
         server == Some(audio.evidence.server_id),
-        "语音关联 server_id 与导出消息不符"
+        Error::new(Stage::Association, Failure::ConflictingEvidence)
     );
     ensure!(
         audio.silk.len() as u64 <= output.options.max_media_bytes.min(*output.budget),
-        "语音超过预算"
+        Error::new(Stage::Decode, Failure::LimitExceeded)
     );
-    let wav = crate::infrastructure::audio::prepare_wav_bytes(&audio.silk).map_err(|_| {
-        crate::business::media::Error::new(
-            crate::business::media::Stage::Decode,
-            crate::business::media::Failure::InvalidMaterial,
-        )
-    })?;
-    store(
+    let mut stored = store(
         output,
         "voice",
-        "wav",
-        &wav,
-        "语音".into(),
+        "silk",
+        &audio.silk,
+        "原始 SILK".into(),
         "exact_message_media_join".into(),
     )
+    .map_err(|_| Error::new(Stage::Publication, Failure::Unavailable))?;
+    stored.evidence = serde_json::to_value(&audio.evidence)?;
+    Ok(stored)
 }
 
 fn reference(
@@ -619,8 +632,14 @@ fn reference(
             }
         }
         attachment_content::Kind::Voice => {
-            let wav = crate::infrastructure::audio::prepare_wav_bytes(&bytes)?;
-            store(output, "voice", "wav", &wav, title, binding)
+            if !database_media::is_raw_silk(&bytes) {
+                return Err(crate::business::media::Error::new(
+                    crate::business::media::Stage::Decode,
+                    crate::business::media::Failure::InvalidMaterial,
+                )
+                .into());
+            }
+            store(output, "voice", "silk", &bytes, title, binding)
         }
         attachment_content::Kind::Video => {
             ensure!(is_mp4(&bytes), "本地视频不是受支持的 MP4");

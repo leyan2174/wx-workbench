@@ -19,7 +19,7 @@ name = "cli-process"
 path = "cli_process.rs"
 
 [dependencies]
-mcp-voice-host = { path = "../mcp-voice-host" }
+mcp-host = { path = "../mcp-host" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "=1.0.140", features = ["arbitrary_precision"] }
 anyhow = "1"
@@ -33,8 +33,6 @@ same-file = "1"
 zeroize = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 md5 = "0.7"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "json", "rustls-tls"] }
-silk-codec = { version = "=0.3.1", default-features = false }
 tokio = { version = "1", features = ["full"] }
 interprocess = { version = "2", features = ["tokio"] }
 windows = { version = "0.58", features = [

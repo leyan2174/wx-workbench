@@ -16,8 +16,6 @@ pub mod crypto;
 // The security fixture uses checked material publication, not every export wrapper.
 pub mod native_image;
 pub mod publish_probe;
-#[path = "../../../src/infrastructure/audio/wav.rs"]
-pub mod audio_wav;
 #[path = "../../../src/daemon/cache.rs"]
 #[allow(dead_code)] // The image query slice omits unrelated cache lifecycle entry points.
 pub mod real_cache;
@@ -122,7 +120,8 @@ pub async fn decode_with_material(
 #[path = "../../../src/config.rs"]
 pub mod config;
 #[path = "../../../src/runtime.rs"]
-#[allow(dead_code)] // This image fixture omits bootstrap and other operation lifecycle entry points.
+#[allow(dead_code)]
+// This image fixture omits bootstrap and other operation lifecycle entry points.
 pub mod runtime;
 
 #[path = "../../../src/service/transport/framing.rs"]
@@ -190,9 +189,6 @@ mod strict_message;
 pub mod files;
 pub mod infrastructure {
     pub(crate) use crate::files as publication;
-    pub mod audio {
-        pub use crate::audio_wav::validate_wav;
-    }
 }
 #[path = "../../../src/private_file.rs"]
 pub mod private_file;

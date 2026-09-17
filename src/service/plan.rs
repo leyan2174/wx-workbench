@@ -32,12 +32,6 @@ pub enum Step {
         include_images: bool,
         allow_missing_media: bool,
     },
-    TranscribeChats {
-        config: PathBuf,
-        output: PathBuf,
-        users: Vec<String>,
-        allow_upload: bool,
-    },
     DecodeImages {
         config: PathBuf,
         output: PathBuf,
@@ -52,11 +46,6 @@ pub enum Step {
         users: Vec<String>,
         download_media: bool,
     },
-    VoiceBatch {
-        config: PathBuf,
-        output: PathBuf,
-        users: Vec<String>,
-    },
 }
 pub fn capabilities() -> Vec<Value> {
     [
@@ -66,7 +55,6 @@ pub fn capabilities() -> Vec<Value> {
         Kind::ExportAll,
         Kind::DecodeImages,
         Kind::SnsDecrypt,
-        Kind::VoiceMp3,
     ]
     .into_iter()
     .map(|kind| {
@@ -74,29 +62,24 @@ pub fn capabilities() -> Vec<Value> {
             Kind::ExportAll => &[
                 "users",
                 "formats",
-                "include_voice",
                 "include_sns",
                 "include_sns_media",
                 "include_images",
                 "allow_missing_media",
-                "with_transcriptions",
-                "allow_upload",
             ],
             Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
             Kind::SnsDecrypt => &["users", "include_sns_media"],
-            Kind::VoiceMp3 => &["users"],
             _ => &[],
         };
         json!({"kind":kind,"enabled":true,"reason":null,"options":options,
             "formats":if kind == Kind::ExportAll { vec!["json","csv","html"] } else {vec![]},
             "defaults":Options::default(),
-            "requires_memory_consent":matches!(kind,Kind::ImageKey|Kind::WechatKeys),
-            "transcription_output":if kind==Kind::ExportAll {Some("separate_json")} else {None}})
+            "requires_memory_consent":matches!(kind,Kind::ImageKey|Kind::WechatKeys)})
     })
     .collect()
 }
 
-pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
+pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
     let o = &request.options;
     ensure!(o.users.len() <= 200, "最多选择 200 个会话");
     ensure!(
@@ -135,10 +118,10 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
         _ => (),
     }
     if request.kind != Kind::ExportAll {
-        ensure!(!o.include_voice && !o.include_sns, "任务不支持组合导出");
+        ensure!(!o.include_sns, "任务不支持组合导出");
         ensure!(
-            o.include_images && !o.allow_missing_media && !o.with_transcriptions && !o.allow_upload,
-            "任务不支持个人聊天媒体或转录选项"
+            o.include_images && !o.allow_missing_media,
+            "任务不支持个人聊天媒体选项"
         );
         ensure!(
             request.kind == Kind::SnsDecrypt || !o.include_sns_media,
@@ -156,18 +139,6 @@ pub fn validate(request: &Submission, settings: &Settings) -> Result<()> {
         !o.authorize_memory_scan || matches!(request.kind, Kind::ImageKey | Kind::WechatKeys),
         "该任务不接受内存扫描授权"
     );
-    ensure!(
-        !o.allow_upload || o.with_transcriptions,
-        "上传授权必须属于本次转录任务"
-    );
-    if o.with_transcriptions {
-        use crate::service::operation_requests::asr::BackendId;
-        let backend = BackendId::parse(&settings.transcription_backend)?;
-        ensure!(
-            (backend == BackendId::OpenAiCompatible) == o.allow_upload,
-            "云端转录须明确授权上传；本地转录不接受上传选项"
-        );
-    }
     Ok(())
 }
 
@@ -193,11 +164,6 @@ pub fn plan(
         users: o.users.clone(),
         download_media: o.include_sns_media,
     };
-    let voice = || Step::VoiceBatch {
-        config: config.clone(),
-        output: output.join("voice"),
-        users: o.users.clone(),
-    };
     let mut steps = Vec::new();
     match request.kind {
         Kind::WechatKeys => steps.push(Step::WechatKeys {
@@ -222,19 +188,8 @@ pub fn plan(
                 include_images: o.include_images,
                 allow_missing_media: o.allow_missing_media,
             });
-            if o.with_transcriptions {
-                steps.push(Step::TranscribeChats {
-                    config: config.clone(),
-                    output: output.join("transcribed-chats"),
-                    users: o.users.clone(),
-                    allow_upload: o.allow_upload,
-                });
-            }
             if o.include_sns {
                 steps.push(sns());
-            }
-            if o.include_voice {
-                steps.push(voice());
             }
         }
         Kind::DecodeImages => steps.push(Step::DecodeImages {
@@ -248,7 +203,6 @@ pub fn plan(
             });
             steps.push(sns());
         }
-        Kind::VoiceMp3 => steps.push(voice()),
     }
     Ok(steps)
 }
@@ -280,39 +234,26 @@ mod tests {
     }
     #[test]
     fn combined_plan_preserves_order_and_typed_parameters() {
-        let settings = Settings {
-            transcription_backend: "python_whisper".into(),
-            ..Default::default()
-        };
+        let settings = Settings::default();
         let r = Submission {
             kind: Kind::ExportAll,
             options: Options {
-                include_voice: true,
                 include_sns: true,
-                with_transcriptions: true,
                 ..Default::default()
             },
         };
         let steps = plan(&r, &settings, Path::new("config.json"), Path::new("out")).unwrap();
-        assert_eq!(steps.len(), 4);
+        assert_eq!(steps.len(), 2);
         assert!(
             matches!(&steps[0], Step::ExportMessages { formats, output, .. } if formats == &[Format::Json] && output == &PathBuf::from("out").join("chats"))
         );
         assert!(matches!(
             &steps[1],
-            Step::TranscribeChats {
-                allow_upload: false,
-                ..
-            }
-        ));
-        assert!(matches!(
-            &steps[2],
             Step::SnsExport {
                 download_media: false,
                 ..
             }
         ));
-        assert!(matches!(&steps[3], Step::VoiceBatch { .. }));
         let bytes = serde_json::to_vec(&steps).unwrap();
         assert_eq!(
             serde_json::to_vec(&serde_json::from_slice::<Vec<Step>>(&bytes).unwrap()).unwrap(),
@@ -322,38 +263,5 @@ mod tests {
             json!({"operation":"wechat_decrypt","config":"x","argv":["--evil"]})
         )
         .is_err());
-    }
-    #[test]
-    fn cloud_consent_is_explicit() {
-        let mut settings = Settings {
-            transcription_backend: "openai_compatible".into(),
-            ..Default::default()
-        };
-        let mut r = Submission {
-            kind: Kind::ExportAll,
-            options: Options::default(),
-        };
-        r.options.with_transcriptions = true;
-        assert!(validate(&r, &settings).is_err());
-        r.options.allow_upload = true;
-        assert!(validate(&r, &settings).is_ok());
-        settings.transcription_backend = "python_whisper".into();
-        assert!(validate(&r, &settings).is_err());
-        settings.transcription_backend = "openai_compatible".into();
-        r.options.allow_upload = false;
-        assert!(validate(&r, &settings).is_err());
-        r.options.allow_upload = true;
-        assert!(validate(&r, &settings).is_ok());
-        for name in ["python_whisper", "whisper_cpp"] {
-            settings.transcription_backend = name.into();
-            r.options.allow_upload = true;
-            assert!(validate(&r, &settings).is_err());
-            r.options.allow_upload = false;
-            assert!(validate(&r, &settings).is_ok());
-        }
-        for name in ["local", "openai", "explicit-open-ai"] {
-            settings.transcription_backend = name.into();
-            assert!(validate(&r, &settings).is_err());
-        }
     }
 }

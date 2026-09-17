@@ -10,7 +10,6 @@ use std::{
     os::windows::{ffi::OsStringExt, io::AsRawHandle, process::CommandExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::OnceLock,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -160,10 +159,16 @@ impl Fixture {
     }
 
     fn directory(&self) -> Result<PathBuf> {
-        let paths: Vec<_> = fs::read_dir(self.root.path().join("home/bootstrap"))?
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| path.join("daemon.pid").is_file())
-            .collect();
+        let paths: Vec<_> = fs::read_dir(self.root.path().join(
+            if self.root.path().join("account/config.json").exists() {
+                "home/accounts"
+            } else {
+                "home/bootstrap"
+            },
+        ))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.join("daemon.pid").is_file())
+        .collect();
         ensure!(
             paths.len() == 1,
             "expected exactly one test bootstrap daemon: {paths:?}"
@@ -177,10 +182,19 @@ impl Fixture {
     }
 
     fn boot(&self) {
+        let config_path = self.root.path().join("account/config.json");
+        let original_config = if config_path.exists() {
+            Some(fs::read(&config_path).unwrap())
+        } else {
+            None
+        };
         let output = self.cli(self.root.path(), &["status", "--json"], &self.environment());
         assert_eq!(output.code, 0, "{output:?}");
         assert!(output.stderr.is_empty(), "{output:?}");
-        assert!(!self.root.path().join("account/config.json").exists());
+        match original_config {
+            Some(original) => assert_eq!(fs::read(&config_path).unwrap(), original),
+            None => assert!(!config_path.exists()),
+        }
         self.directory().unwrap();
     }
 
@@ -355,17 +369,8 @@ fn missing_config_bootstraps_and_cli_preserves_service_stdout_stderr_and_exit() 
         ("11".repeat(32), status(), vec!["status", "--json"], 0),
         (
             "22".repeat(32),
-            json!({"kind":"transcribe_audio","args":{"args":{
-            "input":"missing.wav","backend":backend(Some(Path::new("absent.exe")))}}}),
-            vec![
-                "audio",
-                "transcribe",
-                "missing.wav",
-                "--whisper-binary",
-                "absent.exe",
-                "--whisper-model",
-                "model.bin",
-            ],
+            json!({"kind":"decode_moment_video","args":{"input":"missing.bin","output":"missing.mp4","key_file":null,"wasm":null}}),
+            vec!["media", "video", "decode", "missing.bin", "missing.mp4"],
             1,
         ),
     ] {
@@ -405,8 +410,8 @@ fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
         let cwd = f.root.path().join(name);
         fs::create_dir_all(cwd.join("chosen")).unwrap();
         fs::write(
-            cwd.join("chosen/chat_transcribed.json"),
-            json!({"messages":vec![json!({"type":"voice","transcription":"synthetic"}); count]})
+            cwd.join("chosen/chat.json"),
+            json!({"messages":vec![json!({"type":"text","content":"synthetic"}); count]})
                 .to_string(),
         )
         .unwrap();
@@ -426,9 +431,12 @@ fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
         );
         assert_eq!(output.code, 0, "{output:?}");
         let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(status.get("progress").is_none());
+        assert!(status.get("unreadable_transcriptions").is_none());
+        assert_eq!(status["exports"]["files"], 1);
         assert_eq!(
-            status["progress"],
-            json!({"voices":count,"transcribed":count})
+            status["exports"]["bytes"],
+            fs::metadata(cwd.join("chosen/chat.json")).unwrap().len()
         );
         assert_eq!(
             Path::new(status["exported_dir"].as_str().unwrap())
@@ -457,7 +465,11 @@ fn authenticated_api_rejects_arbitrary_commands_and_internal_environment() {
         json!({"kind":"toolkit","args":{"operation":{"kind":"status","args":{"json":true}}}}),
         json!({"kind":"capabilities","args":{"json":true,"argv":[]}}),
         json!({"kind":"capabilities","args":{"operation":{"kind":"status","args":{"json":true}}}}),
-        json!({"kind":"transcribe_audio","args":{"args":{"input":"missing.wav","backend":backend(None)}}}),
+        json!({"kind":"transcribe_audio","args":{"args":{"input":"missing.wav"}}}),
+        json!({"kind":"transcribe_chat","args":{"args":{}}}),
+        json!({"kind":"transcribe_batch","args":{"args":{}}}),
+        json!({"kind":"transcribe_database","args":{"args":{}}}),
+        json!({"kind":"voice_export","args":{}}),
     ] {
         let mut request = valid.clone();
         request["invocation"]["operation"] = operation;
@@ -484,37 +496,6 @@ fn authenticated_api_rejects_arbitrary_commands_and_internal_environment() {
     assert_eq!(f.finish(&id).code, 0);
 }
 
-fn backend(binary: Option<&Path>) -> Value {
-    json!({"backend":"whisper_cpp","whisper_binary":binary,"whisper_model":binary.map(|_| "model.bin"),
-        "language":"zh","threads":2,"timeout_seconds":60,"allow_upload":false,
-        "openai_base_url":null,"openai_model":null,"api_key_file":null,"temp_root":null})
-}
-
-fn fake_asr() -> &'static Path {
-    static EXE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
-    &EXE.get_or_init(|| {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("fake-asr.exe");
-        let mut command = Command::new("rustc");
-        command
-            .arg("--edition=2021")
-            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/asr-local/fake.rs"))
-            .arg("-o")
-            .arg(&path)
-            .creation_flags(0x08000000);
-        println!("COMMAND: {command:?}");
-        let output = command.output().unwrap();
-        println!(
-            "STDOUT:\n{}\nSTDERR:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(output.status.success());
-        (root, path)
-    })
-    .1
-}
-
 fn child_of(parent: u32) -> Option<u32> {
     let snapshot = Handle(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).unwrap() });
     let mut entry = PROCESSENTRY32W {
@@ -535,37 +516,41 @@ fn child_of(parent: u32) -> Option<u32> {
 }
 
 #[test]
-fn daemon_owns_asr_worker_and_reaps_worker_tree_on_cancel_and_client_lease_expiry() {
-    let binary = fake_asr();
+fn daemon_reaps_monitor_worker_on_cancel_and_client_lease_expiry() {
     let f = Fixture::new();
-    f.boot();
-    fs::write(f.root.path().join("model.bin"), "sleep").unwrap();
     fs::write(
-        f.root.path().join("input.silk"),
-        include_bytes!("fixtures/audio/silence.silk"),
+        f.root.path().join("account/config.json"),
+        json!({
+            "db_dir": "missing-db", "keys_file": "missing-keys.json", "decrypted_dir": "decrypted"
+        })
+        .to_string(),
     )
     .unwrap();
+    f.boot();
     let record = f.identity();
     let daemon = record["pid"].as_u64().unwrap() as u32;
     for cancel in [true, false] {
         let id = if cancel { "44" } else { "55" }.repeat(32);
         f.start(
             &id,
-            json!({"kind":"transcribe_audio","args":{"args":{
-            "input":"input.silk","backend":backend(Some(binary))}}}),
+            json!({"kind":"monitor","args":{"args":{
+                "json":true,"initial":"Now","state_file":null,"emit_state":false,
+                "interval_ms":1000,"limit":20,"max_limit":1000,"timeout_ms":1000,
+                "max_response_mib":1,"with_meta":false,"debug_source":false,
+                "max_cycles":null,"duration_secs":null,"max_consecutive_errors":null,
+                "max_content_chars":256
+            }}}),
             f.root.path(),
             &f.environment(),
         );
         let deadline = Instant::now() + Duration::from_secs(8);
-        let (worker, asr) = loop {
+        let worker = loop {
             if let Some(worker) = child_of(daemon) {
-                if let Some(asr) = child_of(worker) {
-                    break (process(worker).unwrap(), process(asr).unwrap());
-                }
+                break process(worker).unwrap();
             }
             assert!(
                 Instant::now() < deadline,
-                "daemon operation worker did not launch fake ASR"
+                "daemon did not start monitor worker"
             );
             std::thread::sleep(Duration::from_millis(20));
         };
@@ -578,11 +563,6 @@ fn daemon_owns_asr_worker_and_reaps_worker_tree_on_cancel_and_client_lease_expir
             unsafe { WaitForSingleObject(worker.0, timeout) },
             WAIT_OBJECT_0,
             "operation worker survived"
-        );
-        assert_eq!(
-            unsafe { WaitForSingleObject(asr.0, 2000) },
-            WAIT_OBJECT_0,
-            "ASR descendant survived"
         );
         assert_eq!(f.finish(&id).code, 130);
         assert_eq!(f.identity(), record);

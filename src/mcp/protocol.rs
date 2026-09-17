@@ -124,25 +124,6 @@ impl CallContext {
         self.deadline.saturating_duration_since(Instant::now())
     }
 
-    /// 写盘前按真实请求 ID、JSON 转义和外层封装核验成功文本的总响应预算。
-    pub fn check_text_result(&self, text: &str) -> Result<(), DispatchError> {
-        self.check()?;
-        if text.len() > self.max_response_bytes {
-            return Err(DispatchError::ResultLimit);
-        }
-        let mut bounded = LimitedWriter {
-            bytes: Vec::new(),
-            limit: self.max_response_bytes,
-        };
-        serde_json::to_writer(
-            &mut bounded,
-            &result(
-                self.response_id.clone(),
-                text_result(text.to_owned(), false),
-            ),
-        )
-        .map_err(|_| DispatchError::ResultLimit)
-    }
     pub fn cancellation(&self) -> CancellationToken {
         self.cancellation.clone()
     }
@@ -229,7 +210,7 @@ impl Tool {
     }
 
     fn open_world(&self) -> bool {
-        matches!(self.command, "transcribe_voice" | "submit_task_external")
+        matches!(self.command, "submit_task_external")
     }
 
     fn destructive(&self) -> bool {
@@ -341,25 +322,6 @@ pub fn tools() -> Vec<Tool> {
             "create_time":{"type":"integer","minimum":0,"maximum":i64::MAX,"default":0}
         },"required":["chat_name","local_id"],"additionalProperties":false}),
     });
-    for (name, description) in [
-        (
-            "decode_voice",
-            "按旧媒体记录 ID 解码语音，由宿主发布 WAV；不覆盖已有文件，不上传",
-        ),
-        (
-            "transcribe_voice",
-            "按旧媒体记录 ID 转录语音；仅使用宿主显式配置的后端与上传授权，可保存账号隔离缓存",
-        ),
-    ] {
-        out.push(Tool {
-            name,
-            description,
-            command: name,
-            input_schema: json!({"type":"object","properties":{
-                "chat_name":string(), "local_id":integer(1,i64::MAX)
-            },"required":["chat_name","local_id"],"additionalProperties":false}),
-        });
-    }
     for tool in &mut out {
         let properties = tool.input_schema["properties"].as_object_mut().unwrap();
         if tool.name == "get_chat_history" {
@@ -766,14 +728,6 @@ impl<D: Dispatcher> Protocol<D> {
         context.check()?;
         response.require_success().map_err(DispatchError::from)?;
         let mut data = response.data;
-        if matches!(name, "decode_voice" | "transcribe_voice") {
-            // 仅交付宿主完成解码或识别后的文本；准备音频绝不能成为公开成功。
-            let text = data
-                .get("mcp_text")
-                .and_then(Value::as_str)
-                .ok_or(DispatchError::InvalidResponse)?;
-            return Ok(text_result(text.to_owned(), false));
-        }
         if name == "get_new_messages" {
             return self.poll_sessions(data, context);
         }

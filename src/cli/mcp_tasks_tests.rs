@@ -10,8 +10,6 @@ fn all_permissions() -> Args {
             .collect(),
         task_allow_media_write: true,
         task_allow_memory_scan: true,
-        task_allow_transcription: true,
-        task_allow_upload: true,
         task_allow_media_download: true,
         ..Default::default()
     }
@@ -70,8 +68,6 @@ fn model_flags_cannot_replace_host_authorization() {
         (
             Kind::ExportAll,
             Options {
-                with_transcriptions: true,
-                allow_upload: true,
                 ..Default::default()
             },
         ),
@@ -88,7 +84,7 @@ fn model_flags_cannot_replace_host_authorization() {
         let mut limited = complete.clone();
         match kind {
             Kind::WechatKeys => limited.task_allow_memory_scan = false,
-            Kind::ExportAll => limited.task_allow_upload = false,
+            Kind::ExportAll => limited.task_allow_media_write = false,
             _ => limited.task_allow_media_download = false,
         }
         assert!(!limited.authorize(&call));
@@ -96,25 +92,13 @@ fn model_flags_cannot_replace_host_authorization() {
     }
     let mut limited = complete.clone();
     limited.task_allow_media_write = false;
-    for kind in [
-        Kind::ExportAll,
-        Kind::DecodeImages,
-        Kind::VoiceMp3,
-        Kind::SnsDecrypt,
-    ] {
+    for kind in [Kind::ExportAll, Kind::DecodeImages, Kind::SnsDecrypt] {
         assert!(!limited.authorize(&submit(kind, Options::default())));
     }
     limited = complete;
     limited
         .task_kind
-        .retain(|kind| !matches!(kind, Kind::VoiceMp3 | Kind::SnsDecrypt));
-    assert!(!limited.authorize(&submit(
-        Kind::ExportAll,
-        Options {
-            include_voice: true,
-            ..Default::default()
-        }
-    )));
+        .retain(|kind| !matches!(kind, Kind::SnsDecrypt));
     assert!(!limited.authorize(&submit(
         Kind::ExportAll,
         Options {
@@ -215,7 +199,7 @@ fn protocol_lists_task_annotations_and_rejects_invalid_arguments_before_account_
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let tools = replies[1]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 22);
+    assert_eq!(tools.len(), crate::mcp::protocol::tools().len() + 5);
     assert_eq!(
         tools
             .iter()

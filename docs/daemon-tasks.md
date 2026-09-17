@@ -2,11 +2,11 @@
 
 `wx tasks`、本地 Web 与显式启用的 MCP 任务工具共用同一账号 daemon 中的任务服务。入口不拥有任务队列、工作进程或任务日志文件。普通查询保持原有通道；任务走带版本和认证的独立命名管道，但由同一 daemon 进程托管。
 
-提供 7 类个人微信持久任务。其他业务入口也经过 daemon，但不属于这 7 类持久任务：CLI 使用类型化前台操作，MCP 原有查询及同步语音使用认证 `Call::Mcp`，Web 监控、图片与预览使用认证 `Call::Web`。业务归 daemon 所有，不意味着每种操作都进入持久队列，或全部运行于同一个 OS 进程。详见 [业务入口与运行边界](daemon-entrypoints.md)。
+提供 个人微信持久任务。其他业务入口也经过 daemon，但不属于持久任务队列：CLI 使用类型化前台操作，MCP 原有查询及同步图片使用认证 `Call::Mcp`，Web 监控、图片与预览使用认证 `Call::Web`。业务归 daemon 所有，不意味着每种操作都进入持久队列，或全部运行于同一个 OS 进程。详见 [业务入口与运行边界](daemon-entrypoints.md)。
 
 ## MCP 任务工具
 
-默认 `wx mcp` 保留原有 17 个工具；后台任务默认关闭。宿主在启动参数中授权，工具请求不能添加授权或改路径：
+默认 `wx mcp` 保留原有 15 个工具；后台任务默认关闭。宿主在启动参数中授权，工具请求不能添加授权或改路径：
 
 ```powershell
 # WX_CLI_CONFIG 必须显式指定合成/目标账号；WX_CLI_HOME 与 CLI/Web 保持一致。
@@ -34,8 +34,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 - `--task-kind` 是任务类型白名单，也明确授权该类型在配置绑定目录内的数据库/密钥写入；不会隐式扫描。`--tasks` 本身允许查看及取消固定账号的全部保留任务，包括 CLI/Web 提交的任务。
 - 取钥还需 `--task-allow-memory-scan`，并在提交中设置 `authorize_memory_scan: true`。模型的布尔值不能替代宿主开关。
-- 导出、图片、朋友圈和语音任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改原同步工具的 `--media-output-root`。组合导出的 `include_voice`、`include_sns` 还需允许相应的 `voice_mp3`、`sns_decrypt` 类型。
-- 后台转写需 `--task-allow-transcription`；云上传还需 `--task-allow-upload` 及提交中的 `allow_upload: true`，并通过共享的后端配置校验。朋友圈媒体下载另需 `--task-allow-media-download`。原同步语音工具的启动授权和执行方式不变。
+- 导出、图片和朋友圈任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改同步图片工具的 `--media-output-root`。组合导出的 `include_sns` 还需允许 `sns_decrypt` 类型。
+- 朋友圈媒体下载另需 `--task-allow-media-download`，不由导出授权自动获得。
 - `--task-image-cache-dir` 只能由宿主传入，并通过现有 `Configure` 绑定；与当前 daemon 设置不一致会报 `settings_conflict`，不会覆盖。模型没有 `configure` 工具。
 - 查询和任务共享同一个惰性固定的 `RuntimeContext`，首次实际访问必须显式配置 `WX_CLI_CONFIG`。启用任务后记录共享配置指纹，每次任务调用前后复核；账号切换或不可变配置变化会使本 MCP 会话失效，需重启，不静默换账号。沿用共享指纹对合法图片密钥轮换的豁免，不另外发明配置身份规则。
 
@@ -75,10 +75,9 @@ wx tasks cancel $taskId
 | `wechat_keys` | 数据库取钥 | 必须逐任务提供 `--authorize-memory-scan` |
 | `wechat_decrypt` | 数据库快照解密 | 使用已保存密钥，不隐式扫描 |
 | `image_key` | 图片取钥 | 必须逐任务授权，输出日志完全抑制 |
-| `export_all` | 聊天导出，可选 SNS、语音及转录 | 筛选和格式显式传递；云转录必须另有上传授权 |
+| `export_all` | 聊天导出，可选 SNS | 筛选和格式显式传递；完整聊天保留语音引用 |
 | `decode_images` | 图片批量解码 | 不接受任意输出路径 |
 | `sns_decrypt` | SNS 归档、导出 | 媒体下载是显式选项 |
-| `voice_mp3` | 数据库语音批量转 MP3 | FFmpeg 依赖不因任务托管而消失 |
 
 CLI 与 JSON 协议只接受下划线形式。旧连字符拼写、企业任务类型、`--enterprise-*` 和 `--all-conversations` 均被拒绝。完整参数以 `wx tasks submit --help` 和 `wx tasks configure --help` 为准。
 
@@ -119,7 +118,7 @@ HTTP 可用 `Idempotency-Key` 传相同格式的 ID；省略时由 Web 生成。
 
 任务命名管道为 `wx-cli-tasks-v1-<runtime-id>`。管道仅授予当前用户访问并拒绝远程客户端；连接后校验实际服务 PID、创建时间、可执行文件及运行身份，再发送令牌。`service-token.key` 在首次写入前设置当前用户私有 ACL，正常停机按已持有文件句柄清理；重启只轮换经身份、单链接和权限核验的陈旧令牌，不覆盖任意同名文件。
 
-此为同 Windows 用户的本地服务边界，不隔离已完全控制该用户账户的恶意代码。Web 的 Host、Origin、token、CSRF 校验继续保留。密钥不会作为公开任务参数或日志输出；内存扫描和云上传仍须显式授权。
+此为同 Windows 用户的本地服务边界，不隔离已完全控制该用户账户的恶意代码。Web 的 Host、Origin、token、CSRF 校验继续保留。密钥不会作为公开任务参数或日志输出；内存扫描和媒体下载仍须显式授权。
 
 ## 分层与验证
 
@@ -131,4 +130,4 @@ HTTP 可用 `Idempotency-Key` 传相同格式的 ID；省略时由 Web 生成。
 - `src/daemon/mcp_service.rs`、`web_service.rs`：MCP 和 Web 业务状态；HTTP/stdio 入口不维护业务副本。
 - `src/business`、`src/application`、`src/adapters/wechat`、`src/infrastructure`：分别提供业务契约、用例编排、微信格式适配和共享执行能力；daemon 或其拥有的 worker 直接调用这些真实所有者。
 
-合成进程测试在 `tests/fixtures/daemon-tasks/runtime.rs`，由 `runtime_isolation` 注册；覆盖导出、幂等、跨账号隔离、设置冲突、日志、重启、Web/CLI 共享、工作进程取消和停机。Job 后代回收、协议边界、私有权限、队列持久化及懒初始化另有单元测试。复跑入口见[测试说明](../tests/README.md)。这些测试不代替真实账号完整性、模型质量或安装部署验证。
+合成进程测试在 `tests/fixtures/daemon-tasks/runtime.rs`，由 `runtime_isolation` 注册；覆盖导出、幂等、跨账号隔离、设置冲突、日志、重启、Web/CLI 共享、工作进程取消和停机。Job 后代回收、协议边界、私有权限、队列持久化及懒初始化另有单元测试。复跑入口见[测试说明](../tests/README.md)。这些测试不代替真实账号完整性、安装部署验证。

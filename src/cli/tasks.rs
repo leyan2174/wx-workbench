@@ -61,8 +61,6 @@ pub struct SubmitArgs {
     #[arg(long, value_delimiter = ',', value_parser = parse_format)]
     pub formats: Vec<Format>,
     #[arg(long)]
-    pub include_voice: bool,
-    #[arg(long)]
     pub include_sns: bool,
     #[arg(long)]
     pub include_sns_media: bool,
@@ -70,10 +68,6 @@ pub struct SubmitArgs {
     pub no_images: bool,
     #[arg(long)]
     pub allow_missing_media: bool,
-    #[arg(long)]
-    pub with_transcriptions: bool,
-    #[arg(long, requires = "with_transcriptions")]
-    pub allow_upload: bool,
     #[arg(long)]
     pub authorize_memory_scan: bool,
     #[arg(long, value_parser = parse_id)]
@@ -89,13 +83,10 @@ impl SubmitArgs {
             options: Options {
                 users: self.users.clone(),
                 formats: self.formats.clone(),
-                include_voice: self.include_voice,
                 include_sns: self.include_sns,
                 include_sns_media: self.include_sns_media,
                 include_images: !self.no_images,
                 allow_missing_media: self.allow_missing_media,
-                with_transcriptions: self.with_transcriptions,
-                allow_upload: self.allow_upload,
                 authorize_memory_scan: self.authorize_memory_scan,
             },
         }
@@ -378,7 +369,6 @@ mod tests {
             "export_all",
             "decode_images",
             "sns_decrypt",
-            "voice_mp3",
         ] {
             assert!(parse_kind(kind).is_ok());
             assert!(parse_kind(&kind.replace('_', "-")).is_err());
@@ -391,25 +381,19 @@ mod tests {
             "alice,bob",
             "--formats",
             "json,csv,html",
-            "--include-voice",
             "--include-sns",
             "--include-sns-media",
             "--no-images",
             "--allow-missing-media",
-            "--with-transcriptions",
-            "--allow-upload",
             "--wait",
         ]);
         let o = args.submission().options;
         assert_eq!(o.users, ["alice", "bob"]);
         assert_eq!(o.formats, [Format::Json, Format::Csv, Format::Html]);
         assert!(
-            o.include_voice
-                && o.include_sns
+            o.include_sns
                 && o.include_sns_media
                 && o.allow_missing_media
-                && o.with_transcriptions
-                && o.allow_upload
                 && !o.include_images
                 && args.wait
         );

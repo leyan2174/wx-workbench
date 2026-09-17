@@ -88,4 +88,4 @@ VoiceInfo 为普通 rowid 表（非视图/虚拟表/WITHOUT ROWID）。使用 ta
 不改用别名猜测。不使用正则解析建表语句。非保留名称的 INTEGER PRIMARY KEY
 仍可作为真实 SQLite rowid 别名。
 
-模式拒绝和跨联系人隔离见[安全回归](../mcp-voice-security/README.md)，环境与运行说明见[测试说明](../../README.md)。生产 IPC 与账号隔离另由[语音进程测试](../mcp-voice-runtime/README.md)覆盖。
+模式拒绝和跨联系人隔离见[安全回归](../mcp-voice-security/README.md)，环境与运行说明见[测试说明](../../README.md)。生产 IPC 与账号隔离另由[只读工具进程测试](../mcp-readonly-runtime/README.md)覆盖。

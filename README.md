@@ -15,10 +15,10 @@
 | 联系人与聊天 | 联系人、会话、历史、搜索、群成员、未读消息、收藏和统计 |
 | 导出与整理 | 单聊及批量导出、增量导出、导出计划和附件提取 |
 | 朋友圈与公众号 | 本地朋友圈查询、内容与相册导出、媒体处理、公众号文章查询 |
-| 语音与媒体 | 图片解码、表情导出、语音提取与转码、本地或云端转录 |
+| 语音与媒体 | 图片解码、表情导出、原始 SILK 与关联 manifest 导出 |
 | 使用入口 | 命令行、MCP、本地 Web 和实时监控 |
 
-业务执行集中在账号隔离的 daemon 中。初始化、导出、媒体下载、转录和清理有各自的前置条件，不由普通查询自动触发。查询和导出范围受本机已有数据库及媒体缓存限制；微信版本变化可能影响格式适配。
+业务执行集中在账号隔离的 daemon 中。初始化、导出、媒体下载和清理有各自的前置条件，不由普通查询自动触发。查询和导出范围受本机已有数据库及媒体缓存限制；微信版本变化可能影响格式适配。
 
 ## 安装
 
@@ -31,7 +31,7 @@
 | [Git for Windows](https://git-scm.com/downloads/win) | 用于下载源码，安装后确认 `git --version` 可执行。 |
 | [Visual Studio / Build Tools](https://learn.microsoft.com/en-us/cpp/build/vscpp-step-0-installation) | 在 Visual Studio Installer 中选择“使用 C++ 的桌面开发”，安装 x64/x86 MSVC 构建工具及 Windows SDK。仅安装 VS Code 不包含这些工具。 |
 | [Rust / rustup](https://rust-lang.org/tools/install/) | 使用 Windows x64 安装器；下方命令显式选择 stable MSVC 工具链。 |
-| [LLVM](https://releases.llvm.org/) | 安装 Windows x64 版本，确认包含 `libclang.dll`；原生依赖生成绑定时需要它。 |
+| [LLVM](https://releases.llvm.org/) | 安装 Windows x64 版本，确认包含 `libclang.dll`；`frida-sys` 的构建依赖 `bindgen` 生成绑定时需要它。 |
 
 安装后重新打开 PowerShell，准备工具链并检查环境：
 
@@ -62,7 +62,7 @@ cd wx-workbench
 cargo +stable-x86_64-pc-windows-msvc build --release --locked --bin wx --target x86_64-pc-windows-msvc
 ```
 
-`--locked` 使用仓库的 `Cargo.lock`，避免构建时改变依赖版本；它不代表离线构建，也不固定 Rust 编译器版本。首次构建需要联网获取 Cargo 依赖及 Frida 原生开发包。SQLite、SILK、Frida、wasmi 等依赖由构建系统处理，不需要另外启动数据库服务或安装这几个项目的命令行工具。
+`--locked` 使用仓库的 `Cargo.lock`，避免构建时改变依赖版本；它不代表离线构建，也不固定 Rust 编译器版本。首次构建需要联网获取 Cargo 依赖及 Frida 原生开发包。SQLite、Frida、wasmi 等依赖由构建系统处理，不需要另外启动数据库服务或安装这几个项目的命令行工具。
 
 默认产物为 `target\x86_64-pc-windows-msvc\release\wx.exe`。如果设置了 `CARGO_TARGET_DIR`，产物位于该目录下；不同 checkout/worktree 应使用独立构建目录。下面的命令兼顾默认目录和环境变量指定的目录（未通过 Cargo 配置或 `--target-dir` 另行覆盖）：
 
@@ -88,7 +88,7 @@ cargo +stable-x86_64-pc-windows-msvc check --locked --target x86_64-pc-windows-m
 cargo +stable-x86_64-pc-windows-msvc test --locked --no-fail-fast --target x86_64-pc-windows-msvc -- --test-threads=1
 ```
 
-独立夹具及需要人工条件的测试见[测试说明](tests/README.md)，完整质量检查见[质量检查](docs/quality-checks.md)。被忽略的用例不代表已经通过；不要为运行测试扫描真实账号、上传私人音频或启动未经授权的捕获流程。
+独立夹具及需要人工条件的测试见[测试说明](tests/README.md)，完整质量检查见[质量检查](docs/quality-checks.md)。被忽略的用例不代表已经通过；不要为运行测试扫描真实账号、启动未经授权的捕获流程。
 
 ### 按功能准备运行依赖
 
@@ -96,15 +96,12 @@ cargo +stable-x86_64-pc-windows-msvc test --locked --no-fail-fast --target x86_6
 
 | 功能 | 额外条件 |
 | --- | --- |
-| 普通查询、CLI、MCP、本地 Web | 不需要 Node.js、Python、FFmpeg 或语音模型；数据查询需要有效的账号配置与密钥。 |
-| MP3 输出、部分媒体转换 | 配置可用的 FFmpeg；可先用 `ffmpeg -version` 检查。 |
-| 本地 whisper.cpp 转录 | 指定识别程序及匹配模型文件，见[本地 ASR](src/infrastructure/transcription/LOCAL.md)。 |
-| Python Whisper 转录 | 选择此后端时准备 Python、Whisper/PyTorch 及模型；命名模型可能触发下载。 |
-| 云端转录 | 配置兼容服务、模型及凭据，并明确授权上传，见[云端 ASR](src/infrastructure/transcription/OPENAI.md)。 |
+| 普通查询、CLI、MCP、本地 Web | 不需要 Node.js、Python 或 FFmpeg；数据查询需要有效的账号配置与密钥。 |
+| 表情、视频恢复中的媒体转换 | 配置可用的 FFmpeg；可先用 `ffmpeg -version` 检查。 |
 | 依赖 WxIsaac64 的朋友圈媒体恢复 | 提供具有使用依据、符合固定哈希要求的 WASM 文件；默认构建和发布包不携带它，见[宿主说明](src/adapters/wechat/media/SNS_KEYSTREAM.md)。 |
 | npm 启动器测试和打包 | 需要 Node.js / npm；直接构建 Rust 程序不需要。 |
 
-缺少功能依赖时先完成相应配置，不以编译成功代替完整功能验证。程序不会因为本地识别依赖缺失而自动改用云端上传。
+缺少功能依赖时先完成相应配置，不以编译成功代替完整功能验证。
 
 ### 常见构建问题
 
@@ -198,7 +195,7 @@ wx emoticons export --help
 
 `wx chats` 提供批量导出、增量导出和导出计划，`wx emoticons` 提供表情导出，`wx setup` 和 `wx cleanup` 负责账号准备与清理。所有子命令由 Rust 入口校验。具体参数以子命令 `--help` 为准。
 
-清理先预览，再按明确账号和文件选择执行。覆盖、下载、回写和目录更新须分别获得授权；导出授权不等于修改原始微信数据库的授权。
+清理先预览，再按明确账号和文件选择执行。覆盖、下载和目录更新须分别获得授权；导出授权不等于修改原始微信数据库的授权。
 
 ## 朋友圈与公众号
 
@@ -214,17 +211,17 @@ wx media video decode --help
 
 普通查询读取本地数据。相册导出、媒体下载和时间线更新是独立操作，下载必须显式授权。离线视频的文件头检查不等于完整可播放性验证。参见[工作流条件](docs/workflow-requirements.md)和[密钥流宿主契约](src/adapters/wechat/media/SNS_KEYSTREAM.md)。
 
-## 语音与转录
+## 原始语音
 
 ```powershell
-wx audio transcribe --help
-wx chats transcribe-manifest --help
-wx audio transcribe-message --help
+wx voices --help
 ```
 
-SILK 解码与模型识别分开配置。本地 whisper.cpp 需要程序与模型；配置式 Python 依赖 Whisper/PyTorch，命名模型可能下载。云端转录必须明确授权上传，并提供端点、模型和凭据文件，缺少条件时不回退。
+`voices` 导出原始 SILK，保留已有 `0x02` 前缀，不转换为 WAV/MP3；`get_voice_messages` 提供只读语音目录查询。`voices` 的 `_voice_export_summary.json` 包含 `manifest`；完整聊天目录保留语音引用并生成 `_voice_manifest.json`，一起交给下游工具处理。
 
-详见[本地 ASR](src/infrastructure/transcription/LOCAL.md)、[云端授权](src/infrastructure/transcription/OPENAI.md)、[缓存](src/application/transcription/CACHE.md)、[回写](src/application/transcription/WRITEBACK.md)与[批量音频](docs/voice-batch-export.md)。
+消息身份由精确会话和非零服务端 ID 组成，账号由 `account_id` 单独限定，不以 rowid 或媒体 ID 替代。语音已写出但关联未证明时，`voices` 仍报告 `partial`、`incomplete_items` 并以非零状态退出。字段与时间来源见[原始语音导出契约](src/business/VOICE_EXPORT.md#manifest-字段)。
+
+本产品不提供语音识别、音频转码、模型管理或识别结果回写。详见[原始语音导出](src/business/VOICE_EXPORT.md)与[语音目录](docs/voice-catalog-boundary.md)。
 
 ## MCP、Web 与 daemon
 
@@ -236,7 +233,7 @@ wx daemon status
 wx daemon stop
 ```
 
-MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。17 项注册工具包含只读查询及受控媒体执行，没有独立 stats 工具。工具参数不能设置账号、宿主输出根、模型或凭据。详见[MCP 协议](src/mcp/PROTOCOL.md)。
+MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。15 项注册工具包含只读查询及受控媒体执行，没有独立 stats 工具。工具参数不能设置账号或宿主输出根。详见[MCP 协议](src/mcp/PROTOCOL.md)。
 
 Web 是本地界面，不应暴露到不可信网络。只停止本任务创建且身份可验证的 daemon，不按进程名清理其他账号或用户应用。MCP 按操作短时固定配置，同一账号的密钥更新不需要关闭会话；替换配置或切换账号仍需重新连接。生命周期见[入口边界](docs/daemon-entrypoints.md)和[后台任务](docs/daemon-tasks.md)。
 

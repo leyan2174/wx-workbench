@@ -236,9 +236,6 @@ async fn css() -> impl IntoResponse {
 
 async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     let info = state.backend(Call::Info {}).await.map_err(backend_error)?;
-    let settings: server_types::Settings =
-        serde_json::from_value(info["settings"].clone()).map_err(unavailable)?;
-    let asr = settings.transcription_capabilities();
     let mut limits = info["limits"].clone();
     if let Some(limits) = limits.as_object_mut() {
         limits.insert("sse_clients".into(), json!(16));
@@ -249,12 +246,8 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
         "limits":limits,
         "history_persisted":info["history_persisted"],"running":info["running"],
         "sources":["wechat"],
-        "transcription":{"backend":settings.transcription_backend,
-            "available":asr.available,
-            "python_whisper":asr.python_whisper,
-            "requires_upload":asr.requires_upload,"output":"separate_json"},
         "image_preview":{"enabled":true,"readonly":true,"max_bytes":16777216,"requires_decoded_cache":true},
-        "boundaries":["GUI 为本地浏览器页面，不是原 tkinter/EXE 窗口","转录另写 JSON，不宣称已写入 CSV/HTML","图片预览只读取缓存；没有缓存时须先批量解密图片"]}),
+        "boundaries":["GUI 为本地浏览器页面，不是原 tkinter/EXE 窗口","图片预览只读取缓存；没有缓存时须先批量解密图片"]}),
     ))
 }
 
@@ -797,7 +790,7 @@ mod tests {
 
     async fn mock_service(
         runtime: &crate::runtime::RuntimeContext,
-        settings: server_types::Settings,
+        settings: crate::service::settings::Settings,
     ) -> Result<(watch::Sender<bool>, tokio::task::JoinHandle<Result<()>>)> {
         use windows::Win32::{
             Foundation::FILETIME,
@@ -1249,7 +1242,7 @@ mod tests {
                 "state identity"
             );
             ensure!(
-                body["running"] == 0 && body["transcription"]["backend"] == "whisper_cpp",
+                body["running"] == 0 && body.get("transcription").is_none(),
                 "state fixture settings"
             );
             ensure!(
@@ -1406,8 +1399,7 @@ mod tests {
         });
         let (backend_stop, mut backend) = mock_service(
             &state.runtime,
-            server_types::Settings {
-                transcription_backend: "whisper_cpp".into(),
+            crate::service::settings::Settings {
                 ..Default::default()
             },
         )

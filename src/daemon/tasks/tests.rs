@@ -278,7 +278,7 @@ async fn settings_and_configuration_changes_never_mutate_a_queued_task() {
         "settings_conflict"
     );
     let mut config = serde_json::to_value(&runtime.config).unwrap();
-    config["transcription_backend"] = json!("openai_compatible");
+    config["custom_setting"] = json!("changed");
     fs::write(&runtime.config_path, serde_json::to_vec(&config).unwrap()).unwrap();
     assert_eq!(
         service
@@ -395,4 +395,41 @@ async fn logs_and_events_are_bounded_redacted_and_report_cursor_gaps() {
             .code,
         "invalid_events"
     );
+}
+
+#[tokio::test]
+async fn removed_audio_history_is_rejected_without_rewriting_the_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path(), "a");
+    let (first, queue) = service(&runtime);
+    configure(&first).await;
+    first
+        .dispatch(submission(1, Kind::ExportAll))
+        .await
+        .unwrap();
+    drop(first);
+    drop(queue);
+    let path = runtime.directory.join("tasks-history.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let redactor = store::Redactor::new(&runtime, None).unwrap();
+    for field in [
+        "voice_mp3",
+        "with_transcriptions",
+        "allow_upload",
+        "include_voice",
+    ] {
+        let mut history = original.clone();
+        if field == "voice_mp3" {
+            history["tasks"][0]["kind"] = json!(field);
+        } else {
+            history["tasks"][0]["options"][field] = json!(true);
+        }
+        let bytes = serde_json::to_vec(&history).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let error = store::restore(&runtime, &redactor).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Unsupported or invalid task history record"));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
 }

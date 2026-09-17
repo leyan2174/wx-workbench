@@ -3,9 +3,6 @@ use std::{
     cell::{Cell, RefCell},
     path::Path,
 };
-#[path = "../../../src/infrastructure/audio/publish.rs"]
-mod voice;
-pub use voice::PublishedWav;
 
 pub struct Guard(HostOutputGuard);
 impl Guard {
@@ -14,13 +11,6 @@ impl Guard {
         guard.protect(protected)?;
         Ok(Self(guard))
     }
-}
-pub fn voice(
-    wav: &[u8],
-    guard: &Guard,
-    callback: impl FnOnce(&PublishedWav) -> anyhow::Result<()>,
-) -> anyhow::Result<PublishedWav> {
-    voice::publish_wav_noclobber(wav, &guard.0, callback)
 }
 thread_local! {
     static AFTER_SYNC:RefCell<Option<Box<dyn FnOnce()>>>=RefCell::new(None);

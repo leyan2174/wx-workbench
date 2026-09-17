@@ -3,11 +3,10 @@ use anyhow::{ensure, Result};
 use std::path::PathBuf;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Args {
     /// 输出目录；默认选中配置旁 exported_chats
     pub output_dir: Option<PathBuf>,
-    /// 导出时按数据库身份关联并转录语音
-    pub with_transcriptions: bool,
     /// 生成计划 CSV，不导出聊天
     pub write_plan_csv: Option<PathBuf>,
     /// 读取计划 CSV，按 username 选择聊天
@@ -23,7 +22,6 @@ pub struct Args {
     pub end: Option<String>,
     pub dry_run: bool,
     pub users: Option<String>,
-    pub asr: super::asr_batch::BatchArgs,
 }
 
 impl Args {

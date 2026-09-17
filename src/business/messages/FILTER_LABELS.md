@@ -33,6 +33,6 @@ path for the exact legacy selector list [49] is unchanged.
 Tests cover canonical business labels, explicit rejection of unsupported MCP
 compatibility words, CLI/MCP case differences, real MCP routing, and real synthetic SQLite selection for
 base/packed/negative selectors and semantic versus legacy differences.
-Standalone protocol, voice-host and image-security fixtures register the
+Standalone protocol and image-security fixtures register the
 production compatibility module. Execution requirements are in the
 [test guide](../../../tests/README.md); fixtures use no real account.

@@ -120,12 +120,7 @@ fn update_signature(request: &UpdateRequest) -> DigestBytes {
 
 fn permissions(operation: &Operation) -> u8 {
     match operation {
-        Operation::Voices { .. } | Operation::TranscribeBatch { .. } => READ_DATABASES,
-        Operation::ExportAll { args }
-            if !args.dry_run && args.with_transcriptions && args.write_plan_csv.is_none() =>
-        {
-            READ_DATABASES
-        }
+        Operation::Voices { .. } => READ_DATABASES,
         Operation::ExportMessages { args } if !args.dry_run && !args.no_media => {
             READ_DATABASES | READ_IMAGE | PRELOAD_IMAGE
         }
@@ -245,7 +240,6 @@ impl Broker {
                 include_images: true,
                 ..
             } => (config, READ_DATABASES | READ_IMAGE | PRELOAD_IMAGE),
-            Step::TranscribeChats { config, .. } => (config, READ_DATABASES),
             Step::SnsArchive { config, .. } => (config, READ_IMAGE | PRELOAD_IMAGE),
             _ => return Ok(None),
         };

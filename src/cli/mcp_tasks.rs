@@ -32,12 +32,6 @@ pub struct Args {
     /// 允许选定任务读取微信进程内存；提交仍须包含本次扫描确认。
     #[arg(long, requires = "tasks")]
     pub task_allow_memory_scan: bool,
-    /// 允许后台使用固定账号配置中的转写后端，不接受工具参数指定后端。
-    #[arg(long, requires = "tasks")]
-    pub task_allow_transcription: bool,
-    /// 允许已配置的云端转写上传；提交仍须包含本次上传确认。
-    #[arg(long, requires_all = ["tasks", "task_allow_transcription"])]
-    pub task_allow_upload: bool,
     /// 允许朋友圈任务下载媒体；不授权任意 URL。
     #[arg(long, requires_all = ["tasks", "task_allow_media_write"])]
     pub task_allow_media_download: bool,
@@ -61,7 +55,7 @@ impl Args {
             && self.task_kind.contains(&kind)
             && match kind {
                 Kind::WechatKeys | Kind::ImageKey => self.task_allow_memory_scan,
-                Kind::ExportAll | Kind::DecodeImages | Kind::SnsDecrypt | Kind::VoiceMp3 => {
+                Kind::ExportAll | Kind::DecodeImages | Kind::SnsDecrypt => {
                     self.task_allow_media_write
                 }
                 Kind::WechatDecrypt => true,
@@ -81,11 +75,8 @@ impl Args {
 
     fn permits_option(&self, option: &str) -> bool {
         match option {
-            "include_voice" => self.permits(Kind::VoiceMp3),
             "include_sns" => self.permits(Kind::SnsDecrypt),
             "include_sns_media" => self.task_allow_media_download,
-            "with_transcriptions" => self.task_allow_transcription,
-            "allow_upload" => self.task_allow_transcription && self.task_allow_upload,
             "authorize_memory_scan" => self.task_allow_memory_scan,
             _ => true,
         }
@@ -101,10 +92,7 @@ impl Args {
         let o = &task.options;
         self.permits(task.kind)
             && (!o.authorize_memory_scan || self.task_allow_memory_scan)
-            && (!o.with_transcriptions || self.task_allow_transcription)
-            && (!o.allow_upload || self.task_allow_upload)
             && (!o.include_sns_media || self.task_allow_media_download)
-            && (!o.include_voice || self.permits(Kind::VoiceMp3))
             && (!o.include_sns || self.permits(Kind::SnsDecrypt))
     }
 
@@ -178,7 +166,7 @@ impl Args {
                 "idempotency_key":id,
                 "kind":{"type":"string","enum":capabilities.iter().map(|entry| entry["kind"].clone()).collect::<Vec<_>>()},
                 "options":{"type":"object","properties":properties,"additionalProperties":false}
-            }), &["idempotency_key","kind"]), self.task_allow_upload || self.task_allow_media_download));
+            }), &["idempotency_key","kind"]), self.task_allow_media_download));
         }
         tools
     }

@@ -5,23 +5,6 @@ use std::sync::{
     Arc,
 };
 
-fn wav() -> Vec<u8> {
-    let mut bytes = b"RIFF".to_vec();
-    bytes.extend_from_slice(&40u32.to_le_bytes());
-    bytes.extend_from_slice(b"WAVEfmt ");
-    bytes.extend_from_slice(&16u32.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes());
-    bytes.extend_from_slice(&1u16.to_le_bytes());
-    bytes.extend_from_slice(&8000u32.to_le_bytes());
-    bytes.extend_from_slice(&16000u32.to_le_bytes());
-    bytes.extend_from_slice(&2u16.to_le_bytes());
-    bytes.extend_from_slice(&16u16.to_le_bytes());
-    bytes.extend_from_slice(b"data");
-    bytes.extend_from_slice(&4u32.to_le_bytes());
-    bytes.extend_from_slice(&[0, 0, 1, 0]);
-    bytes
-}
-
 #[test]
 fn image_original_guard_is_rechecked_after_staged_sync() {
     for mode in ["normal", "protected-swap", "output-swap"] {
@@ -93,66 +76,6 @@ fn image_original_guard_is_rechecked_after_staged_sync() {
             );
             assert!(!f.destination().exists());
             assert!(!moved.join(f.destination().file_name().unwrap()).exists());
-        }
-    }
-}
-
-#[test]
-fn voice_final_callback_cannot_swap_original_protected_or_output_directory() {
-    for mode in ["normal", "protected-swap", "output-swap"] {
-        let root = tempfile::tempdir().unwrap();
-        let output = root.path().join("voice-output");
-        let protected = root.path().join("protected-final");
-        let moved = root.path().join("moved-final");
-        fs::create_dir(&output).unwrap();
-        fs::create_dir(&protected).unwrap();
-        fs::write(protected.join("sentinel.db"), b"preserve").unwrap();
-        let guard = publish_probe::Guard::new(&output, &protected).unwrap();
-        let original_output = same_file::Handle::from_path(&output).unwrap();
-        let bytes = wav();
-        let mut callback_ran = false;
-        let mut blocked = false;
-        let mut destination = PathBuf::new();
-        let result = publish_probe::voice(&bytes, &guard, |pending| {
-            callback_ran = true;
-            destination = pending.path.clone();
-            assert!(
-                !pending.path.exists(),
-                "callback must run before final publication"
-            );
-            if mode == "protected-swap" {
-                fs::rename(&protected, &moved).unwrap();
-                fs::create_dir(&protected).unwrap();
-            } else if mode == "output-swap" {
-                match fs::rename(&output, &moved) {
-                    Ok(()) => fs::rename(&protected, &output).unwrap(),
-                    Err(error) => {
-                        println!("VOICE OUTPUT RENAME BLOCKED IN FINAL CALLBACK: {error}");
-                        blocked = true;
-                    }
-                }
-            }
-            Ok(())
-        });
-        println!("VOICE FINAL CALLBACK {mode}: {result:?}");
-        assert!(callback_ran);
-        if mode == "normal" || blocked {
-            assert_eq!(
-                original_output,
-                same_file::Handle::from_path(&output).unwrap()
-            );
-            assert_eq!(
-                fs::read(protected.join("sentinel.db")).unwrap(),
-                b"preserve"
-            );
-            assert_eq!(fs::read(result.unwrap().path).unwrap(), bytes);
-        } else {
-            assert!(
-                result.is_err(),
-                "voice must verify the same guard after the callback"
-            );
-            assert!(!destination.exists());
-            assert!(!moved.join(destination.file_name().unwrap()).exists());
         }
     }
 }

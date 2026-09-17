@@ -5,9 +5,6 @@ use std::path::PathBuf;
 pub struct Args {
     /// 输出目录；默认选中配置旁 exported_chats
     pub output_dir: Option<PathBuf>,
-    /// 导出时按数据库身份关联并转录语音
-    #[arg(short = 't', long)]
-    pub with_transcriptions: bool,
     /// 生成计划 CSV，不导出聊天
     #[arg(long, conflicts_with = "from_plan_csv")]
     pub write_plan_csv: Option<PathBuf>,
@@ -32,15 +29,12 @@ pub struct Args {
     pub dry_run: bool,
     #[arg(long)]
     pub users: Option<String>,
-    #[command(flatten)]
-    pub asr: super::asr_batch::BatchArgs,
 }
 
 impl From<Args> for crate::service::operation_requests::export_all::Args {
     fn from(value: Args) -> Self {
         Self {
             output_dir: value.output_dir,
-            with_transcriptions: value.with_transcriptions,
             write_plan_csv: value.write_plan_csv,
             from_plan_csv: value.from_plan_csv,
             plan_mode: value.plan_mode.into(),
@@ -51,7 +45,6 @@ impl From<Args> for crate::service::operation_requests::export_all::Args {
             end: value.end,
             dry_run: value.dry_run,
             users: value.users,
-            asr: value.asr.into(),
         }
     }
 }
@@ -60,7 +53,6 @@ impl From<crate::service::operation_requests::export_all::Args> for Args {
     fn from(value: crate::service::operation_requests::export_all::Args) -> Self {
         Self {
             output_dir: value.output_dir,
-            with_transcriptions: value.with_transcriptions,
             write_plan_csv: value.write_plan_csv,
             from_plan_csv: value.from_plan_csv,
             plan_mode: value.plan_mode.into(),
@@ -71,7 +63,6 @@ impl From<crate::service::operation_requests::export_all::Args> for Args {
             end: value.end,
             dry_run: value.dry_run,
             users: value.users,
-            asr: value.asr.into(),
         }
     }
 }

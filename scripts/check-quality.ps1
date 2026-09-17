@@ -89,7 +89,7 @@ function Get-SourceSnapshot([string]$Name) {
     $diffOK = $results[$results.Count - 1].exit_code -eq 0
     Invoke-Logged "$Name-status" 'git' @('status', '--porcelain=v1', '--untracked-files=all')
     $statusOK = $results[$results.Count - 1].exit_code -eq 0
-    Invoke-Logged "$Name-untracked" 'git' @('ls-files', '--others', '--exclude-standard', '-z', '--', '*.rs')
+    Invoke-Logged "$Name-untracked" 'git' @('ls-files', '--others', '--exclude-standard', '-z', '--', '*.rs', '*.toml', '*.lock', '*.json', '*.ps1')
     $untrackedOK = $results[$results.Count - 1].exit_code -eq 0
     $untrackedLog = Join-Path $logRoot "$Name-untracked.log"
     $hashLog = Join-Path $logRoot "$Name-untracked-hashes.json"
@@ -106,7 +106,7 @@ function Get-SourceSnapshot([string]$Name) {
         valid = $diffOK -and $statusOK -and $untrackedOK
         diff_sha256 = (Get-FileHash -LiteralPath (Join-Path $logRoot "$Name-diff.log") -Algorithm SHA256).Hash
         status_sha256 = (Get-FileHash -LiteralPath (Join-Path $logRoot "$Name-status.log") -Algorithm SHA256).Hash
-        untracked_rs_sha256 = (Get-FileHash -LiteralPath $hashLog -Algorithm SHA256).Hash
+        untracked_inputs_sha256 = (Get-FileHash -LiteralPath $hashLog -Algorithm SHA256).Hash
     }
 }
 
@@ -142,13 +142,13 @@ try {
 } finally {
     $state = 'unknown'
     if ($before -and $after -and $before.valid -and $after.valid) {
-        $state = if ($before.diff_sha256 -ne $after.diff_sha256 -or $before.status_sha256 -ne $after.status_sha256 -or $before.untracked_rs_sha256 -ne $after.untracked_rs_sha256) { 'changed-intermediate-state' } else { 'no-change-observed' }
+        $state = if ($before.diff_sha256 -ne $after.diff_sha256 -or $before.status_sha256 -ne $after.status_sha256 -or $before.untracked_inputs_sha256 -ne $after.untracked_inputs_sha256) { 'changed-intermediate-state' } else { 'no-change-observed' }
     }
     $summary = [pscustomobject]@{
         stage = $Stage; offline = [bool]$Offline; checkout = $repoRoot; target = $targetRoot
         started_utc = $started; ended_utc = [DateTime]::UtcNow.ToString('o')
         exit_code = $(if ($failed) { 1 } else { 0 }); source_state = $state
-        acceptance = 'Observational checks only, not stable acceptance: snapshots cannot detect reverted edits, ignored file changes, or content-only changes to untracked non-Rust files.'
+        acceptance = 'Observational checks only, not stable acceptance: snapshots cannot detect reverted edits, ignored file changes, or content-only changes to untracked files outside the recorded source and fixture input patterns.'
         before = $before; after = $after; steps = @($results.ToArray())
     }
     try {

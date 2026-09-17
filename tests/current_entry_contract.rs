@@ -168,14 +168,8 @@ const BUSINESS_COMMANDS: &[(&str, &[&str])] = &[
     ("web", &["web"]),
     ("gui", &["gui"]),
     ("decrypt", &["database", "decrypt"]),
-    (
-        "transcribe-database-native",
-        &["audio", "transcribe-message"],
-    ),
     ("export-delta-native", &["chats", "export-delta"]),
     ("chat-plan-native", &["chats", "plan"]),
-    ("transcribe-audio-native", &["audio", "transcribe"]),
-    ("transcribe-chat-native", &["chats", "transcribe-manifest"]),
     ("decode-sns-video", &["media", "video", "decode"]),
     ("export-sns-native", &["moments", "export-snapshot"]),
     ("export-chats-native", &["chats", "export"]),
@@ -193,13 +187,11 @@ const BUSINESS_COMMANDS: &[(&str, &[&str])] = &[
         "batch-decrypt-images",
         &["media", "image", "decode-directory"],
     ),
-    ("voice-batch", &["audio", "export"]),
-    ("voice-to-mp3", &["audio", "convert"]),
-    ("transcribe-chat", &["chats", "transcribe"]),
 ];
 
 #[test]
 fn business_command_help_parses_without_account_or_daemon_side_effects() {
+    assert_eq!(BUSINESS_COMMANDS.len(), 25);
     for &(_, command) in BUSINESS_COMMANDS {
         let fixture = Fixture::new();
         let mut args = command.to_vec();
@@ -305,7 +297,6 @@ fn help_keeps_the_current_business_cli_without_migration_or_launcher_entries() {
         "web",
         "gui",
         "database",
-        "audio",
         "chats",
         "media",
         "moments",
@@ -317,7 +308,7 @@ fn help_keeps_the_current_business_cli_without_migration_or_launcher_entries() {
             "missing formal command: {command}"
         );
     }
-    for obsolete in ["toolkit", "migrate-keys", "wx-toolbox", ".py"] {
+    for obsolete in ["audio", "toolkit", "migrate-keys", "wx-toolbox", ".py"] {
         assert!(
             !help.contains(obsolete),
             "obsolete entry remains in help: {obsolete}"
@@ -385,5 +376,49 @@ fn shared_config_loader_refuses_legacy_image_fields_even_with_current_key_store(
         assert!(stderr.contains("Legacy inline image keys are unsupported"));
         assert!(stderr.contains("key_store"));
         assert!(stderr.contains("No files were changed"));
+    }
+}
+
+#[test]
+fn removed_audio_and_transcription_commands_are_refused_without_side_effects() {
+    for command in [
+        &["audio", "convert"][..],
+        &["audio", "export"],
+        &["audio", "transcribe"],
+        &["audio", "transcribe-message"],
+        &["chats", "transcribe"],
+        &["chats", "transcribe-manifest"],
+    ] {
+        for help in [false, true] {
+            let fixture = Fixture::new();
+            let mut args = command.to_vec();
+            if help {
+                args.push("--help");
+            }
+            cli_refusal(
+                fixture.run(&args),
+                if command[0] == "audio" {
+                    "audio"
+                } else {
+                    command[1]
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn setup_rejects_removed_backend_and_model_options_without_side_effects() {
+    for option in [
+        "--backend",
+        "--whisper-model",
+        "--whisper-binary",
+        "--openai-model",
+        "--transcription-backend",
+    ] {
+        let fixture = Fixture::new();
+        let output = fixture.run(&["setup", option, "synthetic"]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(option));
     }
 }

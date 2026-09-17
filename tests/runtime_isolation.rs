@@ -349,64 +349,6 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
 }
 
 #[test]
-#[ignore = "requires native ffmpeg in PATH; explicitly run with audio integration"]
-fn native_voice_batch_cli_uses_explicit_config_and_skips_existing() {
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
-    let decrypted = fixture.root.join("voice-snapshot");
-    fs::create_dir_all(decrypted.join("message")).unwrap();
-    fs::create_dir_all(decrypted.join("contact")).unwrap();
-    let media = decrypted.join("message/media_0.db");
-    let conn = rusqlite::Connection::open(&media).unwrap();
-    conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES ('synthetic-alice'); CREATE TABLE VoiceInfo(chat_name_id INTEGER,create_time INTEGER,local_id INTEGER,voice_data BLOB);").unwrap();
-    let silk =
-        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/tone.silk"))
-            .unwrap();
-    conn.execute("INSERT INTO VoiceInfo VALUES (1,1,1,?1)", [silk])
-        .unwrap();
-    drop(conn);
-    let contact = rusqlite::Connection::open(decrypted.join("contact/contact.db")).unwrap();
-    contact.execute_batch("CREATE TABLE contact(username TEXT,alias TEXT,remark TEXT,nick_name TEXT); INSERT INTO contact VALUES ('synthetic-alice','','','Alice');").unwrap();
-    drop(contact);
-    let config = fixture.root.join("voice-config.json");
-    fs::write(
-        &config,
-        r#"{"decrypted_dir":"voice-snapshot","output_base_dir":"voice-output"}"#,
-    )
-    .unwrap();
-    let original = fs::read(&media).unwrap();
-    let args = [
-        "audio",
-        "export",
-        "--config",
-        config.to_str().unwrap(),
-        "--contacts",
-        "synthetic-alice",
-    ];
-    let result = success(fixture.run(&profile, &args));
-    let report: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(report["converted"], 1);
-    assert_eq!(report["failed"], 0);
-    let voice = fixture.root.join("voice-output/Alice/voice");
-    let paths: Vec<_> = fs::read_dir(&voice)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
-    assert_eq!(paths.len(), 1);
-    assert_eq!(paths[0].extension().unwrap(), "mp3");
-    let mp3 = fs::read(&paths[0]).unwrap();
-    assert!(mp3.len() > 100);
-    let result = success(fixture.run(&profile, &args));
-    let report: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(report["skipped_existing"], 1);
-    assert_eq!(report["converted"], 0);
-    assert_eq!(fs::read(&paths[0]).unwrap(), mp3);
-    assert_eq!(fs::read(&media).unwrap(), original);
-    bootstrap::assert_only_bootstrap(&fixture.root.join("shared-runtime"));
-    assert!(!profile.join("config.json").exists());
-}
-
-#[test]
 fn sns_native_cli_exports_offline_and_preserves_existing_results() {
     let fixture = Fixture::new();
     let profile = fixture.root.join("unconfigured");
@@ -446,41 +388,6 @@ fn sns_native_cli_exports_offline_and_preserves_existing_results() {
     assert_eq!(fs::read(&timeline_path).unwrap(), timeline_bytes);
     assert_eq!(fs::read(&database).unwrap(), before);
     assert_eq!(fs::read_dir(output.join("synthetic")).unwrap().count(), 1);
-}
-
-#[test]
-#[ignore = "requires native ffmpeg in PATH; explicitly run with audio integration"]
-fn native_audio_cli_works_without_python() {
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/audio/tone.silk");
-    let output = fixture.root.join("voice.mp3");
-    let before = fs::read(&source).unwrap();
-    fs::write(&output, b"previous result").unwrap();
-    let result = success(fixture.run(
-        &profile,
-        &[
-            "audio",
-            "convert",
-            source.to_str().unwrap(),
-            output.to_str().unwrap(),
-        ],
-    ));
-    let report: serde_json::Value = serde_json::from_str(&result).unwrap();
-    assert_eq!(
-        report["size"].as_u64().unwrap(),
-        fs::metadata(&output).unwrap().len()
-    );
-    assert!(report["size"].as_u64().unwrap() > 0);
-    assert_eq!(fs::read(source).unwrap(), before);
-    let mut entries: Vec<_> = fs::read_dir(&fixture.root)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect();
-    entries.sort();
-    assert_eq!(entries, ["shared-runtime", "voice.mp3"]);
-    assert!(fixture.root.join("shared-runtime/bootstrap").is_dir());
-    assert!(!profile.exists());
 }
 
 #[test]

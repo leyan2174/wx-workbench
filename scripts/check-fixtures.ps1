@@ -36,12 +36,11 @@ Push-Location $repoRoot
 try {
     foreach ($manifest in $manifests) {
         $name = $manifest.Directory.Name
-        # These three libraries intentionally expose named integration targets instead of libtest.
+        # These libraries intentionally expose named integration targets instead of libtest.
         # Keep this policy aligned with tests/support/CHECK_MATRIX.md.
         $targets = switch ($name) {
             'mcp-image-security' { @('--lib', '--bins', '--test', 'audit') }
             'mcp-readonly-security' { @('--lib', '--bins', '--test', 'security') }
-            'wav-publish' { @('--lib', '--bins', '--test', 'publisher') }
             default { @('--all-targets') }
         }
         $cargoArgs = @('check', '--locked', '--target', 'x86_64-pc-windows-msvc', '--manifest-path', $manifest.FullName) + $targets

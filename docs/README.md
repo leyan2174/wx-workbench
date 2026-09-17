@@ -17,8 +17,7 @@
 - [归档](archive-boundary.md)、[媒体](media-boundaries.md)、[文件与记录附件](native-attachment-contract.md)
 - [图片发布](image-publication-boundary.md)、[严格 MCP 媒体](strict-media-host-boundary.md)
 - [表情格式](emoticon-format.md)、[SNS 缓存](sns-cache-boundary.md)、[SNS 密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
-- [语音目录](voice-catalog-boundary.md)、[批量语音导出](voice-batch-export.md)、[音频处理](../src/infrastructure/audio/README.md)
-- [ASR 后端](asr-backends.md)、[本地识别](../src/infrastructure/transcription/LOCAL.md)、[云端授权](../src/infrastructure/transcription/OPENAI.md)、[缓存](../src/application/transcription/CACHE.md)、[回写](../src/application/transcription/WRITEBACK.md)
+- [语音目录](voice-catalog-boundary.md)、[原始语音导出](../src/business/VOICE_EXPORT.md)
 
 ## 开发与来源
 

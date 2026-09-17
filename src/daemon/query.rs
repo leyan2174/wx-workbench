@@ -36,7 +36,6 @@ use message_read_tests::{query_messages, search_in_table};
 mod message_source_tests;
 pub use export_delta::q_export_delta_username;
 pub(super) mod mcp_attachments;
-pub(super) mod mcp_audio;
 pub(super) mod mcp_contacts;
 pub(super) mod mcp_image;
 mod mcp_refer;

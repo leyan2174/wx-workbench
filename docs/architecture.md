@@ -11,10 +11,10 @@ wx-workbench 以账号为隔离单位。CLI、MCP 和本地 Web 负责输入、�
 | 入口 | `cli`、`mcp`、`web` | 参数、协议、输出与宿主设置；不拥有微信表结构或另一套业务执行器。 |
 | 通信契约 | `service`、`ipc` | 类型化请求、认证通信及响应；不决定业务规则。 |
 | 执行宿主 | `daemon` | 账号、查询租约、密钥快照、前台操作、持久任务及 worker 生命周期。 |
-| 应用用例 | `application` | 导出、媒体发布、朋友圈、转录、监控与清理的步骤编排。 |
+| 应用用例 | `application` | 导出、媒体发布、朋友圈、监控与清理的步骤编排。 |
 | 业务契约 | `business` | 联系人、会话、消息、收藏、文章、朋友圈、媒体、语音和归档的对象与规则；不依赖 SQLite 表结构。 |
 | 微信适配 | `adapters/wechat` | 表字段、私有消息格式、资源关联及媒体字节格式；不替宿主授予下载或写入权限。 |
-| 基础能力 | `infrastructure`、`crypto`、`key_store`、`scanner`、`attachment`、`windows_process` | 文件与配置发布、音频和转录后端、数据库密码、材料存储和捕获、附件与进程支持。 |
+| 基础能力 | `infrastructure`、`crypto`、`key_store`、`scanner`、`attachment`、`windows_process` | 文件与配置发布、图片和视频处理、数据库密码、材料存储和捕获、附件与进程支持。 |
 
 ```mermaid
 flowchart TB
@@ -25,7 +25,7 @@ flowchart TB
     A --> B
     A --> W[adapters/wechat 微信适配]
     W --> B
-    A --> I[文件 / 音频 / 转录基础设施]
+    A --> I[文件 / 图片 / 视频基础设施]
     D --> K[密钥快照 / key_store / crypto]
 ```
 
@@ -53,7 +53,7 @@ flowchart LR
     KS --> ST[账号绑定 DPAPI 存储]
 ```
 
-媒体恢复、解码和转录不是同一种操作：数据库使用页面加密与认证；DAT 图片含 AES/XOR 格式；远端表情可使用 AES-CBC；SNS 使用单独的密钥流机制；SILK 是音频编码，不存在单独的语音级密钥。具体材料来源与限制见[密钥存储](key-store.md)及[媒体边界](media-boundaries.md)。
+媒体恢复与编码是不同的操作：数据库使用页面加密与认证；DAT 图片含 AES/XOR 格式；远端表情可使用 AES-CBC；SNS 使用单独的密钥流机制；SILK 是音频编码，不存在单独的语音级密钥。具体材料来源与限制见[密钥存储](key-store.md)及[媒体边界](media-boundaries.md)。
 
 ## 调用路径
 
@@ -65,11 +65,11 @@ SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/med
 
 daemon `QueryState` 按账号持有惰性密钥快照。查询通过租约读取；独立 worker 通过进程绑定 broker 取得授权材料，更新经过 revision 校验后原子保存。首次绑定及配置修复初始化在执行宿主中直接创建和更新正式 Store。
 
-CLI 按业务能力提供 `wx chats`、`wx moments`、`wx emoticons`、`wx audio`、`wx media`、`wx database` 和 `wx keys` 命令组，以及账号准备、清理、监控和本地界面入口。用例编排位于 `application`，微信格式位于 `adapters/wechat`，共享文件与编解码能力位于基础设施，Web 与 CLI/MCP 是并列入口。业务层不接管 SQL、文件系统、HTTP 或外部进程。
+CLI 按业务能力提供 `wx chats`、`wx moments`、`wx emoticons`、`wx media`、`wx database` 和 `wx keys` 命令组，以及账号准备、清理、监控和本地界面入口。用例编排位于 `application`，微信格式位于 `adapters/wechat`，共享文件与编解码能力位于基础设施，Web 与 CLI/MCP 是并列入口。业务层不接管 SQL、文件系统、HTTP 或外部进程。
 
-CLI 业务命令分别注册于 [chats.rs](../src/cli/chats.rs)、[moments.rs](../src/cli/moments.rs)、[media.rs](../src/cli/media.rs)、[audio.rs](../src/cli/audio.rs)、[keys.rs](../src/cli/keys.rs)、[database.rs](../src/cli/database.rs) 和 [emoticons.rs](../src/cli/emoticons.rs)。
+CLI 业务命令分别注册于 [chats.rs](../src/cli/chats.rs)、[moments.rs](../src/cli/moments.rs)、[media.rs](../src/cli/media.rs)、[keys.rs](../src/cli/keys.rs)、[database.rs](../src/cli/database.rs) 和 [emoticons.rs](../src/cli/emoticons.rs)。
 
-服务请求直接使用 `Operation` 的业务变体：`DecodeMomentVideo`、`ExportMomentSnapshot`、`ExportEmoticons`、`Capabilities`、`DecryptDatabases`、`DecodeImageCache`、`DecodeImage`、`DecodeImageDirectory`、`ExportAudio` 和 `ConvertAudio`。[执行分派](../src/daemon/operations/mod.rs)调用对应的业务模块；能力查询、数据库解密、图片解码和音频导出/转换分别位于 [capabilities.rs](../src/daemon/operations/capabilities.rs)、[decrypt_databases.rs](../src/daemon/operations/decrypt_databases.rs)、[decode_images.rs](../src/daemon/operations/decode_images.rs) 和 [audio_export.rs](../src/daemon/operations/audio_export.rs)。
+服务请求直接使用 `Operation` 的业务变体：`DecodeMomentVideo`、`ExportMomentSnapshot`、`ExportEmoticons`、`Capabilities`、`DecryptDatabases`、`DecodeImageCache`、`DecodeImage`、`DecodeImageDirectory`。[执行分派](../src/daemon/operations/mod.rs)调用对应的业务模块；能力查询、数据库解密、图片解码分别位于 [capabilities.rs](../src/daemon/operations/capabilities.rs)、[decrypt_databases.rs](../src/daemon/operations/decrypt_databases.rs)、[decode_images.rs](../src/daemon/operations/decode_images.rs)。
 
 | 入口 | 适配层 | 执行与状态 |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ daemon 在复用或更新缓存前也验证当前源库首页，密钥失效或�
 
 ## MCP
 
-`src/cli/mcp.rs` 只处理 stdio、参数封送和认证 RPC。相对宿主路径在入口转为绝对路径，防止 daemon cwd 改变其含义。配置校验、锁定、媒体与 ASR 由 `src/daemon/mcp_service.rs` 执行。
+`src/cli/mcp.rs` 只处理 stdio、参数封送和认证 RPC。相对宿主路径在入口转为绝对路径，防止 daemon cwd 改变其含义。配置校验、锁定、媒体发布 由 `src/daemon/mcp_service.rs` 执行。
 
 MCP 在短查询租约外执行编排；需要数据时调用进程内查询分发，不向 daemon 自身发送管道查询。每个调用保留原始响应 ID、响应预算和绝对截止时间。超时预算不能在启动或重试时重新授予。
 
@@ -174,13 +174,11 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 任务历史、事件游标、容量与幂等以[后台任务](daemon-tasks.md)为准。已发布产物不随进程取消回滚；幂等记录也不保证永久保留。
 
-## 音频与 ASR
+## 原始语音交付
 
-`src/infrastructure/audio` 处理音频验证、解码、受控编码和发布，`src/infrastructure/transcription` 实现 whisper.cpp、Python Whisper/PyTorch、显式云端客户端和受监督进程；`src/application/transcription` 编排转录、缓存、回执、回写和账号批次，`src/application/voice_batch_export.rs` 编排数据库语音批量导出。微信数据库语音关联由 `src/adapters/wechat/media` 实现并复用消息读取核心。
+`wx voices` 导出原始 SILK；完整聊天导出保留语音引用，并提供原始媒体及关联 manifest 给下游工具。语音目录查询与消息关联是不同契约，媒体行号不能直接当作消息 ID。关联缺失或歧义必须明确报告，不伪造路径或文本。
 
-模型识别、音频发布与缓存提交是独立步骤。缓存命中仍要满足账号、输入证据、后端身份与当前宿主条件，不能从任意历史文本合成可信命中。输出限额及取消在提交前复核，但不能回滚提交后发生的传输失败。
-
-详见[后端选择](asr-backends.md)、[缓存](../src/application/transcription/CACHE.md)、[本地 ASR](../src/infrastructure/transcription/LOCAL.md)、[云端](../src/infrastructure/transcription/OPENAI.md)、[回写](../src/application/transcription/WRITEBACK.md)、[音频基础设施](../src/infrastructure/audio/README.md)与[批量导出](voice-batch-export.md)。
+参见[语音目录](voice-catalog-boundary.md)和[原始语音导出](../src/business/VOICE_EXPORT.md)。
 
 ## 导出、SNS 与 Web
 

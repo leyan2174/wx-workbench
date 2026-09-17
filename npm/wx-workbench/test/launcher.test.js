@@ -81,11 +81,9 @@ const businessCommands = [
   'web',
   'gui',
   'database decrypt',
-  'audio transcribe-message',
+  'voices',
   'chats export-delta',
   'chats plan',
-  'audio transcribe',
-  'chats transcribe-manifest',
   'media video decode',
   'moments export-snapshot',
   'chats export',
@@ -100,9 +98,6 @@ const businessCommands = [
   'media image decode-cache',
   'media image decode',
   'media image decode-directory',
-  'audio export',
-  'audio convert',
-  'chats transcribe',
 ];
 
 for (const command of businessCommands) {

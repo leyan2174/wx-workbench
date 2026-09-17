@@ -14,12 +14,7 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
         args.check || !args.interactive || tty,
         "非 TTY 环境不能等待向导输入"
     );
-    let explicit = args.db_dir.is_some()
-        || args.backend.is_some()
-        || args.whisper_binary.is_some()
-        || args.whisper_model.is_some()
-        || args.local_model.is_some()
-        || args.openai_key_env.is_some();
+    let explicit = args.db_dir.is_some();
     let interactive = !args.check && (args.interactive || (tty && !explicit && !args.yes));
     fn ask(label: &str) -> Result<Option<String>> {
         eprint!("{label}（留空保留现有设置）: ");
@@ -31,40 +26,8 @@ pub(super) fn submit(mut args: Args) -> Result<bool> {
         let text = text.trim().to_owned();
         Ok((!text.is_empty()).then_some(text))
     }
-    if interactive {
-        if args.db_dir.is_none() {
-            args.db_dir = ask("账号 db_storage 目录")?.map(Into::into);
-        }
-        if args.backend.is_none() {
-            args.backend = match ask("转写后端 python_whisper / whisper_cpp / openai_compatible")?
-                .as_deref()
-            {
-                None => None,
-                Some("python_whisper") => Some(Backend::PythonWhisper),
-                Some("whisper_cpp") => Some(Backend::WhisperCpp),
-                Some("openai_compatible") => Some(Backend::OpenAiCompatible),
-                Some(_) => {
-                    anyhow::bail!("转写后端必须为 python_whisper、whisper_cpp 或 openai_compatible")
-                }
-            };
-        }
-        match args.backend {
-            Some(Backend::WhisperCpp) => {
-                if args.whisper_binary.is_none() {
-                    args.whisper_binary = ask("whisper.cpp 可执行文件路径")?.map(Into::into);
-                }
-                if args.whisper_model.is_none() {
-                    args.whisper_model = ask("本地 ggml 模型文件路径")?.map(Into::into);
-                }
-            }
-            Some(Backend::PythonWhisper) if args.local_model.is_none() => {
-                args.local_model = ask("本地 Whisper 模型名称或路径")?
-            }
-            Some(Backend::OpenAiCompatible) if args.openai_key_env.is_none() => {
-                args.openai_key_env = ask("OpenAI 凭据环境变量名（不要输入 key）")?
-            }
-            _ => {}
-        }
+    if interactive && args.db_dir.is_none() {
+        args.db_dir = ask("账号 db_storage 目录")?.map(Into::into);
     }
     args.interactive = false;
     if !args.check && args.apply && !args.yes && tty {

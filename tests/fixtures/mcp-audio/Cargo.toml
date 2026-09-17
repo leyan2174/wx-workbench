@@ -28,6 +28,7 @@ dirs = "5"
 md5 = "0.7"
 base64 = "0.22"
 regex = "1"
+roxmltree = "0.20"
 tempfile = "3"
 same-file = "1"
 

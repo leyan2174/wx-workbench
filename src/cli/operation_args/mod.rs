@@ -1,7 +1,4 @@
 //! CLI-only parsing; explicit conversions preserve the shared wire requests.
-pub mod asr;
-pub mod asr_batch;
-pub mod asr_database;
 pub mod chat_plan;
 pub mod cleanup_native;
 pub mod database_keys;
@@ -14,7 +11,6 @@ pub mod export_sns;
 pub mod image_key_sample;
 pub mod image_keys;
 pub mod key_provider;
-pub mod mcp_voice;
 pub mod monitor_native;
 pub mod plan;
 pub mod setup_native;

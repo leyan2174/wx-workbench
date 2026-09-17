@@ -14,5 +14,3 @@ pub(crate) mod monitor;
 pub(crate) mod publication_context;
 mod publication_report;
 pub(crate) mod run_status;
-pub(crate) mod transcription;
-pub(crate) mod voice_batch_export;

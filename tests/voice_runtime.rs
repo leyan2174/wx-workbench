@@ -29,6 +29,83 @@ struct Account {
     child: Option<Child>,
 }
 
+#[test]
+fn raw_export_four_column_schema_bytes_unknown_missing_failure_and_paths() {
+    let home = tempfile::tempdir().unwrap();
+    let account = Account::new(home.path(), 0);
+    let _cleanup = bootstrap::RuntimeCleanup(account.home.clone());
+    let raw = b"\x02#!SILK_V3\0\x01\xffsynthetic";
+    for shard in 0..2 {
+        let plain = account.profile.join(format!("media-{shard}-plain.db"));
+        let conn = sqlite(&plain);
+        conn.execute(
+            "UPDATE VoiceInfo SET voice_data=?1 WHERE local_id=2",
+            [raw.as_slice()],
+        )
+        .unwrap();
+        drop(conn);
+        encrypt(
+            &plain,
+            &account
+                .profile
+                .join(format!("db_storage/message/media_{shard}.db")),
+        );
+    }
+    let before = account.snapshot();
+    let output = account.root.path().join("raw-output");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
+    command
+        .env_clear()
+        .env("WX_CLI_CONFIG", account.profile.join("config.json"))
+        .env("WX_CLI_HOME", &account.home)
+        .env("PATH", "")
+        .current_dir(account.root.path())
+        .args(["voices", "peer", "--json", "-o"])
+        .arg(&output);
+    for name in ["SystemRoot", "WINDIR", "TEMP", "TMP"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    for name in ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA"] {
+        command.env(name, &account.home);
+    }
+    let result = cli_output::output(&mut command, account.root.path(), Duration::from_secs(60));
+    assert!(
+        !result.status.success(),
+        "partial export must not return complete success"
+    );
+    let summary: Value =
+        serde_json::from_slice(&fs::read(output.join("_voice_export_summary.json")).unwrap())
+            .unwrap();
+    assert_eq!(summary["scanned_rows"], 30);
+    assert_eq!(summary["exported"], 2);
+    assert_eq!(summary["partial"], true);
+    let items = summary["manifest"].as_array().unwrap();
+    assert_eq!(items.iter().filter(|i| i["status"] == "missing").count(), 1);
+    assert_eq!(items.iter().filter(|i| i["status"] == "failed").count(), 27);
+    let mut paths = std::collections::BTreeSet::new();
+    for item in items {
+        for key in ["message_id", "sender", "duration_ms"] {
+            assert!(item[key].is_null(), "{key}");
+        }
+        assert_eq!(item["association"], "unproven");
+        if item["status"] == "success" {
+            let relative = item["relative_path"].as_str().unwrap();
+            assert!(!Path::new(relative).is_absolute());
+            assert!(!relative.contains(".."));
+            assert!(relative.ends_with(".silk"));
+            assert!(paths.insert(relative));
+            assert_eq!(fs::read(output.join(relative)).unwrap(), raw);
+            assert!(item["evidence"]["svr_id"].is_null());
+            assert_eq!(item["encoding"], "silk");
+        } else {
+            assert!(item["relative_path"].is_null());
+        }
+    }
+    assert_eq!(account.snapshot(), before);
+}
+
 impl Account {
     fn new(home: &Path, extra_bytes: usize) -> Self {
         let root = tempfile::tempdir().unwrap();

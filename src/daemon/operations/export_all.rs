@@ -1,4 +1,4 @@
-//! 旧批量导出的统一原生宿主；模式选择、账号固定和转录在同一流程内完成。
+//! 旧批量导出的统一原生宿主；模式选择和账号固定在同一流程内完成。
 use crate::{
     application::{chat_delta_export::DeltaWindow, chat_plan_selection::Plan},
     business::chat_plan::PlanChat,
@@ -33,16 +33,6 @@ fn report_outcome(report: &Value) -> crate::ipc::outcome::BusinessOutcome {
             }
         }
     }
-    for item in report["transcriptions"].as_array().into_iter().flatten() {
-        succeeded = succeeded.saturating_add(item["transcribed"].as_u64().unwrap_or(0));
-        failed = failed.saturating_add(item["failed"].as_u64().unwrap_or(0));
-        if item["warnings"]
-            .as_array()
-            .is_some_and(|items| !items.is_empty())
-        {
-            failed = failed.saturating_add(1);
-        }
-    }
     if failed != 0 {
         BusinessOutcome::from_counts(succeeded, failed)
     } else {
@@ -51,7 +41,7 @@ fn report_outcome(report: &Value) -> crate::ipc::outcome::BusinessOutcome {
 }
 
 #[test]
-fn aggregate_outcome_preserves_partial_exports_and_asr_failures() {
+fn aggregate_outcome_preserves_partial_exports() {
     use crate::ipc::outcome::BusinessOutcome;
     for (report, expected) in [
         (json!({"written":2,"failures":[]}), BusinessOutcome::Success),
@@ -65,14 +55,6 @@ fn aggregate_outcome_preserves_partial_exports_and_asr_failures() {
         ),
         (
             json!({"success":false,"results":[{"success":true},{"success":false}]}),
-            BusinessOutcome::Partial,
-        ),
-        (
-            json!({"written":1,"transcriptions":[{"failed":1}]}),
-            BusinessOutcome::Partial,
-        ),
-        (
-            json!({"written":1,"transcriptions":[{"failed":0,"warnings":["PRIVATE"]}]}),
             BusinessOutcome::Partial,
         ),
     ] {
@@ -105,18 +87,7 @@ pub(super) fn export_for(runtime: &RuntimeContext, args: Args) -> Result<Value> 
         from_plan_csv: args.from_plan_csv,
         plan_mode: Some(args.plan_mode).filter(|_| has_plan),
     };
-    if !args.with_transcriptions || native.dry_run {
-        return super::export_chats::export_for(runtime, native, None);
-    }
-    let mut transcriber = super::asr_batch::prepare(runtime, args.asr)?;
-    let mut reports = Vec::new();
-    let mut process = |_: &Target, document: &mut Value| -> Result<()> {
-        reports.push(serde_json::to_value(transcriber.process(document)?)?);
-        Ok(())
-    };
-    let mut report = super::export_chats::export_for(runtime, native, Some(&mut process))?;
-    report["transcriptions"] = reports.into();
-    Ok(report)
+    super::export_chats::export_for(runtime, native)
 }
 
 fn selected(runtime: &RuntimeContext, args: &Args) -> Result<Vec<Target>> {
@@ -221,12 +192,6 @@ fn export_delta(runtime: &RuntimeContext, args: Args, output: &Path) -> Result<V
         utc_offset_seconds: now.offset().local_minus_utc(),
         generated_at: now.format("%Y-%m-%d %H:%M:%S").to_string(),
     };
-    let mut transcriber = if args.with_transcriptions {
-        Some(super::asr_batch::prepare(runtime, args.asr)?)
-    } else {
-        None
-    };
-    let mut reports = Vec::new();
     let mut report = super::export_delta::export_delta_with_mode(
         output,
         &users,
@@ -234,7 +199,7 @@ fn export_delta(runtime: &RuntimeContext, args: Args, output: &Path) -> Result<V
         output.try_exists()?,
         &crate::infrastructure::publication::export_protected(runtime),
         |query| {
-            let mut value = crate::service::query_client::send_for(
+            let value = crate::service::query_client::send_for(
                 runtime,
                 Request::ExportDelta {
                     username: query.username,
@@ -243,15 +208,9 @@ fn export_delta(runtime: &RuntimeContext, args: Args, output: &Path) -> Result<V
                 },
             )?
             .data;
-            if let Some(transcriber) = &mut transcriber {
-                reports.push(serde_json::to_value(
-                    transcriber.process_delta(&mut value)?,
-                )?);
-            }
             Ok(value)
         },
     )?;
     report["engine"] = "rust".into();
-    report["transcriptions"] = reports.into();
     Ok(report)
 }

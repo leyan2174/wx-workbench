@@ -1,4 +1,4 @@
-//! 原生配置向导；默认 dry-run，非 TTY 不读取 stdin，不接触扫描器或模型。
+//! 原生配置向导；默认 dry-run，非 TTY 不读取 stdin，不接触扫描器。
 use crate::infrastructure::configuration::{self, ConfigDocument};
 use crate::infrastructure::publication as path_guard;
 use crate::service::operation_requests::setup_native::argument_fingerprint;
@@ -10,18 +10,6 @@ use std::{
     io::{self, BufRead, IsTerminal, Read, Write},
     path::{Path, PathBuf},
 };
-
-pub use crate::service::operation_requests::setup_native::Backend;
-
-impl Backend {
-    fn name(self) -> &'static str {
-        match self {
-            Self::PythonWhisper => "python_whisper",
-            Self::WhisperCpp => "whisper_cpp",
-            Self::OpenAiCompatible => "openai_compatible",
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -109,7 +97,6 @@ mod tests {
         let args = Args {
             config_path: Some(root.path().join("settings/config.json")),
             db_dir: Some(db),
-            backend: Some(Backend::PythonWhisper),
             ..Args::default()
         };
         (root, args)
@@ -164,7 +151,7 @@ mod tests {
         let path = config_path(&args).unwrap();
         let document = ConfigDocument::load(&path).unwrap();
         let review = review_for(&args, &document).unwrap();
-        args.local_model = Some("changed-after-preview".into());
+        args.db_dir = Some("changed-after-preview".into());
         args.apply = true;
         args.yes = true;
         assert!(apply_reviewed(args, &review).is_err());
@@ -180,7 +167,7 @@ mod tests {
         fs::write(&keys, b"synthetic existing keys").unwrap();
         let original = serde_json::to_vec(&json!({
             "db_dir": args.db_dir, "keys_file": "private/selected.json",
-            "unknown": {"retain": [1, 2]}, "local_whisper_model": "old-model"
+            "unknown": {"retain": [1, 2]}, "custom_setting": "retained-value"
         }))
         .unwrap();
         fs::write(&config_path, &original).unwrap();
@@ -222,8 +209,6 @@ mod tests {
         fs::write(&config_path, serde_json::to_vec(&value).unwrap()).unwrap();
         let result = run(Args {
             config_path: Some(config_path.clone()),
-            backend: Some(Backend::PythonWhisper),
-            local_model: Some("synthetic-model-name".into()),
             apply: true,
             yes: true,
             ..Args::default()
@@ -240,7 +225,6 @@ mod tests {
             serde_json::from_slice(&fs::read(config_path).unwrap()).unwrap();
         assert_eq!(saved["keys_file"], value["keys_file"]);
         assert_eq!(saved["unknown"], value["unknown"]);
-        assert_eq!(saved["local_whisper_model"], "synthetic-model-name");
         assert_eq!(fs::read(keys).unwrap(), b"synthetic existing keys");
         assert!(!root.path().join("settings/all_keys.json").exists());
         assert!(!root.path().join("settings/account_key.dpapi").exists());
@@ -395,12 +379,7 @@ fn run_at_review(
         !args.apply || args.yes || tty,
         "非 TTY 写入需要 --apply --yes；缺省只预览"
     );
-    let explicit = args.db_dir.is_some()
-        || args.backend.is_some()
-        || args.whisper_binary.is_some()
-        || args.whisper_model.is_some()
-        || args.local_model.is_some()
-        || args.openai_key_env.is_some();
+    let explicit = args.db_dir.is_some();
     let interactive = args.interactive || (tty && !explicit && !args.yes);
     let previous_db = document.configured_db()?;
     if interactive && args.db_dir.is_none() {
@@ -414,99 +393,7 @@ fn run_at_review(
         }
     };
     let account_guard = crate::attachment::local_files::HostOutputGuard::new(&db)?;
-    let mut value = document.with_db(&db)?;
-    let configured_backend = configuration::text(&value, "transcription_backend")?.unwrap_or("");
-    let backend = if let Some(backend) = args.backend {
-        backend.name().to_owned()
-    } else if interactive {
-        ask(
-            "转写后端 python_whisper / whisper_cpp / openai_compatible",
-            configured_backend,
-        )?
-    } else {
-        configured_backend.into()
-    };
-    ensure!(
-        ["python_whisper", "whisper_cpp", "openai_compatible"].contains(&backend.as_str()),
-        "转写后端必须为 python_whisper、whisper_cpp 或 openai_compatible"
-    );
-    ensure!(
-        backend == "whisper_cpp" || (args.whisper_binary.is_none() && args.whisper_model.is_none()),
-        "binary/model 参数需要 whisper_cpp 后端"
-    );
-    ensure!(
-        backend == "python_whisper" || args.local_model.is_none(),
-        "local-model 参数需要 python_whisper 后端"
-    );
-    ensure!(
-        backend == "openai_compatible" || args.openai_key_env.is_none(),
-        "凭据环境变量参数需要 openai_compatible 后端"
-    );
-    value["transcription_backend"] = json!(backend);
-    match backend.as_str() {
-        "whisper_cpp" => {
-            for (field, explicit, label) in [
-                (
-                    "whisper_cpp_binary",
-                    args.whisper_binary,
-                    "whisper.cpp 可执行文件路径",
-                ),
-                (
-                    "whisper_cpp_model",
-                    args.whisper_model,
-                    "本地 ggml 模型文件路径",
-                ),
-            ] {
-                let configured = configuration::text(&value, field)?.unwrap_or("");
-                let path = match explicit {
-                    Some(path) => path_guard::resolve(&std::env::current_dir()?, &path)?,
-                    None if interactive => {
-                        let default = if configured.is_empty() {
-                            String::new()
-                        } else {
-                            path_guard::resolve(document.base(), Path::new(configured))?
-                                .to_string_lossy()
-                                .into_owned()
-                        };
-                        path_guard::resolve(
-                            &std::env::current_dir()?,
-                            Path::new(&ask(label, &default)?),
-                        )?
-                    }
-                    None => path_guard::resolve(document.base(), Path::new(configured))?,
-                };
-                // 只验证路径形状，缺失模型或可执行文件由能力报告提示，绝不下载。
-                value[field] = json!(path);
-            }
-        }
-        "python_whisper" => {
-            let configured = configuration::text(&value, "local_whisper_model")?.unwrap_or("base");
-            let model = match args.local_model {
-                Some(model) => model,
-                None if interactive => ask("本地 Whisper 模型名称或路径", configured)?,
-                None => configured.into(),
-            };
-            ensure!(
-                !model.trim().is_empty()
-                    && model.len() <= 4096
-                    && !model.chars().any(char::is_control),
-                "本地模型配置无效"
-            );
-            value["local_whisper_model"] = json!(model);
-        }
-        "openai_compatible" => {
-            let configured =
-                configuration::text(&value, "openai_api_key_env")?.unwrap_or("OPENAI_API_KEY");
-            let name = match args.openai_key_env {
-                Some(name) => name,
-                None if interactive => ask("OpenAI 凭据环境变量名（不要输入 key）", configured)?,
-                None => configured.into(),
-            };
-            configuration::valid_env_name(&name)?;
-            value["openai_api_key_env"] = json!(name);
-        }
-        _ => unreachable!(),
-    }
+    let value = document.with_db(&db)?;
     let paths = document.validate_targets(&value)?;
     let changed: Vec<_> = value
         .as_object()
@@ -515,31 +402,18 @@ fn run_at_review(
         .filter(|(key, v)| document.value.get(*key) != Some(*v))
         .map(|(key, _)| key.clone())
         .collect();
-    let settings = match backend.as_str() {
-        "whisper_cpp" => {
-            json!({"binary":value.get("whisper_cpp_binary"),"model":value.get("whisper_cpp_model")})
-        }
-        "python_whisper" => {
-            json!({"model":value.get("local_whisper_model"),"python_environment":"VIRTUAL_ENV or PATH"})
-        }
-        "openai_compatible" => {
-            json!({"credential_environment":value.get("openai_api_key_env"),"credential_consumer":"pending_integration"})
-        }
-        _ => unreachable!(),
-    };
     // 只输出白名单摘要；未知字段及所有凭据值均不进入 stdout/stderr。
     let mut report = json!({"engine":"rust", "config_path":config_path, "db_dir":db,
-        "backend":backend, "settings":settings, "keys_file":paths.keys_file,
+        "keys_file":paths.keys_file,
         "changed_fields":changed, "applied":false,
         "preserved_original_fields":document.value.as_object().expect("配置为对象").len(),
         "environment":configuration::environment(&config_path, &value, document.snapshot.existed())?});
     if args.apply {
         if !args.yes {
             eprintln!(
-                "配置目标: {}；账号: {}；后端: {}",
+                "配置目标: {}；账号: {}",
                 config_path.display(),
-                db.display(),
-                backend
+                db.display()
             );
             if ask("确认写入请输入 APPLY", "取消")? != "APPLY" {
                 return Ok(Outcome::Cancelled { config_path });

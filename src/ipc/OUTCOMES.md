@@ -58,9 +58,7 @@ Corruption, wrong account and protection failures are never classified as missin
 
 Specialized image adapters must preserve their existing code 1/2 distinctions
 through `BusinessFailure::worker_exit_code()` when receiving a checked query error.
-ASR chat/batch count transcribed and existing results as success; batch persistence
-warnings remain non-success while engine identity notices are informational.
-VoiceBatch and decrypt also return typed partial results. Decrypt item failures
+Decrypt returns typed partial results. Decrypt item failures
 are non-success: mixed results return the partial outcome code and total failure
 returns the failure code, while the report remains available to callers.
 A successful lookup of an already-failed task is still a

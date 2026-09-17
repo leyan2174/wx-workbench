@@ -1,6 +1,5 @@
 // MCP stdio framing, fixed-account binding and daemon transport; no task execution.
 use super::mcp_tasks;
-use super::operation_args::mcp_voice;
 use crate::mcp::protocol;
 use crate::service::query_client as transport;
 use crate::{
@@ -28,12 +27,6 @@ pub struct McpArgs {
     /// 显式图片 AES/XOR 配置文件；不自动扫描或发现密钥
     #[arg(long, requires = "media_output_root")]
     pub image_key_file: Option<PathBuf>,
-    /// 允许使用固定账号配置明确选定的 local Python Whisper；不接受工具请求指定后端。
-    #[arg(long, conflicts_with_all = ["backend", "whisper_binary", "whisper_model", "allow_upload",
-        "openai_base_url", "openai_model", "api_key_file", "temp_root"])]
-    pub configured_local_python: bool,
-    #[command(flatten)]
-    pub voice: mcp_voice::Args,
     #[command(flatten)]
     pub task: mcp_tasks::Args,
 }
@@ -44,8 +37,6 @@ impl Default for McpArgs {
             max_frame_bytes: protocol::DEFAULT_MAX_FRAME_BYTES as u32,
             media_output_root: None,
             image_key_file: None,
-            configured_local_python: false,
-            voice: mcp_voice::Args::default(),
             task: mcp_tasks::Args::default(),
         }
     }
@@ -53,16 +44,9 @@ impl Default for McpArgs {
 
 impl McpArgs {
     fn host_settings(&self) -> HostSettings {
-        let mut voice: crate::service::mcp::VoiceSettings = self.voice.clone().into();
-        if self.configured_local_python {
-            voice.backend.backend =
-                crate::service::operation_requests::asr::BackendKind::PythonWhisper;
-        }
         HostSettings {
             media_output_root: self.media_output_root.clone(),
             image_key_file: self.image_key_file.clone(),
-            configured_local_python: self.configured_local_python,
-            voice,
         }
     }
 }
@@ -70,17 +54,9 @@ impl McpArgs {
 /// Capture relative host paths against the stdio process, not the daemon cwd.
 fn absolute_host_settings(mut host: HostSettings) -> Result<HostSettings> {
     let cwd = std::env::current_dir()?;
-    for path in [
-        &mut host.media_output_root,
-        &mut host.image_key_file,
-        &mut host.voice.backend.whisper_binary,
-        &mut host.voice.backend.whisper_model,
-        &mut host.voice.backend.api_key_file,
-        &mut host.voice.backend.temp_root,
-        &mut host.voice.voice_cache_file,
-    ]
-    .into_iter()
-    .flatten()
+    for path in [&mut host.media_output_root, &mut host.image_key_file]
+        .into_iter()
+        .flatten()
     {
         if !path.as_os_str().is_empty() && path.is_relative() {
             *path = cwd.join(&*path);
@@ -226,56 +202,6 @@ mod tests {
     }
 
     #[test]
-    fn configured_local_python_is_an_explicit_host_flag() {
-        use clap::Parser;
-        assert!(
-            !TestCli::try_parse_from(["mcp"])
-                .unwrap()
-                .args
-                .configured_local_python
-        );
-        let args = TestCli::try_parse_from([
-            "mcp",
-            "--configured-local-python",
-            "--language",
-            "zh",
-            "--threads",
-            "2",
-            "--voice-cache-file",
-            "synthetic-cache.json",
-        ])
-        .unwrap()
-        .args;
-        assert!(args.configured_local_python);
-        assert_eq!(args.voice.backend.language, "zh");
-        assert_eq!(args.voice.backend.threads, Some(2));
-        let host = args.host_settings();
-        assert_eq!(
-            host.voice.backend.backend.identity(),
-            crate::service::operation_requests::asr::BackendId::PythonWhisper
-        );
-    }
-
-    #[test]
-    fn configured_local_python_rejects_cloud_and_cpp_host_flags() {
-        use clap::Parser;
-        for extra in [
-            vec!["--backend", "whisper_cpp"],
-            vec!["--allow-upload"],
-            vec!["--whisper-binary", "synthetic.exe"],
-            vec!["--whisper-model", "synthetic.bin"],
-            vec!["--api-key-file", "synthetic.key"],
-            vec!["--openai-base-url", "https://example.invalid"],
-            vec!["--openai-model", "synthetic"],
-            vec!["--temp-root", "synthetic-work"],
-        ] {
-            let mut argv = vec!["mcp", "--configured-local-python"];
-            argv.extend(extra);
-            assert!(TestCli::try_parse_from(argv).is_err());
-        }
-    }
-
-    #[test]
     fn args_accept_default_and_reject_unbounded_limits() {
         use clap::Parser;
         assert_eq!(
@@ -322,7 +248,7 @@ mod tests {
             .collect();
         assert_eq!(replies.len(), 2);
         let tools = replies[1]["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 15);
         for added in ["decode_file_message", "decode_record_item"] {
             let tool = tools.iter().find(|t| t["name"] == added).unwrap();
             assert_eq!(tool["annotations"]["readOnlyHint"], true);
@@ -334,24 +260,6 @@ mod tests {
             .unwrap();
         assert_eq!(image["annotations"]["readOnlyHint"], false);
         assert_eq!(image["annotations"]["destructiveHint"], false);
-        for name in ["decode_voice", "transcribe_voice"] {
-            let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
-            let properties = tool["inputSchema"]["properties"].as_object().unwrap();
-            for private in [
-                "configured_local_python",
-                "local_whisper_model",
-                "python_binary",
-                "api_key_file",
-            ] {
-                assert!(!properties.contains_key(private));
-            }
-            assert_eq!(tool["annotations"]["readOnlyHint"], false);
-            assert_eq!(tool["annotations"]["destructiveHint"], false);
-            assert_eq!(
-                tool["annotations"]["openWorldHint"],
-                name == "transcribe_voice"
-            );
-        }
     }
 
     #[test]

@@ -1,6 +1,5 @@
 //! Private typed worker entry. It never parses a public command or submits a task.
 use crate::{
-    application::voice_batch_export,
     runtime::RuntimeContext,
     service::{plan::*, protocol::MAX_REQUEST_BYTES},
 };
@@ -41,11 +40,6 @@ fn selected(runtime: &RuntimeContext, config: &Path) -> Result<()> {
         config == runtime.config_path,
         "Worker configuration mismatch"
     );
-    Ok(())
-}
-
-fn emit(value: &impl serde::Serialize) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
 
@@ -107,40 +101,6 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                 ..Default::default()
             })
         }
-        Step::TranscribeChats {
-            config,
-            output,
-            users,
-            allow_upload,
-        } => {
-            selected(runtime, &config)?;
-            let report = super::export_all::export_for(
-                runtime,
-                super::export_all::Args {
-                    output_dir: Some(output),
-                    with_transcriptions: true,
-                    write_plan_csv: None,
-                    from_plan_csv: None,
-                    plan_mode: crate::service::operation_requests::plan::Mode::Blacklist,
-                    size_mode: super::chat_plan::Mode::Estimate,
-                    incremental: false,
-                    delta_only: false,
-                    start: None,
-                    end: None,
-                    dry_run: false,
-                    users: Some(users.join(",")),
-                    asr: super::asr_batch::BatchArgs {
-                        explicit_backend: false,
-                        asr_cache_name: "batch-transcriptions.json".into(),
-                        backend: super::asr::BackendArgs {
-                            allow_upload,
-                            ..Default::default()
-                        },
-                    },
-                },
-            )?;
-            super::export_all::emit(report)
-        }
         Step::DecodeImages { config, output } => {
             selected(runtime, &config)?;
             let stored = super::image_keys::publication_material(runtime)?;
@@ -181,25 +141,6 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                 download_media,
                 no_remote: !download_media,
             })
-        }
-        Step::VoiceBatch {
-            config,
-            output,
-            users,
-        } => {
-            selected(runtime, &config)?;
-            let mut options = voice_batch_export::BatchOptions::from_config_file(&config)?;
-            options.output_dir = output;
-            options.contacts = voice_batch_export::parse_contact_filter(&users.join(","));
-            // Parent Job termination remains the worker's cancellation mechanism.
-            let report = voice_batch_export::convert_database_checked(
-                &options,
-                &crate::infrastructure::publication::export_protected(runtime),
-                || false,
-            )?;
-            emit(&report)?;
-            super::audio_export::voice_batch_outcome(&report).require_success()?;
-            Ok(())
         }
     }
 }

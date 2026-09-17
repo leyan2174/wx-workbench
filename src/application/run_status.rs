@@ -1,12 +1,9 @@
 //! Run-status maintenance diagnostics; paths follow the selected configuration and secrets stay unread.
 use anyhow::{ensure, Result};
-use serde::{
-    de::{SeqAccess, Visitor},
-    Deserialize, Deserializer, Serialize,
-};
+use serde::Serialize;
 use serde_json::Value;
 use std::{
-    fmt, fs,
+    fs,
     io::BufReader,
     path::{Path, PathBuf},
 };
@@ -16,12 +13,6 @@ pub struct Usage {
     pub exists: bool,
     pub files: u64,
     pub bytes: u64,
-}
-
-#[derive(Default, Serialize)]
-pub struct Progress {
-    pub voices: u64,
-    pub transcribed: u64,
 }
 
 #[derive(Serialize)]
@@ -41,8 +32,6 @@ pub struct Status {
     pub message_databases: Usage,
     pub exported_dir: PathBuf,
     pub exports: Usage,
-    pub progress: Progress,
-    pub unreadable_transcriptions: u64,
 }
 
 pub fn inspect(config_path: &Path, exported_dir: Option<&Path>) -> Result<Status> {
@@ -131,25 +120,13 @@ pub fn inspect(config_path: &Path, exported_dir: Option<&Path>) -> Result<Status
         exists: exported_dir.is_dir(),
         ..Usage::default()
     };
-    let mut progress = Progress::default();
-    let mut unreadable_transcriptions = 0;
     for path in regular_files(&exported_dir)? {
         let name = path.file_name().unwrap().to_string_lossy().to_lowercase();
         if !name.ends_with(".json") {
             continue;
         }
-        if name.ends_with("_transcribed.json") {
-            match read_progress(&path) {
-                Ok(found) => {
-                    progress.voices += found.voices;
-                    progress.transcribed += found.transcribed;
-                }
-                Err(_) => unreadable_transcriptions += 1,
-            }
-        } else {
-            exports.files += 1;
-            exports.bytes += fs::metadata(path)?.len();
-        }
+        exports.files += 1;
+        exports.bytes += fs::metadata(path)?.len();
     }
     Ok(Status {
         config_path: config_path.to_owned(),
@@ -164,8 +141,6 @@ pub fn inspect(config_path: &Path, exported_dir: Option<&Path>) -> Result<Status
         message_databases,
         exported_dir,
         exports,
-        progress,
-        unreadable_transcriptions,
     })
 }
 
@@ -183,85 +158,6 @@ fn regular_files(root: &Path) -> Result<Vec<PathBuf>> {
     }
     files.sort();
     Ok(files)
-}
-
-#[derive(Deserialize)]
-struct Message {
-    #[serde(default, rename = "type")]
-    kind: Value,
-    #[serde(default)]
-    transcription: Value,
-}
-
-#[derive(Default, Deserialize)]
-struct Chat {
-    #[serde(default, deserialize_with = "messages")]
-    messages: Progress,
-}
-
-#[derive(Deserialize)]
-struct Export {
-    #[serde(default, deserialize_with = "messages")]
-    messages: Progress,
-    #[serde(default, deserialize_with = "chats")]
-    chats: Option<Progress>,
-}
-
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_none_or(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(value) => !value.is_empty(),
-        Value::Object(value) => !value.is_empty(),
-    }
-}
-
-fn messages<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Progress, D::Error> {
-    struct Count;
-    impl<'de> Visitor<'de> for Count {
-        type Value = Progress;
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("消息数组")
-        }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Progress, A::Error> {
-            let mut count = Progress::default();
-            while let Some(message) = seq.next_element::<Message>()? {
-                if message.kind == "voice" {
-                    count.voices += 1;
-                    count.transcribed += u64::from(truthy(&message.transcription));
-                }
-            }
-            Ok(count)
-        }
-    }
-    deserializer.deserialize_seq(Count)
-}
-
-fn chats<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Progress>, D::Error> {
-    struct Count;
-    impl<'de> Visitor<'de> for Count {
-        type Value = Option<Progress>;
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("会话数组")
-        }
-        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-            let mut count = Progress::default();
-            while let Some(chat) = seq.next_element::<Chat>()? {
-                count.voices += chat.messages.voices;
-                count.transcribed += chat.messages.transcribed;
-            }
-            Ok(Some(count))
-        }
-    }
-    deserializer.deserialize_seq(Count)
-}
-
-fn read_progress(path: &Path) -> Result<Progress> {
-    // 未声明的正文等字段由 Serde 跳过；只在内存保留当前消息的两个统计字段。
-    let export: Export = serde_json::from_reader(BufReader::new(fs::File::open(path)?))?;
-    Ok(export.chats.unwrap_or(export.messages))
 }
 
 impl Status {
@@ -320,30 +216,12 @@ impl Status {
         } else {
             writeln!(text, "[export]  未导出").unwrap();
         }
-        if self.progress.voices > 0 {
-            writeln!(
-                text,
-                "[transcribe] {}/{} ({}%) 条语音已转录",
-                self.progress.transcribed,
-                self.progress.voices,
-                self.progress.transcribed as u128 * 100 / self.progress.voices as u128
-            )
-            .unwrap();
-        }
-        if self.unreadable_transcriptions > 0 {
-            writeln!(
-                text,
-                "[warning] {} 个转录文件无法统计，未计入进度",
-                self.unreadable_transcriptions
-            )
-            .unwrap();
-        }
         if !self.databases.exists {
             text.push_str("\n建议的下一步: wx database decrypt\n");
         } else if !self.exports.exists {
             text.push_str("\n建议的下一步: wx chats export-all\n");
         } else {
-            text.push_str("\n目录已就绪；不代表导出或转录内容已完整核验。\n");
+            text.push_str("\n目录已就绪；不代表导出内容已完整核验。\n");
         }
         text
     }

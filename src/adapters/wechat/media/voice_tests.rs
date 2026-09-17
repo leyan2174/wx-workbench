@@ -1,5 +1,49 @@
 use super::*;
 
+#[test]
+fn raw_coordinate_reverse_join_preserves_bytes_and_unknowns() {
+    let f = Fixture::valid();
+    let sources = explicit_sources(&f);
+    let raw = resolve_voice_media_row(&sources, "alice", 700, "message/media_0.db", 1).unwrap();
+    assert_eq!(raw.silk, b"\x02#!SILK_V3\0\x01synthetic");
+    assert_eq!(raw.evidence.message_local_id, 7);
+    assert_eq!(raw.evidence.media_rowid, 1);
+    assert_eq!(raw.sender, None);
+    assert_eq!(raw.duration_ms, None);
+    assert!(resolve_voice_media_row(&sources, "alice", 7, "message/media_0.db", 1).is_err());
+    assert!(resolve_voice_media_row(&sources, "alice", 700, "../media_0.db", 1).is_err());
+    f.message("message_1.db", "alice", 99, 100, 123, 34);
+    assert_eq!(
+        resolve_voice_media_row(&explicit_sources(&f), "alice", 700, "message/media_0.db", 1)
+            .unwrap_err()
+            .kind,
+        ErrorKind::AmbiguousMessage
+    );
+}
+
+#[test]
+fn raw_container_and_duration_do_not_repair_or_guess() {
+    assert!(is_raw_silk(b"\x02#!SILK_V3\0\xff"));
+    assert!(is_raw_silk(b"#!SILK_V3\0"));
+    assert!(!is_raw_silk(b"\x02\x02#!SILK_V3"));
+    assert_eq!(
+        voice_duration_ms("<msg><voicemsg voicelength='0'/></msg>"),
+        Some(0)
+    );
+    assert_eq!(
+        voice_duration_ms("<msg><voicemsg voicelength='1234'/></msg>"),
+        Some(1234)
+    );
+    for xml in [
+        "",
+        "<msg/>",
+        "<msg><voicemsg voicelength='-1'/></msg>",
+        "<msg><voicemsg voicelength='1'/><voicemsg voicelength='2'/></msg>",
+    ] {
+        assert_eq!(voice_duration_ms(xml), None);
+    }
+}
+
 fn explicit_sources(f: &Fixture) -> Vec<DecryptedSource> {
     source_files(f.root())
         .unwrap()

@@ -17,7 +17,7 @@
 
 列表按时间降序、source 升序、local_id 降序、rowid 降序稳定分页。时间边界两端包含，零与负时间不能被当作未设置；NULL 音频长度保持未知，空 BLOB 长度为零。
 
-ASR 使用 message.server_id 与 media.svr_id 关联，媒体 local_id 不等于消息 local_id。只有旧列表字段的模式可用于列表，但不足以证明 ASR 关联。离线入口依赖调用方提供完整快照，无法发现根目录或清单之外被省略的分片。
+严格语音 使用 message.server_id 与 media.svr_id 关联，媒体 local_id 不等于消息 local_id。只有旧列表字段的模式可用于列表，但不足以证明 严格语音 关联。离线入口依赖调用方提供完整快照，无法发现根目录或清单之外被省略的分片。
 
 ## 运行
 

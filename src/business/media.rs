@@ -145,14 +145,6 @@ pub enum Stage {
     Association,
     Revalidation,
     Decode,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Transcription is a distinct stage; current ASR execution uses the voice domain contract"
-        )
-    )]
-    Transcription,
     Publication,
     Download,
 }
@@ -215,7 +207,6 @@ mod stage_label_tests {
             (Stage::Association, "Association"),
             (Stage::Revalidation, "Revalidation"),
             (Stage::Decode, "Decode"),
-            (Stage::Transcription, "Transcription"),
             (Stage::Publication, "Publication"),
             (Stage::Download, "Download"),
         ] {

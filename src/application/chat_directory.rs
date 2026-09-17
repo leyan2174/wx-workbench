@@ -20,6 +20,90 @@ use std::{
 const INVENTORY: &str = "_directory_export.json";
 const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
 
+#[cfg(test)]
+mod raw_voice_tests {
+    use super::*;
+
+    #[test]
+    fn default_media_chat_export_keeps_raw_silk_and_machine_reference() {
+        let root = tempfile::tempdir().unwrap();
+        let account = root.path().join("account");
+        let decrypted = account.join("decrypted");
+        fs::create_dir_all(decrypted.join("message")).unwrap();
+        let runtime = RuntimeContext {
+            config: crate::config::Config {
+                key_store: None,
+                db_dir: account.join("db_storage"),
+                keys_file: account.join("keys.json"),
+                decrypted_dir: decrypted.clone(),
+                wechat_process: String::new(),
+            },
+            config_path: account.join("config.json"),
+            root: account.clone(),
+            id: "synthetic".into(),
+            directory: account.join("runtime"),
+        };
+        let target = Target {
+            username: "peer".into(),
+            chat: "Peer".into(),
+            is_group: false,
+        };
+        let conn = rusqlite::Connection::open(decrypted.join("message/message_0.db")).unwrap();
+        let table = format!("Msg_{:x}", md5::compute("peer"));
+        conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type INTEGER,create_time INTEGER,server_id INTEGER); INSERT INTO [{table}] VALUES(7,34,123,987);")).unwrap();
+        drop(conn);
+        let raw = b"\x02#!SILK_V3\0\x01synthetic\xff";
+        let conn = rusqlite::Connection::open(decrypted.join("message/media_0.db")).unwrap();
+        conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id(rowid,user_name) VALUES(91,'peer'); CREATE TABLE VoiceInfo(chat_name_id INTEGER, local_id INTEGER, create_time INTEGER, svr_id INTEGER, voice_data BLOB);").unwrap();
+        conn.execute(
+            "INSERT INTO VoiceInfo VALUES(91,700,123,987,?1)",
+            [raw.as_slice()],
+        )
+        .unwrap();
+        drop(conn);
+        let document = json!({"username":"peer", "is_group":false, "messages":[{
+            "source":"message/message_0.db", "local_id":7, "local_type":34,
+            "server_id":987, "sort_seq":1, "status":null, "sender_username":null,
+            "sender":"", "timestamp":123, "raw_content":"<msg><voicemsg voicelength='1250'/></msg>"
+        }]});
+        let options = Options {
+            formats: [Format::Json, Format::Html].into(),
+            media_enabled: true,
+            update: false,
+            max_media_bytes: 1024 * 1024,
+            max_total_media_bytes: 1024 * 1024,
+        };
+        let output = root.path().join("out");
+        let report = export_document(
+            &runtime,
+            &json!({}),
+            &target,
+            &document,
+            &output,
+            &options,
+            MediaInput::current(None),
+        )
+        .unwrap();
+        assert_eq!(report.media_issues, 0);
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(output.join("_voice_manifest.json")).unwrap())
+                .unwrap();
+        let item = &manifest["items"][0];
+        assert_eq!(item["status"], "success");
+        assert_eq!(item["association"], "exact_message_media_join");
+        assert!(item["message_id"].is_string());
+        assert!(item["sender"].is_null());
+        assert_eq!(item["duration_ms"], 1250);
+        assert_eq!(item["evidence"]["media"]["media_rowid"], 1);
+        let relative = item["relative_path"].as_str().unwrap();
+        assert!(relative.starts_with("voice/") && relative.ends_with(".silk"));
+        assert_eq!(fs::read(output.join(relative)).unwrap(), raw);
+        let html = fs::read_to_string(output.join("message_0.db.html")).unwrap();
+        assert!(html.contains(relative));
+        assert!(!html.contains("<audio"));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
@@ -90,6 +174,8 @@ pub struct Media {
     pub path: Option<String>,
     pub detail: String,
     pub binding: Option<String>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub evidence: Value,
 }
 
 #[derive(Clone, Copy)]
@@ -358,6 +444,70 @@ pub fn export_document(
     export_document_impl(runtime, config, target, document, output, options, media)
 }
 
+#[derive(Serialize)]
+struct VoiceManifestEvidence {
+    message_source: String,
+    message_local_id: i64,
+    server_id: Value,
+    item_index: usize,
+    media: Value,
+}
+
+fn voice_manifest(
+    runtime_id: &str,
+    target: &Target,
+    rows: &[Row],
+) -> Vec<crate::business::voice_export::ManifestItem<VoiceManifestEvidence>> {
+    use crate::business::voice_export::{stable_message_id, ManifestItem};
+    rows.iter()
+        .flat_map(|row| {
+            row.media
+                .iter()
+                .filter(|media| media.kind == "voice")
+                .enumerate()
+                .map(move |(index, media)| {
+                    let server = row
+                        .server_id
+                        .as_i64()
+                        .or_else(|| row.server_id.as_str().and_then(|s| s.parse().ok()));
+                    let direct = row.local_type & 0xffff_ffff == 34;
+                    ManifestItem {
+                        account_id: runtime_id.to_owned(),
+                        message_id: stable_message_id(&target.username, server),
+                        conversation: Some(target.username.clone()),
+                        sender: (!row.sender_username.is_empty())
+                            .then(|| row.sender_username.clone()),
+                        timestamp: row.create_time,
+                        duration_ms: if direct {
+                            row.content
+                                .as_str()
+                                .and_then(crate::adapters::wechat::media::voice::voice_duration_ms)
+                        } else {
+                            None
+                        },
+                        encoding: media.path.as_ref().map(|_| "silk".into()),
+                        relative_path: media.path.clone(),
+                        status: if media.status == "available" {
+                            "success".into()
+                        } else {
+                            media.status.clone()
+                        },
+                        association: media.binding.clone().unwrap_or_else(|| "unproven".into()),
+                        evidence: VoiceManifestEvidence {
+                            message_source: row.source.clone(),
+                            message_local_id: row.local_id,
+                            server_id: row.server_id.clone(),
+                            item_index: index,
+                            media: media.evidence.clone(),
+                        },
+                        failure: (!matches!(media.status.as_str(), "available" | "disabled"))
+                            .then(|| media.detail.clone()),
+                    }
+                })
+        })
+        .collect()
+}
+
 /// sources 必须由固定账号的可信宿主提供完整静态清单；路径限制在当前账号缓存或解密树。
 /// resource 和 voice 不混用旧静态目录；清单缺少所需文件时生成明确媒体缺失标记。
 pub fn export_document_with_sources(
@@ -515,6 +665,14 @@ fn export_document_impl(
         "directory_images":images.directory,
             "messages":rows.iter().filter(|r| !r.media.is_empty()).map(|r| json!({"source":r.source,"local_id":r.local_id,"media":r.media})).collect::<Vec<_>>()
         }))?,
+    )?;
+    stage(
+        staging.path(),
+        &mut staged,
+        PathBuf::from("_voice_manifest.json"),
+        &serde_json::to_vec_pretty(
+            &json!({"version": 1, "items": voice_manifest(&runtime.id, target, &rows)}),
+        )?,
     )?;
     let mut inventory = Inventory {
         version: 1,

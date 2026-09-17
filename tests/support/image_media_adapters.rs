@@ -17,8 +17,6 @@ pub mod messages {
     pub use super::message_read as read;
     pub use read::*;
 }
-#[path = "../../src/adapters/wechat/contacts/batch.rs"]
-pub mod contact_batch;
 #[path = "../../src/adapters/wechat/emoticons/mod.rs"]
 #[allow(dead_code)] // Image queries use only the catalog reference lookup, not all catalog APIs.
 pub mod emoticons;
@@ -26,8 +24,5 @@ pub mod emoticons;
 #[allow(dead_code)] // Image query fixtures omit voice, batch export and local-emoticon consumers.
 pub mod media;
 pub mod wechat {
-    pub mod contacts {
-        pub use super::super::contact_batch as batch;
-    }
     pub use super::{emoticons, media, messages};
 }

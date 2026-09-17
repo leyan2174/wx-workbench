@@ -208,7 +208,7 @@ fn lists_only_registered_tools_and_returns_text_content() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     )
     .unwrap();
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 15);
     assert!(list["result"].get("nextCursor").is_none());
     let r = send(&mut p, call("get_contacts", json!({}))).unwrap();
     assert_eq!(r["result"]["isError"], false);
@@ -218,121 +218,20 @@ fn lists_only_registered_tools_and_returns_text_content() {
 }
 
 #[test]
-fn voice_routes_preserve_media_ids_and_reject_host_configuration() {
+fn removed_voice_tools_are_not_discoverable_or_dispatchable() {
     for name in ["decode_voice", "transcribe_voice"] {
-        let args = json!({"chat_name":"peer","local_id":700});
-        assert_eq!(
-            serde_json::to_value(route(name, &args).unwrap()).unwrap(),
-            json!({"cmd":name,"chat":"peer","local_id":700})
-        );
-        for field in [
-            "output_root",
-            "backend",
-            "allow_upload",
-            "api_key_file",
-            "voice_cache_file",
-            "source",
-            "create_time",
-        ] {
-            let mut injected = args.clone();
-            injected[field] = json!("not accepted");
-            assert!(route(name, &injected).is_err(), "{name}: {field}");
-        }
-        for id in [0, -1] {
-            assert!(route(name, &json!({"chat_name":"peer","local_id":id})).is_err());
-        }
-        let tool = tools().into_iter().find(|tool| tool.name == name).unwrap();
-        assert!(!tool.read_only());
-        assert_eq!(tool.open_world(), name == "transcribe_voice");
-    }
-}
-
-#[test]
-fn text_result_budget_counts_exact_id_envelope_and_json_escaping() {
-    for id in [
-        json!(700),
-        json!("request\"\n中文"),
-        json!("long".repeat(200)),
-    ] {
-        let text = "结果\n\"\\\u{0000}";
-        let bytes =
-            serde_json::to_vec(&result(id.clone(), text_result(text.into(), false))).unwrap();
-        let mut context = CallContext {
-            response_id: id,
-            max_response_bytes: bytes.len(),
-            ..CallContext::default()
-        };
-        assert_eq!(context.check_text_result(text), Ok(()));
-        context.max_response_bytes -= 1;
-        assert_eq!(
-            context.check_text_result(text),
-            Err(DispatchError::ResultLimit)
-        );
-    }
-}
-
-#[test]
-fn stdio_passes_actual_response_budget_before_voice_publication() {
-    let publications = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let observed = publications.clone();
-    let mut protocol = Protocol::new(Controlled(move |_: Request, context: &CallContext| {
-        let text = "x".repeat(400);
-        context.check_text_result(&text)?;
-        observed.fetch_add(1, Ordering::SeqCst);
-        Ok(Response::ok(json!({"mcp_text":text})))
-    }));
-    ready(&mut protocol);
-    let mut request = call("decode_voice", json!({"chat_name":"peer","local_id":700}));
-    request["id"] = json!("i".repeat(600));
-    let mut input = serde_json::to_vec(&request).unwrap();
-    input.push(b'\n');
-    assert!(input.len() < 1024);
-    let mut output = Vec::new();
-    protocol
-        .serve(std::io::Cursor::new(input), &mut output, 1024)
-        .unwrap();
-    let reply: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(reply["id"], request["id"]);
-    assert_eq!(reply["result"]["isError"], true);
-    assert_eq!(
-        reply["result"]["content"][0]["text"],
-        "Query result exceeds safe limit"
-    );
-    assert_eq!(publications.load(Ordering::SeqCst), 0);
-}
-
-#[test]
-fn voice_results_require_completed_host_text_not_prepared_audio() {
-    for name in ["decode_voice", "transcribe_voice"] {
-        for data in [
-            json!({"prepared_audio":{"silk_base64":"must-not-leak"}}),
-            json!({"mcp_text":null}),
-            json!({"mcp_text":42}),
-        ] {
-            let mut protocol = Protocol::new(move |_| Ok(Response::ok(data.clone())));
-            ready(&mut protocol);
-            let reply = send(
-                &mut protocol,
-                call(name, json!({"chat_name":"peer","local_id":700})),
-            )
-            .unwrap();
-            assert_eq!(
-                reply["result"],
-                json!({"isError":true,"content":[{"type":"text","text":"Invalid query response"}]})
-            );
-        }
-        let mut protocol =
-            Protocol::new(|_| Ok(Response::ok(json!({"mcp_text":"完成\n原生结果"}))));
+        assert!(!tools().iter().any(|tool| tool.name == name));
+        assert!(route(name, &json!({"chat_name":"peer","local_id":700})).is_err());
+        let mut protocol = Protocol::new(|_: Request| -> Result<Response, DispatchError> {
+            panic!("removed tool must not dispatch");
+        });
         ready(&mut protocol);
         let reply = send(
             &mut protocol,
             call(name, json!({"chat_name":"peer","local_id":700})),
         )
         .unwrap();
-        assert_eq!(
-            reply["result"],
-            json!({"isError":false,"content":[{"type":"text","text":"完成\n原生结果"}]})
-        );
+        assert!(reply.get("error").is_some() || reply["result"]["isError"] == true);
     }
 }
 

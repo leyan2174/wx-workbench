@@ -1,6 +1,6 @@
 # External Process Lifecycle
 
-`managed.rs` shares Windows Job ownership between daemon workers, FFmpeg and local ASR.
+`managed.rs` shares Windows Job ownership between daemon workers and image/video helpers.
 Children start suspended and without a console, join a kill-on-close Job, then resume.
 Ordinary Jobs never allow breakaway. Incompatible host Jobs fail closed; there is no
 fallback to an unowned child. Account capture alone retains its existing explicit
@@ -15,13 +15,10 @@ cleanup has an additional two-second budget; failure means termination is not
 confirmed, not that stopping the wait killed all work. Job Drop is a final
 best-effort termination request, not a substitute for checked cleanup.
 
-Direct FFmpeg: 120 seconds including preparation/publication checks, 1 MiB combined
-output. Existing codec parameters and temporary same-directory publication remain
-unchanged. Failure/cancellation through the API removes temporary files and leaves
-an existing destination intact. Worker tasks use a 24-hour total deadline across
+Image/video helpers apply their caller's execution and output limits.
+Worker tasks use a 24-hour total deadline across
 steps, and a 64 MiB combined output budget per step (including suppressed output).
 Worker output reader shutdown is separately bounded to two seconds per pipe.
-ASR retains domain-specific disk/response/stream limits and configured timeouts.
 
 Forced host termination does not run Rust destructors: closing the Job kills owned
 helpers, but temporary files created by the terminated host can remain. The task
@@ -30,6 +27,5 @@ ownership alone does not promise transactional multi-file publication or disk qu
 
 Tests use synthetic processes only: hang, flood both pipes, spawn descendants,
 parent exit with inherited pipes, cancellation, inner Job cleanup without killing
-the outer worker, and outer Job termination including the inner tree. Audio tests
-use a synthetic FFmpeg-shaped executable and verify failed publication preserves
-old output. No account data, WeChat, scans, uploads or model downloads are required.
+the outer worker, and outer Job termination including the inner tree.
+No account data, WeChat or scans are required.

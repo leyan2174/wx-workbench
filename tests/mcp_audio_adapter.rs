@@ -5,12 +5,6 @@ pub mod adapters;
 #[path = "support/media_business.rs"]
 pub mod business;
 
-#[path = "../src/attachment/local_files.rs"]
-pub mod local_files;
-mod attachment {
-    pub use crate::local_files;
-}
-
 #[path = "../src/service/monitor.rs"]
 pub mod monitor_contract;
 mod service {
@@ -22,9 +16,6 @@ mod service {
 #[path = "../src/daemon/cache.rs"]
 #[allow(unused_imports)] // 音频适配测试不调用图片资源快照接口。
 pub mod cache;
-mod daemon {
-    pub use crate::cache;
-}
 #[path = "../src/config.rs"]
 mod config;
 #[path = "../src/crypto/mod.rs"]
@@ -32,30 +23,11 @@ mod crypto;
 pub use adapters::wechat::media::voice as database_media;
 #[path = "../src/daemon/meta.rs"]
 mod meta;
-#[path = "../src/application/transcription/prepared_audio.rs"]
-pub mod prepared_audio;
 #[path = "../src/runtime.rs"]
 mod runtime;
-mod application {
-    pub mod transcription {
-        pub use crate::prepared_audio;
-    }
-}
 use cache::DbCache;
 use rusqlite::Connection;
 use serde_json::json;
 use std::{collections::HashMap, fs, path::PathBuf};
-pub struct Names {
-    map: HashMap<String, String>,
-}
-// This adapter harness supplies contact-only host evidence. Account/session/table
-// resolution is exercised by daemon::query::chat_identity::tests in the binary.
-async fn q_resolve_chat(_: &DbCache, names: &Names, chat: &str) -> anyhow::Result<String> {
-    Ok(mcp_voice::resolve_exact_chat(chat, &names.map)?)
-}
 #[path = "fixtures/mcp-audio/tests.rs"]
 mod audio_tests;
-#[path = "../src/daemon/query/mcp_audio.rs"]
-mod mcp_audio;
-#[path = "../src/daemon/query/mcp_voice.rs"]
-mod mcp_voice;

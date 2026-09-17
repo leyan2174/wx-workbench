@@ -36,7 +36,7 @@
 
 `infrastructure::publication::{export_protected, validate_export_target, ExportTarget}` 固定账号的配置、新密钥存储、旧 `keys_file`、暂留的 `account_key.dpapi`、密钥更新锁、原始数据库、解密目录及运行目录。尚不存在的受保护路径也不能作为导出目标；目录导出不能包含这些资源。重解析点及多硬链接目标由现有路径守卫拒绝。
 
-分页 `export`、单聊和批量聊天导出复用此边界。分页参数、筛选条件和输出格式不变；标准输出分支不创建导出文件或临时文件。数据库、目录导出、ASR 输出和监控状态文件均保护正式密钥路径；解密只依赖正式存储，不要求旧密钥文件存在。
+分页 `export`、单聊和批量聊天导出复用此边界。分页参数、筛选条件和输出格式不变；标准输出分支不创建导出文件或临时文件。数据库、目录导出和监控状态文件均保护正式密钥路径；解密只依赖正式存储，不要求旧密钥文件存在。
 
 单文件发布复用 `infrastructure::publication::check_target`、`infrastructure::publication::parent_guard`、`HostOutputGuard` 和私有临时文件权限。`ExportTarget` 在查询/合并前捕获目标身份和流式摘要；发布前复核，写入失败或检测到并发变更时保留旧文件。新目标使用禁止覆盖的原子发布，已有普通产物按显式导出操作允许原子替换。临时文件同步、关闭写句柄并复核身份后才发布。
 

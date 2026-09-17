@@ -321,21 +321,6 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             )
             .await,
         ),
-        DecodeVoice { chat, local_id } | TranscribeVoice { chat, local_id } => {
-            let limits = crate::application::transcription::prepared_audio::Limits {
-                max_audio_bytes: crate::adapters::wechat::media::voice::MAX_VOICE_BYTES,
-                // 为外层 prepared_audio 和 IPC 包装预留空间，不能靠放宽 MCP 帧解决。
-                max_response_bytes: crate::ipc::MAX_PREPARED_VOICE_RESPONSE_BYTES - 1024,
-            };
-            match query::mcp_audio::q_prepare_voice(db, &names_arc, &chat, local_id, limits).await {
-                Ok(value) => Response::ok(value),
-                Err(_) => Response::ok(serde_json::json!({
-                    "exit_code": 1,
-                    "status": "error",
-                    "message": "Voice preparation failed"
-                })),
-            }
-        }
         DecodeImage {
             chat,
             local_id,

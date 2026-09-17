@@ -109,7 +109,7 @@ fn mcp_tasks_real_worker_shared_with_cli_web_and_retry_after_disconnect() {
     let account = fixture.account("mcp-task-owner", true);
     let mut mcp = Mcp::start(&fixture, &account, DECRYPT);
     let tools = mcp.request("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 22);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 20);
     let id = "a1".repeat(32);
     let args = json!({"idempotency_key":id,"kind":"wechat_decrypt"});
     let task = mcp.data("submit_task", args.clone());
@@ -261,15 +261,15 @@ fn mcp_tasks_reject_model_authorization_paths_and_changed_account() {
         json!({"idempotency_key":"a".repeat(64),"kind":"shell"}),
         json!({"idempotency_key":"a".repeat(64),"kind":"wechat_decrypt","output_dir":"C:/outside"}),
         json!({"idempotency_key":"bad","kind":"wechat_decrypt"}),
+        json!({"idempotency_key":"a".repeat(64),"kind":"export_all","options":{"with_transcriptions":true}}),
+        json!({"idempotency_key":"a".repeat(64),"kind":"export_all","options":{"allow_upload":true}}),
+        json!({"idempotency_key":"a".repeat(64),"kind":"export_all","options":{"with_transcriptions":true,"allow_upload":true}}),
     ] {
         assert_eq!(mcp.tool("submit_task", bad)["error"]["code"], -32602);
     }
     for (kind, options) in [
         ("wechat_keys", json!({"authorize_memory_scan":true})),
-        (
-            "export_all",
-            json!({"with_transcriptions":true,"allow_upload":true}),
-        ),
+        ("export_all", json!({})),
         ("decode_images", json!({})),
     ] {
         let reply = mcp.tool(

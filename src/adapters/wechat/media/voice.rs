@@ -6,6 +6,14 @@ use std::{
 };
 
 pub const MAX_VOICE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Inspect the container without normalizing, decoding, or appending bytes.
+pub fn is_raw_silk(bytes: &[u8]) -> bool {
+    bytes
+        .strip_prefix(&[2])
+        .unwrap_or(bytes)
+        .starts_with(b"#!SILK_V3")
+}
 const MAX_MEDIA_SHARDS: usize = 1024;
 const MAX_DIRECTORY_ENTRIES: usize = 4096;
 
@@ -86,7 +94,7 @@ pub struct MessageIdentity<'a> {
     pub local_id: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct VoiceEvidence {
     pub username: String,
     pub message_source: String,
@@ -106,6 +114,8 @@ pub struct DatabaseVoice {
     /// 保留原始 SILK 字节，包括微信可能存在的 0x02 前缀。
     pub silk: Vec<u8>,
     pub evidence: VoiceEvidence,
+    pub sender: Option<String>,
+    pub duration_ms: Option<u64>,
 }
 
 impl fmt::Debug for DatabaseVoice {
@@ -253,14 +263,15 @@ fn with_sources<T>(
     result
 }
 
-/// 旧公开 local_id 明确指 VoiceInfo.local_id，绝不作为消息表 local_id 使用。
-/// 先证明唯一媒体行，再按 username/server_id 反查所有消息分片；最后复用正向关联。
-/// 歧义以 DatabaseMediaError.kind 返回，不返回未经验证的字节或猜测候选。
-pub fn resolve_voice_media_id(
+/// The row coordinate selects evidence within one media shard, never a message identity.
+pub fn resolve_voice_media_row(
     sources: &[DecryptedSource],
     username: &str,
     media_local_id: i64,
+    media_source: &str,
+    media_rowid: i64,
 ) -> Result<DatabaseVoice> {
+    let media_source = canonical_source(media_source)?;
     if username.is_empty() || username.len() > 1024 || username.chars().any(char::is_control) {
         return Err(error(ErrorKind::InvalidIdentity, "username"));
     }
@@ -284,14 +295,17 @@ pub fn resolve_voice_media_id(
         let mut candidate = None;
         let mut ambiguous_media = false;
         for (source, db) in media {
+            if media_source != *source {
+                continue;
+            }
             let Some(chat_id) = contact_id(&db.conn, username)? else {
                 continue;
             };
             let mut statement = db.conn.prepare(
-                "SELECT rowid,local_id,create_time,svr_id,chat_name_id FROM VoiceInfo WHERE chat_name_id=?1 AND local_id=?2 LIMIT 2",
+                "SELECT rowid,local_id,create_time,svr_id,chat_name_id FROM VoiceInfo WHERE chat_name_id=?1 AND local_id=?2 AND rowid=?3 LIMIT 2",
             ).map_err(|_| error(ErrorKind::DatabaseRead, "legacy media query"))?;
             let mut rows = statement
-                .query([chat_id, media_local_id])
+                .query(rusqlite::params![chat_id, media_local_id, media_rowid])
                 .map_err(|_| error(ErrorKind::DatabaseRead, "legacy media rows"))?;
             while let Some(row) = rows
                 .next()
@@ -597,12 +611,18 @@ fn join_voice(
                         |row| row.get(0),
                     )
                     .map_err(|_| error(ErrorKind::DatabaseRead, "voice bytes"))?;
-                let header = silk.strip_prefix(&[2]).unwrap_or(&silk);
-                if !header.starts_with(b"#!SILK_V3") {
+                if !is_raw_silk(&silk) {
                     return Err(error(ErrorKind::InvalidVoiceData, "SILK_V3 header"));
                 }
                 match_data = Some(DatabaseVoice {
                     silk,
+                    sender: raw.sender.clone().filter(|sender| !sender.is_empty()),
+                    duration_ms: snapshot
+                        .read_evidence(reference.evidence())
+                        .ok()
+                        .and_then(|message| message.bounded_decode(1024 * 1024).ok())
+                        .and_then(|bytes| String::from_utf8(bytes).ok())
+                        .and_then(|text| voice_duration_ms(&text)),
                     evidence: VoiceEvidence {
                         username: identity.username.into(),
                         message_source: source.to_owned(),
@@ -628,6 +648,24 @@ fn join_voice(
             "username/server_id in all provided media shards",
         )
     })
+}
+
+pub fn voice_duration_ms(text: &str) -> Option<u64> {
+    let document = roxmltree::Document::parse(text).ok()?;
+    let mut nodes = document
+        .descendants()
+        .filter(|node| node.has_tag_name("voicemsg"));
+    let duration = nodes
+        .next()?
+        .attribute("voicelength")?
+        .trim()
+        .parse()
+        .ok()?;
+    if nodes.next().is_some() {
+        None
+    } else {
+        Some(duration)
+    }
 }
 
 fn numbered_db(name: &str, prefix: &str) -> bool {

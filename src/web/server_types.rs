@@ -1,6 +1,5 @@
 //! 后台状态的只读视图，以及当前 Web 实例的事件、队列和限额。
 use crate::service::protocol::{Call, Log, Task};
-pub use crate::service::settings::Settings;
 use anyhow::{ensure, Result};
 use serde_json::Value;
 use std::{

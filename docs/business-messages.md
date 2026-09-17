@@ -17,7 +17,7 @@ The read core owns schema inspection, Name2Id, row selection, strict uniqueness,
 stored scalar types and bounded decompression. `projection` produces semantic
 content and compatibility previews. Raw evidence is not a business JSON payload.
 Metadata-only reads do not require body columns. Missing columns, unread bodies
-and actual NULL values remain distinct. The legacy ASR server-ID accessor accepts
+and actual NULL values remain distinct. The strict media server-ID accessor accepts
 only a nonzero SQLite INTEGER; text, missing and NULL values are not fallback keys.
 Server-ID lookup checks uniqueness across times before optional time validation.
 

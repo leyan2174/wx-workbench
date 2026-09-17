@@ -1,6 +1,5 @@
 //! Allowed paths enter through authenticated Configure, never task submissions.
 use crate::runtime::RuntimeContext;
-use crate::service::operation_requests::asr::BackendId;
 use anyhow::{ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,13 +19,6 @@ pub struct SettingsInput {
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub image_cache_dir: Option<PathBuf>,
-    pub transcription_backend: String,
-}
-
-pub struct TranscriptionCapabilities {
-    pub available: bool,
-    pub python_whisper: bool,
-    pub requires_upload: bool,
 }
 
 const MAX_PATH_BYTES: usize = 32768;
@@ -51,22 +43,8 @@ impl SettingsInput {
     }
 }
 impl Settings {
-    pub fn transcription_capabilities(&self) -> TranscriptionCapabilities {
-        let backend = BackendId::parse(&self.transcription_backend).ok();
-        TranscriptionCapabilities {
-            available: backend.is_some(),
-            python_whisper: backend == Some(BackendId::PythonWhisper),
-            requires_upload: backend == Some(BackendId::OpenAiCompatible),
-        }
-    }
-
     /// Recheck private serialized settings before use. This does not authorize new paths.
     pub fn validate_serialized(&self) -> Result<()> {
-        ensure!(
-            ["", "unconfigured", "unsupported"].contains(&self.transcription_backend.as_str())
-                || BackendId::parse(&self.transcription_backend).is_ok(),
-            "Invalid transcription backend"
-        );
         if let Some(path) = &self.image_cache_dir {
             check_path(path)?;
             ensure!(path.is_absolute(), "Serialized path must be absolute");
@@ -119,13 +97,6 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
     };
     let settings = Settings {
         image_cache_dir: path(&args.image_cache_dir, "image_cache_dir")?,
-        transcription_backend: match raw.get("transcription_backend") {
-            None => "unconfigured".into(),
-            Some(Value::String(s)) => BackendId::parse(s)
-                .map(|id| id.as_str().to_owned())
-                .unwrap_or_else(|_| "unsupported".into()),
-            _ => "unsupported".into(),
-        },
     };
     settings.validate_serialized()?;
     Ok(settings)
@@ -135,59 +106,6 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn asr_settings_accept_only_canonical_names() {
-        for name in ["whisper_cpp", "python_whisper", "openai_compatible"] {
-            assert!(Settings {
-                transcription_backend: name.into(),
-                ..Default::default()
-            }
-            .validate_serialized()
-            .is_ok());
-        }
-        assert!(Settings {
-            transcription_backend: "unknown-engine".into(),
-            ..Default::default()
-        }
-        .validate_serialized()
-        .is_err());
-        for name in ["local", "openai", "explicit-open-ai", "ExplicitOpenAi"] {
-            assert!(Settings {
-                transcription_backend: name.into(),
-                ..Default::default()
-            }
-            .validate_serialized()
-            .is_err());
-        }
-    }
-
-    #[test]
-    fn transcription_capabilities_report_canonical_engines() {
-        for (name, available, python, upload) in [
-            ("python_whisper", true, true, false),
-            ("whisper_cpp", true, false, false),
-            ("openai_compatible", true, false, true),
-            ("local", false, false, false),
-            ("openai", false, false, false),
-            ("unconfigured", false, false, false),
-        ] {
-            let capabilities = Settings {
-                transcription_backend: name.into(),
-                ..Default::default()
-            }
-            .transcription_capabilities();
-            assert_eq!(
-                (
-                    capabilities.available,
-                    capabilities.python_whisper,
-                    capabilities.requires_upload
-                ),
-                (available, python, upload),
-                "{name}"
-            );
-        }
-    }
 
     #[test]
     fn rejects_serialized_injection_and_invalid_paths() -> Result<()> {
@@ -207,7 +125,6 @@ mod tests {
         }
         assert!(Settings {
             image_cache_dir: Some("relative".into()),
-            ..Default::default()
         }
         .validate_serialized()
         .is_err());
@@ -216,13 +133,11 @@ mod tests {
         fs::write(&file, b"synthetic")?;
         assert!(Settings {
             image_cache_dir: Some(fs::canonicalize(&file)?),
-            ..Default::default()
         }
         .validate_serialized()
         .is_err());
         assert!(Settings {
             image_cache_dir: Some(fs::canonicalize(root.path())?),
-            ..Default::default()
         }
         .validate_serialized()
         .is_ok());

@@ -33,13 +33,13 @@
 
 图片文件发布与响应传输不是同一事务。发布后超时、响应超限或连接断开，文件仍可能保留；调用方应先检查目标，不能把失败当作“未执行”，也不能假定重试必然成功。
 
-## 语音
+## 原始语音
 
-MCP 语音执行工具的 local_id 是 `VoiceInfo` 媒体 ID，不是消息 ID。核心通过完整来源清单证明消息与媒体关联，拒绝重复、缺证据或时间冲突。原始音频最多 16 MiB，内部准备结果最多 24 MiB；该结果不公开到 stdio。
+`get_voice_messages` 只返回语音目录元数据；`wx voices` 提供原始 SILK 导出，保留已有 `0x02` 前缀，不转 WAV/MP3。完整聊天目录保留语音引用，并生成 `_voice_manifest.json`（`version: 1`、`items`）；`voices` 的条目位于 `_voice_export_summary.json` 的 `manifest`。
 
-daemon 内的宿主策略执行器完成 prepare、bind 和 finish，检查音频摘要、身份、请求预算与输出守卫。WAV 发布不覆盖，转录使用显式本地后端，或经授权的云端后端。配置式 Python 桥必须由宿主开启，命名模型可能下载权重，不能称为保证离线。
+`message_id` 仅由精确会话和非零服务端消息 ID 组成，与独立的 `account_id` 一起使用，不以媒体 ID、消息 local_id 或 rowid 替代。未知发送者和时长为 null；严格关联后的 timestamp 为消息时间，未关联时间仅作媒体证据。文件成功不等于关联成功，`voices` 对未证明关联的条目仍计入 `incomplete_items`、标记 `partial` 并非零退出。
 
-语音关联见[数据库媒体契约](../src/adapters/wechat/media/VOICE_DATABASE.md)，缓存和无源成功记录查询见[缓存说明](../src/application/transcription/CACHE.md)。
+关联依赖完整来源和可核对的消息、媒体证据；缺失、重复或时间冲突不得伪装成成功。详见[数据库媒体契约](../src/adapters/wechat/media/VOICE_DATABASE.md)与[原始语音导出](../src/business/VOICE_EXPORT.md)。
 
 ## 富消息与其他入口
 

@@ -2,7 +2,7 @@ use super::output::{print_value, resolve};
 use anyhow::Result;
 use serde::Serialize;
 
-const NATIVE_COMMANDS: [&str; 31] = [
+const NATIVE_COMMANDS: [&str; 25] = [
     "setup",
     "cleanup",
     "status",
@@ -10,17 +10,12 @@ const NATIVE_COMMANDS: [&str; 31] = [
     "database decrypt",
     "chats export-all",
     "emoticons export",
-    "audio transcribe-message",
     "chats export-delta",
     "chats plan",
-    "audio transcribe",
-    "chats transcribe-manifest",
     "media video decode",
     "media image decode",
     "media image decode-cache",
     "media image decode-directory",
-    "audio convert",
-    "audio export",
     "chats export",
     "moments export-snapshot",
     "moments export",
@@ -31,7 +26,6 @@ const NATIVE_COMMANDS: [&str; 31] = [
     "keys watch-image",
     "monitor",
     "latency",
-    "chats transcribe",
     "web",
     "gui",
 ];
@@ -53,7 +47,7 @@ pub(super) fn execute(json: bool) -> Result<()> {
 #[test]
 fn capabilities_list_unique_formal_entry_points() {
     let unique: std::collections::HashSet<_> = NATIVE_COMMANDS.iter().collect();
-    assert_eq!(unique.len(), 31);
+    assert_eq!(unique.len(), 25);
     for command in NATIVE_COMMANDS {
         assert!(!command.contains("toolkit"));
         assert!(!command.contains("native"));

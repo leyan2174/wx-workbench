@@ -1,81 +1,36 @@
 //! Voice-directory selection, not proof of a strict message association.
 use super::media::{Error, Failure, Stage};
 
-/// Explicit batch selection; this is not a strict message identity.
-pub fn batch_selected(
-    username: &str,
-    contacts: Option<&std::collections::BTreeSet<String>>,
-) -> bool {
-    contacts.is_none_or(|names| names.is_empty() || names.contains(username))
+/// Portable metadata, never an authorization to read media. Coordinates are evidence only.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ManifestItem<E> {
+    pub account_id: String,
+    pub message_id: Option<String>,
+    pub conversation: Option<String>,
+    pub sender: Option<String>,
+    pub timestamp: Option<i64>,
+    pub duration_ms: Option<u64>,
+    pub encoding: Option<String>,
+    pub relative_path: Option<String>,
+    pub status: String,
+    pub association: String,
+    pub evidence: E,
+    pub failure: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BatchItemOutcome {
-    Converted,
-    Existing,
-    Filtered,
-    Failed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BatchState {
-    Success,
-    Partial,
-    Failure,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BatchFailureStage {
-    Metadata,
-    Directory,
-    Material,
-    Conversion,
-    Publication,
-}
-#[derive(Debug, Default, serde::Serialize)]
-pub struct BatchProgress {
-    pub total: u64,
-    pub success: u64,
-    pub failed: u64,
-    pub converted: u64,
-    pub skipped_existing: u64,
-    pub filtered: u64,
-}
-
-impl BatchProgress {
-    pub fn record(&mut self, outcome: BatchItemOutcome) {
-        self.total += 1;
-        match outcome {
-            BatchItemOutcome::Converted => {
-                self.converted += 1;
-                self.success += 1;
-            }
-            BatchItemOutcome::Existing => {
-                self.skipped_existing += 1;
-                self.success += 1;
-            }
-            BatchItemOutcome::Filtered => self.filtered += 1,
-            BatchItemOutcome::Failed => self.failed += 1,
-        }
-    }
-
-    pub fn state(&self) -> BatchState {
-        if self.failed == 0 {
-            BatchState::Success
-        } else if self.converted + self.skipped_existing > 0 {
-            BatchState::Partial
-        } else {
-            BatchState::Failure
-        }
-    }
+/// Only a nonzero server identity can survive message database reorganization.
+pub fn stable_message_id(username: &str, server_id: Option<i64>) -> Option<String> {
+    server_id.filter(|id| *id != 0).map(|id| {
+        serde_json::to_string(&(username, id.to_string())).expect("string tuple serialization")
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub slot: usize,
     pub username: String,
-    pub timestamp: i64,
-    pub local_id: i64,
+    pub timestamp: Option<i64>,
+    pub local_id: Option<i64>,
 }
 
 pub trait Source {
@@ -97,8 +52,12 @@ pub fn select(source: &impl Source, query: &Selection<'_>) -> Vec<Entry> {
         .iter()
         .filter(|entry| {
             query.username.is_none_or(|name| name == entry.username)
-                && query.since.is_none_or(|time| entry.timestamp >= time)
-                && query.until.is_none_or(|time| entry.timestamp <= time)
+                && query
+                    .since
+                    .is_none_or(|time| entry.timestamp.is_some_and(|stamp| stamp >= time))
+                && query
+                    .until
+                    .is_none_or(|time| entry.timestamp.is_some_and(|stamp| stamp <= time))
         })
         .cloned()
         .collect();
@@ -137,22 +96,13 @@ pub fn resolve_chat<'a>(
 mod tests {
     use super::*;
     #[test]
-    fn batch_counts_and_exact_selection_preserve_legacy_success() {
-        let mut report = BatchProgress::default();
-        report.record(BatchItemOutcome::Filtered);
-        assert_eq!(report.state(), BatchState::Success);
-        report.record(BatchItemOutcome::Failed);
-        assert_eq!(report.state(), BatchState::Failure);
-        report.record(BatchItemOutcome::Existing);
-        assert_eq!(report.state(), BatchState::Partial);
-        report.record(BatchItemOutcome::Converted);
-        assert_eq!(
-            (report.total, report.success, report.failed, report.filtered),
-            (4, 2, 1, 1)
+    fn stable_identity_requires_server_evidence_and_conversation() {
+        assert_eq!(stable_message_id("a", None), None);
+        assert_eq!(stable_message_id("a", Some(0)), None);
+        assert_ne!(
+            stable_message_id("a", Some(1)),
+            stable_message_id("b", Some(1))
         );
-        let names = ["Alice".to_owned()].into_iter().collect();
-        assert!(batch_selected("Alice", Some(&names)));
-        assert!(!batch_selected("alice", Some(&names)));
     }
     struct Memory(Vec<Entry>);
     impl Source for Memory {
@@ -169,8 +119,8 @@ mod tests {
                 .map(|(slot, timestamp)| Entry {
                     slot,
                     username: "chat".into(),
-                    timestamp,
-                    local_id: 1,
+                    timestamp: Some(timestamp),
+                    local_id: Some(1),
                 })
                 .collect(),
         );

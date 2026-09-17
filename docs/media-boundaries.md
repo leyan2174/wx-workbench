@@ -19,7 +19,7 @@
 
 旧 resolver 入口仅为兼容导入。其实际查询位于显式命名的 `legacy_lookup_md5`，仍保留旧时间回退与低位类型匹配行为；严格 ImageSource 不调用它。这个兼容入口仍会将部分旧查询错误当作无结果，不可用作严格关联或授权依据。
 
-语音数据库关联实现在 `adapters::wechat::media::voice`；应用转录工作流直接使用适配器。消息定位使用真实 messages::Snapshot，读取 server_id 时拒绝非 INTEGER 值；媒体行号不冒充消息 local_id。MCP prepare/finish 继续使用原有可复核证明，不序列化快照引用、不新增长期查询租约。
+语音数据库关联实现在 `adapters::wechat::media::voice`。消息定位使用真实 messages::Snapshot，读取 server_id 时拒绝非 INTEGER 值；媒体行号不冒充消息 local_id。原始 SILK 与关联 manifest 交给下游工具，目录查询本身不执行媒体发布。
 
 ## 当前发布限制
 

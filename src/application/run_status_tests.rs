@@ -12,7 +12,7 @@ fn missing_config_and_directories_are_read_only() {
 }
 
 #[test]
-fn counts_both_export_shapes_without_reading_keys_or_printing_messages() {
+fn counts_export_files_without_reading_keys_or_message_contents() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config.json");
     fs::write(
@@ -38,19 +38,24 @@ fn counts_both_export_shapes_without_reading_keys_or_printing_messages() {
     fs::create_dir(&exports).unwrap();
     fs::write(exports.join("plain.json"), b"0123456789").unwrap();
     fs::write(
-        exports.join("one_transcribed.json"),
+        exports.join("one.json"),
         serde_json::to_vec(&json!({"messages":[
-            {"type":"voice","transcription":"private-transcript","content":"private-message"},
-            {"type":"voice","transcription":""}, {"type":"text","transcription":true}
+            {"type":"voice","annotation":"private-annotation","content":"private-message"},
+            {"type":"voice"}, {"type":"text"}
         ]}))
         .unwrap(),
     )
     .unwrap();
-    fs::write(exports.join("many_transcribed.json"), serde_json::to_vec(&json!({"messages":[{"type":"voice"}],"chats":[
-        {"messages":[{"type":"voice","transcription":false},{"type":"voice","transcription":{"text":"ok"}}]},
-        {"messages":[{"type":"voice","transcription":[]},{"type":"voice","transcription":1}]}
-    ]})).unwrap()).unwrap();
-    fs::write(exports.join("bad_transcribed.json"), b"{broken").unwrap();
+    fs::write(
+        exports.join("many.json"),
+        serde_json::to_vec(&json!({"messages":[{"type":"voice"}],"chats":[
+            {"messages":[{"type":"voice"},{"type":"voice","annotation":{"text":"ok"}}]},
+            {"messages":[{"type":"voice"},{"type":"voice"}]}
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(exports.join("unreadable.json"), b"{broken").unwrap();
     let status = inspect(&config, None).unwrap();
     assert_eq!(status.key_files.len(), 2);
     assert_eq!((status.databases.files, status.databases.bytes), (3, 3075));
@@ -61,12 +66,12 @@ fn counts_both_export_shapes_without_reading_keys_or_printing_messages() {
         ),
         (2, 3072)
     );
-    assert_eq!((status.exports.files, status.exports.bytes), (1, 10));
-    assert_eq!(
-        (status.progress.voices, status.progress.transcribed),
-        (6, 3)
-    );
-    assert_eq!(status.unreadable_transcriptions, 1);
+    assert_eq!(status.exports.files, 4);
+    let bytes: u64 = fs::read_dir(&exports)
+        .unwrap()
+        .map(|entry| entry.unwrap().metadata().unwrap().len())
+        .sum();
+    assert_eq!(status.exports.bytes, bytes);
     let output = format!(
         "{}{}",
         status.render(),
@@ -74,10 +79,14 @@ fn counts_both_export_shapes_without_reading_keys_or_printing_messages() {
     );
     for secret in [
         "not-json-secret-key-material",
-        "private-transcript",
+        "private-annotation",
         "private-message",
     ] {
         assert!(!output.contains(secret));
     }
-    assert!(status.render().contains("3/6 (50%)"));
+    assert!(!serde_json::to_value(status)
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .contains_key("progress"));
 }

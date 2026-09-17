@@ -166,7 +166,7 @@ impl RawMessage {
             content: self.content.clone(),
         }
     }
-    /// ASR accepts only actual SQLite INTEGER identifiers; local_id is never a substitute.
+    /// Media association accepts only SQLite INTEGER server identifiers, never local_id substitutes.
     pub fn checked_server_id(&self) -> Result<Option<i64>> {
         match &self.server_id {
             StoredScalar::AbsentColumn | StoredScalar::Null | StoredScalar::Integer(0) => {

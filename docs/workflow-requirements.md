@@ -10,10 +10,7 @@
 | 图片列表 | 附件/MCP 元数据 | 资源表和消息证据满足条件；缺失或歧义不能伪造大小。 |
 | 文件与合并记录附件 | 只读附件契约 | 账号范围内的原始副本与可验证绑定；不自动下载。 |
 | 图片发布 | 显式解码与输出参数 | 已存在的可信输出根及所需图片密钥，不覆盖已有文件。 |
-| 语音准备/解码 | voice 查询、audio 模块 | 媒体 ID 与消息关联有效；发布 WAV 是写入操作。 |
-| 本地识别 | whisper.cpp 或配置式 Python | 程序、模型、依赖明确；命名模型下载需另外授权。 |
-| 云端识别 | 显式后端与上传许可 | 端点、模型、凭据文件和上传授权缺一不可。 |
-| 缓存与回写 | ASR cache/receipt/writeback | 输入证据、账号与后端身份匹配；回写有独立确认和原子发布边界。 |
+| 原始语音导出 | `voices`、聊天导出 | 保留 SILK 与消息引用，通过关联 manifest 交给下游处理；缺失或歧义不伪造关联。 |
 | 单聊/批量导出 | `wx export`、`wx chats export`、`wx chats export-all`、`wx chats export-messages` | 选择范围、格式和输出；已有产物按各命令覆盖规则处理。 |
 | 增量与计划 CSV | `wx chats export-delta`、`wx chats plan` | 明确的快照/计划和账号绑定；不把增量当作重写既有完整导出。 |
 | 表情导出 | `wx emoticons export` | 使用保存密钥；网络取回与本地数据处理分开授权。 |
@@ -28,15 +25,14 @@
 
 查询超时、后台不可用、无匹配消息和资源缺失应分别处理。媒体发布或目录更新可能已经提交，响应失败不表示没有副作用，不能盲目重复提交。
 
-需要登录、手机确认、购买服务、提供凭据、重启应用或新下载授权时，自动流程跳过该项并说明条件。不要通过切换 provider、安装模型或回退云端绕过授权。
+需要登录、手机确认、购买服务、提供凭据、重启应用或新下载授权时，自动流程跳过该项并说明条件。不要通过切换 provider 绕过授权。
 
 ## 详细说明
 
 - [账号密钥](account-key-provider.md)
 - [附件](native-attachment-contract.md)
 - [MCP](../src/mcp/PROTOCOL.md)
-- [ASR](../src/infrastructure/transcription/LOCAL.md)、[云端](../src/infrastructure/transcription/OPENAI.md)、[缓存](../src/application/transcription/CACHE.md)
-- [音频](../src/infrastructure/audio/README.md)、[SNS 媒体密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
+- [SNS 媒体密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
 - [daemon](daemon-entrypoints.md)、[任务](daemon-tasks.md)、[测试](../tests/README.md)
 
 公开命令与参数以本项目实际注册和各子命令帮助为准。

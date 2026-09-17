@@ -243,9 +243,6 @@ fn html(
                     "video" => out.push_str(&format!(
                         "<video controls preload=\"metadata\" src=\"{href}\"></video>"
                     )),
-                    "voice" => out.push_str(&format!(
-                        "<audio controls preload=\"none\" src=\"{href}\"></audio>"
-                    )),
                     _ => {}
                 }
                 out.push_str(&format!(
@@ -311,6 +308,7 @@ mod tests {
                 path: Some(path.into()),
                 detail: "<image>".into(),
                 binding: Some("synthetic".into()),
+                evidence: Value::Null,
             }],
             native: json!({}),
         }
@@ -322,6 +320,48 @@ mod tests {
             chat: "<synthetic>".into(),
             is_group: false,
         }
+    }
+
+    #[test]
+    fn raw_voice_download_manifest_and_unknown_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let mut row = row("voice/synthetic.silk");
+        row.local_type = 34;
+        row.sender_username.clear();
+        row.create_time = None;
+        row.server_id = Value::Null;
+        row.content = Value::Null;
+        row.media[0].kind = "voice".into();
+        row.media[0].binding = None;
+        let html = String::from_utf8(
+            document(
+                Format::Html,
+                &target(),
+                &[&row],
+                root.path(),
+                &BTreeMap::new(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(html.contains("voice/synthetic.silk"));
+        assert!(!html.contains("<audio"));
+        let manifest = super::super::voice_manifest("account", &target(), &[row.clone()]);
+        let item = serde_json::to_value(&manifest[0]).unwrap();
+        for key in ["message_id", "sender", "timestamp", "duration_ms"] {
+            assert!(item[key].is_null(), "{key}");
+        }
+        assert_eq!(item["relative_path"], "voice/synthetic.silk");
+        row.server_id = json!(998);
+        row.content = json!("<msg><voicemsg voicelength='1250'/></msg>");
+        row.media[0].status = "missing".into();
+        row.media[0].path = None;
+        let manifest = super::super::voice_manifest("account", &target(), &[row]);
+        assert_eq!(manifest[0].duration_ms, Some(1250));
+        assert!(manifest[0].message_id.is_some());
+        assert_eq!(manifest[0].status, "missing");
+        assert_eq!(manifest[0].relative_path, None);
+        assert_eq!(manifest[0].encoding, None);
     }
 
     #[test]

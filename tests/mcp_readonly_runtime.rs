@@ -8,7 +8,7 @@ mod support;
 use serde_json::{json, Value};
 use support::{Account, Mcp};
 
-const TOOLS: [&str; 17] = [
+const TOOLS: [&str; 15] = [
     "get_recent_sessions",
     "get_contacts",
     "get_chat_history",
@@ -24,10 +24,8 @@ const TOOLS: [&str; 17] = [
     "decode_file_message",
     "decode_record_item",
     "decode_image",
-    "decode_voice",
-    "transcribe_voice",
 ];
-const REQUIRED_VOICE_ARGS: [&str; 2] = ["decode_voice", "transcribe_voice"];
+const REMOVED_VOICE_TOOLS: [&str; 2] = ["decode_voice", "transcribe_voice"];
 
 #[test]
 fn contacts_share_the_native_contract_and_reject_old_arguments_across_accounts() {
@@ -156,7 +154,7 @@ fn six_readonly_tools_use_real_encrypted_accounts_and_reject_missing_voice_argum
         names.sort();
         expected.sort();
         assert_eq!(names, expected);
-        for name in REQUIRED_VOICE_ARGS {
+        for name in REMOVED_VOICE_TOOLS {
             let rejected = mcp.call(name, json!({}));
             assert_eq!(rejected["error"]["code"], -32602, "{rejected}");
             assert!(rejected.get("result").is_none());

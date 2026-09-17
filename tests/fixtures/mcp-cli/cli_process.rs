@@ -4,9 +4,9 @@ use std::{
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
 };
+use wx_mcp_cli_harness::authenticated_mock::{Mock, Reply};
 use wx_mcp_cli_harness::ipc::{Request, Response};
 pub use wx_mcp_cli_harness::{ipc, mcp, mcp_service, runtime};
-use wx_mcp_cli_harness::authenticated_mock::{Mock, Reply};
 
 fn command(config: Option<&Path>, home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_mcp-cli-harness"));
@@ -125,7 +125,7 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     );
     let list = read_reply(&mut output);
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 15);
     let calls = [
         ("get_recent_sessions", json!({})),
         ("get_contacts", json!({})),
@@ -275,9 +275,9 @@ fn handshake_only(cmd: &mut Command) {
     let reply = read_reply(&mut output);
     println!("STDOUT tools/list: {reply}");
     let tools = reply["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 17);
+    assert_eq!(tools.len(), 15);
     for name in ["decode_voice", "transcribe_voice"] {
-        assert!(tools.iter().any(|tool| tool["name"] == name));
+        assert!(!tools.iter().any(|tool| tool["name"] == name));
     }
     drop(input);
     let mut tail = String::new();
@@ -292,75 +292,68 @@ fn handshake_only(cmd: &mut Command) {
 
 #[cfg(windows)]
 #[test]
-fn handshake_does_not_read_explicit_cloud_credentials_or_connect_backend() {
+fn handshake_does_not_open_image_keys_or_prepare_output_directories() {
     let temp = tempfile::tempdir().unwrap();
-    let key = temp.path().join("credential.txt");
-    let sentinel = b"synthetic-fixture-key-only";
-    std::fs::write(&key, sentinel).unwrap();
+    let key = temp.path().join("image-key.json");
+    std::fs::write(&key, b"synthetic-invalid-key").unwrap();
     let locked = lock_unreadable(&key);
-    assert!(
-        std::fs::read(&key).is_err(),
-        "fixture credential must be unreadable"
-    );
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let home = temp.path().join("missing-home");
-    let cache = temp.path().join("missing-cache").join("cache.json");
-    let mut cmd = command(None, &home);
-    cmd.args([
-        "--backend",
-        "openai_compatible",
-        "--allow-upload",
-        "--openai-model",
-        "synthetic",
-    ])
-    .arg("--openai-base-url")
-    .arg(format!("http://{}/v1", listener.local_addr().unwrap()))
-    .arg("--api-key-file")
-    .arg(&key)
-    .arg("--voice-cache-file")
-    .arg(&cache);
-    handshake_only(&mut cmd);
-    assert_eq!(
-        listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
-    );
-    drop(locked);
-    assert_eq!(std::fs::read(key).unwrap(), sentinel);
-    assert!(!cache.parent().unwrap().exists());
-    assert!(!home.exists());
-}
-
-#[cfg(windows)]
-#[test]
-fn handshake_does_not_open_local_model_binary_or_prepare_output_directories() {
-    let temp = tempfile::tempdir().unwrap();
-    let binary = temp.path().join("not-an-executable.exe");
-    let model = temp.path().join("not-a-model.bin");
-    std::fs::write(&binary, b"synthetic-invalid-binary").unwrap();
-    std::fs::write(&model, b"synthetic-invalid-model").unwrap();
-    let binary_lock = lock_unreadable(&binary);
-    let model_lock = lock_unreadable(&model);
-    assert!(std::fs::read(&binary).is_err());
-    assert!(std::fs::read(&model).is_err());
+    assert!(std::fs::read(&key).is_err());
     let home = temp.path().join("missing-home");
     let output = temp.path().join("missing-output");
-    let staging = temp.path().join("missing-staging");
     let mut cmd = command(None, &home);
-    cmd.arg("--whisper-binary")
-        .arg(&binary)
-        .arg("--whisper-model")
-        .arg(&model)
-        .arg("--temp-root")
-        .arg(&staging)
+    cmd.arg("--image-key-file")
+        .arg(&key)
         .arg("--media-output-root")
         .arg(&output);
     handshake_only(&mut cmd);
-    drop(binary_lock);
-    drop(model_lock);
-    assert_eq!(std::fs::read(binary).unwrap(), b"synthetic-invalid-binary");
-    assert_eq!(std::fs::read(model).unwrap(), b"synthetic-invalid-model");
-    assert!(!output.exists());
-    assert!(!staging.exists());
+    drop(locked);
+    assert_eq!(std::fs::read(key).unwrap(), b"synthetic-invalid-key");
     assert!(!home.exists());
+    assert!(!output.exists());
+}
+
+#[test]
+fn removed_voice_host_options_are_cli_errors_without_creating_runtime() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("missing-home");
+    for option in [
+        "--backend",
+        "--whisper-binary",
+        "--whisper-model",
+        "--voice-cache-file",
+        "--configured-local-python",
+        "--allow-upload",
+    ] {
+        let output = command(None, &home).arg(option).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{option}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains(option));
+        assert!(!home.exists());
+    }
+}
+
+#[test]
+fn historical_task_and_step_kinds_fail_deserialization_explicitly() {
+    use wx_mcp_cli_harness::service::{plan::Step, protocol::Kind};
+    for kind in [
+        "transcribe",
+        "transcribe_chats",
+        "voice_export",
+        "voice_mp3",
+    ] {
+        let error = serde_json::from_value::<Kind>(json!(kind)).unwrap_err();
+        assert!(error.to_string().contains("unknown variant"), "{error}");
+        assert!(error.to_string().contains(kind), "{error}");
+    }
+    for operation in [
+        "transcribe",
+        "transcribe_chats",
+        "voice_export",
+        "voice_batch",
+    ] {
+        let error = serde_json::from_value::<Step>(json!({
+            "operation":operation, "config":"synthetic.json", "output":"synthetic", "users":[], "allow_upload":false
+        })).unwrap_err();
+        assert!(error.to_string().contains("unknown variant"), "{error}");
+        assert!(error.to_string().contains(operation), "{error}");
+    }
 }

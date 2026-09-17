@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 #[path = "support/bootstrap.rs"]
 mod bootstrap;
 use std::{
@@ -59,7 +59,7 @@ fn progress_override_counts_without_changing_sources() {
     let keys = account.join("all_keys.json");
     let exported = root.path().join("chosen");
     fs::create_dir(&exported).unwrap();
-    let transcript = exported.join("chat_transcribed.json");
+    let export = exported.join("chat.json");
     let files = [
         (
             config,
@@ -68,11 +68,8 @@ fn progress_override_counts_without_changing_sources() {
         ),
         (keys, b"invalid-json-key-must-not-be-read".to_vec()),
         (
-            transcript,
-            serde_json::to_vec(
-                &json!({"messages":[{"type":"voice","transcription":"private-text"}]}),
-            )
-            .unwrap(),
+            export,
+            br#"{"messages":[{"type":"text","content":"private-text"}]}"#.to_vec(),
         ),
     ];
     for (path, bytes) in &files {
@@ -80,7 +77,10 @@ fn progress_override_counts_without_changing_sources() {
     }
     let status = success(run(root.path(), &["--json", "--exported-dir", "chosen"]));
     assert_eq!(status["key_files"].as_array().unwrap().len(), 1);
-    assert_eq!(status["progress"], json!({"voices":1,"transcribed":1}));
+    assert!(status.get("progress").is_none());
+    assert!(status.get("unreadable_transcriptions").is_none());
+    assert_eq!(status["exports"]["files"], 1);
+    assert_eq!(status["exports"]["bytes"], files[2].1.len());
     assert!(!status.to_string().contains("private-text"));
     for (path, bytes) in files {
         assert_eq!(fs::read(path).unwrap(), bytes);

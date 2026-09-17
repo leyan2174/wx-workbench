@@ -109,7 +109,7 @@ fn integer_extremes_sort_exactly_and_string_ids_stay_distinct() {
 
 #[test]
 fn no_source_collision_is_atomic_even_when_payload_is_identical() {
-    let doc = json!({"username":"synthetic","messages":[{"local_id":1,"timestamp":0,"transcription":"synthetic"}]});
+    let doc = json!({"username":"synthetic","messages":[{"local_id":1,"timestamp":0,"annotation":"synthetic"}]});
     match merge_chat_json(&doc, &doc) {
         Err(MergeError::Ambiguous { report, conflicts }) => {
             assert_eq!(

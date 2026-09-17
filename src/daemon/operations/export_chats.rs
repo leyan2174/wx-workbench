@@ -1,4 +1,4 @@
-//! 原生批量导出编排；计划 CSV 只选择 username，不串联语音转录。
+//! 原生批量导出编排；计划 CSV 只选择 username。
 use crate::application::{chat_archive_index::ChatIndex, chat_plan_selection::Plan};
 use crate::business::archive as domain;
 use crate::runtime::RuntimeContext;
@@ -70,7 +70,7 @@ struct Failure {
 
 pub fn cmd_export(args: Args) -> Result<()> {
     let has_plan = args.from_plan_csv.is_some();
-    let summary = export_with(None, args, None, crate::service::query_client::send_for)?;
+    let summary = export_with(None, args, crate::service::query_client::send_for)?;
     // 保留空计划的紧凑输出，其他结果仍采用原有缩进格式。
     if has_plan && summary.get("total") == Some(&serde_json::json!(0)) {
         println!("{summary}");
@@ -86,32 +86,19 @@ pub fn cmd_export(args: Args) -> Result<()> {
     Ok(())
 }
 
-/// 处理最终待保存文档；可补充转录等字段，不应改变聊天身份或消息集合。
-pub type DocumentProcessor<'a> = dyn FnMut(&Target, &mut serde_json::Value) -> Result<()> + 'a;
-
 /// 使用调用方固定的账号，返回原有结果 JSON；单聊失败位于 failures，批次继续。
-/// None 不修改文档；回调在合并和日期重算后运行，失败时不发布该聊天。
-pub fn export_for(
-    runtime: &RuntimeContext,
-    args: Args,
-    processor: Option<&mut DocumentProcessor<'_>>,
-) -> Result<serde_json::Value> {
-    export_with(
-        Some(runtime),
-        args,
-        processor,
-        crate::service::query_client::send_for,
-    )
+pub fn export_for(runtime: &RuntimeContext, args: Args) -> Result<serde_json::Value> {
+    export_with(Some(runtime), args, crate::service::query_client::send_for)
 }
 
-// 仅注入请求边界，测试仍执行真实选择、合并、回调与原子文件发布。
-struct BatchArchive<'a, 'p, 'd, F> {
+// 仅注入请求边界，测试仍执行真实选择、合并与原子文件发布。
+struct BatchArchive<'a, F> {
     runtime: &'a RuntimeContext,
     targets: &'a [Target],
     index: &'a mut ChatIndex,
     range: &'a TimeRange,
     incremental: bool,
-    processor: Option<&'p mut DocumentProcessor<'d>>,
+
     send: F,
     next: usize,
     path: Option<std::path::PathBuf>,
@@ -143,7 +130,7 @@ pub(super) fn filter_targets(targets: &mut Vec<Target>, raw: &str) -> Result<()>
     Ok(())
 }
 
-impl<F> domain::FullArchive for BatchArchive<'_, '_, '_, F>
+impl<F> domain::FullArchive for BatchArchive<'_, F>
 where
     F: FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
 {
@@ -248,9 +235,6 @@ where
             }
             // The requested range constrains additions, not messages already archived.
             let messages = TimeRange::default().apply(&mut document)?;
-            if let Some(processor) = self.processor.as_deref_mut() {
-                processor(target, &mut document)?;
-            }
             Ok(domain::PreparedArchive {
                 archive: domain::RawArchive {
                     username: document["username"].as_str().unwrap_or_default().to_owned(),
@@ -288,7 +272,7 @@ where
 fn export_with(
     runtime: Option<&RuntimeContext>,
     args: Args,
-    processor: Option<&mut DocumentProcessor<'_>>,
+
     mut send: impl FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
 ) -> Result<serde_json::Value> {
     let Args {
@@ -370,7 +354,6 @@ fn export_with(
             index: &mut index,
             range: &range,
             incremental,
-            processor,
             send,
             next: 0,
             path: None,
@@ -414,10 +397,10 @@ mod tests {
     fn export_with(
         runtime: &RuntimeContext,
         args: Args,
-        processor: Option<&mut DocumentProcessor<'_>>,
+
         send: impl FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
     ) -> Result<serde_json::Value> {
-        super::export_with(Some(runtime), args, processor, send)
+        super::export_with(Some(runtime), args, send)
     }
 
     fn runtime(root: &std::path::Path) -> RuntimeContext {
@@ -482,7 +465,7 @@ mod tests {
         let output = args.output_dir.clone();
         let mut previous_index = None;
         let mut lock = None;
-        let summary = export_with(&runtime, args, None, |runtime, request| {
+        let summary = export_with(&runtime, args, |runtime, request| {
             if matches!(&request, Request::ExportChatByUsername { .. }) {
                 let index = output.join("_export_index.json");
                 previous_index = Some(read(&index));
@@ -515,7 +498,7 @@ mod tests {
         let mut first = args(temp.path());
         first.users = Some("alpha".into());
         let output = first.output_dir.clone();
-        export_with(&runtime, first, None, dispatch).unwrap();
+        export_with(&runtime, first, dispatch).unwrap();
         let artifact = std::fs::read(output.join("single_alpha.json")).unwrap();
         let index = std::fs::read(output.join("_export_index.json")).unwrap();
         let mut other = runtime.clone();
@@ -523,7 +506,7 @@ mod tests {
         let mut second = args(temp.path());
         second.users = Some("alpha".into());
         second.incremental = true;
-        let error = export_with(&other, second, None, |_, request| match request {
+        let error = export_with(&other, second, |_, request| match request {
             Request::ExportChatList => Ok(crate::ipc::Response::ok(json!({"chats":[
                 {"username":"alpha","chat":"alpha","is_group":false}
             ]}))),
@@ -542,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn callback_changes_final_merged_document_before_real_publication() {
+    fn merged_document_preserves_existing_messages_before_publication() {
         let temp = tempfile::tempdir().unwrap();
         let runtime = runtime(temp.path());
         let mut args = args(temp.path());
@@ -553,36 +536,15 @@ mod tests {
         std::fs::create_dir_all(&output).unwrap();
         let old = document("alpha", 1);
         std::fs::write(output.join("single_alpha.json"), old.to_string()).unwrap();
-        let mut called = Vec::new();
-        let mut processor = |target: &Target, doc: &mut serde_json::Value| {
-            called.push(target.username.clone());
-            assert!(!doc["date_last_msg"].as_str().unwrap().is_empty());
-            if target.username == "alpha" {
-                assert_eq!(doc["messages"].as_array().unwrap().len(), 2);
-                assert_eq!(doc["messages"][0], old["messages"][0]);
-            }
-            for message in doc["messages"].as_array_mut().unwrap() {
-                message["transcription"] = "synthetic transcript".into();
-            }
-            doc["processed"] = true.into();
-            Ok(())
-        };
-        let summary = export_with(&runtime, args, Some(&mut processor), dispatch).unwrap();
-        assert_eq!(called, ["alpha", "beta"]);
+        let summary = export_with(&runtime, args, dispatch).unwrap();
         assert_eq!(summary["written"], 2);
         assert_eq!(summary["messages"], 3);
         assert_eq!(summary["added_messages"], 2);
         let saved = read(&output.join("single_alpha.json"));
-        assert_eq!(saved["processed"], true);
-        assert_eq!(
-            saved["messages"][0]["transcription"],
-            "synthetic transcript"
-        );
-        assert_eq!(
-            saved["messages"][1]["transcription"],
-            "synthetic transcript"
-        );
         assert_eq!(saved["messages"][0]["custom"], "retained");
+        assert_eq!(saved["messages"][1]["custom"], "retained");
+        assert_eq!(saved["messages"][0]["local_id"], 1);
+        assert_eq!(saved["messages"][1]["local_id"], 2);
         assert_eq!(
             read(&output.join("_export_index.json"))["chats"]["alpha"]["current_file"],
             "single_alpha.json"
@@ -590,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn callback_failure_preserves_old_bytes_and_continues_other_chats() {
+    fn read_failure_preserves_old_bytes_and_continues_other_chats() {
         let temp = tempfile::tempdir().unwrap();
         let runtime = runtime(temp.path());
         let args = args(temp.path());
@@ -599,19 +561,21 @@ mod tests {
         let path = output.join("single_alpha.json");
         let old = document("alpha", 1).to_string();
         std::fs::write(&path, &old).unwrap();
-        let mut processor = |target: &Target, doc: &mut serde_json::Value| {
-            doc["partial"] = true.into();
-            ensure!(target.username != "alpha", "synthetic callback failure");
-            Ok(())
-        };
-        let summary = export_with(&runtime, args, Some(&mut processor), dispatch).unwrap();
+        let summary = export_with(&runtime, args, |runtime, request| {
+            if matches!(&request, Request::ExportChatByUsername { username } if username == "alpha")
+            {
+                anyhow::bail!("synthetic read failure");
+            }
+            dispatch(runtime, request)
+        })
+        .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), old.as_bytes());
         assert_eq!(summary["written"], 1);
         assert_eq!(
             summary["failures"],
-            json!([{"username":"alpha","error":"synthetic callback failure"}])
+            json!([{"username":"alpha","error":"synthetic read failure"}])
         );
-        assert_eq!(read(&output.join("single_beta.json"))["partial"], true);
+        assert_eq!(read(&output.join("single_beta.json"))["username"], "beta");
         assert_eq!(
             read(&output.join("_export_index.json"))["chats"]["alpha"]["last_exported_at"],
             "synthetic"
@@ -619,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn none_preserves_document_and_plan_users_time_selection() {
+    fn preserves_document_and_plan_users_time_selection() {
         let temp = tempfile::tempdir().unwrap();
         let runtime = runtime(temp.path());
         let mut args = args(temp.path());
@@ -630,7 +594,7 @@ mod tests {
         args.start = Some("2".into());
         args.end = Some("2".into());
         let output = args.output_dir.clone();
-        let summary = export_with(&runtime, args, None, dispatch).unwrap();
+        let summary = export_with(&runtime, args, dispatch).unwrap();
         assert_eq!(
             summary,
             json!({"engine":"rust","total":1,"written":1,"messages":1,"added_messages":1,"incremental":false,"failures":[]})
@@ -642,55 +606,36 @@ mod tests {
     }
 
     #[test]
-    fn identity_checks_reject_response_and_callback_before_publication() {
-        for change_in_callback in [false, true] {
-            let temp = tempfile::tempdir().unwrap();
-            let runtime = runtime(temp.path());
-            let mut args = args(temp.path());
-            args.users = Some("alpha".into());
-            let output = args.output_dir.clone();
-            let mut processor = |_: &Target, doc: &mut serde_json::Value| {
-                doc["username"] = "wrong".into();
-                Ok(())
-            };
-            let summary = export_with(&runtime, args, Some(&mut processor), |rt, request| {
-                let chat = matches!(request, Request::ExportChatByUsername { .. });
-                let mut response = dispatch(rt, request)?;
-                if chat && !change_in_callback {
-                    response.data["username"] = "wrong".into();
-                }
-                Ok(response)
-            })
-            .unwrap();
-            assert_eq!(summary["written"], 0);
-            assert_eq!(summary["failures"].as_array().unwrap().len(), 1);
-            assert!(!output.join("single_alpha.json").exists());
-            assert_eq!(
-                read(&output.join("_export_index.json")),
-                json!({
-                    "version": 1,
-                    "chats": {},
-                    "runtime_binding": {
-                        "runtime_id": runtime.id,
-                        "legacy_unverified": false
-                    }
-                })
-            );
-        }
+    fn identity_checks_reject_response_before_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = runtime(temp.path());
+        let mut args = args(temp.path());
+        args.users = Some("alpha".into());
+        let output = args.output_dir.clone();
+        let summary = export_with(&runtime, args, |rt, request| {
+            let chat = matches!(request, Request::ExportChatByUsername { .. });
+            let mut response = dispatch(rt, request)?;
+            if chat {
+                response.data["username"] = "wrong".into();
+            }
+            Ok(response)
+        })
+        .unwrap();
+        assert_eq!(summary["written"], 0);
+        assert_eq!(summary["failures"].as_array().unwrap().len(), 1);
+        assert!(!output.join("single_alpha.json").exists());
+        assert_eq!(read(&output.join("_export_index.json"))["chats"], json!({}));
     }
 
     #[test]
-    fn dry_run_does_not_call_processor_or_create_output() {
+    fn dry_run_does_not_read_documents_or_create_output() {
         let temp = tempfile::tempdir().unwrap();
         let runtime = runtime(temp.path());
         let mut args = args(temp.path());
         args.dry_run = true;
         args.users = Some("beta".into());
         let output = args.output_dir.clone();
-        let mut processor = |_: &Target, _: &mut serde_json::Value| -> Result<()> {
-            panic!("dry run must not process documents")
-        };
-        let summary = export_with(&runtime, args, Some(&mut processor), |rt, request| {
+        let summary = export_with(&runtime, args, |rt, request| {
             assert!(matches!(request, Request::ExportChatList));
             dispatch(rt, request)
         })

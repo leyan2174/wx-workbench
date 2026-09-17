@@ -1,4 +1,4 @@
-# Reply previews and voice proof validation
+# Reply previews and table validation
 
 ## Ownership
 
@@ -18,9 +18,9 @@
   the response boundary; ordinary host code does not inspect its coordinates.
   The host uses the shared live-snapshot callback and inventory checks
   without materializing adapter-owned records. Not-reply and invalid-content outcomes remain distinct and sanitized.
-- `messages/read/layout.rs::valid_voice_source` is the shared physical
-  source-name and username/table ownership check. Prepared-audio and receipt
-  callers use this check for source naming and table hashing.
+- `messages/read/layout.rs` owns username hashing, canonical message-table
+  names and SQLite table-name validation. These checks describe physical
+  layout, not source existence or account authenticity.
 
 ## Compatibility
 
@@ -34,29 +34,14 @@ Response projection preserves the protocol fields, status codes and sender
 fallback precedence. The best-effort export preview is a separate contract
 and does not use the strict endpoint parser.
 
-Prepared audio uses its own source-length policy (the outer response
-budget still applies). Receipt additionally caps each source at 128 bytes,
-rejects blank trimmed usernames and requires a positive media ID.
-Both require exact canonical username/table binding, a positive message local
-ID and a nonzero server ID. Neither check requires positive
-timestamps, server IDs or other physical media fields.
-
-These checks validate syntax and ownership, not source existence, uniqueness
-or account authenticity. Existing request/evidence matching, trusted-channel
-account binding, receipt conflict persistence, audio size/header/hash checks,
-strict JSON deserialization and cache account isolation remain in place.
-Hashes and receipts are not signatures; no authentication claim is added.
-
 ## Synthetic validation
 
 - Typed XML fixtures cover sender precedence, preserved diagnostic values,
   invalid shapes, namespaces, unsafe XML and sanitized errors.
-- Layout tests cover traversal/separator rejection, wrong source kinds,
-  foreign username tables and the receipt length boundary.
-- Prepared-audio and receipt tests exercise the actual shared check,
-  compatibility differences, request mismatch and persistent source conflict.
+- Layout tests cover the canonical table-name and SQLite case profiles
+  against the shared hash rules.
 - The readonly-security fixture explicitly registers the production reply
-  adapter; existing audio fixtures already register the production read layout.
+  adapter.
 - The real encrypted-cache query fixtures cover field/rendering
   assertions and the exact seven-field response shape.
   Decode-limit tests use the live-snapshot callback and the same detached

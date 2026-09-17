@@ -26,7 +26,6 @@ pub enum Kind {
     ExportAll,
     DecodeImages,
     SnsDecrypt,
-    VoiceMp3,
 }
 
 pub fn parse_task_kind(value: &str) -> Result<Kind, String> {
@@ -56,13 +55,10 @@ impl Format {
 pub struct Options {
     pub users: Vec<String>,
     pub formats: Vec<Format>,
-    pub include_voice: bool,
     pub include_sns: bool,
     pub include_sns_media: bool,
     pub include_images: bool,
     pub allow_missing_media: bool,
-    pub with_transcriptions: bool,
-    pub allow_upload: bool,
     pub authorize_memory_scan: bool,
 }
 
@@ -71,13 +67,10 @@ impl Default for Options {
         Self {
             users: Vec::new(),
             formats: Vec::new(),
-            include_voice: false,
             include_sns: false,
             include_sns_media: false,
             include_images: true,
             allow_missing_media: false,
-            with_transcriptions: false,
-            allow_upload: false,
             authorize_memory_scan: false,
         }
     }
@@ -289,6 +282,10 @@ mod tests {
     fn rejects_unknown_fields_at_every_public_boundary() {
         for value in [
             json!({"kind":"shell"}),
+            json!({"kind":"voice_mp3"}),
+            json!({"kind":"export_all","options":{"with_transcriptions":true}}),
+            json!({"kind":"export_all","options":{"allow_upload":true}}),
+            json!({"kind":"export_all","options":{"include_voice":true}}),
             json!({"kind":"export_all","path":"other"}),
             json!({"kind":"export_all","options":{"command":"cmd.exe"}}),
             json!({"kind":"wxwork_decrypt"}),

@@ -95,7 +95,6 @@ SOFTWARE.
     { kind: 'export_all', name: '导出聊天', group: '个人微信', icon: 'download', export: true },
     { kind: 'decode_images', name: '批量解密图片', group: '个人微信', icon: 'play' },
     { kind: 'sns_decrypt', name: '朋友圈解密与导出', group: '朋友圈', icon: 'download', users: true },
-    { kind: 'voice_mp3', name: '语音转 MP3', group: '媒体', icon: 'play', users: true }
   ];
   let availableTasks = catalog, taskSpec = null, formReaders = [], selection = new Set(), submitting = false, formGeneration = 0;
   function unwrap(value) { return value && typeof value === 'object' && !Array.isArray(value) && value.data !== undefined ? value.data : value; }
@@ -435,7 +434,7 @@ SOFTWARE.
     const type = String(item.type ?? item.type_name ?? item.msg_type ?? item.local_type ?? 'text').toLowerCase();
     return ({ '1': 'text', '3': 'image', '34': 'voice', '43': 'video', '49': 'file', '文字': 'text', '文本': 'text', '图片': 'image', '语音': 'voice', '视频': 'video', '文件': 'file', audio: 'voice' })[type] || (['text', 'image', 'voice', 'video', 'file'].includes(type) ? type : 'other');
   }
-  function messageText(item) { const content = item.display_content || item.content || item.text || item.message || item.transcription || ''; return typeof content === 'string' ? content : JSON.stringify(content, null, 2); }
+  function messageText(item) { const content = item.display_content || item.content || item.text || item.message || ''; return typeof content === 'string' ? content : JSON.stringify(content, null, 2); }
   function externalUrl(value) {
     if (typeof value !== 'string' || value.length > 8192) return null;
     try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : null; } catch { return null; }
@@ -650,7 +649,6 @@ SOFTWARE.
     const target = $('account-state'); target.replaceChildren();
     const fields = [['账号/运行实例', $('account-summary').textContent], ['账号状态', account.status || state.account_status || '未提供'], ['工作目录', state.workspace || state.data_dir || '未提供'], ['版本', state.version || (state.api_version ? `API ${state.api_version} · ${state.engine || ''}` : '未提供')], ['任务历史', state.history_persisted === undefined ? '未提供' : state.history_persisted ? '已持久化' : '未持久化'], ['服务地址', location.origin], ['认证状态', token ? '已设置访问令牌' : '未设置访问令牌']];
     fields.forEach(([key, value]) => target.append(el('dt', '', key), el('dd', '', value)));
-    if (state.transcription) target.append(el('dt', '', '转录后端'), el('dd', '', state.transcription.backend === 'local' ? 'local（Python 本地兼容层）' : state.transcription.backend || '未配置'));
     $('auth-state').textContent = token ? '访问令牌已保存在当前标签页' : '尚未设置访问令牌';
     availableTasks = descriptors(state); renderTools();
     $('export-chat').disabled = !model.online || !model.selected || !availableTasks.some((x) => x.kind === 'export_all' && x.enabled !== false);
@@ -774,16 +772,13 @@ SOFTWARE.
     return true;
   }
   function taskFlags(spec, target) {
-    const fallback = spec.kind === 'export_all' ? ['include_voice', 'include_sns', 'include_sns_media'] : spec.kind === 'sns_decrypt' ? ['include_sns_media'] : [];
+    const fallback = spec.kind === 'export_all' ? ['include_sns', 'include_sns_media'] : spec.kind === 'sns_decrypt' ? ['include_sns_media'] : [];
     const allowed = new Set(spec.options || fallback);
     const flags = [
       { name: 'include_images', label: '导出聊天图片', default: true },
       { name: 'allow_missing_media', label: '允许媒体缺失', default: false },
-      { name: 'include_voice', label: '转换语音', default: false },
       { name: 'include_sns', label: '导出朋友圈', default: false },
       { name: 'include_sns_media', label: '下载朋友圈媒体', default: false },
-      { name: 'with_transcriptions', label: '生成独立的语音转写 JSON', default: false },
-      { name: 'allow_upload', label: '允许本任务上传语音至云端转写服务', default: false },
       { name: 'authorize_memory_scan', label: '允许本任务读取个人微信进程内存以提取密钥', default: false, required: spec.requires_memory_consent === true || ['image_key', 'wechat_keys'].includes(spec.kind) }
     ].filter((flag) => allowed.has(flag.name));
     if (!flags.length) return;
@@ -795,18 +790,7 @@ SOFTWARE.
       const update = () => { child.disabled = !parent.checked; if (child.disabled) child.checked = false; };
       parent.addEventListener('change', update); update();
     };
-    dependency('allow_upload', 'with_transcriptions'); dependency('include_sns_media', 'include_sns'); dependency('allow_missing_media', 'include_images');
-    const transcription = group.querySelector('[name=with_transcriptions]'), upload = group.querySelector('[name=allow_upload]');
-    if (transcription && model.state.transcription?.available !== true) { transcription.disabled = true; transcription.checked = false; }
-    if (upload && transcription) {
-      const updateUpload = () => {
-        const cloud = model.state.transcription?.requires_upload === true;
-        upload.disabled = !cloud || !transcription.checked;
-        upload.required = cloud && transcription.checked;
-        if (upload.disabled) upload.checked = false;
-      };
-      transcription.addEventListener('change', updateUpload); updateUpload();
-    }
+    dependency('include_sns_media', 'include_sns'); dependency('allow_missing_media', 'include_images');
     target.append(group);
   }
   async function openTask(spec, selectedUser) {

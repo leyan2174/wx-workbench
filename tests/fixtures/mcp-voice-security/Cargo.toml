@@ -12,6 +12,7 @@ path = "lib.rs"
 [dependencies]
 zstd = "0.13"
 anyhow = "1"
+roxmltree = "0.20"
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 same-file = "1"

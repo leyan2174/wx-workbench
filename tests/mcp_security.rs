@@ -1,6 +1,6 @@
 //! MCP 安全专项；仅合成配置、stdin 和本机命名管道，不读取真实账号。
 #![cfg(windows)]
-include!("fixtures/mcp-voice-host/lib.rs");
+include!("fixtures/mcp-host/lib.rs");
 #[path = "fixtures/mcp-auth/mock.rs"]
 mod authenticated_mock;
 #[path = "support/bootstrap.rs"]

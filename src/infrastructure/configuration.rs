@@ -306,25 +306,6 @@ impl ConfigLock {
     }
 }
 
-pub(crate) fn valid_env_name(name: &str) -> Result<()> {
-    ensure!(
-        !name.is_empty()
-            && name.len() <= 128
-            && name.bytes().enumerate().all(|(i, b)| b == b'_'
-                || b.is_ascii_alphabetic()
-                || (i > 0 && b.is_ascii_digit())),
-        "凭据环境变量名无效；此参数只接受变量名，不接受 API key"
-    );
-    Ok(())
-}
-
-fn env_present(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .map(Zeroizing::new)
-        .is_some_and(|value| !value.trim().is_empty())
-}
-
 #[cfg(all(test, windows))]
 mod tests {
     #[test]
@@ -507,23 +488,13 @@ mod tests {
         let config = root.path().join("config.json");
         let secret = "sk-SYNTHETIC-SECRET-DO-NOT-ECHO";
         let value = json!({
-            "transcription_backend": "openai_compatible", "openai_api_key_env": "WX_SETUP_SYNTHETIC_CREDENTIAL",
-            "openai_api_key": secret, "unknown": {"secret": secret},
-            "whisper_cpp_binary": root.path().join("absent.exe"),
-            "whisper_cpp_model": root.path().join("absent-model.bin")
+            "unknown": {"secret": secret}
         });
         let report = environment(&config, &value, false).unwrap();
         assert!(!serde_json::to_string(&report).unwrap().contains(secret));
-        assert_eq!(
-            report["openai"]["credential_environment"],
-            "WX_SETUP_SYNTHETIC_CREDENTIAL"
-        );
-        assert!(report["openai"]["environment_present"].is_boolean());
-        assert_eq!(report["openai"]["network"], "not_checked");
+        assert!(report["ffmpeg"]["executable_found"].is_boolean());
         assert_eq!(report["scanner"], "not_run");
         assert_eq!(report["downloads"], "not_run");
-        let error = valid_env_name(secret).unwrap_err();
-        assert!(!format!("{error:#}").contains(secret));
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
     }
 }
@@ -550,30 +521,19 @@ fn binary_available(base: &Path, configured: &Path) -> bool {
         })
 }
 
-/// 只检查声明及本地文件是否存在，不运行解释器、导入包、加载模型或测试凭据。
-pub(crate) fn environment(config_path: &Path, value: &Value, config_exists: bool) -> Result<Value> {
+/// 只检查本地媒体依赖是否存在，不启动程序、扫描进程或访问网络。
+pub(crate) fn environment(
+    config_path: &Path,
+    _value: &Value,
+    config_exists: bool,
+) -> Result<Value> {
     let base = config_path.parent().context("配置缺少父目录")?;
-    let python = PathBuf::from("python.exe");
-    let cpp = text(value, "whisper_cpp_binary")?;
-    let cpp_model = text(value, "whisper_cpp_model")?;
-    let backend = text(value, "transcription_backend")?;
-    let backend_supported = backend.is_some_and(|backend| {
-        ["python_whisper", "whisper_cpp", "openai_compatible"].contains(&backend)
-    });
-    let credential = text(value, "openai_api_key_env")?.unwrap_or("OPENAI_API_KEY");
-    valid_env_name(credential)?;
     Ok(json!({
         "platform": std::env::consts::OS, "architecture": std::env::consts::ARCH,
         "config_path": config_path, "config_exists": config_exists,
         "config_status": if config_exists { "valid" } else { "missing" },
         "native_setup": true, "keys_required": false, "runtime_required": false,
-        "transcription_backend": if backend_supported { backend.unwrap_or_default() } else if backend.is_none() { "unconfigured" } else { "unsupported" },
-        "backend_supported": backend_supported,
-        "python": {"executable_found": binary_available(base, &python), "packages": "not_checked", "venv_env_present": env_present("VIRTUAL_ENV")},
-        "whisper_cpp": {"binary_found": cpp.map(|p| binary_available(base, Path::new(p))).unwrap_or_else(|| binary_available(base, Path::new("whisper-cli.exe")) || binary_available(base, Path::new("whisper-cpp.exe"))),
-            "model_file_found": cpp_model.and_then(|p| resolve(base, Path::new(p)).ok()).is_some_and(|p| file_available(&p)), "inference": "not_checked"},
-        "openai": {"credential_environment": credential, "environment_present": env_present(credential),
-            "network": "not_checked", "env_reference_consumer": "pending_integration", "upload_authorized": false},
+        "ffmpeg": {"executable_found": binary_available(base, Path::new("ffmpeg.exe"))},
         "account_discovery": "not_run", "scanner": "not_run", "downloads": "not_run"
     }))
 }

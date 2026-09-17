@@ -1,10 +1,6 @@
 //! Business operation implementations. Only authenticated daemon workers execute this dispatcher.
 use crate::service::operations::Operation;
 use anyhow::Result;
-pub(crate) mod asr;
-pub(crate) mod asr_batch;
-pub(crate) mod asr_database;
-mod audio_export;
 mod capabilities;
 pub(crate) mod chat_plan;
 pub(crate) mod cleanup_native;
@@ -25,6 +21,7 @@ pub(crate) mod history;
 pub(crate) mod image_key_sample;
 pub(crate) mod image_keys;
 pub(crate) mod init;
+mod media_snapshot;
 pub(crate) mod monitor_native;
 pub(crate) mod new_messages;
 pub(crate) mod output;
@@ -45,12 +42,6 @@ pub(crate) fn execute(operation: Operation) -> Result<()> {
             overwrite,
             json,
         } => extract::execute(attachment_id, output, overwrite, json),
-        Operation::TranscribeAudio { args } => asr::cmd_transcribe_audio_native(args),
-        Operation::TranscribeChat { args } => asr::cmd_transcribe_chat_native(args),
-        Operation::TranscribeBatch { args } => asr_batch::cmd(args),
-        Operation::TranscribeDatabase { args } => {
-            asr_database::cmd_transcribe_database_native(args)
-        }
         Operation::ChatPlan { args } => chat_plan::cmd(args),
         Operation::Cleanup { args } => cleanup_native::cmd(args),
         Operation::DatabaseKeys { args } => database_keys::cmd(args),
@@ -166,12 +157,6 @@ pub(crate) fn execute(operation: Operation) -> Result<()> {
             input_dir,
             output_dir,
         } => decode_images::directory(input_dir, output_dir),
-        Operation::ConvertAudio { input, output } => audio_export::convert(input, output),
-        Operation::ExportAudio {
-            config,
-            output_dir,
-            contacts,
-        } => audio_export::export(config, output_dir, contacts),
         Operation::ExportAll { args } => {
             args.validate()?;
             let runtime = crate::runtime::RuntimeContext::load()?;

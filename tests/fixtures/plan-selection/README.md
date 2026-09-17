@@ -1,6 +1,6 @@
 # 导出计划 CSV 测试
 
-生产路径：`wx chats export OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由公开 CLI 封送给 daemon 侧导出编排。默认不带计划时原 users/date/incremental/dry-run 路径保留，不生成计划、不串联 ASR。
+生产路径：`wx chats export OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由公开 CLI 封送给 daemon 侧导出编排。默认不带计划时原 users/date/incremental/dry-run 路径保留，不自动生成计划。
 
 ## 源码对照
 

@@ -1,8 +1,4 @@
-pub(crate) mod asr;
-mod asr_batch;
-mod asr_database;
 pub mod attachments;
-mod audio;
 pub mod biz_articles;
 mod chat_plan;
 mod chats;
@@ -490,7 +486,7 @@ enum Commands {
     },
     /// 导出微信语音消息为 .silk，并生成 .voice.json 证据文件
     Voices(voices::Args),
-    /// 聊天导出、计划与转录
+    /// 聊天导出与计划
     Chats {
         #[command(subcommand)]
         cmd: chats::Command,
@@ -499,11 +495,6 @@ enum Commands {
     Moments {
         #[command(subcommand)]
         cmd: moments::Command,
-    },
-    /// 音频转换、导出与转录
-    Audio {
-        #[command(subcommand)]
-        cmd: audio::Command,
     },
     /// 图片与视频解码
     Media {
@@ -534,7 +525,7 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// 统计配置、数据库、导出与转录进度
+    /// 统计配置、数据库与导出进度
     Progress {
         /// 默认配置文件旁的 exported_chats
         #[arg(long)]
@@ -848,7 +839,6 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Voices(args) => voices::cmd_voices(args),
         Commands::Chats { cmd } => chats::cmd(cmd),
         Commands::Moments { cmd } => moments::cmd(cmd),
-        Commands::Audio { cmd } => audio::cmd(cmd),
         Commands::Media { cmd } => media::cmd(cmd),
         Commands::Keys { cmd } => keys::cmd(cmd),
         Commands::Database { cmd } => database::cmd(cmd),

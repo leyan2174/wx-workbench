@@ -1,20 +1,7 @@
-//! Pure request checks. Never open files, load an account, or construct an ASR backend here.
-use super::{asr::BackendArgs, asr_batch::BatchArgs};
+//! Pure request checks. Never open files or load an account here.
 use crate::service::operations::Operation;
 use anyhow::{ensure, Result};
 use std::path::{Component, Path};
-
-fn backend(args: &BackendArgs) -> Result<()> {
-    args.validate_explicit()?;
-    Ok(())
-}
-
-fn batch(args: &BatchArgs) -> Result<()> {
-    if args.explicit_backend {
-        backend(&args.backend)?;
-    }
-    Ok(())
-}
 
 fn range(start: Option<&str>, end: Option<&str>) -> Result<()> {
     let start = start
@@ -79,9 +66,6 @@ fn image(args: &super::image_keys::Args) -> Result<()> {
 
 fn all(args: &super::export_all::Args) -> Result<()> {
     args.validate()?;
-    if args.with_transcriptions && !args.dry_run && args.write_plan_csv.is_none() {
-        batch(&args.asr)?;
-    }
     Ok(())
 }
 
@@ -148,51 +132,8 @@ fn cleanup(args: &super::cleanup_native::Args) -> Result<()> {
     Ok(())
 }
 
-fn database(args: &super::asr_database::TranscribeDatabaseNativeArgs) -> Result<()> {
-    backend(&args.backend)?;
-    ensure!(args.local_id > 0, "local_id must be positive");
-    ensure!(
-        !args.username.is_empty()
-            && args.username.len() <= 1024
-            && !args.username.chars().any(char::is_control),
-        "invalid username"
-    );
-    let source = args.source.replace('\\', "/").to_ascii_lowercase();
-    ensure!(
-        source
-            .strip_prefix("message/message_")
-            .and_then(|v| v.strip_suffix(".db"))
-            .is_some_and(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit())),
-        "invalid message source"
-    );
-    ensure!(
-        args.cache_file.is_some() == args.cache_account.is_some(),
-        "--cache-file and --cache-account must be supplied together"
-    );
-    if let Some(account) = &args.cache_account {
-        ensure!(
-            !account.trim().is_empty(),
-            "--cache-account must not be empty"
-        );
-    }
-    if let Some(path) = &args.cache_file {
-        output(path)?;
-        ensure!(
-            path.extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("json")),
-            "cache output must be a .json file"
-        );
-    }
-    Ok(())
-}
-
 fn setup(args: &super::setup_native::Args) -> Result<()> {
-    let explicit = args.db_dir.is_some()
-        || args.backend.is_some()
-        || args.whisper_binary.is_some()
-        || args.whisper_model.is_some()
-        || args.local_model.is_some()
-        || args.openai_key_env.is_some();
+    let explicit = args.db_dir.is_some();
     ensure!(
         !args.check || !(args.apply || args.dry_run || args.interactive || explicit),
         "--check 不能与配置修改或交互参数混用"
@@ -204,31 +145,6 @@ fn setup(args: &super::setup_native::Args) -> Result<()> {
         !args.apply || args.yes,
         "非 TTY 写入需要 --apply --yes；缺省只预览"
     );
-    if let Some(name) = &args.openai_key_env {
-        crate::infrastructure::configuration::valid_env_name(name)?;
-    }
-    if let Some(model) = &args.local_model {
-        ensure!(
-            !model.trim().is_empty() && model.len() <= 4096 && !model.chars().any(char::is_control),
-            "本地模型配置无效"
-        );
-    }
-    if let Some(backend) = args.backend {
-        use super::setup_native::Backend;
-        ensure!(
-            matches!(backend, Backend::WhisperCpp)
-                || (args.whisper_binary.is_none() && args.whisper_model.is_none()),
-            "binary/model 参数需要 whisper_cpp 后端"
-        );
-        ensure!(
-            matches!(backend, Backend::PythonWhisper) || args.local_model.is_none(),
-            "local-model 参数需要 python_whisper 后端"
-        );
-        ensure!(
-            matches!(backend, Backend::OpenAiCompatible) || args.openai_key_env.is_none(),
-            "凭据环境变量参数需要 openai_compatible 后端"
-        );
-    }
     Ok(())
 }
 
@@ -289,10 +205,6 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
         }
         Operation::ImageKeys { args } => image(args),
         Operation::ImageKeyMonitor { args } => args.validate_request(),
-        Operation::TranscribeAudio { args } => backend(&args.backend),
-        Operation::TranscribeChat { args } => backend(&args.backend),
-        Operation::TranscribeDatabase { args } => database(args),
-        Operation::TranscribeBatch { args } => batch(&args.batch),
         Operation::ExportAll { args, .. } => all(args),
         Operation::ExportDelta { args } => delta(args),
         Operation::ExportChats { args } => export_chats(args),
@@ -403,8 +315,6 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
         | Operation::Capabilities { .. }
         | Operation::DecryptDatabases { .. }
         | Operation::DecodeImage { .. }
-        | Operation::DecodeImageDirectory { .. }
-        | Operation::ExportAudio { .. }
-        | Operation::ConvertAudio { .. } => Ok(()),
+        | Operation::DecodeImageDirectory { .. } => Ok(()),
     }
 }

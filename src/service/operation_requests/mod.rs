@@ -1,8 +1,4 @@
 //! Wire request data. CLI parsing and execution are separate consumers.
-pub mod asr;
-mod asr_backend;
-pub mod asr_batch;
-pub mod asr_database;
 pub mod chat_plan;
 pub mod cleanup_native;
 pub mod database_keys;

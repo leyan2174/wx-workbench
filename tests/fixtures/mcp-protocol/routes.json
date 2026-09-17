@@ -1,19 +1,196 @@
 [
-  {"name":"get_recent_sessions","arguments":{},"ipc":{"cmd":"sessions","limit":20}},
-  {"name":"get_contacts","arguments":{"query":"synthetic","limit":12},"ipc":{"cmd":"contacts","query":"synthetic","limit":12}},
-  {"name":"get_chat_history","arguments":{"chat_name":"synthetic","since":1,"until":10,"msg_type":1},"ipc":{"cmd":"history","chat":"synthetic","limit":50,"offset":0,"since":1,"until":10,"msg_type":1}},
-  {"name":"search_messages","arguments":{"keyword":"synthetic","chats":["fake"],"limit":3},"ipc":{"cmd":"search","keyword":"synthetic","chats":["fake"],"limit":3}},
-  {"name":"decode_transfer","arguments":{"chat_name":"synthetic","local_id":1},"ipc":{"cmd":"decode_transfer","chat":"synthetic","local_id":1,"create_time":0}},
-  {"name":"decode_location","arguments":{"chat_name":"synthetic","local_id":2,"create_time":3},"ipc":{"cmd":"decode_location","chat":"synthetic","local_id":2,"create_time":3}},
-  {"name":"get_new_messages","arguments":{},"ipc":{"cmd":"sessions","limit":10001}},
-  {"name":"get_chat_images","arguments":{"chat_name":"synthetic"},"ipc":{"cmd":"attachments","chat":"synthetic","image_metadata":true,"kinds":["image"],"limit":20,"offset":0}},
-  {"name":"get_contact_tags","arguments":{},"ipc":{"cmd":"contact_tags"}},
-  {"name":"get_tag_members","arguments":{"tag_name":"synthetic"},"ipc":{"cmd":"tag_members","tag_name":"synthetic"}},
-  {"name":"decode_refer","arguments":{"chat_name":"synthetic","local_id":3},"ipc":{"cmd":"decode_refer","chat":"synthetic","local_id":3,"create_time":0}},
-  {"name":"get_voice_messages","arguments":{"chat_name":"synthetic","since":0,"until":100},"ipc":{"cmd":"voice_messages","chat":"synthetic","limit":20,"offset":0,"since":0,"until":100}},
-  {"name":"decode_file_message","arguments":{"chat_name":"synthetic","local_id":4},"ipc":{"cmd":"decode_file_message","chat":"synthetic","local_id":4,"create_time":0}},
-  {"name":"decode_record_item","arguments":{"chat_name":"synthetic","local_id":5,"item_index":0},"ipc":{"cmd":"decode_record_item","chat":"synthetic","local_id":5,"item_index":0,"create_time":0}},
-  {"name":"decode_image","arguments":{"chat_name":"peer","local_id":7},"ipc":{"cmd":"decode_image","chat":"peer","local_id":7,"create_time":0}},
-  {"name":"decode_voice","arguments":{"chat_name":"peer","local_id":700},"ipc":{"cmd":"decode_voice","chat":"peer","local_id":700}},
-  {"name":"transcribe_voice","arguments":{"chat_name":"peer","local_id":700},"ipc":{"cmd":"transcribe_voice","chat":"peer","local_id":700}}
+  {
+    "name": "get_recent_sessions",
+    "arguments": {},
+    "ipc": {
+      "cmd": "sessions",
+      "limit": 20
+    }
+  },
+  {
+    "name": "get_contacts",
+    "arguments": {
+      "query": "synthetic",
+      "limit": 12
+    },
+    "ipc": {
+      "cmd": "contacts",
+      "query": "synthetic",
+      "limit": 12
+    }
+  },
+  {
+    "name": "get_chat_history",
+    "arguments": {
+      "chat_name": "synthetic",
+      "since": 1,
+      "until": 10,
+      "msg_type": 1
+    },
+    "ipc": {
+      "cmd": "history",
+      "chat": "synthetic",
+      "limit": 50,
+      "offset": 0,
+      "since": 1,
+      "until": 10,
+      "msg_type": 1
+    }
+  },
+  {
+    "name": "search_messages",
+    "arguments": {
+      "keyword": "synthetic",
+      "chats": [
+        "fake"
+      ],
+      "limit": 3
+    },
+    "ipc": {
+      "cmd": "search",
+      "keyword": "synthetic",
+      "chats": [
+        "fake"
+      ],
+      "limit": 3
+    }
+  },
+  {
+    "name": "decode_transfer",
+    "arguments": {
+      "chat_name": "synthetic",
+      "local_id": 1
+    },
+    "ipc": {
+      "cmd": "decode_transfer",
+      "chat": "synthetic",
+      "local_id": 1,
+      "create_time": 0
+    }
+  },
+  {
+    "name": "decode_location",
+    "arguments": {
+      "chat_name": "synthetic",
+      "local_id": 2,
+      "create_time": 3
+    },
+    "ipc": {
+      "cmd": "decode_location",
+      "chat": "synthetic",
+      "local_id": 2,
+      "create_time": 3
+    }
+  },
+  {
+    "name": "get_new_messages",
+    "arguments": {},
+    "ipc": {
+      "cmd": "sessions",
+      "limit": 10001
+    }
+  },
+  {
+    "name": "get_chat_images",
+    "arguments": {
+      "chat_name": "synthetic"
+    },
+    "ipc": {
+      "cmd": "attachments",
+      "chat": "synthetic",
+      "image_metadata": true,
+      "kinds": [
+        "image"
+      ],
+      "limit": 20,
+      "offset": 0
+    }
+  },
+  {
+    "name": "get_contact_tags",
+    "arguments": {},
+    "ipc": {
+      "cmd": "contact_tags"
+    }
+  },
+  {
+    "name": "get_tag_members",
+    "arguments": {
+      "tag_name": "synthetic"
+    },
+    "ipc": {
+      "cmd": "tag_members",
+      "tag_name": "synthetic"
+    }
+  },
+  {
+    "name": "decode_refer",
+    "arguments": {
+      "chat_name": "synthetic",
+      "local_id": 3
+    },
+    "ipc": {
+      "cmd": "decode_refer",
+      "chat": "synthetic",
+      "local_id": 3,
+      "create_time": 0
+    }
+  },
+  {
+    "name": "get_voice_messages",
+    "arguments": {
+      "chat_name": "synthetic",
+      "since": 0,
+      "until": 100
+    },
+    "ipc": {
+      "cmd": "voice_messages",
+      "chat": "synthetic",
+      "limit": 20,
+      "offset": 0,
+      "since": 0,
+      "until": 100
+    }
+  },
+  {
+    "name": "decode_file_message",
+    "arguments": {
+      "chat_name": "synthetic",
+      "local_id": 4
+    },
+    "ipc": {
+      "cmd": "decode_file_message",
+      "chat": "synthetic",
+      "local_id": 4,
+      "create_time": 0
+    }
+  },
+  {
+    "name": "decode_record_item",
+    "arguments": {
+      "chat_name": "synthetic",
+      "local_id": 5,
+      "item_index": 0
+    },
+    "ipc": {
+      "cmd": "decode_record_item",
+      "chat": "synthetic",
+      "local_id": 5,
+      "item_index": 0,
+      "create_time": 0
+    }
+  },
+  {
+    "name": "decode_image",
+    "arguments": {
+      "chat_name": "peer",
+      "local_id": 7
+    },
+    "ipc": {
+      "cmd": "decode_image",
+      "chat": "peer",
+      "local_id": 7,
+      "create_time": 0
+    }
+  }
 ]

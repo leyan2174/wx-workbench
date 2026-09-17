@@ -2,16 +2,12 @@
 //! 认证 service mock 调用真实 daemon MCP 业务，仅查询结果可注入；30秒超时用实钟验收。
 #![cfg(windows)]
 
-include!("fixtures/mcp-voice-host/lib.rs");
+include!("fixtures/mcp-host/lib.rs");
 #[path = "fixtures/mcp-auth/mock.rs"]
 mod authenticated_mock;
 #[path = "support/bootstrap.rs"]
 mod runtime_cleanup;
 use authenticated_mock::{Mock, Reply};
-
-#[allow(dead_code)]
-#[path = "fixtures/mcp-voice-runtime/artifacts.rs"]
-mod voice;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -28,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TOOLS: [&str; 17] = [
+const TOOLS: [&str; 15] = [
     "get_recent_sessions",
     "get_contacts",
     "get_chat_history",
@@ -44,10 +40,8 @@ const TOOLS: [&str; 17] = [
     "decode_file_message",
     "decode_record_item",
     "decode_image",
-    "decode_voice",
-    "transcribe_voice",
 ];
-const REQUIRED_VOICE_ARGS: [&str; 2] = ["decode_voice", "transcribe_voice"];
+const REMOVED_VOICE_TOOLS: [&str; 2] = ["decode_voice", "transcribe_voice"];
 
 struct Fixture {
     temp: tempfile::TempDir,
@@ -317,7 +311,7 @@ fn tool_error(reply: &Value, expected: &str) {
 }
 
 #[test]
-fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_back() {
+fn real_wx_initializes_lists_fifteen_tools_without_account_and_never_falls_back() {
     let fixture = Fixture::new();
     let account = fixture.account("default-decoy");
     // 即便默认发现位置有配置，没有显式WX_CLI_CONFIG也不得尝试发送。
@@ -333,8 +327,8 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    // 工具清单顺序是客户端兼容契约；语音工具位于清单末尾。
-    assert_eq!(names.len(), 17);
+    // 工具清单顺序是客户端兼容契约；原始语音列表保留。
+    assert_eq!(names.len(), 15);
     assert_eq!(&names[..8], &TOOLS[..8]);
     assert_eq!(
         &names[8..],
@@ -346,11 +340,9 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
             "decode_file_message",
             "decode_record_item",
             "decode_image",
-            "decode_voice",
-            "transcribe_voice",
         ]
     );
-    assert_eq!(names.last(), Some(&"transcribe_voice"));
+    assert_eq!(names.last(), Some(&"decode_image"));
     let image = &list["result"]["tools"][14];
     assert_eq!(image["annotations"]["readOnlyHint"], false);
     assert_eq!(image["annotations"]["destructiveHint"], false);
@@ -358,17 +350,6 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
     assert!(image["inputSchema"]["properties"]
         .get("output_root")
         .is_none());
-    for tool in &list["result"]["tools"].as_array().unwrap()[15..] {
-        assert_eq!(tool["inputSchema"]["additionalProperties"], false);
-        let properties = tool["inputSchema"]["properties"].as_object().unwrap();
-        assert_eq!(properties.len(), 2);
-        assert!(properties.contains_key("chat_name"));
-        assert_eq!(properties["local_id"]["minimum"], 1);
-        assert_eq!(
-            tool["inputSchema"]["required"],
-            json!(["chat_name", "local_id"])
-        );
-    }
     let original: Vec<_> = names
         .iter()
         .copied()
@@ -380,7 +361,7 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
     actual.sort_unstable();
     expected.sort_unstable();
     assert_eq!(actual, expected);
-    for (index, name) in REQUIRED_VOICE_ARGS.iter().enumerate() {
+    for (index, name) in REMOVED_VOICE_TOOLS.iter().enumerate() {
         let reply = wx.call(index as i64, name, json!({}));
         assert_eq!(reply["error"]["code"], -32602);
     }
@@ -393,7 +374,7 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
 }
 
 #[test]
-fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes() {
+fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes() {
     let fixture = Fixture::new();
     let a = fixture.account("a");
     let b = fixture.account("b");
@@ -417,9 +398,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
             "decode_image" => {
                 json!({"ok":true,"exit_code":0,"status":"published","image":{"format":"bmp","size":58}})
             }
-            "decode_voice" | "transcribe_voice" => {
-                json!({"ok":true,"prepared_audio":voice::prepared("synthetic","A",700)})
-            }
             "decode_refer" => json!({"ok":true,"exit_code":0,"text":"合成引用回复",
                 "username":"synthetic-a","local_id":i64::MAX,"create_time":100,
                 "refer":{"reply_text":"合成回复正文","refer_sender":"合成发送者",
@@ -442,23 +420,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
     fs::create_dir(&output).unwrap();
     let mut command = fixture.command(Some(&a), None);
     command.arg("--media-output-root").arg(&output);
-    let backend = tempfile::tempdir().unwrap();
-    let model = voice::model(backend.path(), "A", 700, "合成语音识别");
-    command
-        .args([
-            "--backend",
-            "whisper_cpp",
-            "--language",
-            "zh",
-            "--threads",
-            "2",
-        ])
-        .arg("--whisper-binary")
-        .arg(voice::executable())
-        .arg("--whisper-model")
-        .arg(&model)
-        .arg("--temp-root")
-        .arg(&output);
     let mut wx = Wx::start(command);
     wx.initialize();
     for (index, name) in TOOLS.iter().enumerate() {
@@ -469,7 +430,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
             "decode_refer" => json!({"chat_name":"synthetic","local_id":i64::MAX}),
             "decode_file_message" => json!({"chat_name":"synthetic","local_id":7}),
             "decode_image" => json!({"chat_name":"synthetic","local_id":9}),
-            "decode_voice" | "transcribe_voice" => json!({"chat_name":"synthetic","local_id":700}),
             "decode_record_item" => {
                 json!({"chat_name":"synthetic","local_id":8,"item_index":0,"create_time":100})
             }
@@ -481,19 +441,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
         };
         let reply = wx.call(index as i64, name, args);
         assert_eq!(reply["result"]["isError"], false, "{name}: {reply}");
-        if matches!(*name, "decode_voice" | "transcribe_voice") {
-            let text = reply["result"]["content"][0]["text"].as_str().unwrap();
-            assert_eq!(
-                reply["result"],
-                json!({"content":[{"type":"text","text":text}],"isError":false})
-            );
-            if *name == "decode_voice" {
-                voice::assert_decode(text, "A", 700, &output);
-            } else {
-                voice::assert_transcribe(text, "合成语音识别", 700);
-            }
-            continue;
-        }
         if index >= 8 {
             let data: Value =
                 serde_json::from_str(reply["result"]["content"][0]["text"].as_str().unwrap())
@@ -549,7 +496,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
         }
         assert!(fs::OpenOptions::new().write(true).open(&a.config).is_ok());
     }
-    for (index, name) in REQUIRED_VOICE_ARGS.iter().enumerate() {
+    for (index, name) in REMOVED_VOICE_TOOLS.iter().enumerate() {
         assert_eq!(
             wx.call(100 + index as i64, name, json!({}))["error"]["code"],
             -32602
@@ -558,7 +505,7 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
     success(wx.finish());
     let requests = server_a.finish();
     let queries: Vec<_> = requests.iter().filter(|r| r["cmd"] != "ping").collect();
-    assert_eq!(requests.len(), 34);
+    assert_eq!(requests.len(), 30);
     assert_eq!(
         queries
             .iter()
@@ -580,8 +527,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
             "decode_file_message",
             "decode_record_item",
             "decode_image",
-            "decode_voice",
-            "transcribe_voice"
         ]
     );
     assert_eq!(queries[6]["limit"], 10001);
@@ -611,14 +556,6 @@ fn real_wx_routes_all_seventeen_tools_to_selected_pipe_and_locks_account_changes
     assert_eq!(
         queries[14],
         &json!({"cmd":"decode_image","chat":"synthetic","local_id":9,"create_time":0,"output_root":output})
-    );
-    assert_eq!(
-        queries[15],
-        &json!({"cmd":"decode_voice","chat":"synthetic","local_id":700})
-    );
-    assert_eq!(
-        queries[16],
-        &json!({"cmd":"transcribe_voice","chat":"synthetic","local_id":700})
     );
     assert!(server_b.finish().is_empty());
     assert_eq!(fs::read(&a.config).unwrap(), original);
@@ -712,51 +649,6 @@ fn real_wx_response_expansion_limit_never_writes_partial_json() {
     assert!(finished.stdout_tail.is_empty());
     assert!(finished.stderr.contains("MCP stdio transport failed"));
     assert_eq!(server.finish().len(), 2);
-    fixture.assert_no_daemon_or_database_output(&account);
-}
-
-#[test]
-fn real_voice_response_budget_counts_request_id_before_wav_publication() {
-    let fixture = Fixture::new();
-    let account = fixture.account("voice-result-budget");
-    let prepared = json!({"ok":true,"prepared_audio":voice::prepared("synthetic","A",700)});
-    assert!(serde_json::to_vec(&prepared).unwrap().len() > 1024);
-    let server = Mock::start(account.runtime.clone(), move |_| {
-        Reply::Json(prepared.clone())
-    });
-    let output = tempfile::tempdir().unwrap();
-    let mut command = fixture.command(Some(&account), Some(1024));
-    command.arg("--media-output-root").arg(output.path());
-    let mut wx = Wx::start(command);
-    wx.initialize();
-    let id = "x".repeat(800);
-    let request = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"decode_voice","arguments":{"chat_name":"synthetic","local_id":700}}});
-    assert!(serde_json::to_vec(&request).unwrap().len() < 1024);
-    wx.send(request);
-    let reply = wx.reply();
-    assert_eq!(reply["id"], id);
-    tool_error(&reply, "Query result exceeds safe limit");
-    assert_eq!(
-        fs::read_dir(output.path()).unwrap().count(),
-        0,
-        "budget failure published a WAV"
-    );
-    let success_reply = wx.call(
-        2,
-        "decode_voice",
-        json!({"chat_name":"synthetic","local_id":700}),
-    );
-    assert_eq!(success_reply["result"]["isError"], false, "{success_reply}");
-    voice::assert_decode(
-        success_reply["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap(),
-        "A",
-        700,
-        output.path(),
-    );
-    success(wx.finish());
-    assert_eq!(server.finish().len(), 4);
     fixture.assert_no_daemon_or_database_output(&account);
 }
 

@@ -1,6 +1,4 @@
 //! Daemon-owned MCP execution. Call only on a blocking worker, outside query leases.
-#[path = "mcp_service/voice.rs"]
-pub mod voice;
 
 use crate::{
     ipc::{Request, Response},
@@ -248,8 +246,6 @@ impl Session {
                 | Request::DecodeFileMessage { .. }
                 | Request::DecodeRecordItem { .. }
                 | Request::DecodeImage { .. }
-                | Request::DecodeVoice { .. }
-                | Request::TranscribeVoice { .. }
         ) {
             return Err(DispatchError::Unavailable);
         }
@@ -263,25 +259,6 @@ impl Session {
             return Err(DispatchError::Unavailable);
         }
         policy.prepare_request(&mut request)?;
-        let mut voice = match &request {
-            Request::DecodeVoice { local_id, .. } => Some(policy.voice.prepare(
-                voice::Operation::Decode,
-                *local_id,
-                policy.media_output_root.as_deref(),
-                context,
-            )?),
-            Request::TranscribeVoice { local_id, .. } => Some(if policy.configured_local_python {
-                policy.voice.prepare_configured_local(*local_id, context)?
-            } else {
-                policy.voice.prepare(
-                    voice::Operation::Transcribe,
-                    *local_id,
-                    policy.media_output_root.as_deref(),
-                    context,
-                )?
-            }),
-            _ => None,
-        };
         if self.pinned.is_none() {
             self.pinned = Some(
                 PinnedAccount::open(runtime, call.owner_pid)
@@ -297,70 +274,16 @@ impl Session {
             return Err(DispatchError::Unavailable);
         }
         let max_response_bytes = call.budget.max_response_bytes;
-        if let Some(pending) = voice.take() {
-            voice = Some(pending.bind(&pinned.context)?);
-        }
         context.check()?;
-        if let Request::TranscribeVoice { chat, .. } = &mut request {
-            if policy.voice.voice_cache_file.is_some() {
-                let current = || {
-                    context.check()?;
-                    if pinned.is_current() {
-                        Ok(())
-                    } else {
-                        Err(DispatchError::Unavailable)
-                    }
-                };
-                let pending = voice.as_mut().ok_or(DispatchError::Unavailable)?;
-                // 精确 username 可在联系人或源音频删除后直接命中；显示名不查历史别名。
-                if let Some(response) = pending.try_cached(chat, context, current)? {
-                    return Ok(response);
-                }
-                let resolved = query(Request::ResolveChat { chat: chat.clone() }, context, 8192)
-                    .map_err(|_| DispatchError::Unavailable)?;
-                current()?;
-                resolved.require_success().map_err(DispatchError::from)?;
-                let username = resolved.data["username"]
-                    .as_str()
-                    .filter(|name| !name.trim().is_empty() && name.len() <= 4096)
-                    .ok_or(DispatchError::InvalidResponse)?
-                    .to_owned();
-                pending.bind_username(username.clone())?;
-                if username != *chat {
-                    if let Some(response) = pending.try_cached(&username, context, current)? {
-                        return Ok(response);
-                    }
-                }
-                *chat = username;
-            }
-        }
         // Query callback acquires its own short-lived lease; no self IPC.
-        let response = query(
-            request,
-            context,
-            if voice.is_some() {
-                crate::ipc::MAX_PREPARED_VOICE_RESPONSE_BYTES
-            } else {
-                max_response_bytes
-            },
-        );
+        let response = query(request, context, max_response_bytes);
         if !pinned.is_current() {
             self.invalidated = true;
             return Err(DispatchError::Unavailable);
         }
         context.check()?;
         let response = response.map_err(|_| DispatchError::Unavailable)?;
-        match voice {
-            Some(voice) => voice.finish(response, &pinned.context, context, || {
-                context.check()?;
-                if pinned.is_current() {
-                    Ok(())
-                } else {
-                    Err(DispatchError::Unavailable)
-                }
-            }),
-            None => Ok(response),
-        }
+        Ok(response)
     }
 }
 
@@ -501,7 +424,6 @@ mod tests {
         let mut host = HostSettings {
             media_output_root: Some(root.path().into()),
             image_key_file: Some(root.path().join("key.json")),
-            ..HostSettings::default()
         };
         let mut request = image();
         assert_eq!(
@@ -572,14 +494,6 @@ mod tests {
                 create_time: 0,
                 output_root: "tool-controlled".into(),
                 image_key_file: None,
-            },
-            Request::DecodeVoice {
-                chat: "peer".into(),
-                local_id: 1,
-            },
-            Request::TranscribeVoice {
-                chat: "peer".into(),
-                local_id: 1,
             },
             Request::ReloadConfig,
         ] {
@@ -667,14 +581,14 @@ mod tests {
                 |_, _, _| Ok(Response::ok(json!({}))),
             )
             .unwrap();
-        call.host.voice.backend.allow_upload = true;
+        call.host.image_key_file = Some("changed-key.json".into());
         assert_eq!(
             session
                 .execute(call.clone(), &runtime, &CallContext::default(), forbidden)
                 .unwrap_err(),
             DispatchError::Unavailable
         );
-        call.host.voice.backend.allow_upload = false;
+        call.host.image_key_file = None;
         assert_eq!(
             session
                 .execute(call, &runtime, &CallContext::default(), forbidden)
@@ -767,11 +681,10 @@ mod tests {
         ] {
             assert_eq!(unpack(pack(Err(error.clone()))).unwrap_err(), error);
         }
-        let mut host = HostSettings::default();
-        host.voice.backend.allow_upload = true;
-        host.voice.backend.backend =
-            crate::service::operation_requests::asr::BackendKind::OpenAiCompatible;
-        host.voice.backend.api_key_file = Some(PathBuf::from("explicit-key"));
+        let host = HostSettings {
+            image_key_file: Some(PathBuf::from("explicit-key")),
+            ..HostSettings::default()
+        };
         let value = serde_json::to_value(&host).unwrap();
         let restored: HostSettings = serde_json::from_value(value.clone()).unwrap();
         assert_eq!(serde_json::to_value(restored).unwrap(), value);
@@ -815,60 +728,5 @@ mod tests {
             );
         }
         assert!(serde_json::from_value::<Call>(baseline).is_ok());
-    }
-
-    #[test]
-    fn real_json_rpc_id_is_budgeted_before_publication() {
-        let mut budget = CallContext::default().budget().unwrap();
-        budget.max_response_bytes = 1024;
-        budget.response_id = json!("id".repeat(600));
-        let context = CallContext::from_budget(budget).unwrap();
-        assert_eq!(
-            context.check_text_result("small"),
-            Err(DispatchError::ResultLimit)
-        );
-    }
-
-    #[test]
-    fn daemon_dispatch_publishes_wav_and_never_returns_prepared_audio() {
-        use crate::{
-            adapters::wechat::media::voice::{DatabaseVoice, VoiceEvidence},
-            application::transcription::prepared_audio,
-        };
-        let (temp, runtime, mut call) = fixture();
-        let output = temp.path().join("output");
-        std::fs::create_dir(&output).unwrap();
-        call.host.media_output_root = Some(output.clone());
-        call.request = Some(Box::new(Request::DecodeVoice {
-            chat: "voice-test".into(),
-            local_id: 42,
-        }));
-        let result = unpack(dispatch(call.clone(), &runtime, |request, _, limit| {
-            assert!(matches!(request, Request::DecodeVoice { local_id: 42, .. }));
-            assert_eq!(limit, crate::ipc::MAX_PREPARED_VOICE_RESPONSE_BYTES);
-            let audio = DatabaseVoice {
-                silk: include_bytes!("../../tests/fixtures/audio/silence.silk").to_vec(),
-                evidence: VoiceEvidence {
-                    username: "voice-test".into(), message_source: "message/message_0.db".into(),
-                    message_table: format!("Msg_{:x}", md5::compute("voice-test")),
-                    message_local_id:7, server_id:22, create_time:1700000000,
-                    media_source:"message/media_0.db".into(), media_rowid:3,
-                    media_chat_name_id:9, media_local_id:42,
-                },
-            };
-            let bytes = prepared_audio::encode(&audio, prepared_audio::Limits {
-                max_audio_bytes:16 * 1024 * 1024, max_response_bytes:limit,
-            }).unwrap();
-            Ok(Response::ok(json!({"prepared_audio":serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()})))
-        })).unwrap();
-        assert!(result.data["mcp_text"].as_str().unwrap().contains(".wav"));
-        assert!(result.data.get("prepared_audio").is_none());
-        let files: Vec<_> = std::fs::read_dir(&output).unwrap().collect();
-        assert_eq!(files.len(), 1);
-        assert!(std::fs::read(files[0].as_ref().unwrap().path())
-            .unwrap()
-            .starts_with(b"RIFF"));
-        call.request = None;
-        unpack(dispatch(call, &runtime, forbidden)).unwrap();
     }
 }

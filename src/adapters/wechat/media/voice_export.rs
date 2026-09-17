@@ -5,132 +5,40 @@ use anyhow::{ensure, Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 
-/// Raw diagnostic coordinates, not a strict message identity or reference.
-#[derive(Debug)]
-pub struct RawBatchEntry {
-    /// Physical Name2Id rowid from the selected media database.
-    pub chat_name_id: Option<i64>,
-    pub local_id: Option<i64>,
-    pub timestamp: Option<i64>,
-    pub username: Option<String>,
-}
-
-/// One caller-authorized media file. No discovery or strict message join.
-pub struct BatchSource {
-    connection: Connection,
-    pin: crate::attachment::local_files::Pin,
-}
-
-impl BatchSource {
-    pub fn open(path: &std::path::Path) -> Result<Self> {
-        let pin = crate::attachment::local_files::Pin::open(path, false)?;
-        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        connection.busy_timeout(std::time::Duration::from_secs(2))?;
-        Ok(Self { connection, pin })
-    }
-
-    pub fn verify(&self) -> Result<()> {
-        self.pin.verify()
-    }
-
-    pub fn visit(
-        &self,
-        mut visit: impl FnMut(RawBatchEntry, &dyn Fn() -> Result<Vec<u8>>) -> Result<()>,
-    ) -> Result<()> {
-        self.verify()?;
-        let snapshot = self.connection.unchecked_transaction()?;
-        let names: HashMap<i64, String> = {
-            let mut query = snapshot.prepare("SELECT rowid, user_name FROM Name2Id")?;
-            let mut names = HashMap::new();
-            for row in query.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
-            })? {
-                let (id, name) = row?;
-                if let Some(name) = name.filter(|name| !name.is_empty()) {
-                    names.insert(id, name);
-                }
-            }
-            names
-        };
-        // CASE prevents even a selected row from materializing an oversized BLOB.
-        let mut query = snapshot.prepare("SELECT chat_name_id, create_time, local_id, CASE WHEN typeof(voice_data) = 'blob' AND length(voice_data) BETWEEN 1 AND 16777216 THEN voice_data END FROM VoiceInfo ORDER BY chat_name_id, create_time")?;
-        let mut rows = query.query([])?;
-        while let Some(row) = rows.next()? {
-            let chat_name_id = row.get::<_, i64>(0).ok();
-            let entry = RawBatchEntry {
-                chat_name_id,
-                local_id: row.get(2).ok(),
-                timestamp: row.get(1).ok(),
-                username: chat_name_id.map(|id| {
-                    names
-                        .get(&id)
-                        .cloned()
-                        .unwrap_or_else(|| format!("unknown_{id}"))
-                }),
-            };
-            visit(entry, &|| {
-                self.verify()?;
-                row.get::<_, Vec<u8>>(3)
-                    .context("empty, invalid or oversized voice_data")
-            })?;
-        }
-        self.verify()
-    }
+/// Physical source evidence for diagnostic export, not a business identity.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExportEvidence {
+    pub media_source: String,
+    pub media_rowid: i64,
+    pub media_chat_name_id: i64,
+    pub media_local_id: Option<i64>,
+    pub media_create_time: Option<i64>,
+    pub timestamp_source: &'static str,
+    pub svr_id: Option<i64>,
+    pub data_index: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_join: Option<super::voice::VoiceEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub association_failure: Option<String>,
 }
 
 pub struct VoiceRow {
+    pub media_rowid: i64,
     pub chat_name_id: i64,
     pub chat_username: String,
-    pub create_time: i64,
-    pub local_id: i64,
-    pub svr_id: i64,
-    pub data_index: String,
+    pub create_time: Option<i64>,
+    pub local_id: Option<i64>,
+    pub svr_id: Option<i64>,
+    pub data_index: Option<String>,
     pub voice_data: Vec<u8>,
     pub media_db: String,
-}
-
-#[cfg(test)]
-mod batch_tests {
-    use super::*;
-
-    #[test]
-    fn four_columns_order_duplicates_and_lazy_bounded_material() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("media_0.db");
-        let conn = Connection::open(&path).unwrap();
-        conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES ('alice'); CREATE TABLE VoiceInfo(chat_name_id, create_time, local_id, voice_data); INSERT INTO VoiceInfo VALUES (99,20,1,NULL),(1,30,8,x'01'),(1,10,8,NULL),(1,10,8,x'02'),(1,40,9,zeroblob(16777217)),(1,50,10,'not blob');").unwrap();
-        drop(conn);
-        let source = BatchSource::open(&path).unwrap();
-        let mut seen = Vec::new();
-        source
-            .visit(|entry, material| {
-                let time = entry.timestamp.unwrap();
-                seen.push((entry.username.unwrap(), time, entry.local_id.unwrap()));
-                if time == 30 {
-                    assert_eq!(material()?, vec![1]);
-                }
-                if time == 40 || time == 50 {
-                    assert!(material().is_err());
-                }
-                // NULL rows remain discoverable and can be skipped without reading material.
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            seen.iter().map(|entry| entry.1).collect::<Vec<_>>(),
-            [10, 10, 30, 40, 50, 20]
-        );
-        assert_eq!(seen.last().unwrap().0, "unknown_99");
-        assert!(std::fs::OpenOptions::new().write(true).open(&path).is_err());
-        source.verify().unwrap();
-    }
 }
 
 /// Select database paths, not audio secrets; preserve non-numeric media suffixes.
 pub fn media_database_paths<'a>(keys: impl IntoIterator<Item = &'a String>) -> Vec<String> {
     let mut keys: Vec<_> = keys
         .into_iter()
-        .map(|key| key.replace('\\', "/"))
+        .map(|key| key.replace('\\', "/").to_ascii_lowercase())
         .filter(|key| key.starts_with("message/media_") && key.ends_with(".db"))
         .collect();
     keys.sort();
@@ -156,6 +64,53 @@ impl Source for Catalog {
 }
 
 impl Catalog {
+    pub fn manifest(
+        &self,
+        slot: usize,
+        account_id: &str,
+    ) -> Result<crate::business::voice_export::ManifestItem<ExportEvidence>> {
+        let coord = self.coordinates.get(slot).context("invalid voice slot")?;
+        let entry = &self.entries[slot];
+        let (source, conn) = &self.shards[coord.shard];
+        let absent: bool = conn.query_row(
+            "SELECT voice_data IS NULL FROM VoiceInfo WHERE rowid=?1",
+            [coord.rowid],
+            |r| r.get(0),
+        )?;
+        Ok(crate::business::voice_export::ManifestItem {
+            account_id: account_id.into(),
+            message_id: None,
+            conversation: Some(entry.username.clone()),
+            sender: None,
+            timestamp: entry.timestamp,
+            duration_ms: None,
+            encoding: None,
+            relative_path: None,
+            status: if absent { "missing" } else { "failed" }.into(),
+            association: "unproven".into(),
+            evidence: ExportEvidence {
+                media_source: source.clone(),
+                media_rowid: coord.rowid,
+                media_chat_name_id: coord.chat_name_id,
+                media_local_id: entry.local_id,
+                media_create_time: entry.timestamp,
+                timestamp_source: "media",
+                svr_id: None,
+                data_index: None,
+                message_join: None,
+                association_failure: None,
+            },
+            failure: Some(
+                if absent {
+                    "Media Material: NotFound"
+                } else {
+                    "Media Material: InvalidMaterial"
+                }
+                .into(),
+            ),
+        })
+    }
+
     pub fn open(mut shards: Vec<MediaShard>) -> Result<Self> {
         shards.sort_by(|a, b| a.source.cmp(&b.source));
         let mut catalog = Self {
@@ -201,7 +156,7 @@ impl Catalog {
                 rows
             };
             {
-                let mut stmt = conn.prepare("SELECT rowid, chat_name_id, create_time, local_id, svr_id, COALESCE(data_index, '') FROM VoiceInfo WHERE voice_data IS NOT NULL ORDER BY create_time, local_id, rowid")?;
+                let mut stmt = conn.prepare("SELECT rowid, chat_name_id, create_time, local_id FROM VoiceInfo ORDER BY create_time, local_id, rowid")?;
                 let mut rows = stmt.query([])?;
                 while let Some(row) = rows.next()? {
                     let chat_name_id = row.get(1)?;
@@ -234,18 +189,30 @@ impl Catalog {
             .context("invalid legacy voice slot")?;
         let entry = &self.entries[slot];
         let (source, conn) = &self.shards[coord.shard];
+        let mut columns = conn.prepare("SELECT name FROM pragma_table_xinfo('VoiceInfo')")?;
+        let columns = columns
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let optional = |name: &str| {
+            if columns.iter().any(|c| c.eq_ignore_ascii_case(name)) {
+                name.to_owned()
+            } else {
+                "NULL".to_owned()
+            }
+        };
         let (svr_id, data_index, voice_data) = conn.query_row(
-            "SELECT svr_id, COALESCE(data_index, ''), voice_data FROM VoiceInfo WHERE rowid = ?1",
+            &format!("SELECT {}, {}, CASE WHEN typeof(voice_data) = 'blob' AND length(voice_data) BETWEEN 1 AND 16777216 THEN voice_data END FROM VoiceInfo WHERE rowid = ?1", optional("svr_id"), optional("data_index")),
             [coord.rowid],
             |row| {
                 Ok((
-                    row.get(0).unwrap_or(0),
-                    row.get(1).unwrap_or_default(),
+                    row.get::<_, Option<i64>>(0).unwrap_or(None),
+                    row.get::<_, Option<String>>(1).unwrap_or(None),
                     row.get(2)?,
                 ))
             },
         )?;
         Ok(VoiceRow {
+            media_rowid: coord.rowid,
             chat_name_id: coord.chat_name_id,
             chat_username: entry.username.clone(),
             create_time: entry.timestamp,
@@ -262,6 +229,46 @@ impl Catalog {
 mod tests {
     use super::*;
     use crate::business::voice_export::{select, Selection};
+
+    #[test]
+    fn nullable_media_coordinates_remain_unknown_and_missing_is_listed() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("media_0.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES('chat'); CREATE TABLE VoiceInfo(chat_name_id,create_time,local_id,voice_data); INSERT INTO VoiceInfo VALUES(1,NULL,NULL,NULL)").unwrap();
+        drop(conn);
+        let catalog = Catalog::open(vec![MediaShard {
+            source: "message/media_0.db".into(),
+            path,
+        }])
+        .unwrap();
+        let selected = select(&catalog, &Selection::default());
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].timestamp, None);
+        assert_eq!(selected[0].local_id, None);
+        assert!(select(
+            &catalog,
+            &Selection {
+                since: Some(0),
+                ..Default::default()
+            }
+        )
+        .is_empty());
+        let manifest = serde_json::to_value(catalog.manifest(0, "account").unwrap()).unwrap();
+        assert_eq!(manifest["status"], "missing");
+        assert_eq!(manifest["association"], "unproven");
+        for key in [
+            "timestamp",
+            "sender",
+            "message_id",
+            "duration_ms",
+            "encoding",
+            "relative_path",
+        ] {
+            assert!(manifest[key].is_null(), "{key}");
+        }
+        assert!(manifest["evidence"]["media_local_id"].is_null());
+    }
 
     fn shard(root: &std::path::Path, name: &str, times: &[i64]) -> MediaShard {
         let path = root.join(name);
@@ -299,13 +306,13 @@ mod tests {
         );
         assert_eq!(
             page.iter().map(|entry| entry.timestamp).collect::<Vec<_>>(),
-            vec![20, 30]
+            vec![Some(20), Some(30)]
         );
         let raw = source.material(page[0].slot).unwrap();
         assert_eq!(raw.voice_data, b"\x02#!SILK_V3synthetic");
         assert_eq!(raw.media_db, "message/media_2.db");
-        assert_eq!(raw.svr_id, 0);
-        assert_eq!(raw.data_index, "");
+        assert_eq!(raw.svr_id, None);
+        assert_eq!(raw.data_index, None);
         assert_eq!(raw.chat_name_id, 1);
     }
 

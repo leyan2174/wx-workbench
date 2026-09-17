@@ -15,18 +15,6 @@ pub enum Operation {
         overwrite: bool,
         json: bool,
     },
-    TranscribeAudio {
-        args: crate::service::operation_requests::asr::TranscribeAudioNativeArgs,
-    },
-    TranscribeChat {
-        args: crate::service::operation_requests::asr::TranscribeChatNativeArgs,
-    },
-    TranscribeBatch {
-        args: crate::service::operation_requests::asr_batch::Args,
-    },
-    TranscribeDatabase {
-        args: crate::service::operation_requests::asr_database::TranscribeDatabaseNativeArgs,
-    },
     ChatPlan {
         args: crate::service::operation_requests::chat_plan::Args,
     },
@@ -152,15 +140,6 @@ pub enum Operation {
         input_dir: String,
         output_dir: Option<String>,
     },
-    ExportAudio {
-        config: PathBuf,
-        output_dir: Option<PathBuf>,
-        contacts: Option<String>,
-    },
-    ConvertAudio {
-        input: String,
-        output: Option<String>,
-    },
     ExportAll {
         args: crate::service::operation_requests::export_all::Args,
     },
@@ -269,7 +248,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn promoted_operations_round_trip_and_reject_nested_protocol() {
+    fn business_operations_round_trip_and_reject_nested_protocol() {
         use serde_json::json;
         for (kind, args) in [
             ("decode_moment_video", json!({"input":"in","output":"out"})),
@@ -286,8 +265,6 @@ mod tests {
             ("decode_image_cache", json!({"force":false})),
             ("decode_image", json!({"dat_file":"in.dat"})),
             ("decode_image_directory", json!({"input_dir":"in"})),
-            ("export_audio", json!({"config":"config.json"})),
-            ("convert_audio", json!({"input":"in.silk"})),
         ] {
             let operation: Operation =
                 serde_json::from_value(json!({"kind":kind,"args":args})).unwrap();
@@ -378,7 +355,7 @@ mod tests {
 
     #[test]
     fn authorization_and_semantic_checks_do_not_need_an_account() {
-        use crate::service::operation_requests::{asr, database_keys, export_delta};
+        use crate::service::operation_requests::{database_keys, export_delta};
         let no_scan = Operation::DatabaseKeys {
             args: database_keys::Args {
                 authorize_memory_scan: false,
@@ -389,21 +366,6 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("authorize-memory-scan"));
-        let no_upload = Operation::TranscribeAudio {
-            args: asr::TranscribeAudioNativeArgs {
-                input: "must-not-read.silk".into(),
-                backend: asr::BackendArgs {
-                    backend: asr::BackendKind::OpenAiCompatible,
-                    api_key_file: Some("must-not-read.key".into()),
-                    ..Default::default()
-                },
-            },
-        };
-        assert!(no_upload
-            .validate_request()
-            .unwrap_err()
-            .to_string()
-            .contains("allow-upload"));
         let invalid_date = Operation::ExportDelta {
             args: export_delta::Args {
                 output: "must-not-create".into(),

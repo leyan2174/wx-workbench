@@ -3,142 +3,6 @@ use super::*;
 #[path = "legacy_media_tests.rs"]
 mod legacy_media_tests;
 
-#[tokio::test]
-async fn q_prepare_voice_returns_only_bounded_internal_payload() {
-    let f = Fixture::new(true).await;
-    let limits = prepared_audio::Limits {
-        max_audio_bytes: 16 * 1024 * 1024,
-        max_response_bytes: 24 * 1024 * 1024 - 1024,
-    };
-    let before = f.snapshot();
-    let value = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
-        .await
-        .unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 1);
-    let bytes = serde_json::to_vec(&value["prepared_audio"]).unwrap();
-    let voice = prepared_audio::decode(&bytes, limits).unwrap();
-    assert_eq!(voice.evidence.message_local_id, 7);
-    assert_eq!(voice.evidence.media_local_id, 700);
-    assert_eq!(voice, f.message_voice(Some(123)).unwrap());
-    let exact = prepared_audio::Limits {
-        max_response_bytes: bytes.len(),
-        ..limits
-    };
-    assert!(
-        mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, exact)
-            .await
-            .is_ok()
-    );
-    assert!(mcp_audio::q_prepare_voice(
-        &f.db,
-        &f.names,
-        "wxid_peer",
-        700,
-        prepared_audio::Limits {
-            max_response_bytes: bytes.len() - 1,
-            ..limits
-        }
-    )
-    .await
-    .is_err());
-    assert_eq!(before, f.snapshot());
-}
-
-#[tokio::test]
-async fn q_prepare_voice_validates_limits_and_positive_id_before_database_access() {
-    let f = Fixture::new(false).await;
-    fs::remove_file(f.db.db_dir().join("message/message_0.db")).unwrap();
-    let limits = prepared_audio::Limits {
-        max_audio_bytes: 1024,
-        max_response_bytes: 4096,
-    };
-    for id in [i64::MIN, -1, 0] {
-        let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", id, limits)
-            .await
-            .unwrap_err();
-        assert_eq!(
-            format!("{error:#}"),
-            "voice media local_id must be positive"
-        );
-    }
-    let error = mcp_audio::q_prepare_voice(
-        &f.db,
-        &f.names,
-        "wxid_peer",
-        700,
-        prepared_audio::Limits {
-            max_audio_bytes: usize::MAX,
-            ..limits
-        },
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(format!("{error:#}"), "invalid voice preparation limits");
-}
-
-#[tokio::test]
-async fn q_prepare_voice_ambiguity_and_backend_errors_have_safe_error_chains() {
-    let limits = prepared_audio::Limits {
-        max_audio_bytes: 1024,
-        max_response_bytes: 4096,
-    };
-    let f = Fixture::new(false).await;
-    f.sql(3, "INSERT INTO VoiceInfo VALUES(9,700,999,999,NULL)");
-    let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
-        .await
-        .unwrap_err();
-    assert_eq!(format!("{error:#}"), "ambiguous voice media local_id");
-    let f = Fixture::new(false).await;
-    let table = format!("Msg_{:x}", md5::compute("wxid_peer"));
-    f.sql(
-        1,
-        &format!("INSERT INTO [{table}] VALUES(8,34,123,100,0,NULL)"),
-    );
-    let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
-        .await
-        .unwrap_err();
-    assert_eq!(format!("{error:#}"), "ambiguous voice message");
-    let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "SECRET_UNTRUSTED_CHAT", 700, limits)
-        .await
-        .unwrap_err();
-    assert_eq!(format!("{error:#}"), "voice preparation unavailable");
-    fs::write(f.db.db_dir().join(SOURCES[2]), b"SECRET_CORRUPT_DATABASE").unwrap();
-    let error = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
-        .await
-        .unwrap_err();
-    assert_eq!(format!("{error:#}"), "voice preparation unavailable");
-}
-
-#[tokio::test]
-async fn audio_sql_to_local_ipc_bridge_roundtrips_without_source_changes() {
-    let f = Fixture::new(true).await;
-    let before = f.snapshot();
-    let limits = prepared_audio::Limits {
-        max_audio_bytes: 1024,
-        max_response_bytes: 4096,
-    };
-    let value = mcp_audio::q_prepare_voice(&f.db, &f.names, "wxid_peer", 700, limits)
-        .await
-        .unwrap();
-    let payload = serde_json::to_vec(&value["prepared_audio"]).unwrap();
-    let decoded = prepared_audio::decode(&payload, limits).unwrap();
-    assert_eq!(decoded, f.message_voice(Some(123)).unwrap());
-    assert_eq!(before, f.snapshot());
-    assert!(mcp_audio::q_prepare_voice(
-        &f.db,
-        &f.names,
-        "wxid_peer",
-        700,
-        prepared_audio::Limits {
-            max_response_bytes: 10,
-            ..limits
-        }
-    )
-    .await
-    .is_err());
-    assert_eq!(before, f.snapshot());
-}
-
 #[path = "../encrypted_cache.rs"]
 mod encrypted_cache;
 
@@ -153,7 +17,6 @@ const SOURCES: [&str; 5] = [
 struct Fixture {
     _root: tempfile::TempDir,
     db: DbCache,
-    names: Names,
     paths: Vec<PathBuf>,
 }
 
@@ -211,20 +74,29 @@ impl Fixture {
         Self {
             _root: root,
             db,
-            names: Names {
-                map: HashMap::from([("wxid_peer".into(), "peer".into())]),
-            },
             paths,
         }
     }
-    async fn prepared_voice(&self) -> anyhow::Result<database_media::DatabaseVoice> {
-        let limits = prepared_audio::Limits {
-            max_audio_bytes: 16 * 1024 * 1024,
-            max_response_bytes: 24 * 1024 * 1024 - 1024,
-        };
-        let value =
-            mcp_audio::q_prepare_voice(&self.db, &self.names, "wxid_peer", 700, limits).await?;
-        prepared_audio::decode(&serde_json::to_vec(&value["prepared_audio"])?, limits)
+    fn sources(&self) -> Vec<database_media::DecryptedSource> {
+        SOURCES
+            .into_iter()
+            .zip(&self.paths)
+            .map(|(source, path)| database_media::DecryptedSource {
+                source: source.into(),
+                path: path.clone(),
+            })
+            .collect()
+    }
+
+    async fn raw_voice(&self) -> anyhow::Result<database_media::DatabaseVoice> {
+        database_media::resolve_voice_media_row(
+            &self.sources(),
+            "wxid_peer",
+            700,
+            "message/media_0.db",
+            1,
+        )
+        .map_err(Into::into)
     }
     fn message_voice(
         &self,
@@ -280,7 +152,7 @@ async fn audio_real_cache_raw_keys_exact_bytes_and_evidence_are_read_only() {
             .iter()
             .all(|k| !k.contains(&"11".repeat(32))));
         let before = f.snapshot();
-        let voice = f.prepared_voice().await.unwrap();
+        let voice = f.raw_voice().await.unwrap();
         assert_eq!(voice.silk, b"\x02#!SILK_V3synthetic");
         assert_eq!(voice.evidence.username, "wxid_peer");
         assert_eq!(voice.evidence.message_source, "message/message_0.db");
@@ -320,38 +192,27 @@ async fn audio_ambiguity_precedes_type_and_time_can_disambiguate() {
     );
     let before = f.snapshot();
     assert_eq!(
-        f.prepared_voice().await.unwrap_err().to_string(),
-        "ambiguous voice message"
+        f.raw_voice()
+            .await
+            .unwrap_err()
+            .downcast_ref::<database_media::DatabaseMediaError>()
+            .unwrap()
+            .kind,
+        database_media::ErrorKind::AmbiguousMessage
     );
     assert_eq!(before, f.snapshot());
 }
 
 #[tokio::test]
-async fn audio_missing_unknown_and_corrupt_dependencies_fail_closed() {
-    for source in SOURCES {
+async fn raw_voice_rejects_corrupt_or_missing_decrypted_sources() {
+    for (index, source) in SOURCES.iter().enumerate() {
         let f = Fixture::new(false).await;
-        fs::write(f.db.db_dir().join(source), b"synthetic corrupt database").unwrap();
+        fs::write(&f.paths[index], b"synthetic corrupt database").unwrap();
         let before = f.snapshot();
-        assert!(f.prepared_voice().await.is_err(), "corrupt source {source}");
+        assert!(f.raw_voice().await.is_err(), "corrupt source {}", source);
         assert_eq!(before, f.snapshot());
-    }
-    for key in [
-        "message/media_1.db",
-        "contact/contact.db",
-        "message/message_1.db",
-    ] {
-        let f = Fixture::new(false).await;
-        fs::remove_file(f.db.db_dir().join(key)).unwrap();
-        assert!(f.prepared_voice().await.is_err(), "missing {key}");
-    }
-    for name in ["MEDIA_9.DB", "MESSAGE_9.DB", "MEDIA_BAD.DB"] {
-        let f = Fixture::new(false).await;
-        fs::write(
-            f.db.db_dir().join("message").join(name),
-            b"unknown synthetic",
-        )
-        .unwrap();
-        assert!(f.prepared_voice().await.is_err(), "unknown {name}");
+        fs::remove_file(&f.paths[index]).unwrap();
+        assert!(f.raw_voice().await.is_err(), "missing source {}", source);
     }
 }
 
@@ -370,7 +231,7 @@ async fn audio_join_conflicts_invalid_blob_and_cross_shard_matches_are_rejected(
         let f = Fixture::new(false).await;
         f.sql(2, sql);
         let before = f.snapshot();
-        let err = f.prepared_voice().await.unwrap_err();
+        let err = f.raw_voice().await.unwrap_err();
         assert!(!format!("{err:#}").contains("SECRET"));
         assert_eq!(before, f.snapshot());
     }
@@ -380,12 +241,15 @@ async fn audio_join_conflicts_invalid_blob_and_cross_shard_matches_are_rejected(
         "INSERT INTO VoiceInfo VALUES(9,701,123,100,X'232153494C4B5F5633')",
     );
     let before = f.snapshot();
-    assert!(f
-        .prepared_voice()
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("ambiguous voice media local_id"));
+    assert_eq!(
+        f.raw_voice()
+            .await
+            .unwrap_err()
+            .downcast_ref::<database_media::DatabaseMediaError>()
+            .unwrap()
+            .kind,
+        database_media::ErrorKind::AmbiguousMedia
+    );
     assert_eq!(before, f.snapshot());
 }
 
@@ -397,8 +261,8 @@ async fn audio_explicit_accounts_do_not_share_media_or_outputs() {
     let before_a = a.snapshot();
     let before_b = b.snapshot();
     assert_ne!(
-        a.prepared_voice().await.unwrap().silk,
-        b.prepared_voice().await.unwrap().silk
+        a.raw_voice().await.unwrap().silk,
+        b.raw_voice().await.unwrap().silk
     );
     assert_eq!(before_a, a.snapshot());
     assert_eq!(before_b, b.snapshot());
