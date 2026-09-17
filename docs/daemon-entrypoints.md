@@ -68,3 +68,9 @@ daemon 停机先停止接收、取消和排空执行，再释放句柄和会话�
 - `src/daemon/operations`：执行宿主与操作装配；业务契约、用例、微信适配和基础设施分别由 `src/business`、`src/application`、`src/adapters/wechat` 和 `src/infrastructure` 提供。
 
 参见[架构](architecture.md)、[任务契约](daemon-tasks.md)、[MCP 协议](../src/mcp/PROTOCOL.md)和[测试说明](../tests/README.md)。
+
+## Web 查询传输
+
+联系人、会话和标签成员 HTTP 查询使用共享 `service/query_client` 的 `connect_query`、`write_query` 和 `decode_query_response`，执行对端进程验证、协议与运行身份匹配及有界帧读取。该路径只连接已存在的 daemon，不回退裸报文、不自动启动或重发请求。
+
+Web 固定 `RuntimeContext`，执行 Origin、令牌与 CSRF 检查。查询槽等待最多 2 秒，完整请求期限为 20 秒（Ping 为 1 秒），响应上限为 8 MiB；历史查询使用 Web RPC。业务错误与传输错误分别投影到 HTTP，不把后台不可用显示为空结果。

@@ -30,9 +30,9 @@ forwarding numeric requests through `LegacyReadPolicy`. Converting those
 numbers to Kind would widen results. Search's special decoded app-message
 path for the exact legacy selector list [49] is unchanged.
 
-Tests cover canonical business labels, explicit rejection of removed MCP
+Tests cover canonical business labels, explicit rejection of unsupported MCP
 compatibility words, CLI/MCP case differences, real MCP routing, and real synthetic SQLite selection for
 base/packed/negative selectors and semantic versus legacy differences.
 Standalone protocol, voice-host and image-security fixtures register the
-production compatibility module. Cargo and test execution are deferred to
-the parent agent; no real account is accessed.
+production compatibility module. Execution requirements are in the
+[test guide](../../../tests/README.md); fixtures use no real account.

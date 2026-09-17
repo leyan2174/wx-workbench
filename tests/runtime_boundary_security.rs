@@ -1,4 +1,4 @@
-//! 原生迁移安全回归：仅合成 SQLite，禁止依赖真实账号、Python 或 ffmpeg。
+//! 运行边界安全契约：仅合成 SQLite，禁止依赖真实账号、Python 或 ffmpeg。
 use rusqlite::Connection;
 #[path = "support/bootstrap.rs"]
 mod bootstrap;

@@ -26,7 +26,7 @@ fn report_outcome(report: &Value) -> crate::ipc::outcome::BusinessOutcome {
         .map_or(0, |items| items.len() as u64);
     if let Some(results) = report["results"].as_array() {
         for item in results {
-            if BusinessOutcome::from_legacy(item) == BusinessOutcome::Success {
+            if BusinessOutcome::from_json(item) == BusinessOutcome::Success {
                 succeeded = succeeded.saturating_add(1);
             } else {
                 failed = failed.saturating_add(1);
@@ -46,7 +46,7 @@ fn report_outcome(report: &Value) -> crate::ipc::outcome::BusinessOutcome {
     if failed != 0 {
         BusinessOutcome::from_counts(succeeded, failed)
     } else {
-        BusinessOutcome::from_legacy(report)
+        BusinessOutcome::from_json(report)
     }
 }
 

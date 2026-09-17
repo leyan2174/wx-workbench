@@ -102,7 +102,7 @@ pub struct TransferContent {
     pub details: TransferDetails,
 }
 
-/// Legacy reading summaries preserve non-numeric duration text independently
+/// Reading summaries preserve non-numeric duration text independently
 /// of the bounded, numeric rich preview above.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallSummary {

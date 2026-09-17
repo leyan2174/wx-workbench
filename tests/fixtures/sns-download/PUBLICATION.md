@@ -1,7 +1,7 @@
 # SNS single-file publication
 
 The production image, video and general download paths use `ExportTarget`.
-The existing album/timeline directory transaction remains unchanged: media
+The album/timeline directory transaction is separate: media
 publication within its protected staging tree does not replace that transaction.
 
 - Images use `new_file` and `write_bytes_checked`; existing images are never
@@ -17,8 +17,8 @@ publication within its protected staging tree does not replace that transaction.
   publisher checks staging, parent and captured target before atomic publication.
   Failed streams leave existing targets intact and clean up only their own stage.
 
-These paths launch no subprocesses. The existing in-process WASM limits remain
-in force; no new network authorization or implicit download entry was added.
+These paths launch no subprocesses. In-process WASM limits apply;
+network access requires explicit authorization, with no implicit download entry.
 
 Synthetic coverage lives in `download_tests.rs`, `album_images_tests.rs` and
 `album_videos_tests.rs`: short reads, bounded streaming, exact limits/overflow,
@@ -27,4 +27,4 @@ HTTP tests use loopback only. `sns-download` registers the real shared publisher
 runtime, encrypted store and cache dependencies through `publication.rs`; album
 test runners still select the production root modules via `run-module.ps1`.
 
-This slice does not claim a test pass until the parent runs the shared validation.
+Execution requirements are in the [test guide](../../README.md).

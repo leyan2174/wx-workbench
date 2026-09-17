@@ -57,7 +57,7 @@ these codes; arbitrary backend error text and error chains are never forwarded.
 Corruption, wrong account and protection failures are never classified as missing.
 
 Specialized image adapters must preserve their existing code 1/2 distinctions
-through `BusinessFailure::legacy_exit_code()` when receiving a checked query error.
+through `BusinessFailure::worker_exit_code()` when receiving a checked query error.
 ASR chat/batch count transcribed and existing results as success; batch persistence
 warnings remain non-success while engine identity notices are informational.
 VoiceBatch and decrypt also return typed partial results. Decrypt item failures

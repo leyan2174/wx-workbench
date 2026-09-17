@@ -832,7 +832,7 @@ fn invalid_arguments_do_not_create_output() {
 }
 
 #[test]
-fn zero_limit_and_zero_workers_preserve_legacy_clamping() {
+fn zero_limit_and_zero_workers_respect_limit_and_worker_bounds() {
     let mut f = Fixture::new();
     let profile = f.account(
         "zero",

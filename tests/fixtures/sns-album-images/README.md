@@ -10,7 +10,7 @@
 pub(crate) mod album_images;
 ```
 
-不需要新增依赖；使用当前 reqwest、regex、serde_json、tempfile、same-file、zeroize、anyhow。
+依赖： reqwest、regex、serde_json、tempfile、same-file、zeroize、anyhow。
 HTML5 实体解析复用 `adapters/wechat/moments/decode.rs::html_unescape`，实体表位于同目录 `html_entities.json`。
 
 ## API
@@ -69,7 +69,7 @@ let result = album_images::download_sns_image(url, key, token, name, &guard, || 
 
 ## 针对性验收
 
-当前优先从仓库根运行已注册的生产模块测试：
+从仓库根运行生产模块测试：
 
 ```powershell
 cargo test --bin wx application::moments::album_images::tests -- --nocapture --test-threads=1
@@ -77,4 +77,4 @@ cargo test --bin wx application::moments::album_images::tests -- --nocapture --t
 
 测试覆盖 URL 候选 oracle、图片 magic、真实后缀、延迟初始化、WASM XOR、候选回退、错误脱敏、不覆盖发布、硬链接及响应大小限制。本机回环用例检查请求头、重定向、状态、截断、无长度响应与超时。
 
-`oracle.json` 保存迁移时固定的纯 URL 合成结果，普通回归只读取该文件，不执行 Python。run.ps1 委托 tests/run-module.ps1，使用根 Cargo.toml 和 wx 测试目标，可显式指定 TargetDir，不再要求手工选择 rlib。环境与跳过规则见[测试说明](../../README.md)。
+`oracle.json` 保存固定的纯 URL 合成结果，普通回归只读取该文件，不执行 Python。run.ps1 委托 tests/run-module.ps1，使用根 Cargo.toml 和 wx 测试目标，可显式指定 TargetDir，无需手工选择 rlib。环境与跳过规则见[测试说明](../../README.md)。

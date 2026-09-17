@@ -336,7 +336,7 @@ fn selected_config_collision_filter_and_automatic_update() {
     let report = success(f.alias(&a, None, &format!("{ALICE},{BOB}"), &["--no-remote"]));
     assert_eq!(report["contacts"], 2);
     assert_eq!(report["posts"], 3);
-    // legacy 无条件派生输出根；raw output_base_dir 是伪路径，不得被采用。
+    // 配置宿主必须派生输出根；raw output_base_dir 是伪路径，不得被采用。
     let out = a.join("wechat_files/a");
     assert!(!a.join("exports").exists());
     let alice = out.join("Alice/SNS");

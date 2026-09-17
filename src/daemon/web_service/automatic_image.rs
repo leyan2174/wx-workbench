@@ -188,7 +188,7 @@ fn query_failure(error: anyhow::Error) -> Failure {
     if query::is_busy(&error) {
         Failure::Busy
     } else if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
-        match failure.legacy_exit_code() {
+        match failure.worker_exit_code() {
             Some(1) => Failure::Unavailable,
             Some(2) => Failure::Ambiguous,
             _ => Failure::DecodeFailed,

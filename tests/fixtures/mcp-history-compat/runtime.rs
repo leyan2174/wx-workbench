@@ -1,4 +1,4 @@
-//! 不替代查询或渲染：复用账号夹具，通过实际 wx daemon IPC 验证新旧路径。
+//! 不替代查询或渲染：复用账号夹具，通过实际 wx daemon IPC 验证查询兼容性。
 #![cfg(windows)]
 #[path = "../../../src/private_file.rs"]
 #[allow(dead_code)] // Shared production module; ACL inspection runs in the root security tests.

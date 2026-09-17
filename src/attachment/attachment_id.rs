@@ -2,7 +2,7 @@
 //!
 //! 编码：`base64url_no_pad(serde_json(payload))`。
 //! 选择 base64url(json) 而不是紧凑 bit-pack：
-//! - phase 1 求稳，不发明二进制协议
+//! - 使用 JSON 编码字段，避免二进制布局依赖
 //! - 后面加字段（`resource_md5` / `decoder_hint` 之类）老 CLI 不 break
 //! - debug 直接 base64 -d | jq 看字段
 //!

@@ -1,21 +1,21 @@
-//! Explicit legacy VoiceInfo export. No message join, decoding or publication.
+//! Explicit VoiceInfo export. No message join, decoding or publication.
 use super::voice_catalog::MediaShard;
 use crate::business::voice_export::{Entry, Source};
 use anyhow::{ensure, Context, Result};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 
-/// Legacy raw diagnostic coordinates, not a strict message identity or reference.
+/// Raw diagnostic coordinates, not a strict message identity or reference.
 #[derive(Debug)]
 pub struct RawBatchEntry {
-    /// Physical Name2Id rowid from the selected legacy media database.
+    /// Physical Name2Id rowid from the selected media database.
     pub chat_name_id: Option<i64>,
     pub local_id: Option<i64>,
     pub timestamp: Option<i64>,
     pub username: Option<String>,
 }
 
-/// One caller-authorized legacy media file. No discovery or strict message join.
+/// One caller-authorized media file. No discovery or strict message join.
 pub struct BatchSource {
     connection: Connection,
     pin: crate::attachment::local_files::Pin,

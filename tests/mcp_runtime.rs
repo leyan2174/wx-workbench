@@ -333,7 +333,7 @@ fn real_wx_initializes_lists_seventeen_tools_without_account_and_never_falls_bac
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    // 锁定旧工具顺序；语音工具只能追加，不能改变已有客户端的工具清单。
+    // 工具清单顺序是客户端兼容契约；语音工具位于清单末尾。
     assert_eq!(names.len(), 17);
     assert_eq!(&names[..8], &TOOLS[..8]);
     assert_eq!(

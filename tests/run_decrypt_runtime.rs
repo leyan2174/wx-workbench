@@ -492,7 +492,7 @@ fn decrypt_skips_migration_working_directory() {
 }
 
 #[test]
-fn removed_compatibility_commands_are_rejected_without_writes() {
+fn unsupported_toolkit_commands_are_rejected_without_writes() {
     let root = tempfile::tempdir().unwrap();
     let config = root.path().join("absent/config.json");
     for args in [

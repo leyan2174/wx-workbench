@@ -1,12 +1,12 @@
-//! Typed ordinary reads plus an explicitly separate legacy wire projection.
-//! Ordering and per-stream candidate limits preserve the historical read policy.
-use crate::adapters::wechat::messages::{legacy, LegacyReadPolicy, RawMessage, Snapshot};
+//! Typed ordinary reads plus an explicitly separate wire projection.
+//! Reads apply ordering and per-stream candidate limits before global pagination.
+use crate::adapters::wechat::messages::{display, LegacyReadPolicy, RawMessage, Snapshot};
 use crate::business::messages::{self as domain, Conversation, MessageRef, SourceKind};
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-/// Not a business identity or portable locator. Only the legacy JSON boundary
+/// Not a business identity or portable locator. Only the JSON boundary
 /// serializes these fields; ordinary page selection never consumes them.
 #[derive(Debug, Serialize)]
 pub struct LegacyMessageProjection {
@@ -109,7 +109,7 @@ impl Snapshot {
                 .local_id
                 .context("ordinary message identity unavailable")?,
             source: raw.logical_source.replace('\\', "/"),
-            type_label: legacy::fmt_type(raw.local_type),
+            type_label: display::fmt_type(raw.local_type),
             unmapped_chat_label: unmapped.as_ref().map(|_| {
                 self.streams()[raw.reference.evidence().stream]
                     .table_name()

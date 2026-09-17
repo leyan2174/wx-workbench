@@ -1,6 +1,6 @@
 # SNS 时间线更新参考测试
 
-该 fixture 保存迁移时由历史 wechat-decrypt SNS 导出流程生成的合成结果。当前回归只消费固定输入与 golden，不再执行或携带 Python oracle。
+该 fixture 保存来源于 wechat-decrypt SNS 导出流程的合成结果。回归只消费固定输入与 golden，不执行或携带 Python oracle。
 
 ## 运行
 

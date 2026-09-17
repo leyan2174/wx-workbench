@@ -1,6 +1,6 @@
 # 表情目录映射契约
 
-映射规则最初从 wechat-decrypt 的表情目录实现迁移。当前契约由纯 Rust 合成 SQLite 测试直接固定，不再执行或携带 Python oracle。
+映射规则来源于 wechat-decrypt 的表情目录实现。契约由纯 Rust 合成 SQLite 测试直接固定，回归不执行或携带 Python oracle。
 
 ## 映射规则
 

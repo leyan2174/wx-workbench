@@ -1,4 +1,4 @@
-//! 原生 SNS 下载 CLI 契约：仅 loopback 和合成数据库，不验证旧 alias 迁移。
+//! 原生 SNS 下载 CLI 契约：仅 loopback 和合成数据库。
 use base64::Engine;
 #[path = "support/bootstrap.rs"]
 mod bootstrap;

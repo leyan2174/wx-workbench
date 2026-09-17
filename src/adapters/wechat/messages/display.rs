@@ -1,5 +1,5 @@
-//! Legacy display projection for typed WeChat message decoding.
-use crate::adapters::wechat::legacy_text::{
+//! Display labels and content for typed WeChat message decoding.
+use crate::adapters::wechat::xml_fragments::{
     element_text as extract_xml_text, strip_cdata as strip_xml_cdata,
     unescape_entities as unescape_html,
 };

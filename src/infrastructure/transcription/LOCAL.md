@@ -3,7 +3,7 @@
 规范名称及授权边界见 [ASR 后端](../../../docs/asr-backends.md)。MCP 配置式 Python
 只接受 `python_whisper`，并要求宿主启用对应入口。
 
-## 当前入口与默认值
+## 入口与默认值
 
 Rust 已负责音频校验/SILK 解码、数据库关联、缓存、回写和进程监管；`application/transcription/mod.rs` 组合两个本地后端。Python 只保留 Whisper/PyTorch 推理桥，不运行旧 `mcp_server.py` 或批量导出脚本，也不是识别失败后的自动回退。
 
@@ -43,7 +43,7 @@ Windows 使用 CREATE_NO_WINDOW | CREATE_SUSPENDED，不经过 shell。先将挂
 已纳管的子孙进程。目录删除最多重试 1 秒，失败明确报错。
 `windows_supervision.rs` 仅保留 ASR 诊断适配，Job、管道读取和回收复用
 `windows_process::managed`，与直接 FFmpeg、daemon worker 使用相同实现；仅
-`PeekNamedPipe` 保留一份 kernel32 FFI，无新增 crate 或 Windows feature。
+`PeekNamedPipe` 通过 kernel32 FFI 调用。
 每次显式回收使用独立的 2 秒预算，覆盖 Job 活动进程归零和直接子进程退出，
 不会无限 wait；回收失败不宣称终止已确认。共享 Job 可随 Python worker 跨线程移动。
 内层 Job 不允许 breakaway；终止内层不会终止外层 worker，终止外层会回收内层后代。
@@ -74,9 +74,9 @@ PeekNamedPipe 查询可读量，每管道每轮最多读 64KiB，不等待 EOF�
 
 ## Python 推理桥
 
-`LocalPythonConfig::discover` 固定解释器发现结果、环境和模型根，但不启动 Python；真正需要引擎身份或识别时才启动 worker。解释器按 `VIRTUAL_ENV` 中的 Windows 解释器、配置目录或当前可执行文件附近的 `.venv`、最后 `PATH` 中的 `python` 依次发现。模型相对路径始终基于选定的配置目录，不再依赖仓库内的旧 Python 工具目录或其专用环境变量。
+`LocalPythonConfig::discover` 固定解释器发现结果、环境和模型根，但不启动 Python；真正需要引擎身份或识别时才启动 worker。解释器按 `VIRTUAL_ENV` 中的 Windows 解释器、配置目录或当前可执行文件附近的 `.venv`、最后 `PATH` 中的 `python` 依次发现。模型相对路径始终基于选定的配置目录，不依赖仓库内的 Python 工具目录或其专用环境变量。
 
-解释器以 `-S -u -B -c` 运行内嵌桥，加入 Job 后接收单字节握手，再执行 `site.main()`、导入 Whisper/PyTorch。命名模型保留 Whisper 按需下载权重和摘要检查；本地权重路径须存在。首次实际识别时加载模型，后续请求复用常驻模型；CUDA 可用时沿用 Whisper/PyTorch 的 CUDA 选择，否则 CPU。Rust 不新增独立 Python GPU 引擎，也不宣称已原生替代 PyTorch。
+解释器以 `-S -u -B -c` 运行内嵌桥，加入 Job 后接收单字节握手，再执行 `site.main()`、导入 Whisper/PyTorch。命名模型保留 Whisper 按需下载权重和摘要检查；本地权重路径须存在。首次实际识别时加载模型，后续请求复用常驻模型；CUDA 可用时沿用 Whisper/PyTorch 的 CUDA 选择，否则 CPU。Rust 负责进程编排，GPU 推理由 Whisper/PyTorch 执行。
 
 桥不上传音频，但命名模型可能联网下载；保留的代理、Python/site、CUDA 环境及第三方包均属于可信部署边界，不能称为无网络沙箱。音频使用专属临时 WAV，不创建临时 SILK。请求 JSON 小于 16KiB、启动配置最多 8KiB；每次响应等待阶段 stdout/stderr 合计上限 1MiB，响应上限 1MiB，专属目录累计 256MiB/4096 条目。约 10ms 轮询，非硬配额，不约束目录外模型缓存。
 

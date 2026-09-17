@@ -27,7 +27,7 @@ pub struct SqliteContacts {
     pub display_names: HashMap<String, String>,
 }
 
-/// Ordered source descriptor for legacy cache lookup; only absence permits fallback.
+/// Ordered source descriptor for cache lookup; only absence permits fallback.
 pub const fn source_keys() -> [&'static str; 2] {
     ["contact/contact.db", "contact\\contact.db"]
 }
@@ -124,7 +124,7 @@ pub fn cached_directory(
 }
 
 /// Optional display metadata for an existing connection, including caller-owned transactions.
-/// Empty tables remain empty; legacy repeated identities retain their last display value.
+/// Empty tables remain empty; repeated identities retain their last display value.
 pub fn display_names(conn: &Connection) -> domain::Result<BTreeMap<String, String>> {
     if !has(
         &columns(conn, "contact")?,

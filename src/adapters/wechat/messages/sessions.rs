@@ -14,7 +14,7 @@ pub fn last_timestamp(path: &std::path::Path, username: &str) -> anyhow::Result<
         .optional()?)
 }
 use super::read::{decode_content, StoredContent, MAX_DECODED_BYTES, MAX_STORED_BYTES};
-use super::{legacy, semantic_kind};
+use super::{display, semantic_kind};
 use crate::business::messages as domain;
 use crate::business::sessions::Session;
 use anyhow::{ensure, Context, Result};
@@ -58,7 +58,7 @@ pub fn read(path: &Path, verified: &HashMap<String, i64>) -> Result<Vec<Record>>
         ensure!(total <= 64 * 1_048_576, domain::Error::Limit);
         let code = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
         result.push(Record {
-            type_label: legacy::fmt_type(code),
+            type_label: display::fmt_type(code),
             session: Session {
                 kind: super::super::contacts::kind(
                     &username,
@@ -88,7 +88,7 @@ pub fn decode_summary(bytes: &[u8]) -> Result<String> {
     Ok(String::from_utf8(decoded)?)
 }
 
-/// Legacy timestamp subscription input, explicitly not the message directory.
+/// Timestamp subscription input, explicitly not the message directory.
 pub fn timestamps(path: &Path) -> Result<Vec<(String, i64)>> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut statement = conn.prepare(

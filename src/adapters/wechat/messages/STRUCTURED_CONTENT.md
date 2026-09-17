@@ -5,9 +5,9 @@
 - `transfer.rs` 负责微信 XML 遍历、字段别名、唯一的转账状态解码和严格详情校验，返回 `business::structured_message::TransferContent`。
 - `summary.rs` 负责旧语音/视频时长、通话状态和名片属性提取；交给 `message::summary` 的是数字、普通文本和 typed 信息，不推断通话媒体类型。
 - `location.rs` 负责位置属性、有限坐标校验、分类提取及微信 x 对应纬度、y 对应经度的映射，返回 `LocationContent`。
-- `message::transfer`、`message::location` 保留详情 JSON 与展示；`message::summary` 保留阅读摘要格式，生产代码不再解析 XML。
-- `message::structured_message` 是 rich JSON 的显式展示投影，生产出口为 `daemon/query/message_read.rs`。业务枚举不再直接序列化。
-- `export_content.rs` 是显式 raw 导出兼容适配器，已从 `message` 直接迁入且不保留生产 re-export 垫片。其职责包括 packed `local_type`、appmsg/表情私有字段、嵌套引用和历史 content/extras 投影，不是普通 typed 业务响应。普通导出、增量导出、目录导出、rich 预览与 reply 解码已按需接线。
+- `message::transfer`、`message::location` 保留详情 JSON 与展示；`message::summary` 保留阅读摘要格式，这些展示模块不解析 XML。
+- `message::structured_message` 是 rich JSON 的显式展示投影，生产出口为 `daemon/query/message_read.rs`。业务枚举不直接序列化。
+- `export_content.rs` 是显式 raw 导出兼容适配器，由微信消息适配器直接提供，不通过 `message` 生产 re-export。其职责包括 packed `local_type`、appmsg/表情私有字段、嵌套引用和历史 content/extras 投影，不是普通 typed 业务响应。普通导出、增量导出、目录导出、rich 预览与 reply 解码按需调用该适配器。
 
 ## 兼容边界
 
@@ -22,6 +22,6 @@
 
 ## 覆盖与未执行项
 
-原 transfer、summary、location、export-content golden 测试改走新 adapter，期望值不变。新增合成 XML 测试覆盖完整别名/JSON 等价、缺字段、未知状态与时长格式、坐标方向、名片凭据排除、raw subtype 回退，以及严格详情/raw 导出/rich 预览的差异。另有展示测试保证不会从原始诊断代码推断业务状态。
+transfer、summary、location、export-content golden 测试通过真实 adapter 核对固定期望值。合成 XML 测试覆盖完整别名/JSON 等价、缺字段、未知状态与时长格式、坐标方向、名片凭据排除、raw subtype 回退，以及严格详情/raw 导出/rich 预览的差异。另有展示测试保证不会从原始诊断代码推断业务状态。
 
-`tests/support/structured_content_adapters.rs` 为 attachment-refs 和 mcp-readonly-security fixture 注册真实模块，不访问账号、网络或微信进程。按照阶段 5 先开发后统一测试的要求，本切片未运行 Cargo 检查或测试；待后续统一执行。
+`tests/support/structured_content_adapters.rs` 为 attachment-refs 和 mcp-readonly-security fixture 注册真实模块，不访问账号、网络或微信进程。执行命令与依赖见[测试说明](../../../../tests/README.md)。

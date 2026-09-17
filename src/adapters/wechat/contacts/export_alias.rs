@@ -1,4 +1,4 @@
-//! Exact legacy alias projection for raw directory exports, not contact identity resolution.
+//! Exact alias projection for raw directory exports, not contact identity resolution.
 use anyhow::{Context, Result};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
 use std::path::Path;

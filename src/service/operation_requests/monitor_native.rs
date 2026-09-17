@@ -39,7 +39,7 @@ pub struct Args {
 pub struct LatencyArgs {
     pub json: bool,
     pub duration_secs: u64,
-    /// 与 legacy 相同，默认 30 ms 检查 mtime；不读取 DB/WAL 内容
+    /// 默认每 30 ms 检查 mtime；不读取 DB/WAL 内容
     pub poll_interval_ms: u64,
     /// 即使无文件变化，也按此间隔采样 IPC
     pub probe_interval_ms: u64,

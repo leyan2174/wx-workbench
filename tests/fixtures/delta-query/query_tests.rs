@@ -150,7 +150,7 @@ async fn real_cache_sqlite_adapter_matches_ast_oracle() {
             crate::application::chat_delta_export::prepare_delta(&chat, &window).unwrap();
         assert_eq!(prepared.result, case["result"]);
         let mut document = prepared.document.unwrap_or(Value::Null);
-        // source 是原生导出新增的证据字段，除此之外逐字段对照旧实际文件。
+        // source 是来源证据字段；其余字段逐一对照参考导出文件。
         if let Some(messages) = document.get_mut("messages").and_then(Value::as_array_mut) {
             for message in messages {
                 message.as_object_mut().unwrap().remove("source");

@@ -1,5 +1,5 @@
-pub(crate) use super::super::legacy_text::element_text as extract_xml_text;
-use super::super::legacy_text::unescape_entities as unescape_html;
+pub(crate) use super::super::xml_fragments::element_text as extract_xml_text;
+use super::super::xml_fragments::unescape_entities as unescape_html;
 use roxmltree::{Document, Node};
 use serde_json::Value;
 

@@ -39,4 +39,4 @@
 - [音频](../src/infrastructure/audio/README.md)、[SNS 媒体密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
 - [daemon](daemon-entrypoints.md)、[任务](daemon-tasks.md)、[测试](../tests/README.md)
 
-保留的上游材料用于来源或格式参考，不作为任意旧脚本仍可运行的承诺。公开命令与参数以本项目实际注册和各子命令帮助为准。
+公开命令与参数以本项目实际注册和各子命令帮助为准。

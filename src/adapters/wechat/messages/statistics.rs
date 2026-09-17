@@ -1,4 +1,4 @@
-use super::{legacy, semantic_kind, Snapshot};
+use super::{display, semantic_kind, Snapshot};
 use crate::business::messages::{self as domain, statistics::Statistics};
 use anyhow::Result;
 use chrono::{Local, TimeZone, Timelike};
@@ -33,7 +33,7 @@ pub fn read(snapshot: &Snapshot, username: &str, filter: &domain::Filter) -> Res
             )?;
             let count = report
                 .legacy_types
-                .entry(legacy::fmt_type(row.local_type & 0xffff_ffff))
+                .entry(display::fmt_type(row.local_type & 0xffff_ffff))
                 .or_default();
             *count = count.checked_add(row.count).ok_or(domain::Error::Limit)?;
             Ok(())

@@ -1,4 +1,4 @@
-//! Public CLI -> real daemon over migrated, isolated synthetic account databases.
+//! Public CLI -> real daemon over isolated synthetic account databases with DPAPI keys.
 #![cfg(windows)]
 #[path = "../src/private_file.rs"]
 #[allow(dead_code)] // Shared production module; this fixture does not exercise every entry point.

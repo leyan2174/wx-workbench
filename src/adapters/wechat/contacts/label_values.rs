@@ -1,4 +1,4 @@
-//! Shared legacy WeChat label scalar and field-30 decoding rules.
+//! Shared WeChat label scalar and field-30 decoding rules.
 pub(crate) fn parse_label_id(raw: &str) -> Option<i64> {
     // 对齐 oracle 使用的 Python Unicode 十进制数字表。
     const ZEROS: &[u32] = &[

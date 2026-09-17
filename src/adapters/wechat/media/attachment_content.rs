@@ -1,5 +1,5 @@
 //! WeChat attachment decoding and cache naming. No filesystem access or authorization.
-//! MessageInput/Identity/AttachmentMetadata preserve the explicit legacy evidence projection.
+//! MessageInput/Identity/AttachmentMetadata carry the explicit evidence projection.
 use crate::business::attachment_content::{
     AttachmentContent, ContainerKind, NamedKind, NamedMedia,
 };

@@ -591,7 +591,7 @@ fn exit_dispatch_error(error: anyhow::Error) -> ! {
     if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
         eprintln!("{}", failure);
         // Preserve the public query ambiguity code; worker refusal uses reserved 21.
-        let code = if failure.legacy_exit_code() == Some(2) {
+        let code = if failure.worker_exit_code() == Some(2) {
             2
         } else {
             failure.0.worker_exit_code()

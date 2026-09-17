@@ -128,7 +128,7 @@ pub fn sns_image_url_candidates(url: &str, token: &str) -> Vec<String> {
         }
         candidate
     };
-    // Python 正则亦作用于查询字符串，不能用 URL 规范化改变历史候选顺序。
+    // 匹配覆盖查询字符串；URL 规范化会改变候选顺序。
     static SIZE: OnceLock<Regex> = OnceLock::new();
     let full = SIZE
         .get_or_init(|| Regex::new(r"/(?:150|200|480)(\?|$)").unwrap())

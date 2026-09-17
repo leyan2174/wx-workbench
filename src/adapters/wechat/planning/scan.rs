@@ -1,4 +1,4 @@
-//! WeChat cache layout and pinned, attribute-only legacy size scanning.
+//! WeChat cache layout and pinned, attribute-only size scanning.
 use crate::business::chat_plan::{Partial, ScanContribution};
 use anyhow::{bail, ensure, Result};
 use std::{

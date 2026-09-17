@@ -1,5 +1,5 @@
 //! Explicit legacy DAT lookup, never a fallback from strict association.
-//! Preserve historical local-time +/-31-day order (previous, current, next),
+//! Use local-time +/-31-day order (previous, current, next),
 //! then sorted directory fallback; full > HD > thumbnail only within each directory.
 use chrono::TimeZone;
 use std::path::{Path, PathBuf};

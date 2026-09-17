@@ -1,7 +1,7 @@
-//! Legacy voice-directory selection, not proof of a strict message association.
+//! Voice-directory selection, not proof of a strict message association.
 use super::media::{Error, Failure, Stage};
 
-/// Explicit legacy batch selection; this is not a strict message identity.
+/// Explicit batch selection; this is not a strict message identity.
 pub fn batch_selected(
     username: &str,
     contacts: Option<&std::collections::BTreeSet<String>>,

@@ -11,7 +11,7 @@ fn fixtures() -> std::path::PathBuf {
 }
 
 #[test]
-fn migrated_render_golden_is_static() {
+fn album_render_matches_fixed_vectors() {
     let golden: Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/sns-album-render/golden.json"
     ))

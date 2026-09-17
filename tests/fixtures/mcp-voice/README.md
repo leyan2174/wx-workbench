@@ -18,7 +18,7 @@ VoiceQuery 为显式 username、usize limit/offset、Option<i64> since/until。
 精确 username 直接传入；显示名必须精确唯一解析，不作子串匹配。
 
 DbCache 提供账号级 `pub(crate) media_db_keys(&self) -> Vec<String>`，
-查询内部调用 helper，不再接受外部 media_keys 参数。
+查询内部调用 helper，不接受外部 media_keys 参数。
 从已加载配置返回完整媒体原始键，不复用仅含消息片的 Names.msg_db_keys。
 本模块不访问 all_keys、不读取任何密钥配置。适配器核对磁盘清单并解析全部
 分片，任一未知/缺失/未解密/错误都返回 Err；不得用空列表当部分成功。
@@ -41,7 +41,7 @@ cargo test --offline --manifest-path tests/fixtures/mcp-voice/Cargo.toml --targe
 ```
 
 依赖均已有 anyhow、rusqlite、serde、same-file，测试另用 tempfile/tokio；
-不需要新增生产依赖或 Windows feature。
+生产依赖和 Windows feature 以根 Cargo.toml 为准。
 
 ## DbCache 与来源键
 

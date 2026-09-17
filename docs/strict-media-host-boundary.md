@@ -35,36 +35,32 @@ host error strings and metadata serialization remain compatible. Attachment
 decode-limit failures propagate while parser failures retain their bounded wire
 mapping; malformed XML is not treated as a missing local file.
 
-## Tests And Integration Status
+## Synthetic coverage
 
 - Existing `tests/fixtures/mcp-image/tests.rs` tests remain wired to the real
   query: full type flags, zero-time lookup, duplicate identity/resource aliases,
   unknown shards, source/WAL mutation, explicit V2 keys, output protection and
-  unchanged input bytes. Inventory tests now use `AccountSources` rather than
-  the removed host inventory implementation.
-- Added `opaque_media_evidence_rejects_changed_kind_before_resource_proof`:
+  unchanged input bytes. Inventory tests use `AccountSources`.
+- `opaque_media_evidence_rejects_changed_kind_before_resource_proof`:
   evidence captured in one real message snapshot is rejected after changing the
   physical type before the next snapshot, with a typed stale-evidence error and
   no published output.
-- Added `strict_media_rejects_unbound_attachment_root`: a DAT present only in
+- `strict_media_rejects_unbound_attachment_root`: a DAT present only in
   another root cannot produce strict MCP output.
-- Added `strict_media_rejects_cross_month_ties_that_legacy_lookup_selects`: the
+- `strict_media_rejects_cross_month_ties_that_legacy_lookup_selects`: the
   actual legacy resolver selects its preferred month, whereas strict MCP rejects
   the same equal-rank cross-month candidates with no output.
 - `native-attachment-security` locally wires the real strict media adapter,
-  reusing the original parser and file-reference implementation. Added high-type
+  reusing the original parser and file-reference implementation. Tests cover high-type
   compatibility and non-attachment rejection through the real query. Existing
   SQL ambiguity, unknown/missing shard, bounded decode, account isolation and
   nested-hash rejection tests remain intact.
 
-Cargo and tests have not been run for this change. The parent owns targeted
-integration validation; no full-suite pass is claimed.
+See [test instructions](../tests/README.md) for execution.
 
-## Shared Message Compatibility Boundary
+## Shared message boundary
 
-`strict_message::with_resolved<T>` remains the shared snapshot host and is not
-modified here while Tesla owns the message-read work. Image and attachment hosts
-do not use detached `StrictMessage`, `locate`, `bounded_decode` or a default type
-parameter for `Resolution`. The parent is migrating the final refer consumer to
-typed `ReplyRead` and removing those legacy shared APIs. That coordinated change
-is outside this slice; no replacement production message locator is introduced.
+`strict_message::with_resolved<T>` provides the shared snapshot host. Image and
+attachment resolution use snapshot-bound typed evidence. The [message read
+contract](business-messages.md) defines identity, uniqueness and expiration;
+neither host constructs a replacement locator or detached authorization proof.

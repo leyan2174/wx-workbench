@@ -41,7 +41,7 @@ fn seed_history(account: &support::Account, rows: usize, body_bytes: usize) {
     assert!(rows * body_bytes < 64 * 1024 * 1024);
     let table = format!("Msg_{:x}", md5::compute(b"peer"));
     // Replace both seeded message shards before starting the daemon. The helper's
-    // fixed synthetic key/salt still match its migrated DPAPI key store.
+    // fixed synthetic key/salt match its current-format DPAPI key store.
     for shard in 0..2 {
         let plain = account.root().join("limit-build.db");
         let mut conn = support::encrypted_sqlite::sqlite(&plain);

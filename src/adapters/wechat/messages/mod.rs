@@ -1,9 +1,9 @@
 //! Account message reads and semantic projections share one validated snapshot implementation.
 pub mod catalog;
 mod directory_selection;
+pub(crate) mod display;
 pub mod export_content;
 pub mod inventory;
-pub(crate) mod legacy;
 pub mod location;
 pub mod probe;
 mod projection;

@@ -143,7 +143,7 @@ fn scalar_constraints_preserve_absent_empty_and_rich_description() {
 }
 
 #[test]
-fn matches_legacy_ast_metadata_golden() {
+fn matches_ast_metadata_golden() {
     let golden: Value = serde_json::from_str(include_str!("golden.json")).unwrap();
     for case in golden["cases"].as_array().unwrap() {
         let input = MessageInput {

@@ -1,4 +1,4 @@
-//! Legacy attachment-list row conversion, not a general tolerant message reader.
+//! Attachment-list row conversion, not a general tolerant message reader.
 use super::*;
 
 #[derive(Clone, Copy)]

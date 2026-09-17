@@ -77,7 +77,7 @@ pub trait Source {
     fn revalidate(&self, reference: &CatalogMediaRef) -> Result<(), Error>;
 }
 
-/// This legacy export never claims a content hash proof from its filename cache.
+/// Filename-cache export does not establish a content hash proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Materialization {
     Downloaded,

@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_all_legacy_text_fields_and_coordinate_direction() {
+    fn preserves_all_text_fields_and_coordinate_direction() {
         let attributes = TEXT_FIELDS
             .iter()
             .enumerate()

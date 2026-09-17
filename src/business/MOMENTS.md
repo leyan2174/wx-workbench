@@ -1,4 +1,4 @@
-# Moments Slice
+# Moments Contracts
 
 `business::moments` defines account-scoped moments, author provenance, opaque
 evidence/media references and narrow timeline/interaction sources. Its use cases
@@ -43,11 +43,11 @@ Pure in-memory business tests cover endpoint inclusion, ordering, recorded-autho
 selection, conflicts, pagination and incomplete scans. Adapter tests use only
 synthetic in-memory SQLite/XML and cover schema failure, author fallback/conflict,
 strict versus recovered content, literal search, media evidence, unread filters
-and missing original posts. The 19 query XML/media regression tests now live in
+and missing original posts. Query XML/media regression tests are registered in
 `adapters/wechat/moments/query_xml_tests.rs`; existing SNS export goldens continue
-to exercise compatibility projections. The parent verified the four pure
-business tests and production compilation; adapter tests after relocation still
-require the parent-coordinated test run.
+to exercise compatibility projections. Execution requirements are in the
+[test guide](../../tests/README.md).
+
 ## Query Completeness Projection
 
 Feed and search responses retain their existing fields and add `meta` with
@@ -56,7 +56,7 @@ Feed and search responses retain their existing fields and add `meta` with
 locations. `has_more` records observed extra matches; `scan_truncated` separately
 records an incomplete scan, so a false `has_more` is not a completeness claim.
 
-Display-name author selection now uses the shared contact resolver and rejects
+Display-name author selection uses the shared contact resolver and rejects
 ambiguity instead of choosing by map iteration or shortest display name. Explicit
 account-scoped usernames retain their existing direct-filter behavior, including
 authors not present in the local contact directory.

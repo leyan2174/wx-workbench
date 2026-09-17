@@ -1,7 +1,7 @@
 # Rust OpenAI 兼容转录模块
 
 唯一名称是 `openai_compatible`；旧值 `openai` 与 `explicit-open-ai` 明确拒绝。
-共享解析与各入口授权边界见 [ASR 后端](../../../docs/asr-backends.md)，命名更新不迁移 API 凭据。
+共享解析与各入口授权边界见 [ASR 后端](../../../docs/asr-backends.md)；API 凭据由调用方显式提供。
 
 ## 接入边界
 
@@ -41,7 +41,7 @@
 
 ## 依赖与注册
 
-当前共享 Cargo.toml 已声明 reqwest，父模块已注册 `pub mod openai;`。所需特性为：
+根 Cargo.toml 声明 reqwest，所属模块注册 `pub mod openai;`。所需特性为：
 
 ```toml
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "rustls-tls"] }

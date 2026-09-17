@@ -39,13 +39,13 @@ fn classifies_legacy_markers_without_reading_message_bodies() {
             BusinessOutcome::Success,
         ),
     ] {
-        assert_eq!(BusinessOutcome::from_legacy(&data), expected, "{data}");
+        assert_eq!(BusinessOutcome::from_json(&data), expected, "{data}");
     }
 }
 
 #[test]
 fn checked_failure_is_typed_and_sanitized() {
-    let failure = BusinessOutcome::from_legacy(&json!({"error":"SYNTHETIC_PRIVATE_KEY"}))
+    let failure = BusinessOutcome::from_json(&json!({"error":"SYNTHETIC_PRIVATE_KEY"}))
         .require_success()
         .unwrap_err();
     let error = anyhow::Error::new(failure).context("public context");
@@ -104,7 +104,7 @@ fn response_classification_preserves_legacy_wire_schema() {
         Response::ok(json!({"exit_code":2}))
             .require_success()
             .unwrap_err()
-            .legacy_exit_code(),
+            .worker_exit_code(),
         Some(2)
     );
 }

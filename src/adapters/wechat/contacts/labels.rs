@@ -1,4 +1,4 @@
-//! Bounded WeChat label decoding, preserving legacy association multiplicity.
+//! Bounded WeChat label decoding, preserving repeated associations.
 use super::label_values::{
     extract_field_30 as field_30, parse_label_id as label_id, sqlite_id_equal as id_equal,
 };

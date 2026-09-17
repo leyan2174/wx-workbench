@@ -12,7 +12,7 @@ pub fn cmd_decode(request: Request, json: bool) -> Result<()> {
             if json {
                 if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>()
                 {
-                    if let Some(code) = failure.legacy_exit_code() {
+                    if let Some(code) = failure.worker_exit_code() {
                         println!(
                             "{}",
                             serde_json::to_string_pretty(&serde_json::json!({

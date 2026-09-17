@@ -29,7 +29,7 @@ or audio operation was changed.
 
 ## Legacy compatibility
 
-Business Page now carries `PageContinuation::{Exhausted, MayHaveMore}`, with the
+Business Page carries `PageContinuation::{Exhausted, MayHaveMore}`, with the
 same names and meaning as the messages page state. The two-value enum stays local
 to avoid coupling the standalone voice capability to the message model. Source
 completeness is a success precondition, not a statement that pagination ended.
@@ -53,7 +53,7 @@ times. SQL NULL remains JSON null, while a zero-byte BLOB remains zero. Exact
 username lookup remains case-sensitive; display labels require one exact match,
 and an explicit username wins over a conflicting display label.
 
-## Synthetic coverage and pending validation
+## Synthetic coverage
 
 - Memory Source tests cover preserved duplicates/order, opaque evidence, NULL vs
   zero semantics, inclusive endpoints, validation before IO, unavailable sources,
@@ -73,8 +73,6 @@ and an explicit username wins over a conflicting display label.
   accounts. Inventory tests cover unavailable/extra/canonical-duplicate shards
   and a shard added during cache resolution.
 
-No Cargo commands or tests were run for this slice. Parent validation should run
-the root check/tests plus mcp-voice and mcp-voice-security fixtures. These two
-fixtures add serde_json as a dev dependency for the shared JSON golden; their
-lockfiles need refresh during centralized validation. This work makes no claim
-of a cross-database atomic snapshot beyond the existing inventory checks.
+Run the root checks and mcp-voice / mcp-voice-security fixtures according to
+[test instructions](../tests/README.md). Inventory checks do not guarantee a
+cross-database atomic snapshot.

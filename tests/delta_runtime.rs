@@ -15,7 +15,7 @@ use std::{
     process::{Command, Output},
 };
 
-// 此 fixture 来自旧 export_delta_one 的 AST oracle，不由生产 Rust UID 算法生成。
+// 此 fixture 来自 export_delta_one 的 AST oracle，不由生产 Rust UID 算法生成。
 fn golden() -> Value {
     serde_json::from_str(include_str!("fixtures/delta-query/golden.json")).unwrap()
 }

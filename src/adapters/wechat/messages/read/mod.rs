@@ -20,7 +20,7 @@ use std::{
 pub const MAX_STORED_BYTES: usize = 1_048_576;
 pub const MAX_DECODED_BYTES: usize = 4 * 1_048_576;
 
-/// Legacy text search requires both the keyword and its semantic preview decoder.
+/// Text search requires both the keyword and its semantic preview decoder.
 pub(super) struct LegacySearch<'a> {
     pub keyword: &'a str,
     pub preview: &'a dyn Fn(&RawMessage) -> Result<String>,
@@ -65,7 +65,7 @@ pub struct SourceFile {
     pub path: PathBuf,
     pub kind: SourceKind,
 }
-/// Numeric WeChat filters are a legacy protocol policy, not business message kinds.
+/// Numeric WeChat filters are a protocol policy, not business message kinds.
 /// Keep wire 43/10000 narrower than Kind::Video/System; do not normalize here.
 #[derive(Default)]
 pub struct LegacyReadPolicy {
@@ -166,7 +166,7 @@ impl RawMessage {
             content: self.content.clone(),
         }
     }
-    /// Legacy ASR accepts only actual SQLite INTEGER identifiers; local_id is never a substitute.
+    /// ASR accepts only actual SQLite INTEGER identifiers; local_id is never a substitute.
     pub fn checked_server_id(&self) -> Result<Option<i64>> {
         match &self.server_id {
             StoredScalar::AbsentColumn | StoredScalar::Null | StoredScalar::Integer(0) => {
@@ -485,7 +485,7 @@ impl Snapshot {
         ensure!(exists, domain::Error::Expired);
         Ok(())
     }
-    /// Legacy media selector, not a durable ID. No fallback to local_id or another timestamp.
+    /// Media selector, not a durable ID. No fallback to local_id or another timestamp.
     pub fn resolve_server_id(
         &self,
         username: &str,
@@ -702,7 +702,7 @@ impl Snapshot {
             ));
             values.extend(&legacy.local_types);
         }
-        // Preserve the legacy distinction: app-message search examines decoded text and preview.
+        // App-message search examines both decoded text and preview.
         let decoded_search = keyword.is_some() && legacy.local_types == [49];
         let mut parameters: Vec<rusqlite::types::Value> =
             values.into_iter().map(Into::into).collect();

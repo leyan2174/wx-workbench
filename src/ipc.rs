@@ -415,7 +415,7 @@ impl Response {
         {
             return diagnostic.outcome();
         }
-        let payload = outcome::BusinessOutcome::from_legacy(&self.data);
+        let payload = outcome::BusinessOutcome::from_json(&self.data);
         if (!self.ok || self.error.is_some()) && payload == outcome::BusinessOutcome::Success {
             outcome::BusinessOutcome::Failure
         } else {

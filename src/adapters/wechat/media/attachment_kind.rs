@@ -1,4 +1,4 @@
-//! Resource type encoding for the explicit legacy attachment protocol.
+//! Resource type encoding for the attachment protocol.
 use crate::attachment::AttachmentKind;
 
 pub(crate) fn resource_type(kind: AttachmentKind) -> i64 {

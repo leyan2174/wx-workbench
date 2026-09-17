@@ -159,8 +159,8 @@ fn cli_refusal(output: Output, command: &str) {
 }
 
 #[test]
-fn removed_migrate_keys_is_rejected_without_creating_account_or_daemon_state() {
-    // HEAD's removed operation_args/key_migration.rs defined these two flags.
+fn unsupported_migrate_keys_is_rejected_without_creating_account_or_daemon_state() {
+    // Unsupported commands must also reject these flags without creating state.
     for args in [
         vec!["migrate-keys"],
         vec!["migrate-keys", "--allow-unverified", "--cleanup-legacy"],
@@ -173,7 +173,7 @@ fn removed_migrate_keys_is_rejected_without_creating_account_or_daemon_state() {
 
 #[test]
 fn removed_launcher_script_entries_are_cli_errors_without_side_effects() {
-    // Script spellings from HEAD's removed src/cli/launcher.rs whitelist.
+    // Script-style command spellings must be rejected by the CLI.
     for script in [
         "main.py",
         "monitor_web.py",

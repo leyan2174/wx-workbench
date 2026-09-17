@@ -2,7 +2,7 @@
 
 ## 接口与调用方
 
-`cache/cached/receipt` 已在 `application/transcription/mod.rs` 注册，并接入 MCP 宿主、显式数据库 CLI 和固定账号批处理。核心本身不发现账号、后端或缓存位置，也不实现过期清扫；Python 命名模型下载属于独立推理桥，见 [LOCAL.md](../../infrastructure/transcription/LOCAL.md)。
+`cache/cached/receipt` 在 `application/transcription/mod.rs` 注册，供 MCP 宿主、显式数据库 CLI 和固定账号批处理调用。核心本身不发现账号、后端或缓存位置，也不实现过期清扫；Python 命名模型下载属于独立推理桥，见 [LOCAL.md](../../infrastructure/transcription/LOCAL.md)。
 
 - MCP 用 `--voice-cache-file FILE` 显式启用；省略不持久化。账号取绑定的 `RuntimeContext.id`，不接受工具参数提供的账号或路径。
 - `wx toolkit transcribe-database-native` 用成对的 `--cache-file FILE --cache-account NAME` 启用；缓存目录须独立于数据库/后端输入。NAME 只是调用方命名空间，不是账号认证。

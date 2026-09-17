@@ -104,7 +104,7 @@ pub struct BatchReport {
     pub failures: Vec<BatchFailure>,
 }
 
-/// Legacy JSON diagnostic projection; these raw IDs do not establish strict identity.
+/// JSON diagnostic projection; these raw IDs do not establish strict identity.
 #[derive(Debug, serde::Serialize)]
 pub struct BatchFailure {
     pub chat_name_id: Option<i64>,
@@ -289,7 +289,7 @@ fn publish_mp3_checked(
                 crate::infrastructure::publication::ExportTarget::capture_paths(
                     target, &protected,
                 )?;
-                // Preserve the legacy late-writer skip, never replace its file.
+                // Skip files created by a concurrent writer; never replace them.
                 Ok(false)
             } else {
                 Err(error)

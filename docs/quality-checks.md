@@ -1,4 +1,4 @@
-# 分阶段质量检查
+# 质量检查
 
 入口为 `scripts/check-quality.ps1`，使用 PowerShell 7（`pwsh`），默认 `Check`。适用于开发中按需检查，避免每轮都执行完整测试矩阵。不引入依赖、测试缓存或猜测性跳过；仅复用 Cargo 自身的增量产物。
 
@@ -34,8 +34,8 @@ pwsh -NoProfile -File scripts/check-quality.ps1 -Stage Check -Offline
 
 每轮写入 `<target>/quality-checks/<UTC时间>-<随机ID>/`，不会覆盖此前轮次。各步骤合并保存完整输出；屏幕只显示命令和每步骤最多 4000 UTF-8 字节摘要（含至多约 1800 字节输出尾部）。`summary.json` 记录实际命令、起止时间、结果和原始退出码；总退出码只表示成功或失败。完整输出先落盘再读取摘要，不会为了截断而提前终止命令。
 
-夹具脚本仍写其原有 `quality-fixtures` 目录，本入口在该步骤结束后将其完整归档到本轮 `fixture-logs`；夹具实际 Cargo 命令在 `fixtures.log` 中，逐夹具退出码在归档的 `summary.json` 中。起止时间记录到阶段级。夹具历史目录可能含本轮没有重写的旧日志，应以本轮夹具 summary 为准。本入口用 target 内独占文件锁阻止自身并发运行；不要同时单独运行夹具脚本或在同一 target 中启动其他构建。
+夹具脚本仍写其原有 `quality-fixtures` 目录，本入口在该步骤结束后将其完整归档到本次运行 `fixture-logs`；夹具实际 Cargo 命令在 `fixtures.log` 中，逐夹具退出码在归档的 `summary.json` 中。起止时间记录到阶段级。夹具历史目录可能含本次运行没有重写的旧日志，应以本次运行夹具 summary 为准。本入口用 target 内独占文件锁阻止自身并发运行；不要同时单独运行夹具脚本或在同一 target 中启动其他构建。
 
-运行前后记录 `git diff --binary HEAD` 与 `git status --porcelain=v1 --untracked-files=all`，并对 `git ls-files --others --exclude-standard -z -- '*.rs'` 列出的未跟踪 Rust 源码逐文件计算 SHA-256，保存路径和内容哈希到本轮 `before/after-untracked-hashes.json`。比较这些快照的 SHA-256，即使未跟踪 `.rs` 路径和状态不变，内容变化也会被检测。发现差异时，结果标记 `changed-intermediate-state`，只针对运行期间中间状态；无法取得快照则标记 `unknown` 并失败。
+运行前后记录 `git diff --binary HEAD` 与 `git status --porcelain=v1 --untracked-files=all`，并对 `git ls-files --others --exclude-standard -z -- '*.rs'` 列出的未跟踪 Rust 源码逐文件计算 SHA-256，保存路径和内容哈希到本次运行 `before/after-untracked-hashes.json`。比较这些快照的 SHA-256，即使未跟踪 `.rs` 路径和状态不变，内容变化也会被检测。发现差异时，结果标记 `changed-intermediate-state`，只针对运行期间中间状态；无法取得快照则标记 `unknown` 并失败。
 
 即使 `no-change-observed` 也不宣称稳定验收：前后快照无法发现改动后又恢复的内容，也不能发现忽略文件或未跟踪非 Rust 文件的纯内容变化。稳定验收须由协调者在源码停止变化后统一执行；本脚本不构造复杂内容缓存，也不将编译检查算作测试。

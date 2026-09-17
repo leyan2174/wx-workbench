@@ -116,7 +116,7 @@ fn unique_metadata_and_missing_local_file_have_distinct_sources() {
 }
 
 #[test]
-fn old_latest_reuse_and_current_fallback_are_not_exact_identity_proof() {
+fn latest_resource_fallback_and_duplicate_rows_do_not_prove_exact_identity() {
     let fixture = Fixture::new("reused_local_id_legacy_chooses_newest");
     assert_ne!(
         fixture.lookup().unwrap().md5,
@@ -140,7 +140,7 @@ fn old_latest_reuse_and_current_fallback_are_not_exact_identity_proof() {
 }
 
 #[test]
-fn file_candidate_and_md5_case_rules_are_not_byte_for_byte_legacy_parity() {
+fn file_candidates_require_canonical_names_and_md5_is_lowercase() {
     let fixture = Fixture::new("legacy_prefix_glob_accepts_noncanonical_name");
     assert_eq!(fixture.case["legacy_rows"][0]["size"], 777);
     assert!(fixture.resolve().is_err());

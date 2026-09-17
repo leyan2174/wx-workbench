@@ -16,25 +16,25 @@ let voice = database_media::resolve_voice(
 
 `resolve_voice(&Path, MessageIdentity<'_>) -> Result<DatabaseVoice, DatabaseMediaError>` 是显式目录查询入口。输入根目录必须绝对路径且为调用方明确选择的单账号、完整、静态已解密快照。`source` 必须完整写成 `message/message_N.db`，允许 Windows 反斜杠；裸文件名、绝对 source、上级目录、URI、ADS 均拒绝。不从媒体分片编号猜消息分片；此核心不自动发现账号、不读配置/密钥、不云上传、不调用模型、不创建输出。
 
-实现位于 `adapters::wechat::media::voice`；生产依赖复用 `rusqlite`、`md5`、`same-file` 和标准库，测试用 `tempfile`。其他已接线的公共入口：
+实现位于 `adapters::wechat::media::voice`；生产依赖复用 `rusqlite`、`md5`、`same-file` 和标准库，测试用 `tempfile`。其他公共入口：
 
 - `resolve_voice_sources(&[DecryptedSource], MessageIdentity, exact_time)` 接受调用方固定的完整来源清单，允许实际文件位于散列缓存路径；`source` 保留原始规范根相对身份。`None` 不筛时间，`Some(0)` 精确匹配零时间。
 - `resolve_voice_media_id(&[DecryptedSource], username, media_local_id)` 用于 MCP 旧媒体 ID：先证明唯一媒体行，再按 username/server_id 在全部消息分片反查唯一消息，最后复用正向关联。绝不把媒体 ID 当成消息 ID。
 - `source_files(root)` 供上层枚举相关源文件；清单入口拒绝重复来源、同文件别名及活动库，持有所有源的只读保护直到查询和结束复核完成。
 
-## 当前 CLI 与宿主
+## CLI 与宿主
 
-`wx toolkit transcribe-database-native --decrypted-dir ABS_DIR --username USER --source message/message_0.db --local-id 7` 已接入 `cli/asr_database.rs`，还必须提供显式后端参数。默认本地 whisper.cpp，需 `--whisper-binary/--whisper-model`；语言默认 `auto`、超时 120 秒、线程自动且最多 8；云端需显式后端、端点、模型、key 文件和 `--allow-upload`。完整后端契约见 [LOCAL.md](../../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../../infrastructure/transcription/OPENAI.md)。
+`wx toolkit transcribe-database-native --decrypted-dir ABS_DIR --username USER --source message/message_0.db --local-id 7` 由 `cli/asr_database.rs` 提供，还必须提供显式后端参数。默认本地 whisper.cpp，需 `--whisper-binary/--whisper-model`；语言默认 `auto`、超时 120 秒、线程自动且最多 8；云端需显式后端、端点、模型、key 文件和 `--allow-upload`。完整后端契约见 [LOCAL.md](../../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../../infrastructure/transcription/OPENAI.md)。
 
 可选 `--cache-file FILE --cache-account NAME` 必须成对，NAME 非空且只是调用方命名空间；缓存文件须为独立可信目录中的 JSON，不能覆盖数据库、程序、模型或凭证。后端授权检查先于数据库和音频访问。输出是 `transcription`、双侧 `evidence` 和可选 `cache` 状态；明确返回 `account_authenticated=false`、`account_provenance="caller_supplied_decrypted_snapshot"`，不序列化原始音频或凭证。
 
-`wx toolkit transcribe-chat` 及转录导出流程已通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，daemon 内的宿主策略执行器验证后执行解码或转录。显式媒体清单的 `transcribe-chat-native` 仍作为另一入口保留。
+`wx toolkit transcribe-chat` 及转录导出流程通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，daemon 内的宿主策略执行器验证后执行解码或转录。显式媒体清单的 `transcribe-chat-native` 仍作为另一入口保留。
 
 ## 关联证据
 
-- 历史 wechat-decrypt 的转录路径只传 username/local_id，并在媒体分片中采用首个同 local_id；这不能保持导出 source 语义，本实现不复刻该歧义回退。
-- 历史导出参考实现读取 `Msg_<md5(username)>.server_id`；当前关联规则由本适配器测试和类型化证据独立固定。
-- 关联核心使用 `VoiceInfo.svr_id`、`local_id`、`create_time`、`chat_name_id`，并用同媒体库 `Name2Id.rowid/user_name` 证明联系人；当前接线以本文件上方的公共入口为准，不依赖旧 CLI 私有读取函数。
+- 消息定位必须包含完整 source；不以 username/local_id 在媒体分片中选取首个同 local_id 记录，歧义必须报错。
+- wechat-decrypt 导出参考实现提供 `Msg_<md5(username)>.server_id` 字段语义；本适配器的关联规则由测试和类型化证据独立固定。
+- 关联核心使用 `VoiceInfo.svr_id`、`local_id`、`create_time`、`chat_name_id`，并用同媒体库 `Name2Id.rowid/user_name` 证明联系人；调用方通过本文件上方的公共入口访问，不依赖 CLI 私有读取函数。
 - `application/voice_batch_export.rs` 通过本适配器关联联系人并遍历媒体；配置、输出与计数仍由应用工作流负责，不提升为微信适配器的公共 helper。
 - `daemon/query/export.rs` 以完整分片 source 和 `Msg_<md5(username)>` 表导出 local_id。本实现沿用这个消息身份，不将媒体 local_id 当作消息 local_id。
 

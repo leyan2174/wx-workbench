@@ -9,10 +9,10 @@ This contract is a legacy VoiceInfo directory, not a strict message association.
 It accepts the historical `message/media_*.db` key inventory (including textual
 suffixes). Exact username wins over case-insensitive substring matches; ambiguous
 matches fail. No message database or MessageRef is invented. The strict voice
-adapter and the exact, descending metadata-only voice catalog are unchanged.
+adapter and the exact, descending metadata-only voice catalog are separate contracts.
 
 Time endpoints remain inclusive. Ascending time/local-id ordering and offset/limit
-are now applied once across all shards; this corrects the old per-shard offset.
+are applied once across all shards, not separately per shard.
 Stable ties retain sorted shard order and then SQLite rowid order. A zero limit
 selects nothing. Unknown Name2Id rows retain the historical skip policy, now
 reported as `unmapped_rows`; unavailable cached shards are `missing_shards`.
@@ -26,8 +26,7 @@ Metadata memory still scales with the legacy inventory; this is not a streaming
 metadata cursor. Snapshots are per shard, not a cross-database atomic snapshot.
 
 Existing SILK prefix normalization, evidence fields, output names, overwrite
-rules and host lifecycle remain unchanged. This command has no optional decoder;
-the slice does not add one, a worker, upload, or new remote authorization.
+rules and host lifecycle remain unchanged. This command has no optional decoder, worker, upload or remote authorization.
 
 The command fixes one RuntimeContext, checks the worker's expected account and
 holds the existing ConfigPin. Store, cache directories and publication protection
@@ -43,4 +42,4 @@ published audio intact; previously published evidence/summary is not truncated.
 Tests use in-memory business sources and synthetic SQLite files only: global
 pagination, inclusive endpoints, ties, fuzzy ambiguity, legacy source names,
 raw-byte preservation, lazy BLOB reading, read snapshots and schema failures.
-Validation is delegated to the parent; no Cargo run is claimed by this slice.
+Execution requirements are in the [test guide](../../tests/README.md).

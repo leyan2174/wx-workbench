@@ -1,6 +1,6 @@
 # Image publication boundary
 
-The three toolkit image entry points share `application::publication_context::PublicationContext` and `ExportTarget`.
+The image entry points share `application::publication_context::PublicationContext` and `ExportTarget`.
 `decode_images_for` accepts the task host's selected `RuntimeContext`; it does
 not rediscover configuration. The ordinary entries use `PublicationContext::current`.
 When `WX_CLI_EXPECTED_RUNTIME` is present, current configuration must resolve to
@@ -32,7 +32,7 @@ the separate strict attachment resolver or turn legacy results into hash proofs.
 - `application::publication_context::tests`: explicit expected-runtime parameters without
   environment mutation; missing, matching and changed config; missing ancestor
   appearance; protection of future config and input.
-- `toolkit::images::publication_tests`: protected outputs across single, album,
+- `application::image_publication::publication_tests`: protected outputs across single, album,
   mirror and fixed-runtime task entry points; exact-byte normal/default output;
   offline explicit paths/AES; config appearance before final publication keeps
   previous output; source/config write-delete-rename attempts are denied; stale
@@ -41,5 +41,5 @@ the separate strict attachment resolver or turn legacy results into hash proofs.
   batch-only missing-key skipping, malformed keyed rejection and legacy XOR.
 - Existing image parser fixtures and encrypted/parity tests are retained.
 
-These new tests were added without running Cargo. Compilation and targeted test
-execution are delegated to the integrating parent; no full-suite rerun is claimed.
+See [test instructions](../tests/README.md) for execution. Synthetic coverage
+does not replace real-account or media-quality verification.

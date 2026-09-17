@@ -188,7 +188,7 @@ pub fn detect_image_format(data: &[u8]) -> &'static str {
     }
 }
 
-/// 忠实移植 PNG/JPEG/VP8 尺寸读取；旧代码未支持的 GIF/VP8L/VP8X 返回 (0,0)。
+/// 读取 PNG/JPEG/VP8 尺寸；不支持的 GIF/VP8L/VP8X 返回 (0,0)。
 pub fn image_dimensions(data: &[u8]) -> (u32, u32) {
     if data.len() < 24 {
         return (0, 0);

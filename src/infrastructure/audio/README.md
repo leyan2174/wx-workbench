@@ -2,7 +2,7 @@
 
 ## 入口
 
-已接入 `infrastructure::audio` 和 [daemon 操作分派](../../daemon/operations/toolkit.rs)。
+模块注册于 `infrastructure::audio`，调用入口为 [daemon 操作分派](../../daemon/operations/toolkit.rs)。
 SILK 解码使用 Rust 与静态 SILK C SDK，MP3 编码调用原生 ffmpeg；此转换路径不启动 Python 或 Node。
 批量数据库导出见 [批量语音导出](../../../docs/voice-batch-export.md)，ASR 是独立流程，不能把 MP3 转换当作语音识别。
 
@@ -17,7 +17,7 @@ wx toolkit voice-to-mp3 input.silk
 CLI 从 PATH 查找 ffmpeg，没有单文件 `--ffmpeg` 参数；指定编码器路径需使用下方库接口。
 单文件成功时允许原子替换已有输出，失败时保留旧文件；这与批量及 MCP WAV 的不覆盖发布不同。
 
-主仓 [Cargo.toml](../../../Cargo.toml) 已声明这些依赖，无需再添加：
+根 [Cargo.toml](../../../Cargo.toml) 声明以下依赖：
 
 ```toml
 silk-codec = { version = "=0.3.1", default-features = false }

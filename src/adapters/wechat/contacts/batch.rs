@@ -1,4 +1,4 @@
-//! Legacy audio directory projection, not contact identity resolution.
+//! Audio directory projection, not contact identity resolution.
 use anyhow::Result;
 use rusqlite::{Connection, OpenFlags};
 use std::{collections::BTreeMap, path::Path};

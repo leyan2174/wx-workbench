@@ -1,4 +1,4 @@
-//! Explicit legacy raw-export projection; dynamic values are not domain contacts.
+//! Explicit raw-export projection; dynamic values are not domain contacts.
 //! 旧 export_all_chats 联系人元数据查询；不发现账号、不写数据库或导出文件。
 use super::label_values::{extract_field_30, parse_label_id, sqlite_id_equal};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};

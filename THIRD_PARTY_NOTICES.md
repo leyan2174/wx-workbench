@@ -1,10 +1,9 @@
 # Third-party notices
 
-## Original wx-cli
+## jackwener/wx-cli
 
-This project derives from jackwener/wx-cli. The retained upstream history at
-`8d32c08` contains the following MIT notice. Later changes to this repository's
-root license do not remove the upstream attribution or this notice.
+This project includes code derived from jackwener/wx-cli, covered by the
+following MIT notice. The project root license does not replace this notice.
 
 MIT License
 
@@ -28,18 +27,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## wechat-decrypt lineage and unresolved permission evidence
+## ylytdeng/wechat-decrypt
 
-Batch export, Moments, media and other workflows were ported or adapted from
-the historical ylytdeng/wechat-decrypt reference copy, as described in README.
-The imported vendor snapshots reviewed for this release do not contain a
-standalone upstream LICENSE or an explicit license grant in their README.
-The original repository could not be retrieved on 2026-09-17 (HTTP 451).
-The project therefore does not assert that its Apache-2.0 license grants
-redistribution rights over upstream-derived expression. Upstream permission
-evidence must be recovered or the affected implementation reviewed and
-appropriately replaced before approving public source distribution. Removing
-the vendor directory or translating Python to Rust alone does not resolve this.
+Batch export, Moments and media workflows include implementations adapted
+from ylytdeng/wechat-decrypt. Available source evidence does not establish
+an upstream license grant. This project's Apache-2.0 license does not grant
+redistribution rights over upstream-derived expression. Permission evidence
+or an appropriate implementation review and replacement is required before
+approving public source distribution.
 
 ## Release scope
 
@@ -50,13 +45,12 @@ Lucide assets retain `src/web/assets/LICENSE-lucide.txt` (ISC). Synthetic test
 audio has generation parameters and hashes in `tests/fixtures/audio/manifest.json`.
 
 
-## Account key capture
+## LOGO127/wechat-ai-memory
 
-The following MIT attribution was recorded when this adapter was imported.
-The original upstream license file is not retained in the local evidence, and
-the upstream repository/license endpoint was unavailable during the 2026-09-17
-review. Retain this notice, but independently confirm the original license
-text and copyright attribution before approving public redistribution.
+The attribution below is retained for this adapter. An independently
+verified upstream license file is not available in the local evidence.
+Confirm the original grant and copyright attribution before approving
+public redistribution; this notice alone does not establish permission.
 
 `src/scanner/windows/account_hook.js` adapts the SHA-512/HMAC capture approach
 from https://github.com/LOGO127/wechat-ai-memory, specifically

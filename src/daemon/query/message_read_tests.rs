@@ -117,7 +117,7 @@ fn read_selected(
     } else {
         snapshot.history_page(view.username, &filter, &policy, &page)?
     };
-    // This fixture helper represents a single-table legacy read, whose output
+    // This fixture helper represents a single-table read, whose output
     // remains chronological before the production search's final reversal.
     if keyword.is_some() {
         read.page.messages.reverse();

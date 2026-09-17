@@ -1,4 +1,4 @@
-//! Legacy rich JSON projection. Business metadata carries no wire-format rules.
+//! Rich JSON projection. Business metadata carries no wire-format rules.
 use crate::business::structured_message::StructuredMessage;
 use serde_json::{json, Value};
 

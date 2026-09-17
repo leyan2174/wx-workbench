@@ -65,7 +65,7 @@ impl Default for CacheOptions {
 #[derive(Debug, Default, Serialize)]
 pub struct Report {
     pub backend_kind: String,
-    /// 预期的迁移状态说明，不计入 failed 或持久化故障 warnings。
+    /// 推理后端状态说明，不计入 failed 或持久化故障 warnings。
     pub engine_warnings: Vec<String>,
     pub transcribed: usize,
     pub skipped_existing: usize,

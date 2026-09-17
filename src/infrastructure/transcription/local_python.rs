@@ -1,4 +1,4 @@
-//! 迁移期间保留旧 Whisper/PyTorch 推理语义；仅推理仍依赖 Python。
+//! Whisper/PyTorch 本地推理后端，由受监督的 Python 子进程执行。
 //! 不导入 mcp_server，不读取账号配置、数据库或云端凭证，不是失败回退。
 use super::windows_supervision::{self as supervision, Caller};
 use anyhow::{bail, ensure, Context, Result};
@@ -427,7 +427,7 @@ struct Worker {
 impl Worker {
     fn start(config: &LocalPythonConfig) -> Result<Self> {
         #[cfg(not(windows))]
-        bail!("legacy Python inference supervision requires Windows");
+        bail!("Python inference supervision requires Windows");
         let mut budget = config.clone();
         budget.tighten_timeout(config.remaining_timeout()?)?;
         let config = &budget;
@@ -482,7 +482,7 @@ impl Worker {
         }
         config.remaining_timeout()?;
         let mut process = Process {
-            child: command.spawn().context("start legacy local inference")?,
+            child: command.spawn().context("start Python inference")?,
             #[cfg(windows)]
             job: None,
         };
@@ -563,10 +563,7 @@ impl Worker {
         let start = Instant::now();
         let mut stream_bytes = 0;
         loop {
-            ensure!(
-                start.elapsed() < timeout,
-                "legacy local inference timed out"
-            );
+            ensure!(start.elapsed() < timeout, "Python inference timed out");
             supervision::drain(
                 &mut self.stdout,
                 &mut stream_bytes,
@@ -603,13 +600,13 @@ impl Worker {
                         Some("response_limit") => "response_limit",
                         _ => "protocol_error",
                     };
-                    bail!("legacy local inference failed: {category}; process output withheld");
+                    bail!("Python inference failed: {category}; process output withheld");
                 }
                 return Ok(response);
             }
             ensure!(
                 self.process.child.try_wait()?.is_none(),
-                "legacy local inference exited; process output withheld"
+                "Python inference exited; process output withheld"
             );
             thread::sleep(Duration::from_millis(10).min(timeout.saturating_sub(start.elapsed())));
         }
@@ -638,7 +635,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         if self.shutdown().is_err() {
-            eprintln!("[asr-batch] legacy local inference cleanup failed");
+            eprintln!("[asr-batch] Python inference cleanup failed");
         }
     }
 }

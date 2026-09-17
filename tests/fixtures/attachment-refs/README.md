@@ -1,6 +1,6 @@
 # 附件只读引用测试
 
-本夹具引用 `src/application/attachment_references.rs`、真实 `message` 模块、业务内容类型以及 `adapters/wechat/media` 的内容解码、目录布局和 legacy DAT 实现；生产查询由 daemon 调用同一实现。XML 解码和缓存命名不在夹具中复制。宿主安全测试及适配器内存测试均由本夹具接线，阶段 5 的统一执行由父任务负责。
+本夹具引用 `src/application/attachment_references.rs`、真实 `message` 模块、业务内容类型以及 `adapters/wechat/media` 的内容解码、目录布局和 legacy DAT 实现；生产查询由 daemon 调用同一实现。XML 解码和缓存命名不在夹具中复制。宿主安全测试及适配器内存测试均由本夹具注册。
 
 
 ## 接入契约
@@ -47,6 +47,6 @@ Windows 上结果持有只读常规文件及相关目录句柄，拒绝新的写
 cargo test --offline --manifest-path tests/fixtures/attachment-refs/Cargo.toml -- --nocapture
 ```
 
-`golden.json` 保存迁移时固定的合成元数据契约；当前回归不再执行 Python 参考源码。夹具中的路径、摘要、索引和大记录测试应保留源字节及目录集合不变断言；符号链接权限不足须单列跳过。
+`golden.json` 保存固定的合成元数据契约；回归直接读取该文件，不执行 Python 参考源码。夹具中的路径、摘要、索引和大记录测试应保留源字节及目录集合不变断言；符号链接权限不足须单列跳过。
 
 消息定位和 MCP 返回边界见[附件契约](../../../docs/native-attachment-contract.md)，畸形标量的拒绝断言见[查询安全回归](../native-attachment-security/README.md)。

@@ -1,5 +1,5 @@
-//! WeChat favorite storage, capability checks, and legacy diagnostic projection.
-use super::legacy_text::{element_text, strip_cdata, unescape_entities};
+//! WeChat favorite storage, capability checks, and raw diagnostic projection.
+use super::xml_fragments::{element_text, strip_cdata, unescape_entities};
 use crate::{business::favorites::*, daemon::cache::DbCache};
 use anyhow::Context;
 use rusqlite::{types::ToSql, Connection};

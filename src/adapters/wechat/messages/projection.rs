@@ -1,7 +1,7 @@
-//! Semantic message decoding and legacy search preview policy, separate from storage reads.
+//! Semantic message decoding and search preview policy, separate from storage reads.
 pub mod pages;
 use super::{
-    legacy,
+    display,
     read::{
         LegacyReadPolicy, LegacySearch, RawMessage, Snapshot, StoredContent, MAX_DECODED_BYTES,
     },
@@ -49,7 +49,7 @@ impl Snapshot {
             text
         };
         let mut preview =
-            legacy::fmt_content(raw.local_id.unwrap_or(0), raw.local_type, text, is_group);
+            display::fmt_content(raw.local_id.unwrap_or(0), raw.local_type, text, is_group);
         let call = (kind == domain::Kind::Call).then(|| call_event(body));
         let content = match kind {
             domain::Kind::Text => domain::Content::Text(body.to_owned()),
@@ -94,7 +94,7 @@ impl Snapshot {
             call,
             content,
             preview,
-            url: legacy::appmsg_url_for_message(raw.local_type, text),
+            url: display::appmsg_url_for_message(raw.local_type, text),
         })
     }
 }

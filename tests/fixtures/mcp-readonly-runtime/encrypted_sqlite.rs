@@ -1,5 +1,5 @@
 //! 复用 voice_runtime 的两段 SQLCipher 合成算法；不复制其账号、查询或测试逻辑。
-//! 可由主线程后续提取为 voice/delta/runtime 的公共测试 helper。
+//! 为运行时测试构造隔离的合成加密 SQLite 数据库。
 use aes::cipher::{block_padding::NoPadding, BlockEncryptMut, KeyIvInit};
 use hmac::{Hmac, Mac};
 use rusqlite::Connection;

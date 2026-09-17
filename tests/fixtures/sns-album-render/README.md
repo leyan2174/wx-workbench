@@ -14,7 +14,7 @@
 cargo test --bin wx application::moments::album_render::tests -- --nocapture
 ```
 
-独立 Cargo.toml 也直接编译生产模块。`golden.json` 是迁移时固定的合成渲染契约，普通核对不重建预期。
+独立 Cargo.toml 也直接编译生产模块。`golden.json` 是固定的合成渲染契约，普通核对不重建预期。
 
 ## 视觉检查
 

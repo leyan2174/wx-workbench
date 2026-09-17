@@ -94,7 +94,7 @@ pub(crate) fn decrypt(
             if let Some(path) = &cfg.key_store {
                 guard.pin_input(path)?;
             }
-            // Keep the legacy pathname protected after explicit migration removed its file.
+            // Protect the configured key pathname even when its file is absent.
             guard.protect(&cfg.keys_file)?;
             guard.verify_replaceable_file(&output)?;
             target.write_with_checked(

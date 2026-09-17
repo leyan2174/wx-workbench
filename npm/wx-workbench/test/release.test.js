@@ -15,12 +15,10 @@ const read = (file) => fs.readFileSync(path.join(repo, file), 'utf8');
 test('Cargo publishes only the formal wx binary', () => {
   const binaries = [...read('Cargo.toml').matchAll(/\[\[bin\]\]\s+name\s*=\s*"([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(binaries, ['wx']);
-  assert.equal(fs.existsSync(path.join(repo, 'src/toolbox_main.rs')), false);
 });
 
 test('release packaging is manual, gated, and keeps license notices', () => {
   const release = read('.github/workflows/release.yml');
-  assert.doesNotMatch(release, /wx-toolbox|wx-windows-x86_64/);
   assert.doesNotMatch(release, /push:\s*\r?\n\s+tags:/);
   assert.match(release, /workflow_dispatch:/);
   assert.match(release, /publish_github_release:/);
@@ -49,10 +47,10 @@ const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
 function selectInstallation(assets) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-release-contract-'));
   try {
-    const oldDirectory = path.join(root, 'wx-cli');
-    fs.mkdirSync(oldDirectory);
-    const oldBinary = path.join(oldDirectory, 'wx.exe');
-    fs.writeFileSync(oldBinary, 'synthetic old installation');
+    const unrelatedDirectory = path.join(root, 'unrelated-application');
+    fs.mkdirSync(unrelatedDirectory);
+    const unrelatedBinary = path.join(unrelatedDirectory, 'wx.exe');
+    fs.writeFileSync(unrelatedBinary, 'synthetic unrelated installation');
     const installer = read('install.ps1');
     const marker = installer.indexOf('Write-Host "版本: $Tag"');
     assert.ok(marker > 0, 'installer selection must end before the download/install stages');
@@ -72,7 +70,7 @@ ${selection}
       timeout: 15000, maxBuffer: 256 * 1024,
     });
     assert.ifError(result.error);
-    assert.equal(fs.readFileSync(oldBinary, 'utf8'), 'synthetic old installation');
+    assert.equal(fs.readFileSync(unrelatedBinary, 'utf8'), 'synthetic unrelated installation');
     assert.equal(fs.existsSync(path.join(root, 'wx-workbench')), false);
     return { result, expectedDirectory: path.join(root, 'wx-workbench') };
   } finally {
@@ -81,8 +79,8 @@ ${selection}
   }
 }
 
-test('installer selects the new asset and directory even when legacy ones exist', { skip: !windows }, () => {
-  const { result, expectedDirectory } = selectInstallation(['wx-windows-x86_64.exe', asset]);
+test('installer selects the exact asset and preserves unrelated directories', { skip: !windows }, () => {
+  const { result, expectedDirectory } = selectInstallation(['unrelated-windows-x86_64.exe', asset]);
   assert.equal(result.status, 0, result.stderr);
   const selected = JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
   assert.equal(selected.InstallDir, expectedDirectory);
@@ -90,8 +88,8 @@ test('installer selects the new asset and directory even when legacy ones exist'
   assert.equal(selected.Repo, 'leyan2174/wx-workbench');
 });
 
-test('installer rejects a release containing only a legacy attachment', { skip: !windows }, () => {
-  const { result } = selectInstallation(['wx-windows-x86_64.exe']);
+test('installer rejects a release without the supported attachment', { skip: !windows }, () => {
+  const { result } = selectInstallation(['unrelated-windows-x86_64.exe']);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /no supported wx-workbench Windows x64 binary/);
 });

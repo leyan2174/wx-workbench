@@ -36,7 +36,7 @@ pub struct LegacyVoiceMessage {
     pub voice_data_bytes: Option<u64>,
 }
 
-/// Explicit legacy diagnostic projection; ordinary catalog callers get only Page.
+/// Explicit diagnostic projection; ordinary catalog callers get only Page.
 pub fn legacy_rows(page: &Page) -> Result<Vec<LegacyVoiceMessage>> {
     page.entries
         .iter()

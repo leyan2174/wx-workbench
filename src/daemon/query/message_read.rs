@@ -19,7 +19,7 @@ impl Prepared {
         Snapshot::open(self.files.clone(), identities)
     }
 
-    // Explicit legacy diagnostics only; page selection never consumes host paths.
+    // Explicit physical-source diagnostics only; page selection never consumes host paths.
     fn history_metadata(
         &self,
         diagnostics: &PageDiagnostics,

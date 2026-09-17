@@ -1,4 +1,4 @@
-// 未接线阶段直接编译生产文件及真实守卫、WASM runtime。
+// 独立编译生产文件及真实守卫、WASM runtime。
 #![allow(dead_code)]
 #[path = "../../../src/private_file.rs"]
 mod private_file;

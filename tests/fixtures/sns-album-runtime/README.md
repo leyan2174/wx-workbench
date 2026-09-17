@@ -32,7 +32,7 @@ cargo check --target x86_64-pc-windows-msvc
 
 ## 加密视频与缓存
 
-- `loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail` 只读复用 `sns-video-native/vectors.json` 的公开 key=1、size=131072 固定 oracle。该向量在迁移时由历史 Node/WASM 包装器生成；测试不执行 Node、Python，也不调用生产 Rust runtime 来制造预期值。
+- `loopback_oracle_encrypted_video_decrypts_prefix_and_preserves_tail` 只读复用 `sns-video-native/vectors.json` 的公开 key=1、size=131072 固定 oracle。该向量来源于 Node/WASM 包装器输出；测试不执行 Node、Python，也不调用生产 Rust runtime 来制造预期值。
 - 合成 MP4 字节只在前 128 KiB 与 oracle 异或，32779 字节的非零尾部保持明文；loopback 分段发送完整密文，真实 CLI 从加密 SNS 数据库解析 `<enc key="1"/>` 后下载。断言最终文件完整字节、前缀、原始 tail，以及 timeline 的 key/local_file/source/complete/bytes、HTML 引用和全部 summary 计数。
 - 继承现有空 PATH 和不存在的 Python 路径，Node 也无法通过 PATH 查找；不降低 TLS 校验，不运行外部生成器。
 - `complete_and_partial_cache_keep_mtime_in_final_album` 使用真实缓存命名布局，分别验证完整及部分缓存经 staging/publisher 后的最终文件 mtime，并检查源字节和源 mtime 不变、no-remote 零连接。

@@ -1,4 +1,4 @@
-//! Legacy summary decoding, deliberately distinct from bounded rich previews.
+//! Summary decoding, deliberately distinct from bounded rich previews.
 use crate::business::structured_message::{CallSummary, NamecardSummary};
 use crate::message::{
     summary as display,

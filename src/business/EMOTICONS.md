@@ -70,9 +70,9 @@ The download fixture also builds a synthetic converter executable. Integration
 tests drive the real download/conversion path through loopback HTTP and check
 successful conversion, bounded diagnostic output and timeout cleanup of a
 descendant that has explicitly signaled startup. They do not require FFmpeg or
-touch any real account. The pre-existing optional real-FFmpeg test remains intact.
+touch any real account. An optional real-FFmpeg test covers the external converter.
 
 The catalog and download standalone fixtures reference real production modules;
 the download fixture also includes real publication, runtime/cache and managed
-runner code. No tests were disabled. Cargo validation is performed by the parent
-task; formatting and static diff checks alone are not runtime verification.
+runner code. Execution requirements are in the [test guide](../../tests/README.md);
+formatting and static diff checks alone are not runtime verification.

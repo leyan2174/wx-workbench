@@ -1,4 +1,4 @@
-// This reference implementation only checks the historical oracle itself.
+// This reference implementation only checks the selection oracle itself.
 // Current production queries are exercised by the runtime target and root MCP tests.
 #[path = "legacy_selection.rs"]
 pub mod history_selection;
@@ -104,7 +104,7 @@ mod tests {
                 assert_eq!(actual, expected);
             }
         }
-        // 旧 AST 的 IN(49) 只匹配未带高位的行，不能把本扩展伪称为旧行为。
+        // AST oracle 的 IN(49) 只匹配未带高位的行；此处另行验证带高位类型的匹配。
         let old_count: i64 = conn
             .query_row(
                 &format!("SELECT count(*) FROM {TABLE} WHERE local_type IN (49)"),

@@ -1,8 +1,8 @@
-//! Frozen legacy selection oracle for tests, not a production query implementation.
+//! Frozen compatibility selection oracle for tests, not a production query implementation.
 use anyhow::{ensure, Context, Result};
 use rusqlite::{params_from_iter, Connection, Row};
 
-/// 同时间记录保持调用方的分片顺序及 SQLite 返回顺序，与旧稳定排序一致。
+/// 同时间记录保持调用方的分片顺序及 SQLite 返回顺序，保证稳定排序。
 /// SQLite 未定义同时间行的唯一顺序；本助手不虚构跨快照稳定游标。
 pub struct Ranked<T> {
     pub timestamp: i64,
@@ -56,7 +56,7 @@ impl Selection {
     }
 
     /// 在已选定账号的连接和已发现消息表上取候选；不在单个分片应用全局 offset。
-    /// map 看到与原 query_messages 相同的六列，允许复用 get_content_bytes 等原映射。
+    /// map 接收 query_messages 的六列投影，允许复用 get_content_bytes 等字段映射。
     /// SQL/映射失败向上传递，不能把坏分片静默当作空分片。
     pub fn query_shard<T>(
         &self,

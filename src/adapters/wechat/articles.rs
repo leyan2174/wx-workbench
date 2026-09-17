@@ -1,6 +1,6 @@
 //! Article projection from decoded WeChat push evidence. No database discovery here.
-use super::legacy_text::{element_text as extract_xml_text, unescape_entities as unescape_html};
 use super::messages::{Snapshot, MAX_DECODED_BYTES};
+use super::xml_fragments::{element_text as extract_xml_text, unescape_entities as unescape_html};
 use crate::business::articles::{Article, EvidenceRef, Inventory, Issue, IssueKind};
 use crate::business::{
     articles as domain,
@@ -97,7 +97,7 @@ impl domain::ArticleSource for Source<'_> {
     }
 }
 
-/// Keep legacy fragment recovery, but never present recovered input as complete evidence.
+/// Recover XML fragments without presenting recovered input as complete evidence.
 pub(crate) fn parse_push(
     evidence: &MessageRef,
     publisher: &str,

@@ -1,42 +1,27 @@
-# 文档索引
+# 文档导航
 
-本轮一致性复核见[文档维护与核查](documentation-consistency.md)。
+本文档描述 wx-workbench 的当前功能、契约与运行边界。原创文档由 AI 生成、整理和撰写，不是人类手工撰写；第三方资料及许可证保持原有归属。
 
-## 使用
+## 使用与执行
 
-- [项目与命令入口](../README.md)：安装、账号选择、查询、导出、MCP 和 Web。
-- [正式命名与安装方式](project-naming.md)：wx-workbench 名称、已移除的旧发布入口及外部发布步骤。
-- [账号密钥](account-key-provider.md)：provider、DPAPI、权限与显式重启。
-- [工作流条件](legacy-workflow-gap-audit.md)：媒体、转录、下载、更新和清理的前置条件。
-- [附件契约](native-attachment-contract.md)：消息定位、资源匹配与发布。
-- [MCP 协议](../src/mcp/PROTOCOL.md)：工具参数、限额、会话与错误。
+- [工作流与前置条件](workflow-requirements.md)
+- [账号密钥](account-key-provider.md)、[密钥存储](key-store.md)
+- [请求契约](request-contracts.md)、[通信与导出](communication-and-export.md)
+- [daemon 入口](daemon-entrypoints.md)、[后台任务](daemon-tasks.md)、[业务结果与进程管理](business-and-process.md)
+- [名称与运行约定](project-naming.md)
 
-## 实现
+## 架构与业务
 
-Toolkit 职责拆分已经完成，旧 `src/toolkit` 架构层已删除；正式 `wx toolkit` 命令分组继续保留。查询和 worker 的运行材料由 daemon 快照统一提供，初始化 bootstrap 是仍被明确保留的存储创建边界。
+- [系统架构](architecture.md)、[架构图](diagrams/README.md)
+- [联系人](business-contacts.md)、[消息](business-messages.md)、[结构化消息](structured-message-boundary.md)、[收藏](favorites-boundary.md)
+- [归档](archive-boundary.md)、[媒体](media-boundaries.md)、[文件与记录附件](native-attachment-contract.md)
+- [图片发布](image-publication-boundary.md)、[严格 MCP 媒体](strict-media-host-boundary.md)
+- [表情格式](emoticon-format.md)、[SNS 缓存](sns-cache-boundary.md)、[SNS 密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)
+- [语音目录](voice-catalog-boundary.md)、[批量语音导出](voice-batch-export.md)、[音频处理](../src/infrastructure/audio/README.md)
+- [ASR 后端](asr-backends.md)、[本地识别](../src/infrastructure/transcription/LOCAL.md)、[云端授权](../src/infrastructure/transcription/OPENAI.md)、[缓存](../src/application/transcription/CACHE.md)、[回写](../src/application/transcription/WRITEBACK.md)
 
-- [架构](architecture.md)、[入口边界](daemon-entrypoints.md)、[后台任务](daemon-tasks.md)。
-- [架构图](diagrams/README.md)：图源与生成约束。
-- [音频基础设施](../src/infrastructure/audio/README.md)与[批量音频](voice-batch-export.md)。
-- [音频边界优化报告](architecture-optimization-audio-2026-09-16.md)。
-- [ASR 后端](asr-backends.md)、[本地 ASR](../src/infrastructure/transcription/LOCAL.md)、[云端授权](../src/infrastructure/transcription/OPENAI.md)、[缓存](../src/application/transcription/CACHE.md)、[数据库音频](../src/adapters/wechat/media/VOICE_DATABASE.md)、[回写](../src/application/transcription/WRITEBACK.md)。
-- [SNS 媒体密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)。
+## 开发与来源
 
-## 维护
-
-- [当前正式契约清理](current-contract-cleanup-2026-09-16.md)：本轮实际改动、破坏性变化、当前实现与待完成范围。
-- [架构清理与最终验证](architecture-cleanup-final-2026-09-16.md)：最终职责、移除的兼容机制、复杂度、全量测试与保留限制。
-- [架构优化实施与验收](architecture-optimization-2026-09-16.md)：解析资源归属、密钥材料生命周期、监控恢复回归及本阶段检查证据。
-- [SNS 媒体适配器迁移](sns-media-adapter-2026-09-16.md)：密钥流实现归属、直接调用接线及本轮独立验证。
-- [MCP 夹具配置复用](fixture-config-reuse-2026-09-16.md)：消除重复配置模块与依赖告警，保留账号固定验证。
-- [远端表情格式迁移](emoticon-format-adapter-2026-09-16.md)：CBC、格式识别与流定位归属，保留下载发布和错误阶段。
-- [分阶段质量检查](quality-checks.md)：中途全目标检查、全量测试和独立夹具的复现方式及日志边界。
-
-- [2026-09-16 代码质量修订](code-quality-review-2026-09-16.md)：改名、复杂度、告警、抽象边界与验证范围。
-- [测试说明](../tests/README.md)。
-- [测试与整理计划](testing-plan.md)。
-- [开发与回归验证](rust-migration.md)。
-- [第三方来源与许可](../THIRD_PARTY_NOTICES.md)。
-- [DMCA 与文档发布风险](dmca-and-publication-risk.md)：来源仓库状态、反规避争议及技术文档的发布边界。
-
-当前接口以 README、架构和相应契约文档为准；分阶段审查、迁移和测试报告保留当时的证据，不代表当前仍存在其中的旧模块或未完成项。私人账号样本、本机路径及每轮测试日志留在仓库外。
+- [测试要求](testing-plan.md)、[测试入口](../tests/README.md)、[质量检查](quality-checks.md)、[编译告警](compiler-warnings.md)
+- [文档维护](documentation-consistency.md)
+- [第三方来源与许可](../THIRD_PARTY_NOTICES.md)、[分发边界](dmca-and-publication-risk.md)

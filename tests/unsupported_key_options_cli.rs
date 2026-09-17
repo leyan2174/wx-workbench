@@ -1,10 +1,10 @@
-//! Retired commands must fail in clap, before any configuration or daemon work.
+//! Unsupported key commands must fail in clap before configuration or daemon work.
 #![cfg(windows)]
 
 use std::{fs, os::windows::process::CommandExt, process::Command};
 
 #[test]
-fn retired_migration_commands_cannot_load_config_or_modify_old_material() {
+fn unsupported_key_commands_cannot_load_config_or_modify_existing_material() {
     for args in [
         vec!["migrate-keys"],
         vec!["migrate-keys", "--allow-unverified", "--cleanup-legacy"],

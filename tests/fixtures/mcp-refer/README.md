@@ -17,7 +17,7 @@ pub async fn q_decode_refer(
 
 调用方必须传入同一账号的 `DbCache` 和 `Names`，本模块不读取全局配置或传输层。
 私有 resolver 优先精确 username（保留显式 wxid/群账号入口），随后按忽略大小写的
-完整昵称、包含匹配两级查找。每级必须唯一，不再取首个或最短昵称；零候选返回未找到，
+完整昵称、包含匹配两级查找。每级必须唯一，不取首个或最短昵称；零候选返回未找到，
 多候选返回 `exit_code=2`，均不访问数据库。旧共享 resolver 不变。
 
 成功返回 `exit_code: 0`、`text`、`username`、`local_id`、实际 `create_time`、
@@ -54,4 +54,4 @@ pub async fn q_decode_refer(
 cargo test --bin wx daemon::query::mcp_refer -- --nocapture
 ```
 
-固定 golden 保存迁移时的合成引用消息契约，当前回归不再执行 Python 参考源码。测试用受控调度在查询后注入新分片，检查前后清单一致性；源字节不变和歧义拒绝见[安全回归](../mcp-readonly-security/README.md)。
+固定 golden 保存合成引用消息契约，回归不执行 Python 参考源码。测试用受控调度在查询后注入新分片，检查前后清单一致性；源字节不变和歧义拒绝见[安全回归](../mcp-readonly-security/README.md)。

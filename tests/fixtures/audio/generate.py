@@ -29,7 +29,7 @@ def main():
             pilk.SilkEncoder(pcm_rate=24000, silk_rate=24000, packet_size=packet_ms).encode(
                 str(source), str(target), tencent=True)
             data = target.read_bytes()
-            # 与原生产适配器相同的输入规范化。
+            # 解码前移除可选的 Tencent 头标记，并补齐 SILK 结束标记。
             normalized = data[1:] if data[:1] == b"\x02" else data
             if not normalized.endswith(b"\xff\xff"):
                 normalized += b"\xff\xff"

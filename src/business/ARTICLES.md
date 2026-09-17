@@ -2,7 +2,7 @@
 
 ## Scope
 
-This slice reads locally received official-account pushes. It does not fetch
+This module reads locally received official-account pushes. It does not fetch
 article bodies, download covers, or claim complete remote publication history.
 
 The business operation owns publisher substring filtering, inclusive receive-time
@@ -44,4 +44,4 @@ does not trigger this warning, and raw issue details are never echoed.
 
 Tests use memory sources, synthetic XML and real shared snapshots over synthetic
 SQLite, including compressed pushes, repeated local IDs across shards, unknown
-publishers and bad unread rows. Parent-coordinated Cargo verification is pending.
+publishers and bad unread rows. Execution requirements are in the [test guide](../../tests/README.md).

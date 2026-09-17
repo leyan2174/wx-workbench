@@ -43,7 +43,7 @@ pub(crate) fn month(raw: &str) -> bool {
         && b[5..].iter().all(u8::is_ascii_digit)
 }
 
-/// Directory export historically prefers HD over full; legacy DAT does not.
+/// Directory export prefers HD over full; month-priority DAT lookup prefers full.
 pub(crate) fn image_candidate(filename: &str) -> Option<(String, u8)> {
     let filename = filename.to_ascii_lowercase();
     let hash = filename.get(..32)?;

@@ -1,4 +1,4 @@
-//! Read-only legacy planning sources. Source layout and SQL do not cross this boundary.
+//! Read-only planning sources. Source layout and SQL do not cross this boundary.
 pub(crate) mod scan;
 use super::messages::read::layout;
 use crate::business::chat_plan::{

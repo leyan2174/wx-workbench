@@ -43,7 +43,7 @@ cargo test --target x86_64-pc-windows-msvc --test runtime_isolation mcp_tasks --
 - 默认 `ignored` 不计通过。FFmpeg/Frida 等可选测试须先核对本机依赖和测试行为，再定向执行；符号链接测试还可能受权限限制。不要无差别运行所有 ignored，部分条目是由父测试调用的子进程夹具入口。
 - 部分差异 oracle 使用 Python 或 Node，属于构建/测试依赖，不能据此推断普通原生生产入口需要它们。不要为了文档检查重建 golden 或下载模型。
 - 独立 harness 的编译器、依赖 rlib 与测试二进制必须匹配。没有 manifest 的目录（如 `fixtures/mcp-contacts`、`fixtures/voice-cache-receipt`）使用其 README 指向的主仓入口，不自行拼装 Cargo 命令。
-- 全面检查的范围、顺序和人工审核点见[测试计划](../docs/testing-plan.md)。构建和定向回归见[开发与回归验证](../docs/rust-migration.md)。单次通过不能代替真实模型质量、账号完整性和安装部署验收。
+- 全面检查的范围、顺序和人工审核点见[测试计划](../docs/testing-plan.md)。构建和定向回归见[开发与回归验证](../docs/quality-checks.md)。单次通过不能代替真实模型质量、账号完整性和安装部署验收。
 
 ## 输出与隐私
 

@@ -25,7 +25,7 @@ fn shared_image_publication_never_replaces_existing_file() {
 }
 
 #[test]
-fn migrated_url_oracles_are_static() {
+fn url_selection_matches_fixed_vectors() {
     let cases: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/sns-album-images/oracle.json"
     ))

@@ -89,7 +89,7 @@ impl MessageRef {
     }
 }
 
-/// Legacy lookup conditions, deliberately not a unique message identity.
+/// Lookup conditions, deliberately not a unique message identity.
 pub struct MessageSelector<'a> {
     pub username: &'a str,
     pub local_id: i64,
@@ -331,7 +331,7 @@ pub fn matches_text(text: &str, query: &str) -> bool {
         || (!query.is_empty() && text.to_lowercase().contains(&query.to_lowercase()))
 }
 
-/// Legacy notification subscription, not a complete history cursor. Same-second truncation
+/// Timestamp notification subscription, not a complete history cursor. Same-second truncation
 /// cannot be represented by this protocol; callers needing evidence use the message directory.
 pub struct TimestampSubscription {
     pub current: std::collections::HashMap<String, i64>,

@@ -36,7 +36,7 @@ pub async fn q_decode_image(
 - daemon 执行真实查询与宿主策略，CLI 负责宿主参数封送和认证请求。fixture 使用真实注册，不补写替代接口。
 - 宿主传入固定账号的 DbCache/Names；附件根唯一来源是 `db.db_dir().parent()/msg/attach`。
 - 宿主必须显式提供 output_root 和 V2KeyMaterial；适配器不读取配置，不使用旧 q_extract，不调用自动 provider、网络或 ffmpeg。阻塞任务持有的 AES 副本在结束时清零。
-- 使用现有 DbCache 只读 `raw_db_keys()` 全键接口：适配器规范化斜线和大小写精确筛选 `message/message_resource.db`，保留原始键、不去重。拒绝零个或多个结果，再以原始键调用 db.get，不新增资源专用接口。
+- 使用现有 DbCache 只读 `raw_db_keys()` 全键接口：适配器规范化斜线和大小写精确筛选 `message/message_resource.db`，保留原始键、不去重。拒绝零个或多个结果，再以原始键调用 db.get，不使用资源专用接口。
 - `DbCache::output_protection_paths()` 返回 source、缓存根、mtime、已有解密产物，以及初始化上下文中的 config/keys/decrypted 路径。缓存元数据锁占用时拒绝返回部分清单；查询时不重新加载配置。内部 with_dirs 构造的合成缓存没有外部配置文件，真实 new 构造保留初始化上下文路径。
 
 

@@ -14,7 +14,7 @@
 
 定义按 sort_order_ 排序，重复 ID 后值覆盖且保留首次插入顺序。关联来自 extra_buffer 第一个 protobuf field 30；未知字段跳过，重复 ID 和重复联系人行均重复计数，空名称标签保留。支持旧 Python Unicode 十进制 ID、符号及合法下划线。匹配先忽略大小写精确匹配，再忽略大小写包含匹配；任何多个匹配均报歧义，包括重复精确名称。空查询可以精确选择唯一空名称。
 
-旧实现会把数据库故障吞成空标签；本实现明确报错。异常 NULL/非文本名称、非整数排序值等不兼容 schema 明确失败，不伪造结果。数值 ID 保留 Python 数值相等语义，文本 ID 不与数字混同。protobuf 保留旧切片截断行为，并有机器整数溢出保护。
+数据库故障明确报错，不作为空标签返回。异常 NULL/非文本名称、非整数排序值等不兼容 schema 明确失败，不伪造结果。数值 ID 保留 Python 数值相等语义，文本 ID 不与数字混同。protobuf 保留旧切片截断行为，并有机器整数溢出保护。
 
 严格标签与 raw 导出直接复用 `adapters/wechat/contacts/label_values.rs` 的 `parse_label_id`、`sqlite_id_equal`、`extract_field_30`，分别命名为 label_id、id_equal、field_30。不在查询模块另写解析器。
 

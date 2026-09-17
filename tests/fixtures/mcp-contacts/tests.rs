@@ -91,7 +91,7 @@ fn exact_precedes_contains_and_ambiguity_is_not_first_match() {
 }
 
 #[test]
-fn repeated_definitions_numeric_types_and_first_field_match_legacy() {
+fn repeated_definitions_numeric_types_and_first_field_preserve_tag_membership() {
     let (_dir, path) = fixture();
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch("INSERT INTO contact_label VALUES(1.0,'新名字',60),('2','文本ID',70);")

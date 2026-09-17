@@ -4,7 +4,7 @@
 
 ## 行为
 
-- `q_attachments` 保留原签名、轻量默认行为和返回字段；新增同参数 `q_attachments_with_image_metadata`，二者复用单一消息筛选、全局排序和分页实现。
+- `q_attachments` 提供轻量默认行为和返回字段；`q_attachments_with_image_metadata` 接受相同参数并提供图片元数据，二者复用单一消息筛选、全局排序和分页实现。
 - 分页前保留 raw local_type 和分片来源。分页后对页面身份在**全部已解析分片**执行绑定参数的精确计数，每个身份每片最多匹配两行；同片重复和其他片分页截断之外的重复均为 `message_ambiguous`，不会根据有大量同时间戳就把唯一身份误报为歧义。
 - `native_image::ResourceReader` 共享导出原有的精确关联 SQL/校验，一个页面一个只读资源事务。标准文件名扫描共享 `scan_candidates`，一页一次有界目录扫描；列表对所有月份、所有变体的多候选统一返回 size 歧义，导出的原有 full/h/t 优先规则未改变。
 - `attachment::image_metadata::read_page` 不调用密钥提供器、decoder 或发布函数，不读取 DAT 正文。size 来自 `Pin` 固定文件句柄的 metadata 长度；原始加密 DAT 可以是零字节或超过解码器的大小限制。

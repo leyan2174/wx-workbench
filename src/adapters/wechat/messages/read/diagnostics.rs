@@ -1,4 +1,4 @@
-//! Detached legacy decode diagnostics over an explicit host-selected stream scope.
+//! Detached decode diagnostics over an explicit host-selected stream scope.
 //! These values carry no stable message identity or strict-content proof.
 use super::*;
 

@@ -23,7 +23,7 @@ targets, missing-lane interpretation and unchanged pinned attribute-only scanner
 `application::chat_export_plan` owns scan thread execution, guard lifetimes and presentation.
 It converts typed reasons to sorted legacy
 `partial:...` labels only at the output boundary. The CLI CSV publisher remains
-the existing shared ExportTarget implementation, unchanged by this slice.
+the shared ExportTarget implementation.
 
 Compatibility rules:
 

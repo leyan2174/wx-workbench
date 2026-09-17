@@ -10,8 +10,6 @@
   resolves media.
 - The history and new-message query projections serialize the same typed model.
   CLI, HTTP, and MCP continue to consume their existing daemon query results.
-- The previous `daemon/query/rich_message.rs` production implementation is
-  removed, not retained as a second parser.
 
 ## Compatibility
 
@@ -28,18 +26,14 @@ does not authorize downloads, memory scans, writes, or uploads. A voice-message
 preview is not a call recording. Call events are unsupported by this preview
 decoder, and status words never infer an audio/video medium.
 
-The migrated synthetic tests exercise bounded XML, malformed and unsafe input,
+The synthetic tests exercise bounded XML, malformed and unsafe input,
 group prefixes, packed types, quotes, transfers, and all existing preview tags.
-An additional typed-result test distinguishes failure reasons and verifies the
-voice-message/call-event boundary. Test execution results belong in the overall
-stage validation report; moving these tests alone is not proof of passage.
+A typed-result test distinguishes failure reasons and verifies the
+voice-message/call-event boundary. See [test instructions](../tests/README.md) for execution.
 
-## Remaining Message Work
+## Related contracts
 
-This is the structured-preview part of the architecture migration, not a claim
-that the entire message domain is separated. Message inventory, conversation
-selection, shard queries, stable message identity, call-event querying, raw
-exports, and media resolution still require their respective business slices.
-Existing format helpers under `message` remain shared dependencies of the
-adapter until those callers are migrated; this document does not describe them
-as storage-independent business models.
+Message inventory, conversation selection, shard queries, identity and raw export
+are described in [message read contracts](business-messages.md). Media association
+uses the separate [media boundary](media-boundaries.md). Format helpers are adapter
+dependencies, not storage-independent business models.

@@ -1,4 +1,4 @@
-// 只引用真实实现；公共注册未完成时仍可独立编译，不复制生产逻辑。
+// 只引用真实实现；独立编译生产模块，不复制生产逻辑。
 #[path = "../../../src/infrastructure/audio/mod.rs"]
 pub mod audio;
 #[path = "cli.rs"]

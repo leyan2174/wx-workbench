@@ -1,4 +1,4 @@
-//! Strict reply selection over a live message snapshot; legacy coordinates are projection only.
+//! Strict reply selection over a live message snapshot; physical coordinates are projection only.
 use crate::adapters::wechat::messages::{reply, RawMessage, Snapshot};
 use crate::business::messages::{Conversation, Error};
 use anyhow::{Context, Result};

@@ -18,7 +18,7 @@ download_video<'a>(url: &str, key: &str, name: &str, guard: &HostOutputGuard,
 
 调用方 负责创建 videos 输出目录、建立守卫并保护显式账号数据库、缓存、配置、密钥及其他源目录。函数不读取任何默认账号目录或密钥文件。惰性 engine 初始化错误应映射为 VideoError::EngineUnavailable，不附加底层路径/密钥错误链。
 
-复用、缓存、远程的优先级和 JSON/统计由 编排层 决定；download_video 本身不先执行复用，成功下载可原子替换旧目标。调用方 使用已有 cache::build_cache_index 和 cache::find_cached_video，传 entry.path 给复制函数；不需要新增扫描器或修改 helper 可见性。复制函数在调用时重新固定并校验源文件，不承诺验证索引时刻快照。complete 沿用源扩展名（忽略大小写 .mp4 为完整）；其他扩展名需 allow_partial=true。已有 MP4 复用沿用旧 complete=true 语义，不能从此前部分缓存的改名结果恢复历史标记，编排层 可自行保留该元数据。
+复用、缓存、远程的优先级和 JSON/统计由 编排层 决定；download_video 本身不先执行复用，成功下载可原子替换旧目标。调用方 使用已有 cache::build_cache_index 和 cache::find_cached_video，传 entry.path 给复制函数。复制函数在调用时重新固定并校验源文件，不承诺验证索引时刻快照。complete 沿用源扩展名（忽略大小写 .mp4 为完整）；其他扩展名需 allow_partial=true。已有 MP4 复用沿用旧 complete=true 语义，不能从此前部分缓存的改名结果恢复历史标记，编排层 可自行保留该元数据。
 
 ## 行为和加强边界
 
@@ -26,7 +26,7 @@ download_video<'a>(url: &str, key: &str, name: &str, guard: &HostOutputGuard,
 - 请求头 User-Agent: MicroMessenger Client、Accept: */*；不添加 Referer；no_proxy 禁用自动环境代理。
 - 30 秒网络总期限（含响应 body），不是旧 urllib 的逐次 socket 超时；WASM 使用自身 fuel/memory 限制。磁盘 I/O 不受这个网络期限控制。
 - HTTP/HTTPS 允许显式 loopback，未宣称公网专属 SSRF 防护。拒绝 URL 凭据、片段、控制字符、超长 URL；重定向同样验证，最多 5 次，禁止 HTTPS 降级 HTTP。
-- 仅接受 200，拒绝 206 和 Content-Range，防止片段冒充完整下载。验证声明长度及流式累计限额；有 Content-Length 或 chunked 的截断失败。无长度且以连接关闭结束的合法 HTTP 无法判断源内容是否语义截断；与旧版一致，不解析完整 MP4 容器。
+- 仅接受 200，拒绝 206 和 Content-Range，防止片段冒充完整下载。验证声明长度及流式累计限额；有 Content-Length 或 chunked 的截断失败。无长度且以连接关闭结束的合法 HTTP 无法判断源内容是否语义截断；不解析完整 MP4 容器。
 - HostOutputGuard 固定本地输出祖先并在提交前复核目标。已有目标/源均通过文件句柄拒绝重解析点、硬链接及路径身份变化；缓存源祖先额外固定，禁止源与输出目录重叠。
 - 同目录 NamedTempFile，成功 sync 后原子 persist 替换；失败只清理本次临时文件，不删除旧目标，不改缓存源。缓存复制保留修改时间。
 - 错误为无错误链枚举，不包含 URL/token/key/路径。安全边界拒绝返回 Err，缺失/非 MP4/禁用部分缓存返回 None。

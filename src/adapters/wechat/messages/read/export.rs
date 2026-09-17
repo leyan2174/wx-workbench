@@ -132,7 +132,7 @@ impl Snapshot {
         profile: ExportProfile,
         mut visit: impl FnMut(ExportRecord) -> Result<()>,
     ) -> Result<()> {
-        // Legacy delta treats an inverted inclusive SQL window as an empty result.
+        // Delta treats an inverted inclusive SQL window as an empty result.
         if !matches!(profile, ExportProfile::Delta) {
             filter.validate()?;
         }

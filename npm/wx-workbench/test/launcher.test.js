@@ -15,14 +15,14 @@ const windows = process.platform === 'win32' && process.arch === 'x64';
 function launch(overrides) {
   const env = { ...process.env };
   delete env.WX_WORKBENCH_BINARY;
-  delete env.WX_CLI_BINARY;
+  delete env.WX_UNSUPPORTED_BINARY;
   return spawnSync(process.execPath, [launcher, '--version'], {
     env: { ...env, ...overrides }, encoding: 'utf8', timeout: 10000, windowsHide: true,
   });
 }
 
 test('supported binary override launches the selected executable', { skip: !windows }, () => {
-  const result = launch({ WX_WORKBENCH_BINARY: process.execPath, WX_CLI_BINARY: 'not-a-real-binary' });
+  const result = launch({ WX_WORKBENCH_BINARY: process.execPath, WX_UNSUPPORTED_BINARY: 'not-a-real-binary' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), process.version);
 });
@@ -54,20 +54,20 @@ function simulate(env, available = true) {
   return { calls, errors, status };
 }
 
-test('legacy binary override cannot replace the platform package', () => {
-  const result = simulate({ WX_CLI_BINARY: 'legacy.exe' });
+test('unsupported environment variable cannot replace the platform package', () => {
+  const result = simulate({ WX_UNSUPPORTED_BINARY: 'unsupported.exe' });
   assert.deepEqual(result.calls, [{ binary: 'synthetic-platform/wx.exe', args: ['--version'] }]);
 });
 
-test('legacy override cannot rescue a missing platform package', () => {
-  const result = simulate({ WX_CLI_BINARY: 'legacy.exe' }, false);
+test('unsupported environment variable cannot rescue a missing platform package', () => {
+  const result = simulate({ WX_UNSUPPORTED_BINARY: 'unsupported.exe' }, false);
   assert.equal(result.status, 1);
   assert.deepEqual(result.calls, []);
   assert.match(result.errors.join('\n'), /binary not found/);
 });
 
-test('new override works independently of platform package installation', () => {
-  const result = simulate({ WX_WORKBENCH_BINARY: 'selected.exe', WX_CLI_BINARY: 'legacy.exe' }, false);
+test('explicit override works independently of platform package installation', () => {
+  const result = simulate({ WX_WORKBENCH_BINARY: 'selected.exe', WX_UNSUPPORTED_BINARY: 'unsupported.exe' }, false);
   assert.deepEqual(result.calls, [{ binary: 'selected.exe', args: ['--version'] }]);
 });
 

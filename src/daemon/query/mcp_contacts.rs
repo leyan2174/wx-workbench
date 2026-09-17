@@ -1,4 +1,4 @@
-//! Legacy tag response projection; storage and selection live below the host.
+//! Tag response projection; storage and selection live below the host.
 use crate::daemon::cache::DbCache;
 use crate::{adapters::wechat::contacts as wechat, business::contacts as domain};
 use anyhow::{Context, Result};

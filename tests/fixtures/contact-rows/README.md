@@ -1,6 +1,6 @@
 # 正式联系人返回契约
 
-此独立 fixture 直接导入生产联系人业务、微信适配器和 `contact_rows` 投影，不再调用 Python 或 vendor 旧工具 oracle。
+此独立 fixture 直接导入生产联系人业务、微信适配器和 `contact_rows` 投影，不调用 Python 或 vendor 工具 oracle。
 
 ## 唯一契约
 
@@ -23,4 +23,4 @@ fixture 的临时 SQLite 测试覆盖正式筛选、排序、数量、零 limit�
 适配器自身的群、标签、schema 能力和损坏数据测试仍随真实模块编译。
 真实 SQLCipher/daemon/MCP 的双账号和协议拒绝覆盖位于根测试及 `query/contacts_source_tests.rs`。
 
-测试运行由父任务协调。本次修改未运行 Cargo，不声明上述测试已经通过。
+检查要求与依赖见[测试说明](../../README.md)；覆盖范围以测试代码为准，通过状态以实际运行结果为准。

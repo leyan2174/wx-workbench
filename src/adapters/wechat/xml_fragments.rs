@@ -1,4 +1,4 @@
-//! Explicit compatibility extraction for existing fragment-based query fields.
+//! Text extraction for fragment-based query fields.
 //! This is not a strict XML parser and must not authorize media resolution.
 
 pub(crate) fn element_text(xml: &str, tag: &str) -> Option<String> {

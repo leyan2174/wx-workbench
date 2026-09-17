@@ -1,4 +1,4 @@
-//! Internal business meaning, independent of transport and legacy JSON envelopes.
+//! Internal business meaning, independent of transport and JSON envelopes.
 use serde_json::Value;
 
 /// Query transport diagnostic containing only protocol metadata, never backend data.
@@ -106,9 +106,9 @@ pub enum BusinessOutcome {
 }
 
 impl BusinessOutcome {
-    /// Compatibility boundary: inspect only documented top-level result markers.
+    /// JSON boundary: inspect only documented top-level result markers.
     /// Message bodies, nested tool content, and domain-specific statuses are not guessed.
-    pub fn from_legacy(data: &Value) -> Self {
+    pub fn from_json(data: &Value) -> Self {
         let invalid = ["ok", "success"]
             .into_iter()
             .any(|key| data.get(key).is_some_and(|value| !value.is_boolean()))
@@ -151,7 +151,7 @@ impl BusinessOutcome {
         }
     }
 
-    /// Reserved worker codes; other nonzero legacy codes remain ordinary failure.
+    /// Reserved worker codes; other nonzero codes remain ordinary failure.
     pub fn worker_exit_code(self) -> i32 {
         match self {
             Self::Success => 0,
@@ -206,7 +206,7 @@ pub struct BusinessFailure(
 );
 
 impl BusinessFailure {
-    pub fn legacy_exit_code(self) -> Option<i32> {
+    pub fn worker_exit_code(self) -> Option<i32> {
         self.1
     }
     pub fn diagnostic(self) -> Option<KeyStoreDiagnostic> {

@@ -632,7 +632,7 @@ mod contact_tests {
     }
 }
 
-// Internal query helpers for the remaining, not-yet-migrated domains.
+// Internal query helpers for domain adapters and response projections.
 
 async fn find_msg_shards(
     db: &DbCache,
@@ -820,7 +820,7 @@ fn strip_group_prefix(s: &str) -> String {
     crate::message::split_group_content(s).1.to_owned()
 }
 
-pub(crate) use crate::adapters::wechat::messages::legacy::*;
+pub(crate) use crate::adapters::wechat::messages::display::*;
 
 #[cfg(test)]
 mod summary_regression_tests {
@@ -1515,7 +1515,7 @@ pub async fn q_new_messages(
     .await
 }
 
-/// Project the shared account-scoped favorite query into the legacy wire shape.
+/// Project the shared account-scoped favorite query into the JSON response.
 pub async fn q_favorites(
     db: &DbCache,
     limit: usize,

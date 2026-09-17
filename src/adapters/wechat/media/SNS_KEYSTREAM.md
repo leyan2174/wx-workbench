@@ -34,7 +34,7 @@ let stream = runtime.keystream(caller_supplied_key, requested_prefix_length)?;
 - 生成密钥流时，key 原始 UTF-8 输入上限 1024 字节且去空白后不得为空；WASM 文件上限 4 MiB，拒绝空密钥流/空视频。明文 MP4 直通不要求 key。
 - 每个调用独立 Store；正常完成和调用失败后都使用 `zeroize` 擦除 guest 线性内存及未返回的宿主密钥流。调用方仍负责自己的 key/返回值生命周期，不能据此声称整个进程无残留。
 
-主仓已注册模块并声明以下依赖，不再需要手动补接线：
+根工程注册模块并声明以下依赖：
 
 ```toml
 wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
@@ -45,7 +45,7 @@ wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
 
 ## 已核对 ABI
 
-来源与许可边界见 [assets/README.md](assets/README.md)。ABI 结论来自迁移时保存的 WASM 导入/导出探针、历史 JS 包装器行为和相册调用路径；旧 Python/Node 参考源码不再随仓保留。
+来源与许可边界见 [assets/README.md](assets/README.md)。ABI 依据为固定的 WASM 导入/导出探针、JS 包装器行为和相册调用路径；仓库不分发 Python/Node 参考源码。
 
 支持的 WASM SHA-256：
 `dca796bacec37d8522c7983b3945e5d579bd74164e3b21f0ebc773be6dfc8b6e`
@@ -62,7 +62,7 @@ wasmi = { version = "=0.46.0", default-features = false, features = ["std"] }
 ## 向量与回归入口
 
 扩展限额和异常用例见 [sns_keystream_tests.rs](sns_keystream_tests.rs)，运行前按[测试说明](../../../../tests/README.md)配置依赖。
-原始向量均为合成输入，迁移时以历史 Node 包装器输出为基准并固定提交。仓库不再保留依赖旧源码目录的重生成器。需要执行 WASM 的向量测试只用于持有合法审计副本的内部核验，不属于公开源码默认测试。`vectors.json` 的输入包括：
+原始向量均为合成输入，以 Node 包装器输出为独立基准并固定提交。回归使用固定向量，不依赖参考源码目录中的重生成器。需要执行 WASM 的向量测试只用于持有合法审计副本的内部核验，不属于公开源码默认测试。`vectors.json` 的输入包括：
 key 为 `0`、`1`、`-1`、`18446744073709551615`、`00042`、带空格的 `42`；
 长度覆盖 1、7、8、9、16、1023、1024、1025、131071、131072，共 35 组逐字节比较。
 固定向量测试不需要 Node，但需要显式启用内部特性并在预期路径提供已授权资产。默认测试只验证缺失和未知资产会被拒绝。

@@ -242,10 +242,10 @@ mod tests {
         assert_eq!(result["status"], "refused");
         let error = Response::ok(result).require_success().unwrap_err();
         assert_eq!(error.0, BusinessOutcome::Refused);
-        assert_eq!(error.legacy_exit_code(), Some(2));
+        assert_eq!(error.worker_exit_code(), Some(2));
         assert_eq!(error.public_message(), "Business request refused");
         assert_eq!(
-            BusinessOutcome::from_legacy(&serde_json::json!({"exit_code": 2})),
+            BusinessOutcome::from_json(&serde_json::json!({"exit_code": 2})),
             BusinessOutcome::Failure,
         );
         assert!(super::failure(1, "not found".into())

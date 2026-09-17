@@ -2,7 +2,7 @@
 
 `wx tasks`、本地 Web 与显式启用的 MCP 任务工具共用同一账号 daemon 中的任务服务。入口不拥有任务队列、工作进程或任务日志文件。普通查询保持原有通道；任务走带版本和认证的独立命名管道，但由同一 daemon 进程托管。
 
-当前提供 7 类个人微信持久任务，企业微信功能已移除。其他业务入口也已收口到 daemon，但不扩充这 7 类任务：CLI 使用类型化前台操作，MCP 原有查询及同步语音使用认证 `Call::Mcp`，Web 监控、图片与预览使用认证 `Call::Web`。业务归 daemon 所有，不意味着每种操作都进入持久队列，或全部运行于同一个 OS 进程。详见 [业务入口与运行边界](daemon-entrypoints.md)。
+提供 7 类个人微信持久任务。其他业务入口也经过 daemon，但不属于这 7 类持久任务：CLI 使用类型化前台操作，MCP 原有查询及同步语音使用认证 `Call::Mcp`，Web 监控、图片与预览使用认证 `Call::Web`。业务归 daemon 所有，不意味着每种操作都进入持久队列，或全部运行于同一个 OS 进程。详见 [业务入口与运行边界](daemon-entrypoints.md)。
 
 ## MCP 任务工具
 
@@ -43,7 +43,7 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 `MCP tools/call → cli::mcp_tasks → service::client::{wait_ready,request_with_timeout} → Call::{Configure,Submit,List,Get,Cancel,Events} → daemon::tasks → daemon::operations::task_worker`。后台启动仍调用已有 `ensure_running_quiet`；认证、进程身份、请求/回复上限和超时均走现有 service transport。
 
-共享 `Info/Configure` 响应增加只读 `config_fingerprint`（尚未配置时为 null）。MCP 在任务 RPC 前核对后台绑定指纹与本会话指纹，不能通过调用参数覆盖它；缺少或不匹配时拒绝。后台提交时仍由原有 `ConfigPin` 验证配置与绑定一致。
+共享 `Info/Configure` 响应包含只读 `config_fingerprint`（尚未配置时为 null）。MCP 在任务 RPC 前核对后台绑定指纹与本会话指纹，不能通过调用参数覆盖它；缺少或不匹配时拒绝。后台提交时仍由原有 `ConfigPin` 验证配置与绑定一致。
 
 任务 RPC 不依附于 `Call::Mcp` 的查询会话。MCP EOF、宿主退出、取消通知或工具超时都不会额外发送后台取消，也不会把已接受任务转交 MCP 执行。当前 stdio 协议串行处理请求，通知不会抢占正在处理的工具调用；后台取消必须显式调用 `cancel_task`（或 CLI/Web 的取消接口）。取消可能已完成的任务沿用 daemon 的终态幂等语义，文件产物不回滚。
 
