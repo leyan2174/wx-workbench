@@ -24,7 +24,11 @@ fn removed_enterprise_entrypoints_fail_before_account_access() {
         vec!["toolkit", "decrypt-enterprise", "--help"],
         vec!["toolkit", "enterprise-batch", "--help"],
         vec!["toolkit", "run", "enterprise-batch", "--", "--help"],
-        vec!["toolkit", "web", "--enterprise-snapshot", "missing"],
+        vec!["enterprise", "--help"],
+        vec!["database", "decrypt-enterprise", "--help"],
+        vec!["enterprise-batch", "--help"],
+        vec!["run", "enterprise-batch", "--", "--help"],
+        vec!["web", "--enterprise-snapshot", "missing"],
         vec!["tasks", "configure", "--enterprise-data-dir", "missing"],
         vec!["tasks", "submit", "wxwork-discover"],
         vec!["tasks", "submit", "wxwork-scan"],
@@ -234,7 +238,7 @@ impl Web {
         let log = account.join("web-process.log");
         let stdout = fs::File::create(&log).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_wx"))
-            .args(["toolkit", "web", "--port", "0"])
+            .args(["web", "--port", "0"])
             .env_remove("WX_DAEMON_MODE")
             .env_remove("WX_DAEMON_TASK_WORKER")
             .env_remove("WX_CLI_EXPECTED_RUNTIME")

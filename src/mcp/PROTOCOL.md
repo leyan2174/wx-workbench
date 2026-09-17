@@ -36,7 +36,7 @@
 
 CLI 帮助还继承全局 `--with-meta` 和 `--help`；它们不是 MCP 工具 schema 属性，工具请求不能借此增加未公布参数。
 
-**与配置式批处理区别：** `wx toolkit transcribe-chat-native` 等入口在用户请求转录后按固定配置选择引擎，配置必须明确提供 `transcription_backend`；Python 模型缺失时默认 `base`。MCP 仍必须满足上表开关与显式配置双重条件。详情见 [本地 ASR](../infrastructure/transcription/LOCAL.md) 与 [云端授权](../infrastructure/transcription/OPENAI.md)。
+**与配置式批处理区别：** `wx chats transcribe` 等入口在用户请求转录后按固定配置选择引擎，配置必须明确提供 `transcription_backend`；Python 模型缺失时默认 `base`。MCP 仍必须满足上表开关与显式配置双重条件。详情见 [本地 ASR](../infrastructure/transcription/LOCAL.md) 与 [云端授权](../infrastructure/transcription/OPENAI.md)。
 
 ## 后台任务工具
 

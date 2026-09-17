@@ -22,16 +22,101 @@
 
 ## 安装
 
-构建需要 Rust MSVC 工具链、Visual Studio C++ 构建工具及 libclang。将 `LIBCLANG_PATH` 指向本机包含 libclang DLL 的目录。
+### 准备 Windows 构建环境
+
+目前仅支持 **Windows x64 / `x86_64-pc-windows-msvc`**，不支持 GNU 工具链或在 Linux、macOS、WSL 中直接构建。以下命令使用 PowerShell。
+
+| 必需工具 | 安装与配置 |
+| --- | --- |
+| [Git for Windows](https://git-scm.com/downloads/win) | 用于下载源码，安装后确认 `git --version` 可执行。 |
+| [Visual Studio / Build Tools](https://learn.microsoft.com/en-us/cpp/build/vscpp-step-0-installation) | 在 Visual Studio Installer 中选择“使用 C++ 的桌面开发”，安装 x64/x86 MSVC 构建工具及 Windows SDK。仅安装 VS Code 不包含这些工具。 |
+| [Rust / rustup](https://rust-lang.org/tools/install/) | 使用 Windows x64 安装器；下方命令显式选择 stable MSVC 工具链。 |
+| [LLVM](https://releases.llvm.org/) | 安装 Windows x64 版本，确认包含 `libclang.dll`；原生依赖生成绑定时需要它。 |
+
+安装后重新打开 PowerShell，准备工具链并检查环境：
+
+```powershell
+git --version
+rustup --version
+rustup toolchain install stable-x86_64-pc-windows-msvc
+cargo +stable-x86_64-pc-windows-msvc --version
+rustc +stable-x86_64-pc-windows-msvc --version
+
+# 按本机 LLVM 安装位置修改；设置的是目录，不是 DLL 文件路径。
+$env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+if (-not (Test-Path (Join-Path $env:LIBCLANG_PATH 'libclang.dll'))) {
+    throw '未找到 libclang.dll，请检查 LLVM 安装位置'
+}
+```
+
+`$env:LIBCLANG_PATH` 的设置只作用于当前终端；新开终端后需要重新设置，或自行加入用户环境变量。若 MSVC 工具未被找到，可从 Visual Studio 的 Developer PowerShell 中运行下方命令，并确保构建目标为 x64。
+
+### 下载源码并编译
+
+仓库为 Private 时，需要使用具有访问权限的 GitHub 账号完成 Git 身份认证；不要将访问令牌写进命令或配置示例。
 
 ```powershell
 git clone https://github.com/leyan2174/wx-workbench.git
 cd wx-workbench
-cargo build --release --target x86_64-pc-windows-msvc
-& .\target\x86_64-pc-windows-msvc\release\wx.exe --version
+
+cargo +stable-x86_64-pc-windows-msvc build --release --locked --bin wx --target x86_64-pc-windows-msvc
 ```
 
-下文假定 `wx.exe` 已在 PATH，也可以直接调用上述文件。原生查询和 MCP 不需要 Node.js。MP3 编码需要 FFmpeg；转录依赖所选本地模型或显式授权的云端服务。依赖缺失时先处理前置条件，不自动安装、下载或切换云端。
+`--locked` 使用仓库的 `Cargo.lock`，避免构建时改变依赖版本；它不代表离线构建，也不固定 Rust 编译器版本。首次构建需要联网获取 Cargo 依赖及 Frida 原生开发包。SQLite、SILK、Frida、wasmi 等依赖由构建系统处理，不需要另外启动数据库服务或安装这几个项目的命令行工具。
+
+默认产物为 `target\x86_64-pc-windows-msvc\release\wx.exe`。如果设置了 `CARGO_TARGET_DIR`，产物位于该目录下；不同 checkout/worktree 应使用独立构建目录。下面的命令兼顾默认目录和环境变量指定的目录（未通过 Cargo 配置或 `--target-dir` 另行覆盖）：
+
+```powershell
+$buildRoot = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { '.\target' }
+$binaryDir = Join-Path $buildRoot 'x86_64-pc-windows-msvc\release'
+$wxExe = Join-Path $binaryDir 'wx.exe'
+& $wxExe --version
+& $wxExe --help
+
+# 可选：仅为当前 PowerShell 会话加入 PATH，方便使用下文的 wx 命令。
+$env:PATH = "$(Resolve-Path $binaryDir);$env:PATH"
+```
+
+`--version` 和 `--help` 用于验证程序能够启动，不要求账号初始化。查询真实数据前，还需按下文“选择账号”配置和初始化。源码构建不会自动发布 GitHub Release 或 npm 包。
+
+### 检查与测试
+
+开发或修改源码后，在仓库根目录、同一构建环境中执行：
+
+```powershell
+cargo +stable-x86_64-pc-windows-msvc check --locked --target x86_64-pc-windows-msvc
+cargo +stable-x86_64-pc-windows-msvc test --locked --no-fail-fast --target x86_64-pc-windows-msvc -- --test-threads=1
+```
+
+独立夹具及需要人工条件的测试见[测试说明](tests/README.md)，完整质量检查见[质量检查](docs/quality-checks.md)。被忽略的用例不代表已经通过；不要为运行测试扫描真实账号、上传私人音频或启动未经授权的捕获流程。
+
+### 按功能准备运行依赖
+
+以下组件不是编译 `wx.exe` 的前置条件，只在使用对应功能时准备：
+
+| 功能 | 额外条件 |
+| --- | --- |
+| 普通查询、CLI、MCP、本地 Web | 不需要 Node.js、Python、FFmpeg 或语音模型；数据查询需要有效的账号配置与密钥。 |
+| MP3 输出、部分媒体转换 | 配置可用的 FFmpeg；可先用 `ffmpeg -version` 检查。 |
+| 本地 whisper.cpp 转录 | 指定识别程序及匹配模型文件，见[本地 ASR](src/infrastructure/transcription/LOCAL.md)。 |
+| Python Whisper 转录 | 选择此后端时准备 Python、Whisper/PyTorch 及模型；命名模型可能触发下载。 |
+| 云端转录 | 配置兼容服务、模型及凭据，并明确授权上传，见[云端 ASR](src/infrastructure/transcription/OPENAI.md)。 |
+| 依赖 WxIsaac64 的朋友圈媒体恢复 | 提供具有使用依据、符合固定哈希要求的 WASM 文件；默认构建和发布包不携带它，见[宿主说明](src/adapters/wechat/media/SNS_KEYSTREAM.md)。 |
+| npm 启动器测试和打包 | 需要 Node.js / npm；直接构建 Rust 程序不需要。 |
+
+缺少功能依赖时先完成相应配置，不以编译成功代替完整功能验证。程序不会因为本地识别依赖缺失而自动改用云端上传。
+
+### 常见构建问题
+
+| 现象 | 处理方式 |
+| --- | --- |
+| 找不到 `cargo` 或 `rustup` | 重新打开终端，检查 Rust 是否安装以及用户的 `.cargo\bin` 是否在 PATH 中。 |
+| 找不到链接器、C/C++ 编译器或 Windows SDK | 在 Visual Studio Installer 中补齐 C++ 工作负载、MSVC 和 SDK；检查是否使用 MSVC x64 目标。 |
+| `Unable to find libclang` 或无法加载 `libclang.dll` | 核对 x64 LLVM 和 `LIBCLANG_PATH`，确保该环境变量指向 DLL 所在目录。 |
+| 下载 crates 或 Frida 开发包失败 | 检查网络、代理和相关下载站点的访问；首次构建不要使用 `--offline`，依赖准备齐全后再考虑离线构建。 |
+| 提示仅支持 Windows x64 | 在原生 Windows 环境使用 `x86_64-pc-windows-msvc`，不要改用 GNU、ARM64 或 WSL 的 Linux 目标。 |
+| 找不到生成的 `wx.exe` | 检查构建是否成功，以及 `CARGO_TARGET_DIR`、Cargo 配置或 `--target-dir` 是否改变了产物位置。 |
+| 无法覆盖正在使用的 `wx.exe` | 关闭使用该构建产物的前台程序，并通过对应账号的 `wx daemon stop` 停止 daemon 后重试；不要按进程名批量结束其他账号的程序。 |
 
 ## 选择账号
 
@@ -82,7 +167,7 @@ wx favorites -n 20 --json
 
 `--with-meta` 返回较重的来源与新鲜度信息。调试来源可能包含本地路径，不直接贴入公开报告。首次读取较大的数据库可能触发私有缓存准备；超时不表示无数据，也不构成自动重试写入操作的依据。
 
-`wx toolkit monitor --help` 查看轮询参数。较大的增量状态通过认证服务分块传输，完整校验后只执行一次查询；不通过截断会话或拆分查询降低请求大小。状态限额、取消和计时字段见[监控入口](docs/daemon-entrypoints.md#监控与增量状态)。
+`wx monitor --help` 查看轮询参数。较大的增量状态通过认证服务分块传输，完整校验后只执行一次查询；不通过截断会话或拆分查询降低请求大小。状态限额、取消和计时字段见[监控入口](docs/daemon-entrypoints.md#监控与增量状态)。
 
 ## 消息与附件
 
@@ -98,20 +183,20 @@ wx voices --help
 
 附件元数据、资源是否存在和明文导出是不同能力。缺失或匹配不唯一时，不伪造路径、大小或绑定证据。输出目录必须与账号源、缓存、配置和密钥分离。详见[附件契约](docs/native-attachment-contract.md)。
 
-## 导出与工具箱
+## 导出与账号维护
 
 ```powershell
 wx export $chat --format markdown --output '.\output\chat.md'
-wx toolkit --help
-wx toolkit setup --help
-wx toolkit cleanup --help
-wx toolkit export-chats-native --help
-wx toolkit export-delta-native --help
-wx toolkit chat-plan-native --help
-wx toolkit export-emoticons --help
+wx --help
+wx setup --help
+wx cleanup --help
+wx chats export --help
+wx chats export-delta --help
+wx chats plan --help
+wx emoticons export --help
 ```
 
-工具箱提供批量导出、增量、计划、音频处理和本地界面。`wx toolkit` 是批量处理和辅助工具的命令分组。所有子命令由 Rust 入口校验。具体参数以子命令 `--help` 为准。
+`wx chats` 提供批量导出、增量导出和导出计划，`wx emoticons` 提供表情导出，`wx setup` 和 `wx cleanup` 负责账号准备与清理。所有子命令由 Rust 入口校验。具体参数以子命令 `--help` 为准。
 
 清理先预览，再按明确账号和文件选择执行。覆盖、下载、回写和目录更新须分别获得授权；导出授权不等于修改原始微信数据库的授权。
 
@@ -123,8 +208,8 @@ wx sns-search '测试关键词' --json
 wx sns-notifications --json
 wx biz-articles -n 20 --json
 wx sns-album --help
-wx toolkit export-sns-native --help
-wx toolkit decode-sns-video --help
+wx moments export-snapshot --help
+wx media video decode --help
 ```
 
 普通查询读取本地数据。相册导出、媒体下载和时间线更新是独立操作，下载必须显式授权。离线视频的文件头检查不等于完整可播放性验证。参见[工作流条件](docs/workflow-requirements.md)和[密钥流宿主契约](src/adapters/wechat/media/SNS_KEYSTREAM.md)。
@@ -132,9 +217,9 @@ wx toolkit decode-sns-video --help
 ## 语音与转录
 
 ```powershell
-wx toolkit transcribe-audio-native --help
-wx toolkit transcribe-chat-native --help
-wx toolkit transcribe-database-native --help
+wx audio transcribe --help
+wx chats transcribe-manifest --help
+wx audio transcribe-message --help
 ```
 
 SILK 解码与模型识别分开配置。本地 whisper.cpp 需要程序与模型；配置式 Python 依赖 Whisper/PyTorch，命名模型可能下载。云端转录必须明确授权上传，并提供端点、模型和凭据文件，缺少条件时不回退。
@@ -146,7 +231,7 @@ SILK 解码与模型识别分开配置。本地 whisper.cpp 需要程序与模�
 ```powershell
 # MCP 必须显式设置 WX_CLI_CONFIG。
 wx mcp
-wx toolkit web
+wx web
 wx daemon status
 wx daemon stop
 ```

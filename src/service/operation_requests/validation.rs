@@ -1,6 +1,6 @@
 //! Pure request checks. Never open files, load an account, or construct an ASR backend here.
 use super::{asr::BackendArgs, asr_batch::BatchArgs};
-use crate::service::operations::{Operation, ToolkitOperation};
+use crate::service::operations::Operation;
 use anyhow::{ensure, Result};
 use std::path::{Component, Path};
 
@@ -368,18 +368,12 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
             crate::attachment::AttachmentId::decode(attachment_id)?;
             Ok(())
         }
-        Operation::Toolkit { operation } => toolkit(operation),
         Operation::Cleanup { args } => cleanup(args),
         Operation::ExportChat { .. }
         | Operation::SnsArchive { .. }
         | Operation::NewMessages { .. }
         | Operation::RunStatus { .. } => Ok(()),
-    }
-}
-
-fn toolkit(operation: &ToolkitOperation) -> Result<()> {
-    match operation {
-        ToolkitOperation::ExportSnsNative {
+        Operation::ExportMomentSnapshot {
             update,
             adopt_existing,
             utc_offset,
@@ -393,7 +387,7 @@ fn toolkit(operation: &ToolkitOperation) -> Result<()> {
             local_cache.validate_request()?;
             Ok(())
         }
-        ToolkitOperation::DecodeImages {
+        Operation::DecodeImageCache {
             aes_key, xor_key, ..
         } => {
             if let Some(key) = aes_key {
@@ -404,13 +398,13 @@ fn toolkit(operation: &ToolkitOperation) -> Result<()> {
             }
             Ok(())
         }
-        ToolkitOperation::DecodeSnsVideo { .. }
-        | ToolkitOperation::ExportEmoticons(_)
-        | ToolkitOperation::Status { .. }
-        | ToolkitOperation::Decrypt { .. }
-        | ToolkitOperation::DecodeImage { .. }
-        | ToolkitOperation::BatchDecryptImages { .. }
-        | ToolkitOperation::VoiceBatch { .. }
-        | ToolkitOperation::VoiceToMp3 { .. } => Ok(()),
+        Operation::DecodeMomentVideo { .. }
+        | Operation::ExportEmoticons(_)
+        | Operation::Capabilities { .. }
+        | Operation::DecryptDatabases { .. }
+        | Operation::DecodeImage { .. }
+        | Operation::DecodeImageDirectory { .. }
+        | Operation::ExportAudio { .. }
+        | Operation::ConvertAudio { .. } => Ok(()),
     }
 }

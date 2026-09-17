@@ -9,8 +9,8 @@ Rust 已负责音频校验/SILK 解码、数据库关联、缓存、回写和进
 
 | 入口 | 选择与默认值 |
 | --- | --- |
-| `wx toolkit transcribe-audio-native INPUT`、`transcribe-chat-native INPUT OUTPUT --media-manifest FILE --media-root DIR`、`transcribe-database-native` | 共用 `BackendArgs`：默认 `--backend whisper_cpp`，必须给 `--whisper-binary` 和 `--whisper-model`；`--language auto`、`--timeout-seconds 120`，`--threads` 省略时自动且最多 8；CLI 强制 JSON 结果模式；可选 `--temp-root` |
-| `wx toolkit transcribe-chat INPUT [OUTPUT]` 及复用批处理的导出入口 | 实际请求转录后读取固定账号配置；必须明确配置 `transcription_backend`。`python_whisper` 的 `local_whisper_model` 缺失时默认 `base`。`--explicit-backend` 改用上行显式原生参数；输出省略时为同目录 `<输入主名>_transcribed.json`；`--asr-cache-name` 默认 `batch-transcriptions.json` |
+| `wx audio transcribe INPUT`、`wx chats transcribe-manifest INPUT OUTPUT --media-manifest FILE --media-root DIR`、`wx audio transcribe-message` | 共用 `BackendArgs`：默认 `--backend whisper_cpp`，必须给 `--whisper-binary` 和 `--whisper-model`；`--language auto`、`--timeout-seconds 120`，`--threads` 省略时自动且最多 8；CLI 强制 JSON 结果模式；可选 `--temp-root` |
+| `wx chats transcribe INPUT [OUTPUT]` 及复用批处理的导出入口 | 实际请求转录后读取固定账号配置；必须明确配置 `transcription_backend`。`python_whisper` 的 `local_whisper_model` 缺失时默认 `base`。`--explicit-backend` 改用上行显式原生参数；输出省略时为同目录 `<输入主名>_transcribed.json`；`--asr-cache-name` 默认 `batch-transcriptions.json` |
 | 配置式 `transcription_backend="whisper_cpp"` | 程序取 `whisper_cpp_binary`；模型取 `whisper_cpp_model`；配置相对路径基于配置目录。缺模型或空模型时，依次从用户目录 `whisper-models`、`models`、`Downloads` 选择首个目录内按文件名排序的 `ggml-*.bin`，不下载。语言配置缺省 `zh`，线程缺省/0 为原生自动且最多 8；`--threads` 和非 `auto` 的 `--language` 可覆盖，`--whisper-binary/--whisper-model` 可显式固定路径 |
 | `wx mcp` | 默认本地方式是显式 whisper.cpp 路径；Python 必须由宿主加 `--configured-local-python`，并要求固定配置中明确有 `transcription_backend="python_whisper"`；模型字段缺省 `base`。拒绝混用 cpp 路径、云参数和用户 `--temp-root`，宿主创建请求独占临时目录；允许语言、线程、超时及显式缓存参数 |
 

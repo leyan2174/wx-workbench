@@ -107,7 +107,7 @@ impl Fixture {
             .env("PYTHONHOME", self.root.join("not-installed-python"))
             .env("PYTHONPATH", self.root.join("not-installed-python"))
             .env("WECHAT_EXPORT_USERS", "must-not-select-this-user")
-            .args(["toolkit", "chat-plan-native"])
+            .args(["chats", "plan"])
             .arg("--decrypted-dir")
             .arg(&self.cache);
         cmd

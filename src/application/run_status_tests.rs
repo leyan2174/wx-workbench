@@ -7,7 +7,7 @@ fn missing_config_and_directories_are_read_only() {
     let status = inspect(&dir.path().join("missing/config.json"), None).unwrap();
     assert!(!status.config_exists && !status.databases.exists && !status.exports.exists);
     assert!(status.key_files.is_empty());
-    assert!(status.render().contains("wx toolkit decrypt"));
+    assert!(status.render().contains("wx database decrypt"));
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 

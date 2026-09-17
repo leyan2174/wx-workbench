@@ -197,8 +197,8 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         "run\ncontrol",
     ] {
         failed(f.run(&[
-            "toolkit",
-            "export-delta-native",
+            "chats",
+            "export-delta",
             arg(&output),
             "--users",
             USER,
@@ -210,8 +210,8 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         assert!(!output.exists());
     }
     failed(f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         arg(&output),
         "--users",
         USER,
@@ -234,8 +234,8 @@ fn delta_rejects_run_ids_and_protected_paths_without_writing() {
         f.path("profile/db_storage/../db_storage/escape"),
     ] {
         failed(f.run(&[
-            "toolkit",
-            "export-delta-native",
+            "chats",
+            "export-delta",
             arg(&path),
             "--users",
             USER,
@@ -265,8 +265,8 @@ fn plan_rejects_identity_pollution_and_database_traversal_without_output() {
     ] {
         fs::write(&metadata, body).unwrap();
         failed(f.run(&[
-            "toolkit",
-            "chat-plan-native",
+            "chats",
+            "plan",
             "--decrypted-dir",
             arg(&cache),
             "--chats-json",
@@ -279,8 +279,8 @@ fn plan_rejects_identity_pollution_and_database_traversal_without_output() {
     }
     fs::write(&metadata, r#"[{"username":"alpha","chat_name":"victim"}]"#).unwrap();
     failed(f.run(&[
-        "toolkit",
-        "chat-plan-native",
+        "chats",
+        "plan",
         "--decrypted-dir",
         arg(&cache),
         "--chats-json",
@@ -292,8 +292,8 @@ fn plan_rejects_identity_pollution_and_database_traversal_without_output() {
     ]));
     for database in ["../outside.db", "messages.db:secret", "C:\\outside.db"] {
         failed(f.run(&[
-            "toolkit",
-            "chat-plan-native",
+            "chats",
+            "plan",
             "--decrypted-dir",
             arg(&cache),
             "--user",
@@ -328,8 +328,8 @@ fn plan_refuses_source_and_existing_targets_without_exposing_body() {
         f.path("cache/../escape.csv"),
     ] {
         let error = failed(f.run(&[
-            "toolkit",
-            "chat-plan-native",
+            "chats",
+            "plan",
             "--decrypted-dir",
             arg(&cache),
             "--message-db",
@@ -358,8 +358,8 @@ fn delta_untrusted_metadata_and_content_cannot_forge_identity_or_paths() {
     f.account(false);
     let output = f.path("delta");
     let report = value(f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         arg(&output),
         "--users",
         USER,
@@ -400,8 +400,8 @@ fn delta_untrusted_metadata_and_content_cannot_forge_identity_or_paths() {
     assert!(!String::from_utf8_lossy(&bytes).contains("FOREIGN_ACCOUNT_MESSAGE"));
     let manifest_before = fs::read(manifest_path).unwrap();
     failed(f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         arg(&output),
         "--users",
         "victim",
@@ -421,8 +421,8 @@ fn delta_query_failure_never_publishes_partial_chat() {
     f.account(true);
     let output = f.path("delta");
     let result = f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         arg(&output),
         "--users",
         USER,
@@ -461,8 +461,8 @@ fn delta_and_plan_reject_junction_output_ancestors() {
     let link = f.path("junction");
     let _junction = junction(&link, &outside);
     failed(f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         arg(&link.join("new")),
         "--users",
         USER,
@@ -472,8 +472,8 @@ fn delta_and_plan_reject_junction_output_ancestors() {
         "safe",
     ]));
     failed(f.run(&[
-        "toolkit",
-        "chat-plan-native",
+        "chats",
+        "plan",
         "--decrypted-dir",
         arg(&cache),
         "--user",
@@ -496,8 +496,8 @@ fn plan_rejects_junction_ancestors_of_decrypted_source() {
     let aliased_cache = link.join("cache");
     let output = f.path("plan.csv");
     let result = f.run(&[
-        "toolkit",
-        "chat-plan-native",
+        "chats",
+        "plan",
         "--decrypted-dir",
         arg(&aliased_cache),
         "--message-db",

@@ -5,8 +5,8 @@
 `cache/cached/receipt` 在 `application/transcription/mod.rs` 注册，供 MCP 宿主、显式数据库 CLI 和固定账号批处理调用。核心本身不发现账号、后端或缓存位置，也不实现过期清扫；Python 命名模型下载属于独立推理桥，见 [LOCAL.md](../../infrastructure/transcription/LOCAL.md)。
 
 - MCP 用 `--voice-cache-file FILE` 显式启用；省略不持久化。账号取绑定的 `RuntimeContext.id`，不接受工具参数提供的账号或路径。
-- `wx toolkit transcribe-database-native` 用成对的 `--cache-file FILE --cache-account NAME` 启用；缓存目录须独立于数据库/后端输入。NAME 只是调用方命名空间，不是账号认证。
-- 配置式 `transcribe-chat` 等批处理使用固定账号运行目录下 `batch-transcriptions.json`；`--asr-cache-name` 只能是合法单个 JSON 文件名。成功缓存逐条提交，聊天 JSON 最后发布；缓存/receipt 持久化告警独立于逐条识别结果，批处理 CLI 会在保存报告后以非零状态提醒。
+- `wx audio transcribe-message` 用成对的 `--cache-file FILE --cache-account NAME` 启用；缓存目录须独立于数据库/后端输入。NAME 只是调用方命名空间，不是账号认证。
+- 配置式 `wx chats transcribe` 等批处理使用固定账号运行目录下 `batch-transcriptions.json`；`--asr-cache-name` 只能是合法单个 JSON 文件名。成功缓存逐条提交，聊天 JSON 最后发布；缓存/receipt 持久化告警独立于逐条识别结果，批处理 CLI 会在保存报告后以非零状态提醒。
 
 `Cache::open(path, account)` 显式账号和路径；`ConfigIdentity::new(backend, model_identity, language, options_identity)`、`CacheKey::new(username, source, local_id, audio, config)` 创建结构化身份摘要；`lookup`、`store_success`、`store_success_checked` 为核心入口。`StoreStatus` 只有 `Stored/AlreadyPresent`。核心仅接收成功记录，后端错误由 `cached` 返回 Err、不写缓存。成功空文本可保留，返回 create_time；批处理回写另有非空文本要求，不能把 MCP 空成功规则套用于聊天 JSON。
 

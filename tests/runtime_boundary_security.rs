@@ -113,8 +113,8 @@ fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools(
     let mp3 = own.join(format!("voice/{stamp}_1.mp3"));
     fs::write(&mp3, b"EXISTING").unwrap();
     let report = success(f.run(&[
-        "toolkit",
-        "voice-batch",
+        "audio",
+        "export",
         "--config",
         arg(&config),
         "--contacts",
@@ -127,8 +127,8 @@ fn voice_explicit_config_preserves_foreign_owner_and_existing_mp3_without_tools(
     {
         let target = config_dir.join("decrypted/new");
         failure(f.run(&[
-            "toolkit",
-            "voice-batch",
+            "audio",
+            "export",
             "--config",
             arg(&config),
             "--output-dir",
@@ -177,7 +177,7 @@ fn sns_rejects_secret_and_cache_boundaries_before_creating_output() {
         vec!["--sns-cache", arg(&cache), "--image-xor-key", "256"],
         vec!["--sns-cache", "missing-cache"],
     ] {
-        let mut args = vec!["toolkit", "export-sns-native", arg(&sns), arg(&output)];
+        let mut args = vec!["moments", "export-snapshot", arg(&sns), arg(&output)];
         args.extend(options);
         let error = failure(f.run(&args));
         assert!(!error.contains(secret));
@@ -189,8 +189,8 @@ fn sns_rejects_secret_and_cache_boundaries_before_creating_output() {
         f.path("source/../source/escape"),
     ] {
         failure(f.run(&[
-            "toolkit",
-            "export-sns-native",
+            "moments",
+            "export-snapshot",
             arg(&sns),
             arg(&target),
             "--xwechat-cache",
@@ -202,8 +202,8 @@ fn sns_rejects_secret_and_cache_boundaries_before_creating_output() {
     fs::create_dir_all(&occupied).unwrap();
     fs::write(occupied.join("timeline.json"), b"KEEP").unwrap();
     failure(f.run(&[
-        "toolkit",
-        "export-sns-native",
+        "moments",
+        "export-snapshot",
         arg(&sns),
         arg(&output),
         "--sns-cache",
@@ -236,8 +236,8 @@ fn voice_rejects_parent_traversal_before_any_directory_creation() {
     .unwrap();
     let traversal = f.path("allowed/../escaped");
     let error = failure(f.run(&[
-        "toolkit",
-        "voice-batch",
+        "audio",
+        "export",
         "--config",
         arg(&config),
         "--output-dir",
@@ -268,8 +268,8 @@ fn invalid_chat_dates_fail_before_account_loading_or_output_changes() {
         ("1", "1; echo injected"),
     ] {
         let error = failure(f.run(&[
-            "toolkit",
-            "export-chats-native",
+            "chats",
+            "export",
             arg(&output),
             "--start",
             start,

@@ -7,7 +7,7 @@ pub mod infrastructure {
 }
 #[path = "../../../src/private_file.rs"]
 mod private_file;
-pub use publication::{adapters, config, crypto, daemon, key_store, runtime, service, toolkit};
+pub use publication::{adapters, config, crypto, daemon, key_store, runtime, service};
 #[path = "../../../src/attachment/local_files.rs"]
 pub(crate) mod local_files;
 mod attachment {

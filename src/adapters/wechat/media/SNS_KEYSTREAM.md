@@ -8,8 +8,8 @@ runtime 本身不启动 Node、不执行 JS、不联网、不读取账户、密�
 ## 入口
 
 ```powershell
-wx toolkit decode-sns-video encrypted.bin decoded.mp4 --key-file video-key.txt --wasm authorized-wasm-video-decode.wasm
-wx toolkit decode-sns-video plaintext.mp4 copied.mp4
+wx media video decode encrypted.bin decoded.mp4 --key-file video-key.txt --wasm authorized-wasm-video-decode.wasm
+wx media video decode plaintext.mp4 copied.mp4
 ```
 
 输入和输出是必需位置参数；加密输入必须提供 UTF-8 `--key-file`（最多 1024 字节），明文 MP4 不需要密钥或初始化 runtime。

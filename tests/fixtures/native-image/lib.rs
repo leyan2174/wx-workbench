@@ -29,9 +29,6 @@ pub mod infrastructure {
 }
 #[path = "../../../src/private_file.rs"]
 pub mod private_file;
-pub mod toolkit {
-    pub use super::files;
-}
 pub mod attachment {
     pub use super::AttachmentKind;
     pub(crate) use super::local_files;

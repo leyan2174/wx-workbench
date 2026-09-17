@@ -1,6 +1,6 @@
 # 导出计划 CSV 测试
 
-生产路径：`wx toolkit export-chats-native OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由公开 CLI 封送给 daemon 侧导出编排。默认不带计划时原 users/date/incremental/dry-run 路径保留，不生成计划、不串联 ASR。
+生产路径：`wx chats export OUTPUT --from-plan-csv PLAN.csv [--plan-mode blacklist|whitelist]`。参数由公开 CLI 封送给 daemon 侧导出编排。默认不带计划时原 users/date/incremental/dry-run 路径保留，不生成计划、不串联 ASR。
 
 ## 源码对照
 
@@ -9,7 +9,7 @@
 - 默认 blacklist：只有 trim 后的 `0` 跳过，包括空白在内的其他标记均选择。whitelist：只有 trim 后的 `1` 选择。`yes` 等标记沿用旧语义，不擅自解释为布尔值或报错。
 - username trim 后精确匹配，区分大小写；显示名、序号、类型、数量、大小及时间统计列不用于账号绑定。重复 username 即使全部不选，也整批拒绝。
 - 输出遵循 CSV 行顺序。users 参数或 WECHAT_EXPORT_USERS 先限制会话集合，CSV 中选中的集合外 username 整批报错，而不是默默取交集或导出全部。未选中的失效 username 可留在 CSV。
-- 只要求 username 列，与旧消费者一致；缺少 export 列按空标记处理。兼容原生 chat-plan-native 的 UTF-8 BOM、CRLF、12 列及标准 CSV 引号/逗号/换行。
+- 只要求 username 列；缺少 export 列按空标记处理。支持 `wx chats plan` 输出的 UTF-8 BOM、CRLF、12 列及标准 CSV 引号/逗号/换行。
 - 加强损坏输入拒绝：空/重复表头、无身份、UTF-8 无效、字段数不等、错位或未闭合引号、username 控制字符、过长身份、重复的后端会话身份。16 MiB、100000 行上限明确报错。csv crate 负责分列/转义/编码/列数；小型引号预检仅弥补其宽容语法，不手写 split。
 - 参数 plan-mode 单独出现或值无效由 Clap 拒绝。计划读取先于 IPC；全部身份校验先于索引创建。空选择集成功返回且不创建输出目录；dry-run 不写计划、导出文件、锁或索引。
 

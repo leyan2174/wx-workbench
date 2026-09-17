@@ -1,13 +1,6 @@
 use quote::ToTokens;
 fn main() {
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    let keys_path = "../../../src/application/image_publication.rs";
-    println!("cargo:rerun-if-changed={keys_path}");
-    let keys = syn::parse_file(&std::fs::read_to_string(keys_path).unwrap()).unwrap();
-    let parsers: Vec<_> = keys.items.iter().filter(|item| matches!(item,
-        syn::Item::Fn(function) if function.sig.ident == "parse_aes" || function.sig.ident == "parse_xor")).collect();
-    assert_eq!(parsers.len(), 2);
-    std::fs::write(output.join("image_key_parsers.rs"), quote::quote!(#(#parsers)*).to_string()).unwrap();
     let image_path = "../../../src/attachment/native_image.rs";
     println!("cargo:rerun-if-changed={image_path}");
     let mut image = syn::parse_file(&std::fs::read_to_string(image_path).unwrap()).unwrap();

@@ -109,8 +109,8 @@ impl Fixture {
 
     fn run(&self, args: &[&str]) -> Output {
         let mut command = vec![
-            "toolkit",
-            "find-image-key",
+            "keys",
+            "image",
             "--offline",
             "--timeout",
             "10",
@@ -226,8 +226,8 @@ fn monitor_reuses_daemon_image_snapshot_without_rewriting_material() {
     let before = fs::read(f.path("keys.dpapi")).unwrap();
     let sample = f.path("samples/reused.jpg");
     let output = f.run_command(&[
-        "toolkit",
-        "find-image-key-monitor",
+        "keys",
+        "watch-image",
         "--authorize-memory-scan",
         "--no-save",
         "--timeout",
@@ -258,8 +258,8 @@ fn monitor_reuses_daemon_image_snapshot_without_rewriting_material() {
     let damaged = b"synthetic unreadable replacement";
     fs::write(f.path("keys.dpapi"), damaged).unwrap();
     let output = f.run_command(&[
-        "toolkit",
-        "find-image-key-monitor",
+        "keys",
+        "watch-image",
         "--authorize-memory-scan",
         "--no-save",
         "--timeout",

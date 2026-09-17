@@ -198,7 +198,7 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                 || false,
             )?;
             emit(&report)?;
-            super::toolkit::voice_batch_outcome(&report).require_success()?;
+            super::audio_export::voice_batch_outcome(&report).require_success()?;
             Ok(())
         }
     }

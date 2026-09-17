@@ -4,7 +4,7 @@
 mod private_file;
 #[path = "../sns-download/publication.rs"]
 mod publication;
-pub use publication::{config, crypto, daemon, key_store, runtime, toolkit};
+pub use publication::{config, crypto, daemon, key_store, runtime};
 mod adapters {
     pub mod wechat {
         pub use crate::publication::adapters::wechat::messages;

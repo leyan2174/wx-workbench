@@ -148,7 +148,7 @@ impl Fixture {
     }
 
     fn alias(&self, account: &Path, out: Option<&Path>, contacts: &str, extra: &[&str]) -> Output {
-        let mut args = vec!["toolkit", "export-sns", "--contacts", contacts];
+        let mut args = vec!["moments", "export", "--contacts", contacts];
         if let Some(out) = out {
             args.extend(["--output-dir", out.to_str().unwrap()]);
         }
@@ -160,8 +160,8 @@ impl Fixture {
         let sns = account.join("decrypted/sns/sns.db");
         let contacts = account.join("decrypted/contact/contact.db");
         let mut args = vec![
-            "toolkit",
-            "export-sns-native",
+            "moments",
+            "export-snapshot",
             sns.to_str().unwrap(),
             out.to_str().unwrap(),
             "--contact-db",
@@ -571,8 +571,8 @@ fn explicit_native_fresh_update_adopt_and_snapshot_identity() {
     rejected(f.run(
         &a,
         &[
-            "toolkit",
-            "export-sns-native",
+            "moments",
+            "export-snapshot",
             sns.to_str().unwrap(),
             out.to_str().unwrap(),
             "--contact-db",
@@ -672,8 +672,8 @@ fn cli_contacts_override_environment_and_no_remote_blocks_environment_downloads(
     ] {
         let out = f.root.path().join(name);
         let mut args = vec![
-            "toolkit",
-            "export-sns",
+            "moments",
+            "export",
             "--output-dir",
             out.to_str().unwrap(),
             "--no-remote",
@@ -715,8 +715,8 @@ fn cli_contacts_override_environment_and_no_remote_blocks_environment_downloads(
     let report = success(f.run_env(
         &a,
         &[
-            "toolkit",
-            "export-sns",
+            "moments",
+            "export",
             "--output-dir",
             out.to_str().unwrap(),
             "--contacts",

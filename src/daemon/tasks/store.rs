@@ -182,7 +182,7 @@ pub fn restore(
     let mut tasks = VecDeque::new();
     let mut retired = std::collections::HashSet::new();
     let mut migrated = false;
-    for row in rows {
+    for (index, row) in rows.iter().enumerate() {
         let mut row = row.clone();
         if matches!(
             row["kind"].as_str(),
@@ -210,7 +210,9 @@ pub fn restore(
                 migrated = true;
             }
         }
-        tasks.push_back(serde_json::from_value::<Task>(row)?);
+        tasks.push_back(serde_json::from_value::<Task>(row).map_err(|_| {
+            anyhow::anyhow!("Unsupported or invalid task history record at index {index}")
+        })?);
     }
     requests.retain(|id, _| !retired.contains(id));
     let mut ids = std::collections::HashSet::new();

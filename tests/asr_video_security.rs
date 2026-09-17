@@ -207,8 +207,8 @@ fn security_cli_cloud_authorization_and_key_limit_precede_upload() {
     let server = listener();
     let url = format!("http://{}/v1", server.local_addr().unwrap());
     let base = [
-        "toolkit",
-        "transcribe-audio-native",
+        "audio",
+        "transcribe",
         audio.to_str().unwrap(),
         "--backend",
         "openai_compatible",
@@ -326,8 +326,9 @@ fn security_cli_video_failure_never_publishes_or_overwrites() {
         process_failure(run_wx(
             dir.path(),
             &[
-                "toolkit",
-                "decode-sns-video",
+                "media",
+                "video",
+                "decode",
                 input.to_str().unwrap(),
                 output.to_str().unwrap(),
                 "--key-file",
@@ -340,8 +341,9 @@ fn security_cli_video_failure_never_publishes_or_overwrites() {
     let error = process_failure(run_wx(
         dir.path(),
         &[
-            "toolkit",
-            "decode-sns-video",
+            "media",
+            "video",
+            "decode",
             input.to_str().unwrap(),
             output.to_str().unwrap(),
             "--key-file",
@@ -358,8 +360,9 @@ fn security_cli_video_failure_never_publishes_or_overwrites() {
         process_failure(run_wx(
             dir.path(),
             &[
-                "toolkit",
-                "decode-sns-video",
+                "media",
+                "video",
+                "decode",
                 input.to_str().unwrap(),
                 target.to_str().unwrap(),
                 "--key-file",

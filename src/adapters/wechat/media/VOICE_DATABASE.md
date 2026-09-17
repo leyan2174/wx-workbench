@@ -24,11 +24,11 @@ let voice = database_media::resolve_voice(
 
 ## CLI 与宿主
 
-`wx toolkit transcribe-database-native --decrypted-dir ABS_DIR --username USER --source message/message_0.db --local-id 7` 由 `cli/asr_database.rs` 提供，还必须提供显式后端参数。默认本地 whisper.cpp，需 `--whisper-binary/--whisper-model`；语言默认 `auto`、超时 120 秒、线程自动且最多 8；云端需显式后端、端点、模型、key 文件和 `--allow-upload`。完整后端契约见 [LOCAL.md](../../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../../infrastructure/transcription/OPENAI.md)。
+`wx audio transcribe-message --decrypted-dir ABS_DIR --username USER --source message/message_0.db --local-id 7` 由 `cli/asr_database.rs` 提供，还必须提供显式后端参数。默认本地 whisper.cpp，需 `--whisper-binary/--whisper-model`；语言默认 `auto`、超时 120 秒、线程自动且最多 8；云端需显式后端、端点、模型、key 文件和 `--allow-upload`。完整后端契约见 [LOCAL.md](../../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../../infrastructure/transcription/OPENAI.md)。
 
 可选 `--cache-file FILE --cache-account NAME` 必须成对，NAME 非空且只是调用方命名空间；缓存文件须为独立可信目录中的 JSON，不能覆盖数据库、程序、模型或凭证。后端授权检查先于数据库和音频访问。输出是 `transcription`、双侧 `evidence` 和可选 `cache` 状态；明确返回 `account_authenticated=false`、`account_provenance="caller_supplied_decrypted_snapshot"`，不序列化原始音频或凭证。
 
-`wx toolkit transcribe-chat` 及转录导出流程通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，daemon 内的宿主策略执行器验证后执行解码或转录。显式媒体清单的 `transcribe-chat-native` 仍作为另一入口保留。
+`wx chats transcribe` 及转录导出流程通过 `batch::prepare_snapshot` 固定账号并准备私有完整静态解密快照，再调用清单入口和字节转录；不需要用户手写媒体清单。MCP daemon 用媒体 ID 入口准备受限 `prepared_audio`，daemon 内的宿主策略执行器验证后执行解码或转录。`wx chats transcribe-manifest` 接收显式媒体清单。
 
 ## 关联证据
 

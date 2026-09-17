@@ -2,13 +2,17 @@ pub(crate) mod asr;
 mod asr_batch;
 mod asr_database;
 pub mod attachments;
+mod audio;
 pub mod biz_articles;
 mod chat_plan;
+mod chats;
 mod cleanup_native;
 pub mod contacts;
 pub mod daemon_cmd;
+mod database;
 mod database_keys;
 mod decode;
+mod emoticons;
 pub mod export;
 mod export_all;
 mod export_chat;
@@ -23,9 +27,12 @@ pub mod history;
 mod image_keys;
 mod init;
 mod key_provider;
+mod keys;
 mod mcp;
 mod mcp_tasks;
+mod media;
 pub mod members;
+mod moments;
 mod monitor_native;
 pub mod new_messages;
 pub(crate) mod operation_args;
@@ -41,7 +48,6 @@ pub mod sns_search;
 mod sns_timeline;
 pub mod stats;
 mod tasks;
-pub mod toolkit;
 pub mod unread;
 pub mod voices;
 pub(crate) mod web_native;
@@ -89,9 +95,9 @@ mod contract_tests {
         assert_eq!((voices.limit, voices.offset), (Some(2), 3));
         assert!(voices.overwrite && voices.json);
 
-        let Commands::Toolkit {
-            cmd: toolkit::ToolkitCommands::ExportSnsNative(sns),
-        } = Cli::try_parse_from(["wx", "toolkit", "export-sns-native", "sns.db", "preview"])
+        let Commands::Moments {
+            cmd: moments::Command::ExportSnapshot(sns),
+        } = Cli::try_parse_from(["wx", "moments", "export-snapshot", "sns.db", "preview"])
             .unwrap()
             .command
         else {
@@ -102,8 +108,8 @@ mod contract_tests {
         assert!(!sns.download_media && !sns.update && !sns.adopt_existing);
         assert!(Cli::try_parse_from([
             "wx",
-            "toolkit",
-            "export-sns-native",
+            "moments",
+            "export-snapshot",
             "sns.db",
             "preview",
             "--adopt-existing",
@@ -119,7 +125,7 @@ mod contract_tests {
                 Cli::command().debug_assert();
                 assert!(Cli::try_parse_from(["wx", "toolkit", "run", "decrypt"]).is_err());
                 assert!(Cli::try_parse_from(["wx", "toolkit", "export-chats"]).is_err());
-                assert!(Cli::try_parse_from(["wx", "toolkit", "export-all", "--dry-run"]).is_ok());
+                assert!(Cli::try_parse_from(["wx", "chats", "export-all", "--dry-run"]).is_ok());
                 let cli = Cli::try_parse_from([
                     "wx",
                     "history",
@@ -146,8 +152,8 @@ mod contract_tests {
                 );
                 let plan = [
                     "wx",
-                    "toolkit",
-                    "chat-plan-native",
+                    "chats",
+                    "plan",
                     "--decrypted-dir",
                     "plain",
                     "--user",
@@ -484,11 +490,66 @@ enum Commands {
     },
     /// 导出微信语音消息为 .silk，并生成 .voice.json 证据文件
     Voices(voices::Args),
-    /// 调用本机原生工具箱能力（解密、图片、朋友圈、Web UI 等）
-    Toolkit {
+    /// 聊天导出、计划与转录
+    Chats {
         #[command(subcommand)]
-        cmd: toolkit::ToolkitCommands,
+        cmd: chats::Command,
     },
+    /// 朋友圈导出与缓存归档
+    Moments {
+        #[command(subcommand)]
+        cmd: moments::Command,
+    },
+    /// 音频转换、导出与转录
+    Audio {
+        #[command(subcommand)]
+        cmd: audio::Command,
+    },
+    /// 图片与视频解码
+    Media {
+        #[command(subcommand)]
+        cmd: media::Command,
+    },
+    /// 显式授权的账号密钥获取
+    Keys {
+        #[command(subcommand)]
+        cmd: keys::Command,
+    },
+    /// 数据库准备
+    Database {
+        #[command(subcommand)]
+        cmd: database::Command,
+    },
+    /// 表情导出
+    Emoticons {
+        #[command(subcommand)]
+        cmd: emoticons::Command,
+    },
+    /// 配置向导与只读环境检查；默认预览
+    Setup(setup_native::Args),
+    /// 只读清理计划；执行要求逐文件选择与账号确认
+    Cleanup(cleanup_native::Args),
+    /// 显示当前支持的命令
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// 统计配置、数据库、导出与转录进度
+    Progress {
+        /// 默认配置文件旁的 exported_chats
+        #[arg(long)]
+        exported_dir: Option<std::path::PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 持续读取新消息，保留账号绑定游标与完整性提示
+    Monitor(monitor_native::Args),
+    /// 观测数据库/WAL 变化与 IPC 查询延迟
+    Latency(monitor_native::LatencyArgs),
+    /// 启动固定账号的本地 Web 服务
+    Web(web_native::Args),
+    /// 启动本地工作台并打开浏览器
+    Gui(web_native::Args),
     /// Manage persistent account-bound daemon tasks
     Tasks {
         #[command(subcommand)]
@@ -785,7 +846,25 @@ fn dispatch(cli: Cli) -> Result<()> {
             json,
         } => extract::cmd_extract(attachment_id, output, overwrite, json),
         Commands::Voices(args) => voices::cmd_voices(args),
-        Commands::Toolkit { cmd } => toolkit::cmd_toolkit(cmd),
+        Commands::Chats { cmd } => chats::cmd(cmd),
+        Commands::Moments { cmd } => moments::cmd(cmd),
+        Commands::Audio { cmd } => audio::cmd(cmd),
+        Commands::Media { cmd } => media::cmd(cmd),
+        Commands::Keys { cmd } => keys::cmd(cmd),
+        Commands::Database { cmd } => database::cmd(cmd),
+        Commands::Emoticons { cmd } => emoticons::cmd(cmd),
+        Commands::Setup(args) => setup_native::cmd(args),
+        Commands::Cleanup(args) => cleanup_native::cmd(args),
+        Commands::Status { json } => crate::service::operation_client::run(
+            crate::service::operations::Operation::Capabilities { json },
+        ),
+        Commands::Progress { exported_dir, json } => crate::service::operation_client::run(
+            crate::service::operations::Operation::RunStatus { exported_dir, json },
+        ),
+        Commands::Monitor(args) => monitor_native::cmd_monitor(args),
+        Commands::Latency(args) => monitor_native::cmd_latency(args),
+        Commands::Web(args) => web_native::cmd_web(args),
+        Commands::Gui(args) => web_native::cmd_gui(args),
         Commands::Tasks { cmd } => tasks::cmd(cmd),
         Commands::ExportChat { chat, output } => export_chat::cmd_export(chat, output),
         Commands::DecodeTransfer {

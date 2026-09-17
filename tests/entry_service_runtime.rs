@@ -177,11 +177,7 @@ impl Fixture {
     }
 
     fn boot(&self) {
-        let output = self.cli(
-            self.root.path(),
-            &["toolkit", "status", "--json"],
-            &self.environment(),
-        );
+        let output = self.cli(self.root.path(), &["status", "--json"], &self.environment());
         assert_eq!(output.code, 0, "{output:?}");
         assert!(output.stderr.is_empty(), "{output:?}");
         assert!(!self.root.path().join("account/config.json").exists());
@@ -346,7 +342,7 @@ impl Drop for Fixture {
 }
 
 fn status() -> Value {
-    json!({"kind":"toolkit","args":{"operation":{"kind":"status","args":{"json":true}}}})
+    json!({"kind":"capabilities","args":{"json":true}})
 }
 
 #[test]
@@ -356,19 +352,14 @@ fn missing_config_bootstraps_and_cli_preserves_service_stdout_stderr_and_exit() 
     let record = f.identity();
     let env = f.environment();
     for (id, operation, args, expected) in [
-        (
-            "11".repeat(32),
-            status(),
-            vec!["toolkit", "status", "--json"],
-            0,
-        ),
+        ("11".repeat(32), status(), vec!["status", "--json"], 0),
         (
             "22".repeat(32),
             json!({"kind":"transcribe_audio","args":{"args":{
             "input":"missing.wav","backend":backend(Some(Path::new("absent.exe")))}}}),
             vec![
-                "toolkit",
-                "transcribe-audio-native",
+                "audio",
+                "transcribe",
                 "missing.wav",
                 "--whisper-binary",
                 "absent.exe",
@@ -402,8 +393,7 @@ fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
     let mut initial = f.environment();
     initial.insert("WX_TEST_CALLER_MARKER".into(), "starter-only".into());
     assert_eq!(
-        f.cli(f.root.path(), &["toolkit", "status", "--json"], &initial)
-            .code,
+        f.cli(f.root.path(), &["status", "--json"], &initial).code,
         0
     );
     let record = f.identity();
@@ -424,14 +414,14 @@ fn shared_bootstrap_preserves_each_callers_relative_paths_and_environment() {
         if let Some(value) = override_value {
             env.insert("WX_TEST_CALLER_MARKER".into(), value.into());
         }
-        let output = f.cli(&cwd, &["toolkit", "status", "--json"], &env);
+        let output = f.cli(&cwd, &["status", "--json"], &env);
         assert_eq!(output.code, 0);
         let status: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(status["implementation"], "native-rust");
         assert!(status["native_commands"].as_array().is_some());
         let output = f.cli(
             &cwd,
-            &["toolkit", "progress", "--json", "--exported-dir", "chosen"],
+            &["progress", "--json", "--exported-dir", "chosen"],
             &env,
         );
         assert_eq!(output.code, 0, "{output:?}");
@@ -464,6 +454,9 @@ fn authenticated_api_rejects_arbitrary_commands_and_internal_environment() {
         json!({"kind":"run","args":{"command":"cmd.exe","argv":["/c","exit","0"]}}),
         json!({"kind":"toolkit","args":{"operation":{"kind":"run","args":{"command":"cmd.exe"}}}}),
         json!({"kind":"toolkit","args":{"operation":{"kind":"status","args":{"json":true,"argv":[]}}}}),
+        json!({"kind":"toolkit","args":{"operation":{"kind":"status","args":{"json":true}}}}),
+        json!({"kind":"capabilities","args":{"json":true,"argv":[]}}),
+        json!({"kind":"capabilities","args":{"operation":{"kind":"status","args":{"json":true}}}}),
         json!({"kind":"transcribe_audio","args":{"args":{"input":"missing.wav","backend":backend(None)}}}),
     ] {
         let mut request = valid.clone();
@@ -594,12 +587,8 @@ fn daemon_owns_asr_worker_and_reaps_worker_tree_on_cancel_and_client_lease_expir
         assert_eq!(f.finish(&id).code, 130);
         assert_eq!(f.identity(), record);
         assert_eq!(
-            f.cli(
-                f.root.path(),
-                &["toolkit", "status", "--json"],
-                &f.environment()
-            )
-            .code,
+            f.cli(f.root.path(), &["status", "--json"], &f.environment())
+                .code,
             0
         );
     }

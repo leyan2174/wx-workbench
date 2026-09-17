@@ -123,7 +123,7 @@ fn success(output: Output) -> String {
 }
 
 #[test]
-fn toolkit_decode_images_is_native_and_validates_arguments_without_python() {
+fn media_image_decode_cache_is_native_and_validates_arguments_without_python() {
     let fixture = Fixture::new();
     let profile = fixture.root.join("unconfigured");
     let input = fixture.root.join("images");
@@ -138,8 +138,9 @@ fn toolkit_decode_images_is_native_and_validates_arguments_without_python() {
     success(fixture.run(
         &profile,
         &[
-            "toolkit",
-            "decode-images",
+            "media",
+            "image",
+            "decode-cache",
             "--attach-dir",
             input.to_str().unwrap(),
             "--decoded-dir",
@@ -150,11 +151,11 @@ fn toolkit_decode_images_is_native_and_validates_arguments_without_python() {
         fs::read(output.join("chat/2026-09/image.png")).unwrap(),
         plain
     );
-    let help = success(fixture.run(&profile, &["toolkit", "decode-images", "--help"]));
+    let help = success(fixture.run(&profile, &["media", "image", "decode-cache", "--help"]));
     assert!(help.contains("--attach-dir"));
     let invalid = fixture.run(
         &profile,
-        &["toolkit", "decode-images", "--unsupported-option"],
+        &["media", "image", "decode-cache", "--unsupported-option"],
     );
     assert_eq!(invalid.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("--unsupported-option"));
@@ -222,18 +223,15 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
     let output = fixture.root.join("batch-output");
     daemon_tasks::assert_personal_tasks(&fixture, &profile, users[0]);
     let output_arg = output.to_str().unwrap();
-    let preview = success(fixture.run(
-        &profile,
-        &["toolkit", "export-chats-native", output_arg, "--dry-run"],
-    ));
+    let preview = success(fixture.run(&profile, &["chats", "export", output_arg, "--dry-run"]));
     let preview: serde_json::Value = serde_json::from_str(&preview).unwrap();
     assert_eq!(preview["planned"], 3);
     assert!(!output.exists());
     let filtered = success(fixture.run(
         &profile,
         &[
-            "toolkit",
-            "export-chats-native",
+            "chats",
+            "export",
             output_arg,
             "--dry-run",
             "--users",
@@ -247,18 +245,12 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
     assert!(!fixture
         .run(
             &profile,
-            &[
-                "toolkit",
-                "export-chats-native",
-                output_arg,
-                "--users",
-                "missing-user"
-            ]
+            &["chats", "export", output_arg, "--users", "missing-user"]
         )
         .status
         .success());
     assert!(!output.exists());
-    let result = success(fixture.run(&profile, &["toolkit", "export-chats-native", output_arg]));
+    let result = success(fixture.run(&profile, &["chats", "export", output_arg]));
     let report: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(report["written"], 3);
     assert_eq!(report["messages"], 12);
@@ -297,8 +289,8 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
     let repeated = success(fixture.run(
         &profile,
         &[
-            "toolkit",
-            "export-chats-native",
+            "chats",
+            "export",
             output_arg,
             "--incremental",
             "--start",
@@ -325,15 +317,7 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
     let before = serde_json::to_vec(&ambiguous).unwrap();
     fs::write(&first_path, &before).unwrap();
     assert!(!fixture
-        .run(
-            &profile,
-            &[
-                "toolkit",
-                "export-chats-native",
-                output_arg,
-                "--incremental"
-            ]
-        )
+        .run(&profile, &["chats", "export", output_arg, "--incremental"])
         .status
         .success());
     assert_eq!(fs::read(&first_path).unwrap(), before);
@@ -342,30 +326,14 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
     assert!(!fixture
         .run(
             &profile,
-            &[
-                "toolkit",
-                "export-chats-native",
-                dated_arg,
-                "--start",
-                "3",
-                "--end",
-                "2"
-            ]
+            &["chats", "export", dated_arg, "--start", "3", "--end", "2"]
         )
         .status
         .success());
     assert!(!dated.exists());
     let result = success(fixture.run(
         &profile,
-        &[
-            "toolkit",
-            "export-chats-native",
-            dated_arg,
-            "--start",
-            "2",
-            "--end",
-            "3",
-        ],
+        &["chats", "export", dated_arg, "--start", "2", "--end", "3"],
     ));
     let report: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(report["messages"], 6);
@@ -408,8 +376,8 @@ fn native_voice_batch_cli_uses_explicit_config_and_skips_existing() {
     .unwrap();
     let original = fs::read(&media).unwrap();
     let args = [
-        "toolkit",
-        "voice-batch",
+        "audio",
+        "export",
         "--config",
         config.to_str().unwrap(),
         "--contacts",
@@ -452,8 +420,8 @@ fn sns_native_cli_exports_offline_and_preserves_existing_results() {
     let before = fs::read(&database).unwrap();
     let output = fixture.root.join("sns-output");
     let args = [
-        "toolkit",
-        "export-sns-native",
+        "moments",
+        "export-snapshot",
         database.to_str().unwrap(),
         output.to_str().unwrap(),
         "--contacts",
@@ -492,8 +460,8 @@ fn native_audio_cli_works_without_python() {
     let result = success(fixture.run(
         &profile,
         &[
-            "toolkit",
-            "voice-to-mp3",
+            "audio",
+            "convert",
             source.to_str().unwrap(),
             output.to_str().unwrap(),
         ],
@@ -545,8 +513,8 @@ fn sns_cache_cli_publishes_consistent_media_references() {
     fs::write(&video, mp4).unwrap();
     let output = fixture.root.join("sns-cached");
     let args = [
-        "toolkit",
-        "export-sns-native",
+        "moments",
+        "export-snapshot",
         database.to_str().unwrap(),
         output.to_str().unwrap(),
         "--xwechat-cache",

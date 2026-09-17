@@ -80,7 +80,7 @@ fn run(
         .env("PATH", "")
         .env("WX_CLI_CONFIG", account.root().join("config.json"))
         .env("WX_CLI_HOME", home)
-        .args(["toolkit", "export-chats-native"])
+        .args(["chats", "export"])
         .arg(output)
         .args(args)
         .creation_flags(0x0800_0000);

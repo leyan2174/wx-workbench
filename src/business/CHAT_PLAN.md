@@ -7,8 +7,8 @@ and typed partial reasons. It contains no paths, SQL, configuration, threads or
 CSV writer. A malformed contribution vector is an error, not missing data.
 MessageStatistics and ordered source indexes describe contributions, not physical
 tables or shard numbers. Semantic reasons such as MessageSourceMissing and
-ConversationAbsent have no legacy wire labels in the business layer; toolkit's
-projection alone maps them to the unchanged CSV status codes and sorts those codes.
+ConversationAbsent have no wire labels in the business layer; the
+`application::chat_export_plan` projection maps them to CSV status codes and sorts those codes.
 
 `adapters::wechat::planning` owns read-only SQLite aggregation and the existing
 cache inventory rules. Message naming uses the shared messages read layout.

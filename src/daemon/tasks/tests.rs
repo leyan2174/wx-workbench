@@ -74,6 +74,37 @@ async fn missing_query_keys_do_not_block_task_configuration_or_rejected_consent(
 }
 
 #[tokio::test]
+async fn unsupported_history_records_fail_restore_without_rewriting_history() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path(), "unsupported-history");
+    let (first, queue) = service(&runtime);
+    configure(&first).await;
+    first
+        .dispatch(submission(1, Kind::WechatDecrypt))
+        .await
+        .unwrap();
+    drop(queue);
+    drop(first);
+    let path = runtime.directory.join("tasks-history.json");
+    let journal: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for kind in ["toolkit", "unknown_future_task"] {
+        let mut unsupported = journal.clone();
+        unsupported["tasks"][0]["kind"] = json!(kind);
+        let bytes = serde_json::to_vec(&unsupported).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let query = Arc::new(super::super::query_state::QueryState::new(runtime.clone()));
+        let keys = super::super::worker_keys::Broker::new(runtime.clone(), query.clone());
+        let error = Service::new(runtime.clone(), query, keys)
+            .err()
+            .expect("unsupported history must fail startup");
+        assert!(error
+            .to_string()
+            .contains("Unsupported or invalid task history record at index 0"));
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+}
+
+#[tokio::test]
 async fn retired_tasks_are_archived_without_losing_personal_history_or_outputs() {
     let root = tempfile::tempdir().unwrap();
     let runtime = runtime(root.path(), "migration");

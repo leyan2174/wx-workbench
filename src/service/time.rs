@@ -1,7 +1,7 @@
 use anyhow::{ensure, Result};
 use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
 
-// CLI 查询和后台导出共用这套日期语义；Unix 秒仍由工具箱的范围解析器处理。
+// CLI 查询和后台导出共用这套日期语义；Unix 秒由下方 parse_timestamp 范围解析器处理。
 pub fn parse_time(s: &str) -> Result<i64> {
     use chrono::{Local, TimeZone};
     for fmt in &["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {

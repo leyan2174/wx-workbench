@@ -21,7 +21,7 @@ use std::{
 use support::Account;
 
 #[test]
-fn cmd_drive_environment_allows_public_toolkit_status_operation() {
+fn cmd_drive_environment_allows_public_status_operation() {
     let home = tempfile::tempdir().unwrap();
     let mut account = Account::new(home.path(), "CMD_OPERATION");
     let cwd = account.root().join("cmd working directory");
@@ -59,7 +59,7 @@ fn cmd_drive_environment_allows_public_toolkit_status_operation() {
     // Delayed expansion observes =<drive>: after cd, not before the command is parsed.
     // Launch wx directly from this cmd so its native environment block is inherited.
     let script = format!(
-        r#"cd /D "!WX_CMD_TEST_CWD!" && if "!={drive}:!"=="!WX_CMD_TEST_CWD!" ("!WX_CMD_TEST_EXE!" toolkit status --json) else (echo cmd drive pseudo-variable was not established 1>&2 & exit /b 91)"#
+        r#"cd /D "!WX_CMD_TEST_CWD!" && if "!={drive}:!"=="!WX_CMD_TEST_CWD!" ("!WX_CMD_TEST_EXE!" status --json) else (echo cmd drive pseudo-variable was not established 1>&2 & exit /b 91)"#
     );
     command.args(["/D", "/V:ON", "/C"]).raw_arg(script);
     println!("COMMAND: {command:?}");
@@ -82,8 +82,8 @@ fn cmd_drive_environment_allows_public_toolkit_status_operation() {
     assert_eq!(status["implementation"], "native-rust");
     let commands = status["native_commands"]
         .as_array()
-        .expect("toolkit status must enumerate native commands");
-    for expected in ["status", "progress", "decrypt"] {
+        .expect("status must enumerate native commands");
+    for expected in ["status", "progress", "database decrypt"] {
         assert!(commands.iter().any(|command| command == expected));
     }
     assert!(commands

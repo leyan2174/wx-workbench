@@ -14,14 +14,14 @@
 | 本地识别 | whisper.cpp 或配置式 Python | 程序、模型、依赖明确；命名模型下载需另外授权。 |
 | 云端识别 | 显式后端与上传许可 | 端点、模型、凭据文件和上传授权缺一不可。 |
 | 缓存与回写 | ASR cache/receipt/writeback | 输入证据、账号与后端身份匹配；回写有独立确认和原子发布边界。 |
-| 单聊/批量导出 | export、toolkit 导出入口 | 选择范围、格式和输出；已有产物按各命令覆盖规则处理。 |
-| 增量与计划 CSV | export-delta-native、chat-plan-native | 明确的快照/计划和账号绑定；不把增量当作重写既有完整导出。 |
-| 表情导出 | export-emoticons | 使用保存密钥；网络取回与本地数据处理分开授权。 |
-| SNS 预览与相册 | export-sns-native、sns-album | 默认离线与显式下载分开；来源绑定与更新规则不能省略。 |
-| SNS 视频 | decode-sns-video | 本地输入和新输出；MP4 头检查不证明完整可播放。 |
+| 单聊/批量导出 | `wx export`、`wx chats export`、`wx chats export-all`、`wx chats export-messages` | 选择范围、格式和输出；已有产物按各命令覆盖规则处理。 |
+| 增量与计划 CSV | `wx chats export-delta`、`wx chats plan` | 明确的快照/计划和账号绑定；不把增量当作重写既有完整导出。 |
+| 表情导出 | `wx emoticons export` | 使用保存密钥；网络取回与本地数据处理分开授权。 |
+| SNS 预览与相册 | `wx moments export-snapshot`、`wx sns-album` | 默认离线与显式下载分开；来源绑定与更新规则不能省略。 |
+| SNS 视频 | `wx media video decode` | 本地输入和新输出；MP4 头检查不证明完整可播放。 |
 | 初始化和密钥 | init、setup | 区分检查、只读扫描、DPAPI 复用和显式重启捕获。 |
-| 清理 | toolkit cleanup | 先预览、明确账号和逐文件选择，不清理未知目录。 |
-| 本地 Web | toolkit web | 本地认证、Host/Origin/CSRF；错误与限流应可见。 |
+| 清理 | `wx cleanup` | 先预览、明确账号和逐文件选择，不清理未知目录。 |
+| 本地 Web | `wx web` | 本地认证、Host/Origin/CSRF；错误与限流应可见。 |
 | 后台任务 | wx tasks | 与前台操作租约不同；取消须等待 worker 回收。 |
 
 ## 失败与授权

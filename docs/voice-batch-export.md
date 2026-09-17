@@ -5,8 +5,8 @@
 [voice_batch_export.rs](../src/application/voice_batch_export.rs) 负责批次编排。前台 operation 和 task worker 两个宿主调用 `convert_database_checked`，传入受保护路径。
 
 ```powershell
-wx toolkit voice-batch --config config.json
-wx toolkit voice-batch --config C:\account-workspace\config.json --output-dir exports\voices --contacts synthetic-user-a,synthetic-user-b
+wx audio export --config config.json
+wx audio export --config C:\account-workspace\config.json --output-dir exports\voices --contacts synthetic-user-a,synthetic-user-b
 ```
 
 `--config` 必填；`--output-dir` 和 `--contacts` 可选。

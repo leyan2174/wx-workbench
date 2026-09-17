@@ -12,7 +12,7 @@
 | 宿主入口 | 选择、凭证与默认值 |
 | --- | --- |
 | 原生单文件/清单/数据库 CLI，普通 MCP | `--backend openai_compatible --allow-upload --openai-base-url URL --openai-model MODEL --api-key-file FILE` 全部显式提供；不读取环境或默认 key。UTF-8 key 文件最多 16384 字节，trim 后传入；`--language auto` 省略 language，`--timeout-seconds` 默认 120 且须大于 0 |
-| `transcribe-chat` 等配置式批处理 | 固定账号 `transcription_backend="openai_compatible"` 选择云端，仍须 `--allow-upload`。URL 默认 `https://api.openai.com/v1`，模型默认 `whisper-1`，对应 CLI 参数可覆盖。凭证优先 `--api-key-file`，其次配置指定 `openai_api_key_env`；指定环境变量名无效、未设置、非 Unicode、空或超过 16384 字节时失败 |
+| `wx chats transcribe` 等配置式批处理 | 固定账号 `transcription_backend="openai_compatible"` 选择云端，仍须 `--allow-upload`。URL 默认 `https://api.openai.com/v1`，模型默认 `whisper-1`，对应 CLI 参数可覆盖。凭证优先 `--api-key-file`，其次配置指定 `openai_api_key_env`；指定环境变量名无效、未设置、非 Unicode、空或超过 16384 字节时失败 |
 | 批处理加 `--explicit-backend` | 完全使用第一行的显式参数构造规则，不使用配置式默认 URL/模型或凭证 |
 
 云端拒绝 `--whisper-binary`、`--whisper-model`、`--threads`、`--temp-root`。显式后端在访问音频/凭证前检查授权；配置式批处理先读取固定配置，再在使用凭证及读取音频前检查授权。`--configured-local-python` 仅允许 MCP 本地桥，不接受云端混用。

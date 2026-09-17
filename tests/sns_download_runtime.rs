@@ -146,7 +146,7 @@ impl Fixture {
     fn run(&self, output: &str, options: &[&str], ambient_download: Option<&str>) -> Output {
         let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
         command
-            .args(["toolkit", "export-sns-native"])
+            .args(["moments", "export-snapshot"])
             .arg(self.path("source/sns.db"))
             .arg(self.path(output))
             .args(options)

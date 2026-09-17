@@ -526,9 +526,9 @@ mod tests {
                 }
             }
         }
-        assert!(!restarts_user_application(&Operation::Toolkit {
-            operation: crate::service::operations::ToolkitOperation::Status { json: true },
-        }));
+        assert!(!restarts_user_application(
+            &crate::service::operations::Operation::Capabilities { json: true }
+        ));
     }
 
     fn entry() -> Arc<Entry> {
@@ -677,9 +677,7 @@ mod tests {
         );
         let service = Service::new(runtime, None, keys);
         let invocation = Invocation {
-            operation: crate::service::operations::Operation::Toolkit {
-                operation: crate::service::operations::ToolkitOperation::Status { json: true },
-            },
+            operation: crate::service::operations::Operation::Capabilities { json: true },
             cwd: root.path().to_owned(),
             environment: Environment(Default::default()),
         };

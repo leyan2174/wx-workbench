@@ -179,8 +179,8 @@ impl Fixture {
         run_id: Option<&str>,
     ) -> Output {
         let mut args = vec![
-            "toolkit",
-            "export-delta-native",
+            "chats",
+            "export-delta",
             output.to_str().unwrap(),
             "--users",
             users,
@@ -207,8 +207,8 @@ impl Fixture {
 
     fn append_delta(&self, output: &Path, run_id: &str) -> Output {
         self.run(&[
-            "toolkit",
-            "export-delta-native",
+            "chats",
+            "export-delta",
             output.to_str().unwrap(),
             "--users",
             "wxid_peer,synthetic@chatroom,wxid_empty",
@@ -572,8 +572,8 @@ fn invalid_delta_windows_and_run_ids_fail_before_account_or_daemon_access() {
     assert!(!f.runtime_root().exists());
     assert!(!f.profile.exists());
     let missing = f.run(&[
-        "toolkit",
-        "export-delta-native",
+        "chats",
+        "export-delta",
         output.to_str().unwrap(),
         "--users",
         "wxid_peer",

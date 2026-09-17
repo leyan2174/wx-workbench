@@ -57,7 +57,7 @@ flowchart LR
 
 ## 调用路径
 
-SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/media/sns_keystream.rs`。相册工作流和前台视频操作直接调用该微信格式适配器；适配器不依赖 daemon 或 toolkit，不处理网络、账号授权及输出发布；这些仍由执行边界负责。固定资产、字节向量、资源预算和错误脱敏契约见 [SNS 密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)。
+SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/media/sns_keystream.rs`。相册工作流和前台视频操作直接调用该微信格式适配器；适配器不依赖 daemon 或 CLI，不处理网络、账号授权及输出发布；这些仍由执行边界负责。固定资产、字节向量、资源预算和错误脱敏契约见 [SNS 密钥流](../src/adapters/wechat/media/SNS_KEYSTREAM.md)。
 
 远端表情的 AES-CBC、原有宽松去填充、媒体标记与 HEVC 流定位由 `adapters/wechat/emoticons/remote_format.rs` 拥有。`application/emoticons/download.rs` 直接消费其结果，保留下载回退、转换监督与受保护发布。字节识别并非内容认证，也不改变下载/解码失败的既有阶段语义。格式规则见[远端表情格式](emoticon-format.md)。
 
@@ -65,7 +65,11 @@ SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/med
 
 daemon `QueryState` 按账号持有惰性密钥快照。查询通过租约读取；独立 worker 通过进程绑定 broker 取得授权材料，更新经过 revision 校验后原子保存。首次绑定及配置修复初始化在执行宿主中直接创建和更新正式 Store。
 
-`wx toolkit` 是 CLI 命令分组。用例编排位于 `application`，微信格式位于 `adapters/wechat`，共享文件与编解码能力位于基础设施，Web 与 CLI/MCP 是并列入口。业务层不接管 SQL、文件系统、HTTP 或外部进程。
+CLI 按业务能力提供 `wx chats`、`wx moments`、`wx emoticons`、`wx audio`、`wx media`、`wx database` 和 `wx keys` 命令组，以及账号准备、清理、监控和本地界面入口。用例编排位于 `application`，微信格式位于 `adapters/wechat`，共享文件与编解码能力位于基础设施，Web 与 CLI/MCP 是并列入口。业务层不接管 SQL、文件系统、HTTP 或外部进程。
+
+CLI 业务命令分别注册于 [chats.rs](../src/cli/chats.rs)、[moments.rs](../src/cli/moments.rs)、[media.rs](../src/cli/media.rs)、[audio.rs](../src/cli/audio.rs)、[keys.rs](../src/cli/keys.rs)、[database.rs](../src/cli/database.rs) 和 [emoticons.rs](../src/cli/emoticons.rs)。
+
+服务请求直接使用 `Operation` 的业务变体：`DecodeMomentVideo`、`ExportMomentSnapshot`、`ExportEmoticons`、`Capabilities`、`DecryptDatabases`、`DecodeImageCache`、`DecodeImage`、`DecodeImageDirectory`、`ExportAudio` 和 `ConvertAudio`。[执行分派](../src/daemon/operations/mod.rs)调用对应的业务模块；能力查询、数据库解密、图片解码和音频导出/转换分别位于 [capabilities.rs](../src/daemon/operations/capabilities.rs)、[decrypt_databases.rs](../src/daemon/operations/decrypt_databases.rs)、[decode_images.rs](../src/daemon/operations/decode_images.rs) 和 [audio_export.rs](../src/daemon/operations/audio_export.rs)。
 
 | 入口 | 适配层 | 执行与状态 |
 | --- | --- | --- |
@@ -148,9 +152,9 @@ MCP 在短查询租约外执行编排；需要数据时调用进程内查询分�
 
 正式 `Decrypt`、`ExportEmoticons` 及确实需要数据库材料的 `ExportAll` 只获得 `READ_DATABASES`，执行流程消费 daemon 快照。执行不包含缺钥扫描或直接持久化分支；缺钥要求显式初始化。路径验证和批次行为保留。测试夹具的存储读写仅用于构造人工材料，不进入生产执行路径。
 
-前台离线 `ToolkitOperation::Decrypt` 与持久任务 `Step::WechatDecrypt` 均从 daemon broker 获得只读数据库材料，通过既有私有 stdin 帧交付，不向 worker 授予密钥写权限。前台保留原离线路径校验和严格解密流程；热快照只在显式失效或重启后重新加载磁盘材料，重启遇到损坏存储明确失败。合成进程测试同时验证热快照解密和重启后不破坏既有输出。
+前台离线 `Operation::DecryptDatabases` 与持久任务 `Step::WechatDecrypt` 均从 daemon broker 获得只读数据库材料，通过既有私有 stdin 帧交付，不向 worker 授予密钥写权限。前台保留原离线路径校验和严格解密流程；热快照只在显式失效或重启后重新加载磁盘材料，重启遇到损坏存储明确失败。合成进程测试同时验证热快照解密和重启后不破坏既有输出。
 
-直接表情导出 `ToolkitOperation::ExportEmoticons` 也使用该只读材料通道，再交给原表情 `DbCache` 读取；预览、筛选、下载和发布继续共用既有业务实现。删除磁盘密钥文件不会隐式撤销热快照，显式重载或重启后缺钥必须失败。一键准备仍保留额外进程前置检查，但与直接入口共用 daemon 材料来源。
+直接表情导出 `Operation::ExportEmoticons` 也使用该只读材料通道，再交给原表情 `DbCache` 读取；预览、筛选、下载和发布继续共用既有业务实现。删除磁盘密钥文件不会隐式撤销热快照，显式重载或重启后缺钥必须失败。一键准备仍保留额外进程前置检查，但与直接入口共用 daemon 材料来源。
 
 语音原始导出 `Operation::Voices` 同样使用 `READ_DATABASES` 和私有 worker 材料通道，不直接读取磁盘密钥库。材料在创建输出目录前取得，再转交已有 `DbCache` 管理和清零；语音目录适配、筛选和发布逻辑不变。
 

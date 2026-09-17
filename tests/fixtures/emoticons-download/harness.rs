@@ -54,9 +54,6 @@ pub mod private_file;
 #[path = "../../../src/infrastructure/configuration.rs"]
 #[allow(dead_code)] // Only fixed-path configuration support is needed; setup orchestration is tested at root.
 pub mod setup;
-pub mod toolkit {
-    pub use crate::files;
-}
 #[path = "../../../src/application/emoticons/download.rs"]
 pub mod download;
 #[path = "../../support/managed_process.rs"]

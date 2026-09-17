@@ -129,17 +129,11 @@ fn permissions(operation: &Operation) -> u8 {
         Operation::ExportMessages { args } if !args.dry_run && !args.no_media => {
             READ_DATABASES | READ_IMAGE | PRELOAD_IMAGE
         }
-        Operation::Toolkit {
-            operation:
-                crate::service::operations::ToolkitOperation::Decrypt { .. }
-                | crate::service::operations::ToolkitOperation::ExportEmoticons(_),
-        } => READ_DATABASES,
-        Operation::Toolkit {
-            operation:
-                crate::service::operations::ToolkitOperation::DecodeImages { .. }
-                | crate::service::operations::ToolkitOperation::DecodeImage { .. }
-                | crate::service::operations::ToolkitOperation::BatchDecryptImages { .. },
-        } => READ_IMAGE,
+        crate::service::operations::Operation::DecryptDatabases { .. }
+        | crate::service::operations::Operation::ExportEmoticons(_) => READ_DATABASES,
+        crate::service::operations::Operation::DecodeImageCache { .. }
+        | crate::service::operations::Operation::DecodeImage { .. }
+        | crate::service::operations::Operation::DecodeImageDirectory { .. } => READ_IMAGE,
         Operation::DatabaseKeys { args } if args.authorize_memory_scan => DATABASES,
         Operation::ImageKeys { args }
             if !args.no_save && (args.offline != args.authorize_memory_scan) =>

@@ -27,7 +27,7 @@ impl From<Args> for crate::service::web::HostSettings {
 
 pub fn cmd_web(args: Args) -> Result<()> {
     let runtime = crate::runtime::RuntimeContext::load()
-        .map_err(|_| anyhow::anyhow!("无法加载选中账号配置；首次使用请先查看 wx toolkit setup --help，或运行 wx init 完成账号初始化，然后重新启动 Web"))?;
+        .map_err(|_| anyhow::anyhow!("无法加载选中账号配置；首次使用请先查看 wx setup --help，或运行 wx init 完成账号初始化，然后重新启动 Web"))?;
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

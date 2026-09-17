@@ -9,7 +9,7 @@ use std::{
 
 fn run(root: &Path, args: &[&str]) -> Output {
     command(root)
-        .args(["toolkit", "progress"])
+        .args(["progress"])
         .args(args)
         .output()
         .unwrap()

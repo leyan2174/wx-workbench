@@ -1,6 +1,6 @@
 # 聊天计划进程测试
 
-所有数据库和媒体文件在临时目录创建，仅含合成数据。过程测试运行 Cargo 构建的 wx，而不是 mock 或单独编译的 CLI 替身。未注册 chat-plan-native 时测试必须失败，不能跳过。
+所有数据库和媒体文件在临时目录创建，仅含合成数据。过程测试运行 Cargo 构建的 wx，而不是 mock 或单独编译的 CLI 替身。未注册 `wx chats plan` 时测试必须失败，不能跳过。
 
 运行：`cargo test --target x86_64-pc-windows-msvc --test chat_plan_runtime -- --nocapture --test-threads=1`。
 
@@ -16,13 +16,13 @@
 
 ## 本命令不覆盖的能力
 
-以下限定的是 `chat-plan-native` 及本测试的职责，不是整个项目的未完成清单。计划 CSV 的导出消费已由独立的 `export-chats-native` 路径负责，见 [计划消费说明](../plan-selection/README.md)。
+以下限定的是 `wx chats plan` 及本测试的职责，不是整个项目的未完成清单。计划 CSV 的导出消费由 `wx chats export` 负责，见 [计划消费说明](../plan-selection/README.md)。
 
 - 本命令只生成离线计划 CSV，不读取计划 CSV 驱动聊天导出，不实现旧脚本的黑白名单执行、聊天导出、增量合并、转录或 Web 功能。
 - 不自动发现消息分片、联系人、账号、缓存、资源或媒体库；调用方必须提供明确清单。禁止从环境用户过滤变量推断名单。
 - scan 统计逻辑文件长度而非磁盘分配空间，扫描整个 username 目录，不按消息时间范围裁剪；total_estimated_bytes 仍是估算合计，不改为扫描合计。
 - scan 拒绝重解析点并报告状态，深度上限 128；这是比旧脚本更严格的安全边界，不声称链接行为完全相同。
 - 部分数据库缺失或损坏可以生成 partial 状态 CSV 并正常退出；输入、输出或参数错误非零退出。
-- JSON 清单上限 16 MiB，输出父目录须已经存在。命令参数以 `wx toolkit chat-plan-native --help` 为准。
+- JSON 清单上限 16 MiB，输出父目录须已经存在。命令参数以 `wx chats plan --help` 为准。
 
 环境与人工审核点见[测试说明](../../README.md)。

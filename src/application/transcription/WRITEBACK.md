@@ -35,8 +35,8 @@ Windows 最终比对句柄只允许 READ | DELETE 共享，普通文件写入在
 
 ## 已接入的上层
 
-- `wx toolkit transcribe-chat-native INPUT OUTPUT --media-manifest FILE --media-root DIR` 通过 `application::transcription::transcribe_chat` 使用此层；清单按完整 username/source/local_id 匹配相对音频路径，不猜数据库分片。后端参数见 [LOCAL.md](../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../infrastructure/transcription/OPENAI.md)。
-- `wx toolkit transcribe-chat INPUT [OUTPUT]` 通过 `BatchTranscriber::process_file` 和 `batch/files.rs` 工作；输出省略为同目录 `<输入主名>_transcribed.json`。固定账号后自动关联数据库、逐条提交成功缓存及 receipt，最终原子发布聊天 JSON。
+- `wx chats transcribe-manifest INPUT OUTPUT --media-manifest FILE --media-root DIR` 通过 `application::transcription::transcribe_chat` 使用此层；清单按完整 username/source/local_id 匹配相对音频路径，不猜数据库分片。后端参数见 [LOCAL.md](../../infrastructure/transcription/LOCAL.md) 和 [OPENAI.md](../../infrastructure/transcription/OPENAI.md)。
+- `wx chats transcribe INPUT [OUTPUT]` 通过 `BatchTranscriber::process_file` 和 `batch/files.rs` 工作；输出省略为同目录 `<输入主名>_transcribed.json`。固定账号后自动关联数据库、逐条提交成功缓存及 receipt，最终原子发布聊天 JSON。
 - 批处理会从已有输出恢复同 username、规范 source/local_id 的 transcription；两侧有 timestamp 时须相同，有 account_id 时须匹配固定账号。拒绝重复语音身份、旧输出语音不在输入中、转录字段冲突，不合并旧消息集合。任何已有 transcription（包括 null/空值）仍保留并跳过，不偷偷复刻旧 Python 假值重试。
 - `BatchTranscriber::process_delta` 仅向 `extras.transcription` 添加结果，保持 raw_content/UID 原始身份字段；有 source_error 或结构错误时拒绝。具体导出命令的发布与错误报告由对应上层负责。
 

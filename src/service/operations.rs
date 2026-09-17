@@ -112,8 +112,54 @@ pub enum Operation {
         overwrite: bool,
         json_output: bool,
     },
-    Toolkit {
-        operation: ToolkitOperation,
+    DecodeMomentVideo {
+        input: PathBuf,
+        output: PathBuf,
+        key_file: Option<PathBuf>,
+        wasm: Option<PathBuf>,
+    },
+    ExportMomentSnapshot {
+        sns_db: PathBuf,
+        output_dir: PathBuf,
+        contact_db: Option<PathBuf>,
+        contacts: Option<String>,
+        utc_offset: Option<String>,
+        download_media: bool,
+        update: bool,
+        adopt_existing: bool,
+        local_cache: crate::service::operation_requests::export_sns::LocalCacheArgs,
+    },
+    ExportEmoticons(crate::service::operation_requests::export_emoticons::Args),
+    Capabilities {
+        json: bool,
+    },
+    DecryptDatabases {
+        incremental: bool,
+        dry_run: bool,
+    },
+    DecodeImageCache {
+        attach_dir: Option<String>,
+        decoded_dir: Option<String>,
+        aes_key: Option<String>,
+        xor_key: Option<String>,
+        force: bool,
+    },
+    DecodeImage {
+        dat_file: String,
+        output_file: Option<String>,
+    },
+    DecodeImageDirectory {
+        input_dir: String,
+        output_dir: Option<String>,
+    },
+    ExportAudio {
+        config: PathBuf,
+        output_dir: Option<PathBuf>,
+        contacts: Option<String>,
+    },
+    ConvertAudio {
+        input: String,
+        output: Option<String>,
     },
     ExportAll {
         args: crate::service::operation_requests::export_all::Args,
@@ -152,64 +198,6 @@ impl Operation {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[serde(
-    tag = "kind",
-    content = "args",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum ToolkitOperation {
-    DecodeSnsVideo {
-        input: PathBuf,
-        output: PathBuf,
-        key_file: Option<PathBuf>,
-        wasm: Option<PathBuf>,
-    },
-    ExportSnsNative {
-        sns_db: PathBuf,
-        output_dir: PathBuf,
-        contact_db: Option<PathBuf>,
-        contacts: Option<String>,
-        utc_offset: Option<String>,
-        download_media: bool,
-        update: bool,
-        adopt_existing: bool,
-        local_cache: crate::service::operation_requests::export_sns::LocalCacheArgs,
-    },
-    ExportEmoticons(crate::service::operation_requests::export_emoticons::Args),
-    Status {
-        json: bool,
-    },
-    Decrypt {
-        incremental: bool,
-        dry_run: bool,
-    },
-    DecodeImages {
-        attach_dir: Option<String>,
-        decoded_dir: Option<String>,
-        aes_key: Option<String>,
-        xor_key: Option<String>,
-        force: bool,
-    },
-    DecodeImage {
-        dat_file: String,
-        output_file: Option<String>,
-    },
-    BatchDecryptImages {
-        input_dir: String,
-        output_dir: Option<String>,
-    },
-    VoiceBatch {
-        config: PathBuf,
-        output_dir: Option<PathBuf>,
-        contacts: Option<String>,
-    },
-    VoiceToMp3 {
-        input: String,
-        output: Option<String>,
-    },
-}
 pub mod key_provider {
     use serde::{Deserialize, Serialize};
     #[derive(Serialize, Deserialize)]
@@ -281,22 +269,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn status_is_a_typed_bootstrap_safe_operation() {
+    fn promoted_operations_round_trip_and_reject_nested_protocol() {
+        use serde_json::json;
+        for (kind, args) in [
+            ("decode_moment_video", json!({"input":"in","output":"out"})),
+            (
+                "export_moment_snapshot",
+                json!({"sns_db":"sns","output_dir":"out","download_media":false,"update":false,"adopt_existing":false,"local_cache":{}}),
+            ),
+            ("export_emoticons", json!({"dry_run":false})),
+            ("capabilities", json!({"json":true})),
+            (
+                "decrypt_databases",
+                json!({"incremental":false,"dry_run":false}),
+            ),
+            ("decode_image_cache", json!({"force":false})),
+            ("decode_image", json!({"dat_file":"in.dat"})),
+            ("decode_image_directory", json!({"input_dir":"in"})),
+            ("export_audio", json!({"config":"config.json"})),
+            ("convert_audio", json!({"input":"in.silk"})),
+        ] {
+            let operation: Operation =
+                serde_json::from_value(json!({"kind":kind,"args":args})).unwrap();
+            operation.validate_request().unwrap();
+            let wire = serde_json::to_value(&operation).unwrap();
+            assert_eq!(wire["kind"], kind);
+            assert!(wire["args"].get("operation").is_none());
+            let decoded: Operation = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+        for invalid in [
+            json!({"kind":"toolkit","args":{"operation":{"kind":"status","args":{"json":true}}}}),
+            json!({"kind":"capabilities","args":{"json":true,"argv":[]}}),
+            json!({"kind":"decode_image_cache","args":{"force":false,"argv":[]}}),
+        ] {
+            assert!(serde_json::from_value::<Operation>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn capabilities_is_a_typed_bootstrap_safe_operation() {
         fn traits<T: Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned>() {}
         traits::<Operation>();
-        let operation = Operation::Toolkit {
-            operation: ToolkitOperation::Status { json: true },
-        };
+        let operation = Operation::Capabilities { json: true };
         let value = serde_json::to_value(operation.clone()).unwrap();
-        assert_eq!(value["kind"], "toolkit");
-        assert_eq!(value["args"]["operation"]["kind"], "status");
+        assert_eq!(value["kind"], "capabilities");
+        assert_eq!(value["args"]["json"], true);
         let decoded: Operation = serde_json::from_value(value).unwrap();
-        assert!(matches!(
-            decoded,
-            Operation::Toolkit {
-                operation: ToolkitOperation::Status { json: true }
-            }
-        ));
+        assert!(matches!(decoded, Operation::Capabilities { json: true }));
     }
 
     #[test]
@@ -395,10 +415,8 @@ mod tests {
             },
         };
         assert!(invalid_date.validate_request().is_err());
-        assert!(Operation::Toolkit {
-            operation: ToolkitOperation::Status { json: true }
-        }
-        .validate_request()
-        .is_ok());
+        assert!(Operation::Capabilities { json: true }
+            .validate_request()
+            .is_ok());
     }
 }

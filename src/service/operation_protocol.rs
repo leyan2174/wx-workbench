@@ -89,9 +89,7 @@ mod tests {
 
     fn invocation() -> Invocation {
         Invocation {
-            operation: Operation::Toolkit {
-                operation: crate::service::operations::ToolkitOperation::Status { json: true },
-            },
+            operation: crate::service::operations::Operation::Capabilities { json: true },
             cwd: std::env::temp_dir(),
             environment: Environment(BTreeMap::new()),
         }

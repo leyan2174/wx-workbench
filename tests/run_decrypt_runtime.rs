@@ -106,7 +106,7 @@ impl Fixture {
             );
         }
         let mut command = command(self.root.path(), &self.config);
-        command.args(["toolkit", "decrypt"]);
+        command.args(["database", "decrypt"]);
         command.args(args).output().unwrap()
     }
 
@@ -342,7 +342,7 @@ fn decrypt_missing_store_requires_explicit_initialization_without_writes() {
     let protected = f.protected();
     let source = snapshot(&f.source);
     let output = command(f.root.path(), &f.config)
-        .args(["toolkit", "decrypt", "--dry-run"])
+        .args(["database", "decrypt", "--dry-run"])
         .output()
         .unwrap();
     assert!(!output.status.success(), "{}", diagnostic(&output));
@@ -461,8 +461,8 @@ fn output_cannot_overwrite_config_or_saved_keys() {
 fn decrypt_help_requires_neither_config_nor_python() {
     let root = tempfile::tempdir().unwrap();
     for args in [
-        vec!["toolkit", "decrypt", "--help"],
-        vec!["toolkit", "decrypt", "-h"],
+        vec!["database", "decrypt", "--help"],
+        vec!["database", "decrypt", "-h"],
     ] {
         let output = command(root.path(), &root.path().join("absent/config.json"))
             .args(args)

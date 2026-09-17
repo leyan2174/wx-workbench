@@ -66,7 +66,7 @@ fn fixture_with_url(root: &Path, url: &str) -> Vec<(std::path::PathBuf, Vec<u8>)
 
 fn run(root: &Path, args: &[&str]) -> Output {
     command(root)
-        .args(["toolkit", "export-emoticons"])
+        .args(["emoticons", "export"])
         .args(args)
         .output()
         .unwrap()
@@ -176,7 +176,7 @@ fn per_item_failure_reports_failure_and_missing_keys_fail() {
 fn export_emoticons_help_precedes_configuration_and_process_checks() {
     let root = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_wx"))
-        .args(["toolkit", "export-emoticons", "--help"])
+        .args(["emoticons", "export", "--help"])
         .env_remove("WX_DAEMON_MODE")
         .env("WX_CLI_CONFIG", root.path().join("missing/config.json"))
         .env("WX_CLI_HOME", root.path().join("runtime"))
@@ -271,7 +271,7 @@ fn export_emoticons_reuses_saved_keys_without_process_scanning() {
     let keys = root.path().join("all_keys.json");
     let before = fs::read(&keys).unwrap();
     let output = command(root.path())
-        .args(["toolkit", "export-emoticons", "--dry-run"])
+        .args(["emoticons", "export", "--dry-run"])
         .output()
         .unwrap();
     assert!(success(output).contains("Example"));

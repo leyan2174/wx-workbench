@@ -27,7 +27,7 @@ test('supported binary override launches the selected executable', { skip: !wind
   assert.equal(result.stdout.trim(), process.version);
 });
 
-function simulate(env, available = true) {
+function simulate(env, available = true, args = ['--version']) {
   const calls = [];
   const errors = [];
   const exit = new Error('synthetic process exit');
@@ -44,7 +44,7 @@ function simulate(env, available = true) {
   try {
     vm.runInNewContext(fs.readFileSync(launcher, 'utf8'), {
       require: requireStub,
-      process: { platform: 'win32', arch: 'x64', env, argv: ['node', 'wx.js', '--version'],
+      process: { platform: 'win32', arch: 'x64', env, argv: ['node', 'wx.js', ...args],
         exit(code) { status = code; throw exit; } },
       console: { error(text) { errors.push(text); } },
     }, { timeout: 1000 });
@@ -70,6 +70,50 @@ test('explicit override works independently of platform package installation', (
   const result = simulate({ WX_WORKBENCH_BINARY: 'selected.exe', WX_UNSUPPORTED_BINARY: 'unsupported.exe' }, false);
   assert.deepEqual(result.calls, [{ binary: 'selected.exe', args: ['--version'] }]);
 });
+
+const businessCommands = [
+  'setup',
+  'cleanup',
+  'status',
+  'progress',
+  'monitor',
+  'latency',
+  'web',
+  'gui',
+  'database decrypt',
+  'audio transcribe-message',
+  'chats export-delta',
+  'chats plan',
+  'audio transcribe',
+  'chats transcribe-manifest',
+  'media video decode',
+  'moments export-snapshot',
+  'chats export',
+  'emoticons export',
+  'chats export-all',
+  'moments export',
+  'chats export-messages',
+  'moments archive',
+  'keys image',
+  'keys database',
+  'keys watch-image',
+  'media image decode-cache',
+  'media image decode',
+  'media image decode-directory',
+  'audio export',
+  'audio convert',
+  'chats transcribe',
+];
+
+for (const command of businessCommands) {
+  test(`formal command arguments pass through unchanged: wx ${command}`, () => {
+    const args = [...command.split(' '), '--help'];
+    const result = simulate({}, true, args);
+    assert.deepEqual(result.calls, [{ binary: 'synthetic-platform/wx.exe', args }]);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.status, undefined);
+  });
+}
 
 test('npm distribution agrees with the Rust package and platform package', () => {
   const main = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));

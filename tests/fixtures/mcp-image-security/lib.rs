@@ -124,7 +124,6 @@ pub mod config;
 #[path = "../../../src/runtime.rs"]
 #[allow(dead_code)] // This image fixture omits bootstrap and other operation lifecycle entry points.
 pub mod runtime;
-pub mod toolkit;
 
 #[path = "../../../src/service/transport/framing.rs"]
 #[allow(dead_code)] // The audit probes bounded line reads, not all frame transports.

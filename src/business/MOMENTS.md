@@ -32,7 +32,7 @@ retains legacy field names and endpoint behavior.
 
 The `legacy` and `query_xml` submodules are explicitly format/projection code,
 not business models. They preserve the two established output representations;
-toolkit compatibility modules re-export them rather than interpret XML again.
+the moments export workflows consume these projections without interpreting XML again.
 Media references expose identity/evidence only. Existing strict cache matching,
 explicit download authorization, key-store reads and atomic publication remain
 unchanged; recovered text never fabricates media associations.

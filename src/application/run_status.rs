@@ -339,9 +339,9 @@ impl Status {
             .unwrap();
         }
         if !self.databases.exists {
-            text.push_str("\n建议的下一步: wx toolkit decrypt\n");
+            text.push_str("\n建议的下一步: wx database decrypt\n");
         } else if !self.exports.exists {
-            text.push_str("\n建议的下一步: wx toolkit export-all\n");
+            text.push_str("\n建议的下一步: wx chats export-all\n");
         } else {
             text.push_str("\n目录已就绪；不代表导出或转录内容已完整核验。\n");
         }

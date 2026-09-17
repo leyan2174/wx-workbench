@@ -9,16 +9,15 @@ authorization flag. Dropping the source expires references, and another source
 cannot accept them. There is no global registry or retained database lease.
 
 `adapters::wechat::emoticons` owns catalog schema, field decoding, three-stage
-mapping, template interpretation and private resource material. The SQL/parser
-implementation and its original oracle tests moved out of toolkit. The adapter
+mapping, template interpretation and private resource material. The adapter
 uses the existing account cache, reads one SQLite transaction and materializes
 the catalog before releasing it. Missing input is distinct from an empty valid
 catalog. Schema, row and decryption errors do not return partial catalogs.
 
 The host retains account selection, saved-key preparation, locking, authorization,
 protected output construction and terminal formatting. The formal CLI entry is
-`toolkit export-emoticons`; no compatibility command bypasses that operation.
-No HTTP/MCP permission, remote discovery or automatic download was added.
+`wx emoticons export`, dispatched as `Operation::ExportEmoticons`.
+This entry grants no HTTP/MCP permission, remote discovery or automatic download.
 
 ## Compatibility
 

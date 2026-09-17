@@ -15,9 +15,6 @@ pub mod audio;
 #[allow(dead_code)] // WAV fixture 不调用图片目录扫描和图片密钥读取。
 pub mod local_files;
 
-pub mod toolkit {
-    pub use super::audio;
-}
 pub mod attachment {
     pub use super::local_files;
 }

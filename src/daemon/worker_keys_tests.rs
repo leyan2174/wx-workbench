@@ -977,8 +977,6 @@ async fn decode_images_step_receives_only_lazy_image_read_access() {
 
 #[tokio::test]
 async fn image_publication_operations_receive_only_lazy_image_read_access() {
-    use crate::service::operations::ToolkitOperation;
-
     let root = tempfile::tempdir().unwrap();
     let runtime = runtime(root.path());
     let store = seed_image(&runtime);
@@ -986,25 +984,25 @@ async fn image_publication_operations_receive_only_lazy_image_read_access() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let operations = [
-        ToolkitOperation::DecodeImages {
+        Operation::DecodeImageCache {
             attach_dir: None,
             decoded_dir: None,
             aes_key: None,
             xor_key: None,
             force: false,
         },
-        ToolkitOperation::DecodeImage {
+        Operation::DecodeImage {
             dat_file: "synthetic.dat".into(),
             output_file: None,
         },
-        ToolkitOperation::BatchDecryptImages {
+        Operation::DecodeImageDirectory {
             input_dir: "synthetic-input".into(),
             output_dir: None,
         },
     ];
     for operation in operations {
         let (access, _registration) = broker
-            .register(&worker.child, &Operation::Toolkit { operation })
+            .register(&worker.child, &operation)
             .await
             .unwrap()
             .unwrap();
@@ -1097,11 +1095,9 @@ async fn decrypt_step_receives_read_only_database_material_from_daemon_snapshot(
     let (foreground, _foreground_registration) = broker
         .register(
             &decryptor.child,
-            &Operation::Toolkit {
-                operation: crate::service::operations::ToolkitOperation::Decrypt {
-                    incremental: false,
-                    dry_run: false,
-                },
+            &crate::service::operations::Operation::DecryptDatabases {
+                incremental: false,
+                dry_run: false,
             },
         )
         .await

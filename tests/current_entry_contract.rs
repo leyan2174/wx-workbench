@@ -158,6 +158,78 @@ fn cli_refusal(output: Output, command: &str) {
     assert!(stderr.contains("Usage:"), "missing CLI usage diagnostic");
 }
 
+const BUSINESS_COMMANDS: &[(&str, &[&str])] = &[
+    ("setup", &["setup"]),
+    ("cleanup", &["cleanup"]),
+    ("status", &["status"]),
+    ("progress", &["progress"]),
+    ("monitor", &["monitor"]),
+    ("latency", &["latency"]),
+    ("web", &["web"]),
+    ("gui", &["gui"]),
+    ("decrypt", &["database", "decrypt"]),
+    (
+        "transcribe-database-native",
+        &["audio", "transcribe-message"],
+    ),
+    ("export-delta-native", &["chats", "export-delta"]),
+    ("chat-plan-native", &["chats", "plan"]),
+    ("transcribe-audio-native", &["audio", "transcribe"]),
+    ("transcribe-chat-native", &["chats", "transcribe-manifest"]),
+    ("decode-sns-video", &["media", "video", "decode"]),
+    ("export-sns-native", &["moments", "export-snapshot"]),
+    ("export-chats-native", &["chats", "export"]),
+    ("export-emoticons", &["emoticons", "export"]),
+    ("export-all", &["chats", "export-all"]),
+    ("export-sns", &["moments", "export"]),
+    ("export-messages", &["chats", "export-messages"]),
+    ("decrypt-sns", &["moments", "archive"]),
+    ("find-image-key", &["keys", "image"]),
+    ("find-database-keys", &["keys", "database"]),
+    ("find-image-key-monitor", &["keys", "watch-image"]),
+    ("decode-images", &["media", "image", "decode-cache"]),
+    ("decode-image", &["media", "image", "decode"]),
+    (
+        "batch-decrypt-images",
+        &["media", "image", "decode-directory"],
+    ),
+    ("voice-batch", &["audio", "export"]),
+    ("voice-to-mp3", &["audio", "convert"]),
+    ("transcribe-chat", &["chats", "transcribe"]),
+];
+
+#[test]
+fn business_command_help_parses_without_account_or_daemon_side_effects() {
+    for &(_, command) in BUSINESS_COMMANDS {
+        let fixture = Fixture::new();
+        let mut args = command.to_vec();
+        args.push("--help");
+        let output = fixture.run(&args);
+        assert!(output.status.success(), "help failed for {command:?}");
+        assert!(
+            output.stderr.is_empty(),
+            "help wrote stderr for {command:?}"
+        );
+        let help = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            help.contains(&format!("Usage: wx.exe {}", command.join(" "))),
+            "help did not resolve the full business command: {command:?}"
+        );
+    }
+}
+
+#[test]
+fn removed_toolkit_entry_is_rejected_without_account_or_daemon_side_effects() {
+    let fixture = Fixture::new();
+    cli_refusal(fixture.run(&["toolkit"]), "toolkit");
+    cli_refusal(fixture.run(&["toolkit", "--help"]), "toolkit");
+    for &(legacy, _) in BUSINESS_COMMANDS {
+        for args in [vec!["toolkit", legacy], vec!["toolkit", legacy, "--help"]] {
+            cli_refusal(fixture.run(&args), "toolkit");
+        }
+    }
+}
+
 #[test]
 fn unsupported_migrate_keys_is_rejected_without_creating_account_or_daemon_state() {
     // Unsupported commands must also reject these flags without creating state.
@@ -216,14 +288,36 @@ fn help_keeps_the_current_business_cli_without_migration_or_launcher_entries() {
         .filter_map(|line| line.split_whitespace().next())
         .collect();
     for command in [
-        "init", "mcp", "sessions", "history", "search", "contacts", "voices", "toolkit", "daemon",
+        "init",
+        "mcp",
+        "sessions",
+        "history",
+        "search",
+        "contacts",
+        "voices",
+        "daemon",
+        "setup",
+        "cleanup",
+        "status",
+        "progress",
+        "monitor",
+        "latency",
+        "web",
+        "gui",
+        "database",
+        "audio",
+        "chats",
+        "media",
+        "moments",
+        "emoticons",
+        "keys",
     ] {
         assert!(
             names.contains(&command),
             "missing formal command: {command}"
         );
     }
-    for obsolete in ["migrate-keys", "wx-toolbox", ".py"] {
+    for obsolete in ["toolkit", "migrate-keys", "wx-toolbox", ".py"] {
         assert!(
             !help.contains(obsolete),
             "obsolete entry remains in help: {obsolete}"
@@ -270,7 +364,7 @@ fn shared_config_loader_refuses_legacy_image_fields_even_with_current_key_store(
         fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
 
         // daemon logs -> RuntimeContext::load -> load_config_at, before any IPC or scan.
-        // daemon status swallows load errors; toolkit operations may bootstrap on load failure.
+        // daemon status swallows load errors; service operations may bootstrap on load failure.
         let output = fixture.run(&["daemon", "logs"]);
         for bytes in [&output.stdout, &output.stderr] {
             let text = String::from_utf8_lossy(bytes);

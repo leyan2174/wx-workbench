@@ -35,6 +35,3 @@ pub mod files;
 pub mod key_store;
 #[path = "../../../src/infrastructure/configuration.rs"]
 pub mod setup;
-pub mod toolkit {
-    pub use super::files;
-}

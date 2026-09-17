@@ -4,10 +4,14 @@ use anyhow::Result;
 pub(crate) mod asr;
 pub(crate) mod asr_batch;
 pub(crate) mod asr_database;
+mod audio_export;
+mod capabilities;
 pub(crate) mod chat_plan;
 pub(crate) mod cleanup_native;
 pub(crate) mod database_key_validation;
 pub(crate) mod database_keys;
+mod decode_images;
+mod decrypt_databases;
 pub(crate) mod export;
 pub(crate) mod export_all;
 pub(crate) mod export_chat;
@@ -30,7 +34,6 @@ pub(crate) mod sns_archive;
 pub(crate) mod sns_timeline;
 pub(crate) mod sns_video;
 pub(crate) mod task_worker;
-pub(crate) mod toolkit;
 pub(crate) mod voices;
 
 pub(crate) fn execute(operation: Operation) -> Result<()> {
@@ -109,7 +112,66 @@ pub(crate) fn execute(operation: Operation) -> Result<()> {
             overwrite,
             json: json_output,
         }),
-        Operation::Toolkit { operation } => toolkit::execute(operation),
+        Operation::DecodeMomentVideo {
+            input,
+            output,
+            key_file,
+            wasm,
+        } => sns_video::cmd_decode(input, output, key_file, wasm),
+        Operation::ExportMomentSnapshot {
+            sns_db,
+            output_dir,
+            contact_db,
+            contacts,
+            utc_offset,
+            download_media,
+            update,
+            adopt_existing,
+            local_cache,
+        } => export_sns::cmd_export(export_sns::Args {
+            sns_db,
+            contact_db,
+            output_dir,
+            contacts,
+            utc_offset,
+            local_cache,
+            download_media,
+            update,
+            adopt_existing,
+        }),
+        Operation::ExportEmoticons(args) => {
+            let runtime = crate::runtime::RuntimeContext::load()?;
+            let keys = crate::service::worker_keys::database_keys(&runtime)?
+                .ok_or(crate::key_store::Error::Missing)?;
+            database_key_validation::validate_paths(&runtime, &keys.0)?;
+            export_emoticons::export(runtime, keys, args)
+        }
+        Operation::Capabilities { json } => capabilities::execute(json),
+        Operation::DecryptDatabases {
+            incremental,
+            dry_run,
+        } => decrypt_databases::execute(incremental, dry_run),
+        Operation::DecodeImageCache {
+            attach_dir,
+            decoded_dir,
+            aes_key,
+            xor_key,
+            force,
+        } => decode_images::cache(attach_dir, decoded_dir, aes_key, xor_key, force),
+        Operation::DecodeImage {
+            dat_file,
+            output_file,
+        } => decode_images::image(dat_file, output_file),
+        Operation::DecodeImageDirectory {
+            input_dir,
+            output_dir,
+        } => decode_images::directory(input_dir, output_dir),
+        Operation::ConvertAudio { input, output } => audio_export::convert(input, output),
+        Operation::ExportAudio {
+            config,
+            output_dir,
+            contacts,
+        } => audio_export::export(config, output_dir, contacts),
         Operation::ExportAll { args } => {
             args.validate()?;
             let runtime = crate::runtime::RuntimeContext::load()?;

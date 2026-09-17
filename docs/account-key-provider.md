@@ -18,7 +18,7 @@
 $account = Join-Path $env:USERPROFILE 'wx-workbench-data/synthetic-account'
 $env:WX_CLI_CONFIG = Join-Path $account 'config.json'
 $env:WX_CLI_HOME = Join-Path $account 'runtime'
-wx toolkit setup --check
+wx setup --check
 ```
 
 检查路径与后端不会捕获密钥或运行识别模型。`WX_CLI_CONFIG` 选择配置文件，`--db-dir` 选择数据库目录，二者不能混淆。现有配置及其密钥文件可使未指定 `--force` 的初始化直接返回。

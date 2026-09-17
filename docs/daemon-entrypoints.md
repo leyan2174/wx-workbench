@@ -38,7 +38,7 @@ V2 图片需要可用的图像 AES 密钥。缺少该必要条件时，真实 V2
 
 ## 监控与增量状态
 
-`wx toolkit monitor` 由 `src/cli/monitor_native.rs` 转交 `operation_client::run(Operation::Monitor)`，保留前台操作的生命周期。`src/application/monitor/transport.rs` 的查询传输层只连接现有 daemon，不负责启动；不能据此推断整个 CLI 命令不会启动后台。
+`wx monitor` 由 `src/cli/monitor_native.rs` 转交 `operation_client::run(Operation::Monitor)`，保留前台操作的生命周期。`src/application/monitor/transport.rs` 的查询传输层只连接现有 daemon，不负责启动；不能据此推断整个 CLI 命令不会启动后台。
 
 普通账号管道请求上限为 64 KiB。首次基线与能放入单帧的请求直接走该管道；序列化后连同换行超过上限的完整 `NewMessages` 状态通过认证服务的 `Begin`、`Chunk`、`Finish`、`Abort` 传输。认证请求单帧仍不超过 64 KiB，每块条目 JSON 不超过 48 KiB、最多 1024 项。只有全部块的顺序、数量及字节数校验通过，才用完整状态调用一次查询；不丢弃会话、不拆分查询，也不改变新会话回退和全局 limit 的含义。
 

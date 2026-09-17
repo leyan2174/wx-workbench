@@ -2,15 +2,15 @@
 
 ## 入口
 
-模块注册于 `infrastructure::audio`，调用入口为 [daemon 操作分派](../../daemon/operations/toolkit.rs)。
+模块注册于 `infrastructure::audio`，由 `Operation::ExportAudio` 和 `Operation::ConvertAudio` 分派到 [音频执行模块](../../daemon/operations/audio_export.rs)调用。
 SILK 解码使用 Rust 与静态 SILK C SDK，MP3 编码调用原生 ffmpeg；此转换路径不启动 Python 或 Node。
 批量数据库导出见 [批量语音导出](../../../docs/voice-batch-export.md)，ASR 是独立流程，不能把 MP3 转换当作语音识别。
 
 命令：
 
 ```powershell
-wx toolkit voice-to-mp3 input.silk output.mp3
-wx toolkit voice-to-mp3 input.silk
+wx audio convert input.silk output.mp3
+wx audio convert input.silk
 ```
 
 输入为必需位置参数，输出为可选位置参数；省略输出时，将输入路径扩展名改为 `.mp3`。
