@@ -140,6 +140,7 @@ fn permissions(operation: &Operation) -> u8 {
         }
         Operation::SnsArchive { .. } => READ_IMAGE | PRELOAD_IMAGE,
         Operation::SnsTimeline { .. } => READ_IMAGE,
+        Operation::ExportMomentSnapshot { .. } => READ_IMAGE,
         _ => 0,
     }
 }
@@ -165,6 +166,29 @@ fn update_error(error: anyhow::Error) -> ServiceError {
 }
 
 impl Broker {
+    pub(crate) async fn image_import_metadata(
+        &self,
+    ) -> std::result::Result<crate::service::image_import::Metadata, ServiceError> {
+        let read_error =
+            || ServiceError::new("key_read_failed", "Image import metadata unavailable");
+        if self.runtime.is_bootstrap() || self.closing.load(Ordering::Acquire) {
+            return Err(ServiceError::unauthorized());
+        }
+        let pin =
+            crate::service::config_pin::ConfigPin::new(&self.runtime).map_err(|_| read_error())?;
+        let revision = match self.query.key_snapshot().await {
+            Ok(lease) => lease.key_material().revision(),
+            Err(error) if error.downcast_ref() == Some(&crate::key_store::Error::Missing) => 0,
+            Err(_) => return Err(read_error()),
+        };
+        pin.verify(&self.runtime).map_err(|_| read_error())?;
+        Ok(crate::service::image_import::Metadata {
+            version: 1,
+            runtime_id: self.runtime.id.clone(),
+            config_sha256: pin.fingerprint().map_err(|_| read_error())?,
+            revision,
+        })
+    }
     pub fn new(runtime: RuntimeContext, query: Arc<QueryState>) -> Arc<Self> {
         Arc::new(Self {
             runtime,
@@ -180,6 +204,17 @@ impl Broker {
         process: BorrowedHandle<'_>,
         operation: &Operation,
     ) -> Result<Option<(Access, Registration)>> {
+        if let Operation::ImportImageMaterial { args } = operation {
+            let opened = args.open(&self.runtime)?;
+            return self
+                .register_permissions_at(
+                    pid,
+                    process,
+                    READ_IMAGE | if opened.options.no_save { 0 } else { IMAGE },
+                    Some(opened.expected_revision),
+                )
+                .await;
+        }
         if let Operation::Initialize {
             force,
             provider,
@@ -262,6 +297,17 @@ impl Broker {
         process: BorrowedHandle<'_>,
         permissions: u8,
     ) -> Result<Option<(Access, Registration)>> {
+        self.register_permissions_at(pid, process, permissions, None)
+            .await
+    }
+
+    async fn register_permissions_at(
+        self: &Arc<Self>,
+        pid: u32,
+        process: BorrowedHandle<'_>,
+        permissions: u8,
+        expected_revision: Option<u64>,
+    ) -> Result<Option<(Access, Registration)>> {
         if permissions == 0 || self.runtime.is_bootstrap() {
             return Ok(None);
         }
@@ -274,9 +320,10 @@ impl Broker {
             pid != 0 && unsafe { GetProcessId(HANDLE(process.as_raw_handle())) } == pid,
             "Worker process identity mismatch"
         );
-        let eager_snapshot = permissions
-            & (ACCOUNT | DATABASES | IMAGE | INIT_MEMORY | PRELOAD_IMAGE | INIT_SAVED)
-            != 0;
+        let eager_snapshot = expected_revision.is_some()
+            || permissions
+                & (ACCOUNT | DATABASES | IMAGE | INIT_MEMORY | PRELOAD_IMAGE | INIT_SAVED)
+                != 0;
         let (revision, image, has_database_keys, account) = if !eager_snapshot {
             (0, None, false, None)
         } else {
@@ -310,6 +357,11 @@ impl Broker {
                 Err(error) => return Err(error),
             }
         };
+        if expected_revision.is_some_and(|expected| expected != revision) {
+            return Err(
+                ServiceError::new("conflict", "Image import material revision changed").into(),
+            );
+        }
         let token = crate::service::transport::random_secret()?;
         let parent = crate::service::client::current_process_identity()?;
         let id = digest(token.as_bytes());

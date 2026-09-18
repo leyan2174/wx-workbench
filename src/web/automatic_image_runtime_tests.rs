@@ -137,7 +137,6 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             local_id,
             create_time,
             output_root,
-            image_key_file,
         } = request
         else {
             anyhow::bail!("expected actual DecodeImage request");
@@ -147,10 +146,6 @@ async fn run_case(wrong_source: bool) -> Result<()> {
             "IPC lost exact message identity"
         );
         let output = PathBuf::from(output_root);
-        ensure!(
-            image_key_file.is_none(),
-            "automatic request leaked a plaintext key path"
-        );
         let temporary = output.parent().context("output parent missing")?.to_owned();
         let key = temporary.join("image-key.json");
         let image = output.join(format!("{:x}.png", md5::compute(PNG)));

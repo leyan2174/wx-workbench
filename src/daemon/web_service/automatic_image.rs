@@ -251,7 +251,6 @@ async fn decode_at(
             local_id: id.local_id,
             create_time: id.create_time,
             output_root: output.to_str().ok_or(Failure::DecodeFailed)?.into(),
-            image_key_file: None,
         },
     )
     .await

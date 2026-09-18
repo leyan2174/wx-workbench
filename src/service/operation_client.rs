@@ -26,6 +26,11 @@ pub fn run_capture(operation: Operation) -> Result<Vec<u8>> {
     run_inner(operation, true)
 }
 
+/// Foreground invocation bound to the host's already-selected account.
+pub fn run_for(runtime: &RuntimeContext, operation: Operation) -> Result<()> {
+    run_bound(runtime, operation, false).map(|_| ())
+}
+
 fn operation_environment(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Environment {
     Environment(
         vars.into_iter()
@@ -40,6 +45,11 @@ fn operation_environment(vars: impl IntoIterator<Item = (OsString, OsString)>) -
 fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
     operation.validate_request()?;
     let runtime = RuntimeContext::for_operation()?;
+    run_bound(&runtime, operation, capture)
+}
+
+fn run_bound(runtime: &RuntimeContext, operation: Operation, capture: bool) -> Result<Vec<u8>> {
+    operation.validate_request()?;
     let environment = operation_environment(std::env::vars_os());
     let invocation = Invocation {
         operation,
@@ -52,7 +62,7 @@ fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
         serde_json::to_vec(&invocation)?.len() + 1024 <= super::protocol::MAX_REQUEST_BYTES,
         "Operation request exceeds limit"
     );
-    super::query_client::ensure_running_quiet(&runtime)?;
+    super::query_client::ensure_running_quiet(runtime)?;
     let cancellation = crate::infrastructure::cancellation::ConsoleCancellation::install()?;
     let token = cancellation.token();
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -60,16 +70,16 @@ fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
         .enable_all()
         .build()?;
     rt.block_on(async {
-        let info = client::wait_ready(&runtime).await?;
+        let info = client::wait_ready(runtime).await?;
         anyhow::ensure!(info["operation_api"] == 1, "后台版本不支持统一业务操作；请先停止旧 daemon，再重新执行命令");
         let id = new_id()?;
-        client::request(&runtime, Call::OperationStart { id: id.clone(), invocation: Box::new(invocation) }).await?;
+        client::request(runtime, Call::OperationStart { id: id.clone(), invocation: Box::new(invocation) }).await?;
         let outcome = async {
             let mut after = 0u64;
             let mut captured = Vec::new();
             loop {
                 let response = tokio::select! {
-                    value = client::request(&runtime, Call::OperationPoll { id: id.clone(), after }) => value?,
+                    value = client::request(runtime, Call::OperationPoll { id: id.clone(), after }) => value?,
                     _ = token.cancelled() => return Err(OperationExit(130).into()),
                 };
                 let page: Page = serde_json::from_value(response).context("Invalid operation response")?;
@@ -97,7 +107,7 @@ fn run_inner(operation: Operation, capture: bool) -> Result<Vec<u8>> {
             }
         }.await;
         // Terminal entries are released; running entries are cancelled and reaped by the daemon.
-        let _ = client::request(&runtime, Call::OperationCancel { id }).await;
+        let _ = client::request(runtime, Call::OperationCancel { id }).await;
         outcome
     })
 }

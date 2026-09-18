@@ -256,10 +256,13 @@ impl Pin {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
-            // 固定源句柄，禁止并发写/删除，不跟随重解析点。
+            // FILE_LIST_DIRECTORY makes directory rename/delete participate in
+            // share checks; attributes-only access does not. Directory identity
+            // is pinned, not its entries: share-write permits child publication,
+            // while deny-delete blocks directory replacement. No ACL fallback.
             options
-                .access_mode(if directory { 0x80 } else { 0x80000000 })
-                .share_mode(1)
+                .access_mode(if directory { 0x81 } else { 0x80000000 })
+                .share_mode(if directory { 3 } else { 1 })
                 .custom_flags(0x02200000);
         }
         #[cfg(not(windows))]
@@ -471,6 +474,90 @@ mod tests {
     use super::*;
 
     #[test]
+    fn directory_pin_blocks_replacement_but_allows_child_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let moved = temp.path().join("moved");
+        let replacement = temp.path().join("replacement");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&replacement).unwrap();
+        let pin = Pin::open(&root, true).unwrap();
+        assert!(fs::rename(&root, &moved).is_err());
+        assert!(fs::remove_dir(&root).is_err());
+        assert!(fs::rename(&replacement, &root).is_err());
+        fs::write(root.join("child"), b"synthetic").unwrap();
+        pin.verify().unwrap();
+        drop(pin);
+        fs::rename(&root, &moved).unwrap();
+        fs::rename(&replacement, &root).unwrap();
+        assert_eq!(fs::read(moved.join("child")).unwrap(), b"synthetic");
+    }
+
+    #[test]
+    fn root_scan_pins_every_ancestor_and_guard_blocks_ancestor_rename() {
+        let temp = tempfile::tempdir().unwrap();
+        let ancestor = temp.path().join("ancestor");
+        let root = ancestor.join("root");
+        let moved = temp.path().join("moved");
+        fs::create_dir_all(&root).unwrap();
+        let mut scan = Scan::new();
+        scan.root(&root).unwrap();
+        let expected: Vec<_> = root.ancestors().filter(|p| p.has_root()).collect();
+        assert_eq!(scan.pins.len(), expected.len());
+        for path in expected {
+            let pin = scan.pins.iter().find(|pin| pin.path == path).unwrap();
+            pin.verify().unwrap();
+        }
+        drop(scan);
+        let guard = HostOutputGuard::new(&root).unwrap();
+        assert!(fs::rename(&ancestor, &moved).is_err());
+        assert!(fs::rename(&root, ancestor.join("moved-root")).is_err());
+        fs::write(root.join("child"), b"synthetic").unwrap();
+        guard.verify().unwrap();
+        drop(guard);
+        fs::rename(&ancestor, &moved).unwrap();
+        assert_eq!(fs::read(moved.join("root/child")).unwrap(), b"synthetic");
+    }
+
+    #[test]
+    fn host_guards_allow_tempfile_publication_within_and_between_directories() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let destination = temp.path().join("destination");
+        fs::create_dir(&source).unwrap();
+        fs::create_dir(&destination).unwrap();
+        let source_guard = HostOutputGuard::new(&source).unwrap();
+        let destination_guard = HostOutputGuard::new(&destination).unwrap();
+        for cross_directory in [false, true] {
+            for existing in [false, true] {
+                let guard = if cross_directory {
+                    &destination_guard
+                } else {
+                    &source_guard
+                };
+                let target = guard
+                    .output_root()
+                    .join(format!("published-{cross_directory}-{existing}"));
+                if existing {
+                    fs::write(&target, b"old").unwrap();
+                }
+                let mut staged = tempfile::NamedTempFile::new_in(&source).unwrap();
+                staged.write_all(b"new").unwrap();
+                staged.as_file().sync_all().unwrap();
+                guard.verify_replaceable_file(&target).unwrap();
+                // Persist consumes the still-open staging file, as in task history.
+                let published = staged.persist(&target).unwrap();
+                drop(published);
+                assert_eq!(fs::read(&target).unwrap(), b"new");
+                source_guard.verify().unwrap();
+                destination_guard.verify().unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn future_directories_are_rechecked_without_creation() {
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("output");
@@ -542,10 +629,15 @@ mod tests {
         guard.pin_input(&input).unwrap();
         assert!(OpenOptions::new().write(true).open(&input).is_err());
         assert!(fs::remove_file(&input).is_err());
+        let replacement = temp.path().join("replacement.bin");
+        fs::write(&replacement, b"replacement").unwrap();
+        assert!(fs::rename(&replacement, &input).is_err());
         for _ in 0..3 {
             guard.verify().unwrap();
         }
         drop(guard);
+        fs::rename(&replacement, &input).unwrap();
+        assert_eq!(fs::read(&input).unwrap(), b"replacement");
         fs::write(&input, b"updated").unwrap();
     }
 

@@ -85,7 +85,6 @@ async fn dispatch_host_request(state: &Shared, request: Request) -> Response {
         local_id,
         create_time,
         output_root,
-        image_key_file: None,
     } = &request
     {
         let decode = async {

@@ -56,16 +56,46 @@ async fn decode_image_dispatch_uses_distinct_redacted_export_failure_code() {
     let before = fs::read(&cached).unwrap();
     let output = root.path().join("output");
     fs::create_dir(&output).unwrap();
-    let response = dispatch(
+    let names = names();
+    let missing = dispatch(
         Request::DecodeImage {
             chat: "PRIVATE_PEER".into(),
             local_id: 7,
             create_time: 123,
             output_root: output.to_str().unwrap().into(),
-            image_key_file: Some(root.path().join("SECRET_KEY.json").to_str().unwrap().into()),
         },
         &db,
-        &names(),
+        &names,
+    )
+    .await;
+    assert!(missing.ok);
+    assert_eq!(missing.data["exit_code"], 1);
+
+    // A protected output root triggers a real export error before chat lookup.
+    let snapshot = names.read().await.clone();
+    let error = crate::daemon::query::mcp_image::q_decode_image_for_host(
+        &db,
+        &snapshot,
+        "PRIVATE_PEER",
+        7,
+        123,
+        db.db_dir(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "image output conflicts with protected input"
+    );
+    let response = dispatch(
+        Request::DecodeImage {
+            chat: "PRIVATE_PEER".into(),
+            local_id: 7,
+            create_time: 123,
+            output_root: db.db_dir().to_str().unwrap().into(),
+        },
+        &db,
+        &names,
     )
     .await;
     assert!(response.ok);

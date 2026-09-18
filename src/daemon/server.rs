@@ -380,16 +380,14 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             local_id,
             create_time,
             output_root,
-            image_key_file,
         } => {
-            match query::mcp_image::q_decode_image_with_key_file(
+            match query::mcp_image::q_decode_image_for_host(
                 db,
                 &names_arc,
                 &chat,
                 local_id,
                 create_time,
                 std::path::Path::new(&output_root),
-                image_key_file.as_deref().map(std::path::Path::new),
             )
             .await
             {

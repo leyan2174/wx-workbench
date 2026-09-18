@@ -112,8 +112,8 @@ async fn real_cache_cold_warm_and_redecrypt_first_exports_remain_usable() {
                 fs::write(path, b"stale cached bytes must be overwritten").unwrap();
             }
         }
-        let out = real_cache_query::image::q_decode_image_with_key_file(
-            &db, &f.names, CHAT, 42, 100, &f.output, None,
+        let out = real_cache_query::image::q_decode_image_for_host(
+            &db, &f.names, CHAT, 42, 100, &f.output,
         )
         .await;
         println!("REAL CACHE {mode}: {out:?}");

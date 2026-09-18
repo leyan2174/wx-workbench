@@ -169,6 +169,7 @@ fn explicit_none_authorization_never_requests_network() {
     let recovery = CacheRecovery {
         index: &index,
         keys: &cache_keys,
+        verify: &|| Ok(()),
     };
     for mode in 0..4 {
         let output = temp.path().join(format!("out-{mode}"));
@@ -268,6 +269,130 @@ fn no_cache_downloads_actual_formats_and_publishes_consistent_references() {
     assert_eq!(server.finish().len(), 7);
 }
 
+#[test]
+fn failed_publication_verification_preserves_existing_timeline_and_media() {
+    use std::cell::Cell;
+    use std::collections::BTreeMap;
+
+    fn tree(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in fs::read_dir(path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    visit(root, &path, files);
+                } else {
+                    files.insert(
+                        path.strip_prefix(root).unwrap().to_owned(),
+                        fs::read(path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut files = BTreeMap::new();
+        visit(root, root, &mut files);
+        files
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let source_root = temp.path().join("source");
+    fs::create_dir(&source_root).unwrap();
+    let db = database(
+        &source_root,
+        &[vec![media("2", "https://synthetic.invalid/image", "", 16)]],
+    );
+    let (index, keys, _, _) = image_cache(temp.path());
+    let output = temp.path().join("out");
+    let publication = TimelinePublication {
+        flat_cache: false,
+        source_kind: "snapshot".into(),
+        source_id: "synthetic-verification-boundary".into(),
+        policy: crate::infrastructure::output_tree::ExistingPolicy::Update,
+        inputs: vec![db.clone()],
+    };
+    let calls = Cell::new(0);
+    let allow = || {
+        calls.set(calls.get() + 1);
+        Ok(())
+    };
+    let report = export_database_with_publication(
+        &db,
+        None,
+        &output,
+        &options(),
+        Some(&CacheRecovery {
+            index: &index,
+            keys: &keys,
+            verify: &allow,
+        }),
+        None,
+        &publication,
+    )
+    .unwrap();
+    assert_eq!(report.media_recovered, 1);
+    let successful_checks = calls.get();
+    assert!(successful_checks > 1);
+    let before = tree(&output);
+    assert!(before.keys().any(|path| path.ends_with("timeline.json")));
+    assert!(before
+        .keys()
+        .any(|path| path.extension().is_some_and(|ext| ext == "png")));
+
+    let connection = Connection::open(&db).unwrap();
+    connection
+        .execute(
+            "UPDATE SnsTimeLine SET content = replace(content, '1700000000', '1700000060')",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+    let reject = || -> anyhow::Result<()> {
+        calls.set(calls.get() + 1);
+        anyhow::bail!("synthetic broker revision changed before publication")
+    };
+    let error = export_database_with_publication(
+        &db,
+        None,
+        &output,
+        &options(),
+        Some(&CacheRecovery {
+            index: &index,
+            keys: &keys,
+            verify: &reject,
+        }),
+        None,
+        &publication,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("synthetic broker revision changed"));
+    assert_eq!(calls.get(), successful_checks + 1);
+    assert_eq!(
+        tree(&output),
+        before,
+        "failed verification must not publish new summaries, media or staging files"
+    );
+
+    export_database_with_publication(
+        &db,
+        None,
+        &output,
+        &options(),
+        Some(&CacheRecovery {
+            index: &index,
+            keys: &keys,
+            verify: &allow,
+        }),
+        None,
+        &publication,
+    )
+    .unwrap();
+    assert!(calls.get() > successful_checks + 2);
+    assert_ne!(
+        tree(&output),
+        before,
+        "the update must be observable when verification succeeds"
+    );
+}
+
 fn image_cache(root: &Path) -> (CacheIndex, CacheKeys, Vec<u8>, PathBuf) {
     let storage = root.join("cache");
     let month = storage.join("2023-11");
@@ -318,6 +443,7 @@ fn partial_cache_is_first_and_only_unrecovered_indices_download() {
         Some(&CacheRecovery {
             index: &index,
             keys: &keys,
+            verify: &|| Ok(()),
         }),
         Some(&limits()),
     )
@@ -364,6 +490,7 @@ fn failed_cache_can_download_without_double_counting_final_status() {
         Some(&CacheRecovery {
             index: &index,
             keys: &keys,
+            verify: &|| Ok(()),
         }),
         Some(&limits()),
     )

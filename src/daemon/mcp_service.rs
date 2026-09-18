@@ -328,12 +328,7 @@ impl HostSettings {
         &self,
         request: &mut Request,
     ) -> std::result::Result<(), DispatchError> {
-        if let Request::DecodeImage {
-            output_root,
-            image_key_file,
-            ..
-        } = request
-        {
+        if let Request::DecodeImage { output_root, .. } = request {
             let root = self
                 .media_output_root
                 .as_deref()
@@ -343,10 +338,6 @@ impl HostSettings {
                 return Err(DispatchError::Unavailable);
             }
             *output_root = root.to_str().ok_or(DispatchError::Unavailable)?.to_owned();
-            if self.image_key_file.is_some() {
-                return Err(DispatchError::Unavailable);
-            }
-            *image_key_file = None;
         }
         Ok(())
     }
@@ -472,7 +463,6 @@ mod tests {
             local_id: 7,
             create_time: 0,
             output_root: "untrusted".into(),
-            image_key_file: Some("untrusted-key".into()),
         };
         assert_eq!(
             HostSettings::default().prepare_request(&mut image()),
@@ -481,20 +471,14 @@ mod tests {
         assert!(HostSettings::default()
             .prepare_request(&mut Request::Ping)
             .is_ok());
-        let mut host = HostSettings {
+        let host = HostSettings {
             media_output_root: Some(root.path().into()),
-            image_key_file: Some(root.path().join("key.json")),
         };
         let mut request = image();
-        assert_eq!(
-            host.prepare_request(&mut request),
-            Err(DispatchError::Unavailable)
-        );
-        host.image_key_file = None;
         host.prepare_request(&mut request).unwrap();
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(value["output_root"], root.path().to_str().unwrap());
-        assert!(value["image_key_file"].is_null());
+        assert!(value.get("image_key_file").is_none());
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
         for invalid in [
             root.path().join("missing"),
@@ -503,7 +487,6 @@ mod tests {
         ] {
             let host = HostSettings {
                 media_output_root: Some(invalid),
-                ..HostSettings::default()
             };
             assert_eq!(
                 host.prepare_request(&mut image()),
@@ -553,7 +536,6 @@ mod tests {
                 local_id: 1,
                 create_time: 0,
                 output_root: "tool-controlled".into(),
-                image_key_file: None,
             },
             Request::ReloadConfig,
         ] {
@@ -588,19 +570,17 @@ mod tests {
         let (temp, _, _) = fixture();
         let host = HostSettings {
             media_output_root: Some(temp.path().into()),
-            ..Default::default()
         };
         let mut request = Request::DecodeImage {
             chat: "peer".into(),
             local_id: 1,
             create_time: 0,
             output_root: "tool-controlled".into(),
-            image_key_file: Some("tool-key".into()),
         };
         host.prepare_request(&mut request).unwrap();
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(value["output_root"], temp.path().to_str().unwrap());
-        assert!(value["image_key_file"].is_null());
+        assert!(value.get("image_key_file").is_none());
     }
 
     #[test]
@@ -641,14 +621,15 @@ mod tests {
                 |_, _, _| Ok(Response::ok(json!({}))),
             )
             .unwrap();
-        call.host.image_key_file = Some("changed-key.json".into());
+        let original_root = call.host.media_output_root.clone();
+        call.host.media_output_root = Some("changed-root".into());
         assert_eq!(
             session
                 .execute(call.clone(), &runtime, &CallContext::default(), forbidden)
                 .unwrap_err(),
             DispatchError::Unavailable
         );
-        call.host.image_key_file = None;
+        call.host.media_output_root = original_root;
         assert_eq!(
             session
                 .execute(call, &runtime, &CallContext::default(), forbidden)
@@ -742,8 +723,7 @@ mod tests {
             assert_eq!(unpack(pack(Err(error.clone()))).unwrap_err(), error);
         }
         let host = HostSettings {
-            image_key_file: Some(PathBuf::from("explicit-key")),
-            ..HostSettings::default()
+            media_output_root: Some(PathBuf::from("explicit-output")),
         };
         let value = serde_json::to_value(&host).unwrap();
         let restored: HostSettings = serde_json::from_value(value.clone()).unwrap();

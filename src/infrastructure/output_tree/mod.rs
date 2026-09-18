@@ -446,7 +446,7 @@ impl OutputTree {
         self.publish_with(entries, |_| Ok(()))
     }
 
-    fn publish_with(
+    pub(crate) fn publish_with(
         &self,
         entries: &[(PathBuf, PathBuf)],
         before_commit: impl Fn(usize) -> Result<()>,

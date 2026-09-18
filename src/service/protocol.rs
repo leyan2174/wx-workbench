@@ -154,6 +154,7 @@ impl Task {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    ImageMaterialImportMetadata {},
     WorkerKeyRevision {
         request: super::worker_keys::RevisionRequest,
     },

@@ -13,9 +13,11 @@ use key_store::dpapi;
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
+    os::windows::process::CommandExt,
     path::{Path, PathBuf},
-    process::{Command, Output},
-    time::Duration,
+    process::{Child, Command, Output, Stdio},
+    time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
 
@@ -26,6 +28,14 @@ const DECODED: &[u8] = &[0xff, 0xd8, 0xff, 0xff, 0xd9];
 
 // Mirrors offline.rs::tests::synthetic: uin=0 is the first candidate, XOR=0.
 // This is the decoder's minimal JPEG-signature fixture, not a displayable JPEG.
+fn synthetic_key_hex() -> String {
+    synthetic()
+        .0
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn synthetic() -> ([u8; 16], Vec<u8>) {
     let reference = format!("{:x}", md5::compute(b"0wxid_fixture"));
     let key: [u8; 16] = reference.as_bytes()[..16].try_into().unwrap();
@@ -122,6 +132,24 @@ impl Fixture {
     }
 
     fn run_command(&self, args: &[&str]) -> Output {
+        self.run_command_with_input(args, None)
+    }
+
+    fn import(&self, input: &[u8], extra: &[&str]) -> Output {
+        let mut args = vec![
+            "keys",
+            "import-image",
+            "--stdin",
+            "--timeout",
+            "10",
+            "--max-mib",
+            "1",
+        ];
+        args.extend_from_slice(extra);
+        self.run_command_with_input(&args, Some(input))
+    }
+
+    fn run_command_with_input(&self, args: &[&str], input: Option<&[u8]>) -> Output {
         let config = self.path("config.json");
         let original = fs::read(&config).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
@@ -137,7 +165,10 @@ impl Fixture {
             .env("WX_CLI_CONFIG", &config)
             .env("WX_CLI_HOME", self.path("runtime"))
             .env("PATH", "");
-        let output = cli_output::output(&mut command, self.0.path(), Duration::from_secs(60));
+        let output = match input {
+            Some(input) => output_with_input(&mut command, self.0.path(), input),
+            None => cli_output::output(&mut command, self.0.path(), Duration::from_secs(60)),
+        };
         assert_eq!(fs::read(config).unwrap(), original);
         assert_eq!(
             fs::read(self.path("ambient/config.json")).unwrap(),
@@ -165,14 +196,27 @@ impl Fixture {
             .map(|entry| entry.unwrap().path())
             .collect();
         assert_eq!(accounts.len(), 1);
-        let daemon: Value =
-            serde_json::from_slice(&fs::read(accounts[0].join("daemon.pid")).unwrap()).unwrap();
+        let daemon_bytes = fs::read(accounts[0].join("daemon.pid")).unwrap_or_else(|error| {
+            panic!(
+                "daemon identity missing: {error}; status={} stdout={} stderr={} daemon_log={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+                fs::read_to_string(accounts[0].join("daemon.log")).unwrap_or_default()
+            )
+        });
+        let daemon: Value = serde_json::from_slice(&daemon_bytes).unwrap();
         assert!(bootstrap::verified_process(&daemon).unwrap().is_some());
         let key = String::from_utf8(synthetic().0.to_vec()).unwrap();
+        let hex_key = synthetic_key_hex();
         for stream in [&output.stdout, &output.stderr] {
             assert!(
                 !String::from_utf8_lossy(stream).contains(&key),
                 "CLI leaked synthetic AES material"
+            );
+            assert!(
+                !String::from_utf8_lossy(stream).contains(&hex_key),
+                "CLI leaked encoded synthetic AES material"
             );
         }
         output
@@ -197,6 +241,247 @@ impl Fixture {
         assert_eq!(fs::read(self.thumbnail()).unwrap(), synthetic().1);
         report
     }
+}
+
+fn output_with_input(command: &mut Command, directory: &Path, input: &[u8]) -> Output {
+    assert!(
+        input.len() <= 8192,
+        "synthetic stdin fixture must remain bounded"
+    );
+    struct Owned(Child);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let stdout = tempfile::NamedTempFile::new_in(directory).unwrap();
+    let stderr = tempfile::NamedTempFile::new_in(directory).unwrap();
+    let mut child = Owned(
+        command
+            .creation_flags(0x08000000)
+            .stdin(Stdio::piped())
+            .stdout(stdout.reopen().unwrap())
+            .stderr(stderr.reopen().unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    {
+        let mut stdin = child.0.stdin.take().unwrap();
+        // Invalid arguments may close the input pipe before the bounded fixture is written.
+        let _ = stdin.write_all(input);
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let status = loop {
+        assert!(
+            Instant::now() < deadline,
+            "synthetic import exceeded its deadline"
+        );
+        for path in [stdout.path(), stderr.path()] {
+            assert!(fs::metadata(path).unwrap().len() <= 1024 * 1024);
+        }
+        if let Some(status) = child.0.try_wait().unwrap() {
+            break status;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Output {
+        status,
+        stdout: fs::read(stdout.path()).unwrap(),
+        stderr: fs::read(stderr.path()).unwrap(),
+    }
+}
+
+#[test]
+fn protected_image_import_verifies_before_saving_and_preserves_other_material() {
+    let fixture = Fixture::new();
+    let before = fixture.seed_materials();
+    let before_bytes = fs::read(fixture.path("keys.dpapi")).unwrap();
+    let input = serde_json::to_vec(&json!({"aes_key":synthetic_key_hex(),"xor_key":0})).unwrap();
+    let output = fixture.import(&input, &["--no-save"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["verified"], true);
+    assert_eq!(report["saved"], false);
+    assert_eq!(fixture.record(), before);
+    assert_eq!(fs::read(fixture.path("keys.dpapi")).unwrap(), before_bytes);
+
+    let output = fixture.import(&input, &[]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["verified"], true);
+    assert_eq!(report["saved"], true);
+    let after = fixture.record();
+    let after_bytes = fs::read(fixture.path("keys.dpapi")).unwrap();
+    assert_eq!(
+        after["revision"].as_u64().unwrap(),
+        before["revision"].as_u64().unwrap() + 1
+    );
+    assert_eq!(report["revision"], after["revision"]);
+    assert_eq!(after["account_key"], before["account_key"]);
+    assert_eq!(after["database_keys"], before["database_keys"]);
+    assert_eq!(after["image_key"]["verification"], "verified");
+    let mut bytes = synthetic().0.to_vec();
+    bytes.push(0);
+    assert_eq!(after["image_key"]["bytes"], json!(bytes));
+
+    let wrong = serde_json::to_vec(&json!({"aes_key":"ff".repeat(16),"xor_key":0})).unwrap();
+    assert!(!fixture.import(&wrong, &[]).status.success());
+    assert_eq!(fixture.record(), after);
+    assert_eq!(fs::read(fixture.path("keys.dpapi")).unwrap(), after_bytes);
+    for malformed in [
+        b"{}".to_vec(),
+        b"{\"aes_key\":".to_vec(),
+        vec![b' '; 4097],
+        serde_json::to_vec(
+            &json!({"aes_key":synthetic_key_hex(),"xor_key":0,"authorize_memory_scan":true}),
+        )
+        .unwrap(),
+    ] {
+        assert!(!fixture.import(&malformed, &[]).status.success());
+        assert_eq!(fixture.record(), after);
+        assert_eq!(fs::read(fixture.path("keys.dpapi")).unwrap(), after_bytes);
+    }
+}
+
+#[test]
+fn protected_image_import_supports_missing_store_without_implicit_save() {
+    for no_save in [true, false] {
+        let fixture = Fixture::new();
+        let input =
+            serde_json::to_vec(&json!({"aes_key":synthetic_key_hex(),"xor_key":0})).unwrap();
+        let output = fixture.import(&input, if no_save { &["--no-save"] } else { &[] });
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["verified"], true);
+        assert_eq!(report["saved"], !no_save);
+        assert_eq!(report["revision"], if no_save { 0 } else { 1 });
+        if no_save {
+            assert!(!fixture.path("keys.dpapi").exists());
+        } else {
+            assert_eq!(fixture.record()["revision"], 1);
+        }
+    }
+}
+
+#[test]
+fn protected_image_import_refuses_corrupt_formal_store_without_replacing_it() {
+    let fixture = Fixture::new();
+    let corrupt = b"synthetic corrupt formal store";
+    fs::write(fixture.path("keys.dpapi"), corrupt).unwrap();
+    let input = serde_json::to_vec(&json!({"aes_key":synthetic_key_hex(),"xor_key":0})).unwrap();
+    let output = fixture.import(&input, &[]);
+    assert!(!output.status.success());
+    assert_eq!(fs::read(fixture.path("keys.dpapi")).unwrap(), corrupt);
+    assert_eq!(fs::read(fixture.thumbnail()).unwrap(), synthetic().1);
+}
+
+#[test]
+fn protected_image_import_accepts_explicit_offline_sample_root_without_account_samples() {
+    let fixture = Fixture::new();
+    let before = fixture.seed_materials();
+    let external = fixture.path("external-cache");
+    let sample = external.join("2026-09/Sns/Img/00/fixture");
+    fs::create_dir_all(sample.parent().unwrap()).unwrap();
+    fs::rename(fixture.thumbnail(), &sample).unwrap();
+    let source = fs::read(&sample).unwrap();
+    let input = serde_json::to_vec(&json!({"aes_key":synthetic_key_hex(),"xor_key":0})).unwrap();
+    assert!(!fixture.import(&input, &[]).status.success());
+    assert_eq!(fixture.record(), before);
+    let output = fixture.import(&input, &["--sample-root", external.to_str().unwrap()]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fixture.record()["image_key"]["verification"], "verified");
+    assert_eq!(fs::read(&sample).unwrap(), source);
+
+    let database = synthetic_sns_database(&fixture);
+    let db_before = fs::read(&database).unwrap();
+    let output_dir = fixture.path("sns-export");
+    let output = fixture.run_command(&[
+        "moments",
+        "export-snapshot",
+        database.to_str().unwrap(),
+        output_dir.to_str().unwrap(),
+        "--xwechat-cache",
+        external.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["media_recovered"], 1);
+    assert_eq!(report["media_downloaded"], 0);
+    assert_eq!(report["image_material_status"], "verified_local_samples");
+    let images: Vec<_> = report["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .map(PathBuf::from)
+        .filter(|path| path.extension().is_some_and(|extension| extension == "jpg"))
+        .collect();
+    assert_eq!(images.len(), 1);
+    assert_eq!(fs::read(&images[0]).unwrap(), DECODED);
+    assert_eq!(fs::read(&database).unwrap(), db_before);
+    assert_eq!(fs::read(&sample).unwrap(), source);
+}
+
+fn synthetic_sns_database(fixture: &Fixture) -> PathBuf {
+    let database = fixture.path("offline-source/sns.db");
+    fs::create_dir_all(database.parent().unwrap()).unwrap();
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute_batch("CREATE TABLE SnsTimeLine(tid INTEGER, user_name TEXT, content TEXT);")
+        .unwrap();
+    db.execute("INSERT INTO SnsTimeLine VALUES (1, 'synthetic-user', ?1)", [
+        "<root><LocalExtraInfo><nickname>Synthetic</nickname></LocalExtraInfo><TimelineObject><id>1</id><username>synthetic-user</username><createTime>1700000000</createTime><ContentObject><type>1</type><mediaList><media><type>2</type><url>https://offline.invalid/image</url></media></mediaList></ContentObject></TimelineObject></root>"
+    ]).unwrap();
+    database
+}
+
+#[test]
+fn offline_sns_without_cache_does_not_read_or_rewrite_image_store() {
+    let fixture = Fixture::new();
+    let corrupt = b"synthetic corrupt material must not be read";
+    fs::write(fixture.path("keys.dpapi"), corrupt).unwrap();
+    let database = synthetic_sns_database(&fixture);
+    let before = fs::read(&database).unwrap();
+    let destination = fixture.path("without-cache");
+    let output = fixture.run_command(&[
+        "moments",
+        "export-snapshot",
+        database.to_str().unwrap(),
+        destination.to_str().unwrap(),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["posts"], 1);
+    assert_eq!(report["media_recovered"], 0);
+    assert_eq!(report["media_downloaded"], 0);
+    assert_eq!(report["image_material_status"], "not_requested");
+    assert!(destination.join("Synthetic/SNS/timeline.json").is_file());
+    assert_eq!(fs::read(database).unwrap(), before);
+    assert_eq!(fs::read(fixture.path("keys.dpapi")).unwrap(), corrupt);
 }
 
 impl Drop for Fixture {

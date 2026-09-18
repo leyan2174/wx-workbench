@@ -21,22 +21,21 @@ pub(super) fn publication_material(
 ) -> Result<crate::application::image_publication::StoredImageKeys> {
     let material = crate::service::worker_keys::image_material(runtime)?;
     let revision = crate::service::worker_keys::expected_revision(runtime)?;
-    let material = match material {
-        Some(material) => crate::application::image_publication::StoredImageKeys {
-            aes: Some(material.aes),
-            xor: material.xor,
-        },
-        None if revision != 0 => crate::application::image_publication::StoredImageKeys {
-            aes: None,
-            xor: 0x88,
-        },
+    let (aes, xor) = match material {
+        Some(material) => (Some(material.aes), material.xor),
+        None if revision != 0 => (None, 0x88),
         None if runtime.config.key_store.is_none() => {
             return Err(crate::key_store::Error::LegacyMigrationRequired.into())
         }
         None => return Err(crate::key_store::Error::Missing.into()),
     };
     crate::service::worker_keys::verify_image_revision(runtime)?;
-    Ok(material)
+    let runtime = runtime.clone();
+    Ok(crate::application::image_publication::StoredImageKeys::new(
+        aes,
+        xor,
+        move || crate::service::worker_keys::verify_image_revision(&runtime),
+    ))
 }
 
 pub fn cmd(args: Args) -> Result<()> {

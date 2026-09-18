@@ -73,9 +73,17 @@ pub(crate) struct TimelinePublication {
     pub inputs: Vec<PathBuf>,
 }
 
+type PublicationCheck<'a> = &'a dyn Fn() -> Result<()>;
+
+pub(crate) struct VerifiedPublication<'a> {
+    pub policy: Option<&'a TimelinePublication>,
+    pub verify: PublicationCheck<'a>,
+}
+
 pub struct CacheRecovery<'a> {
     pub index: &'a CacheIndex,
     pub keys: &'a CacheKeys,
+    pub verify: &'a dyn Fn() -> Result<()>,
 }
 
 /// 兼容旧字符替换，同时封堵 Windows 保留名、尾点及父目录穿越。
@@ -285,6 +293,7 @@ fn timeline_html(timeline: &Timeline, local_media: &BTreeMap<usize, Vec<MediaRec
 
 /// 为避免不同账号或重跑覆盖，要求每个目标 SNS 目录尚不存在。
 /// 建议 preview 为每次导出分配全新的账号专属输出目录。
+#[cfg(test)]
 pub(super) fn write_export_with_media(
     data: &ExportData,
     output: &Path,
@@ -292,7 +301,7 @@ pub(super) fn write_export_with_media(
     cache: Option<&CacheRecovery<'_>>,
     download_options: Option<&DownloadOptions>,
 ) -> Result<ExportReport> {
-    write_export_with_publication(data, output, timezone, cache, download_options, None)
+    write_export_with_publication(data, output, timezone, cache, download_options, None, None)
 }
 
 fn post_names(timeline: &Timeline, timezone: TimeZone) -> Result<Vec<(usize, String)>> {
@@ -483,8 +492,10 @@ fn publish_timeline(
     staging: &Path,
     destination: &Path,
     files: &[PathBuf],
+    verify: PublicationCheck<'_>,
 ) -> Result<()> {
     let Some(tree) = tree else {
+        verify()?;
         return fs::rename(staging, destination).context("publish SNS contact directory");
     };
     let mut entries = files
@@ -502,7 +513,7 @@ fn publish_timeline(
         _ if path.extension().is_some_and(|ext| ext == "json") => 1,
         _ => 0,
     });
-    tree.publish_all(&entries)
+    tree.publish_with(&entries, |_| verify())
 }
 
 fn write_export_with_publication(
@@ -512,6 +523,7 @@ fn write_export_with_publication(
     cache: Option<&CacheRecovery<'_>>,
     download_options: Option<&DownloadOptions>,
     publication: Option<&TimelinePublication>,
+    verify: Option<PublicationCheck<'_>>,
 ) -> Result<ExportReport> {
     let mut report = ExportReport {
         rows_seen: data.rows_seen,
@@ -720,7 +732,23 @@ fn write_export_with_publication(
             guard.verify()?;
         }
         drop(download_guard);
-        publish_timeline(trees.get(timeline_index), staging.path(), &dir, &files)?;
+        let verify_publication = || -> Result<()> {
+            if let Some(verify) = verify {
+                verify()?;
+            }
+            if let Some(cache) = cache {
+                (cache.verify)()?;
+            }
+            Ok(())
+        };
+        verify_publication()?;
+        publish_timeline(
+            trees.get(timeline_index),
+            staging.path(),
+            &dir,
+            &files,
+            &verify_publication,
+        )?;
         report.files.extend(files);
         report.posts += timeline.posts.len();
         report.contacts += 1;
@@ -731,6 +759,7 @@ fn write_export_with_publication(
 /// preview 主入口：数据库只读打开，返回实际写入文件及未解析/缺表诊断。
 /// Some(download_options) 表示调用者已显式授权联网；None 完全离线。
 /// 不读取环境或账号；异步宿主必须使用阻塞线程。仍要求目标 SNS 目录不存在。
+#[cfg(test)]
 pub fn export_database_with_media(
     sns_path: &Path,
     contacts_path: Option<&Path>,
@@ -746,7 +775,7 @@ pub fn export_database_with_media(
         options,
         cache,
         download_options,
-        None,
+        (None, None),
     )
 }
 
@@ -760,20 +789,34 @@ pub(crate) fn export_database_with_publication(
     download_options: Option<&DownloadOptions>,
     publication: &TimelinePublication,
 ) -> Result<ExportReport> {
-    let sns_path =
-        fs::canonicalize(sns_path).context(crate::business::moments::SourceError::Unavailable)?;
-    let contacts_path = contacts_path.map(fs::canonicalize).transpose()?;
-    let mut publication = publication.clone();
-    publication.inputs.push(sns_path.clone());
-    publication.inputs.extend(contacts_path.iter().cloned());
     export_database_selected(
-        &sns_path,
-        contacts_path.as_deref(),
+        sns_path,
+        contacts_path,
         output,
         options,
         cache,
         download_options,
-        Some(&publication),
+        (Some(publication), None),
+    )
+}
+
+pub(crate) fn export_database_verified(
+    sns_path: &Path,
+    contacts_path: Option<&Path>,
+    output: &Path,
+    options: &ExportOptions,
+    cache: Option<&CacheRecovery<'_>>,
+    download_options: Option<&DownloadOptions>,
+    boundary: VerifiedPublication<'_>,
+) -> Result<ExportReport> {
+    export_database_selected(
+        sns_path,
+        contacts_path,
+        output,
+        options,
+        cache,
+        download_options,
+        (boundary.policy, Some(boundary.verify)),
     )
 }
 
@@ -784,8 +827,19 @@ fn export_database_selected(
     options: &ExportOptions,
     cache: Option<&CacheRecovery<'_>>,
     download_options: Option<&DownloadOptions>,
-    publication: Option<&TimelinePublication>,
+    (publication, verify): (Option<&TimelinePublication>, Option<PublicationCheck<'_>>),
 ) -> Result<ExportReport> {
+    let publication = publication
+        .map(|publication| -> Result<_> {
+            let sns_path = fs::canonicalize(sns_path)
+                .context(crate::business::moments::SourceError::Unavailable)?;
+            let contacts_path = contacts_path.map(fs::canonicalize).transpose()?;
+            let mut publication = publication.clone();
+            publication.inputs.push(sns_path);
+            publication.inputs.extend(contacts_path);
+            Ok(publication)
+        })
+        .transpose()?;
     let snapshot = crate::adapters::wechat::moments::read_export_paths(
         sns_path,
         contacts_path,
@@ -793,17 +847,15 @@ fn export_database_selected(
         options.timezone,
     )?;
     let data = prepare_export(snapshot, options)?;
-    match publication {
-        Some(publication) => write_export_with_publication(
-            &data,
-            output,
-            options.timezone,
-            cache,
-            download_options,
-            Some(publication),
-        ),
-        None => write_export_with_media(&data, output, options.timezone, cache, download_options),
-    }
+    write_export_with_publication(
+        &data,
+        output,
+        options.timezone,
+        cache,
+        download_options,
+        publication.as_ref(),
+        verify,
+    )
 }
 
 #[cfg(all(test, windows))]

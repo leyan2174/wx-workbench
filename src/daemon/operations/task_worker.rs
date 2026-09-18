@@ -188,9 +188,8 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
                         .into(),
                 ),
                 None,
-                None,
                 false,
-                Some(stored),
+                stored,
             )?;
             crate::service::worker_keys::verify_image_revision(runtime)
         }

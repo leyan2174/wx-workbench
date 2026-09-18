@@ -15,9 +15,11 @@ use crate::adapters::wechat::moments::decode::{decode_content, Content};
 use crate::adapters::wechat::moments::legacy::parse_timeline;
 pub use crate::adapters::wechat::moments::legacy::TimeZone;
 use crate::adapters::wechat::moments::legacy::{timestamp_filename, Post};
+#[cfg(test)]
+pub(crate) use export::export_database_with_media;
 pub(crate) use export::{
-    export_database_with_media, export_database_with_publication, DownloadOptions,
-    TimelinePublication,
+    export_database_verified, export_database_with_publication, DownloadOptions,
+    TimelinePublication, VerifiedPublication,
 };
 pub use export::{CacheRecovery, ExportOptions};
 

@@ -512,6 +512,16 @@ pub fn build_cache_index(
     build_index(roots, Some(keys), limits)
 }
 
+/// Offline hosts pin and authorize the actual candidate before any format inspection.
+pub(crate) fn build_cache_index_checked(
+    roots: &CacheRoots,
+    keys: &CacheKeys,
+    limits: CacheLimits,
+    before_read: &mut dyn FnMut(&Path, &Path, bool) -> Result<()>,
+) -> Result<CacheIndex> {
+    build_index_checked(roots, Some(keys), limits, before_read)
+}
+
 /// 只索引显式 xwechat 根下的视频缓存，不遍历或解密图片，不需要图片密钥。
 /// 根目录、扫描限额及视频候选规则与 build_cache_index 一致。
 pub fn build_video_cache_index(root: &Path, limits: CacheLimits) -> Result<CacheIndex> {
@@ -529,6 +539,15 @@ pub(crate) fn build_index(
     roots: &CacheRoots,
     keys: Option<&CacheKeys>,
     limits: CacheLimits,
+) -> Result<CacheIndex> {
+    build_index_checked(roots, keys, limits, &mut |_, _, _| Ok(()))
+}
+
+fn build_index_checked(
+    roots: &CacheRoots,
+    keys: Option<&CacheKeys>,
+    limits: CacheLimits,
+    before_read: &mut dyn FnMut(&Path, &Path, bool) -> Result<()>,
 ) -> Result<CacheIndex> {
     let xwechat = roots.xwechat.as_deref().map(canonical_root).transpose()?;
     let legacy = if keys.is_some() {
@@ -558,12 +577,14 @@ pub(crate) fn build_index(
             if let Some(keys) = keys {
                 for shard in children(&sns.join("Img"), true, &mut index.warnings) {
                     for path in children(&shard, false, &mut index.warnings) {
+                        before_read(&root, &path, true)?;
                         add_image(&mut index, path, keys)?;
                     }
                 }
             }
             for shard in children(&sns.join("Video"), true, &mut index.warnings) {
                 for path in children(&shard, false, &mut index.warnings) {
+                    before_read(&root, &path, false)?;
                     add_video(&mut index, path)?;
                 }
             }
@@ -578,6 +599,7 @@ pub(crate) fn build_index(
                 {
                     continue;
                 }
+                before_read(&root, &path, true)?;
                 add_image(&mut index, path, keys)?;
             }
         }

@@ -61,6 +61,8 @@
 
 持久任务当前注册十一种公开 kind：wechat_keys、wechat_decrypt、image_key、export_all、export_history、export_voices、chat_plan、chat_plan_review、chat_plan_apply、decode_images、sns_decrypt。任务管理的 list/get/cancel/events 和受控 submit 是执行方式，不是所有业务的替代接口。MCP 任务默认关闭，宿主授权与模型请求不能互相替代。详见[任务服务](daemon-tasks.md)。
 
+图片材料的受保护导入仅由宿主 `wx keys import-image --stdin` 发起，可用 `--sample-root` 指定外部离线 DAT 样本根；不是新的任务 kind，也不向模型/MCP/HTTP 开放。旧 DecodeCache AES argv、SNS/MCP image-key-file 入口明确拒绝，XOR 格式参数及独立视频材料保留。命令选项、封包与未知结果边界见[请求契约](request-contracts.md)。
+
 原始 SILK 与证据交付边界保持不变。语音识别、音频转码、模型管理与转录回写已经移除，不是待补缺口；语音目录也不承诺 SILK 能在浏览器原生播放。
 
 ## 源码依据与验收层次

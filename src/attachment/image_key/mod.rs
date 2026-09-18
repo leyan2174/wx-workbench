@@ -243,6 +243,22 @@ pub(super) fn find_templates_bounded(
     max_files: usize,
     budget: &mut ExtractionBudget,
 ) -> Result<Vec<[u8; 16]>> {
+    find_templates_pinned(
+        attach_dir,
+        max_templates,
+        max_files,
+        budget,
+        &mut Vec::new(),
+    )
+}
+
+fn find_templates_pinned(
+    attach_dir: &Path,
+    max_templates: usize,
+    max_files: usize,
+    budget: &mut ExtractionBudget,
+    pins: &mut Vec<crate::attachment::local_files::Pin>,
+) -> Result<Vec<[u8; 16]>> {
     ensure!(max_templates > 0 && max_files > 0, "模板采样数量必须大于零");
     if missing_directory(attach_dir, budget)? {
         return Ok(Vec::new());
@@ -254,6 +270,7 @@ pub(super) fn find_templates_bounded(
         max_templates,
         &mut files_left,
         budget,
+        pins,
     )?;
     if out.is_empty() {
         out = collect_templates_with_suffix(
@@ -262,9 +279,142 @@ pub(super) fn find_templates_bounded(
             max_templates,
             &mut files_left,
             budget,
+            pins,
         )?;
     }
     Ok(out)
+}
+
+/// Format evidence under a host-fixed root, not cryptographic account provenance.
+pub(crate) struct VerifiedImageSamples {
+    root: crate::attachment::local_files::HostOutputGuard,
+    parents: Vec<crate::attachment::local_files::HostOutputGuard>,
+    pins: Vec<crate::attachment::local_files::Pin>,
+}
+impl VerifiedImageSamples {
+    pub(crate) fn verify(&self) -> Result<()> {
+        self.root.verify()?;
+        for parent in &self.parents {
+            parent.verify()?;
+        }
+        for pin in &self.pins {
+            pin.verify()?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn validate_material_for_image_root(
+    root: &Path,
+    aes_key: &[u8; 16],
+    timeout: Duration,
+    max_bytes: u64,
+) -> Result<VerifiedImageSamples> {
+    let mut budget = ExtractionBudget::new(timeout, max_bytes)?;
+    let guard = crate::attachment::local_files::HostOutputGuard::new(root)?;
+    let mut pins = Vec::new();
+    let mut templates = find_templates_pinned(root, 3, 4096, &mut budget, &mut pins)?;
+    // Offline SNS caches also contain extensionless V2 files. Keep acquisition unchanged.
+    if templates.is_empty() {
+        templates = collect_templates_with_suffix(root, "", 3, &mut 4096, &mut budget, &mut pins)?;
+    }
+    ensure!(
+        !templates.is_empty(),
+        "No image material verification sample"
+    );
+    ensure!(
+        verify_aes_key(aes_key, &templates),
+        "Image material sample verification failed"
+    );
+    let parents = pins
+        .iter()
+        .map(|pin| {
+            crate::attachment::local_files::HostOutputGuard::new(
+                pin.path.parent().context("Missing image parent")?,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let verified = VerifiedImageSamples {
+        root: guard,
+        parents,
+        pins,
+    };
+    verified.verify()?;
+    budget.check()?;
+    Ok(verified)
+}
+
+/// Revalidate one actual offline candidate without imposing DAT filename conventions.
+pub(crate) fn validate_material_for_image_source(
+    root: &Path,
+    path: &Path,
+    aes_key: &[u8; 16],
+    timeout: Duration,
+    max_bytes: u64,
+) -> Result<VerifiedImageSamples> {
+    ensure!(
+        root.is_absolute()
+            && path.is_absolute()
+            && !path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            && path.strip_prefix(root).is_ok(),
+        "Image sample escaped fixed root"
+    );
+    let mut budget = ExtractionBudget::new(timeout, max_bytes)?;
+    let guard = crate::attachment::local_files::HostOutputGuard::new(root)?;
+    let parent = crate::attachment::local_files::HostOutputGuard::new(
+        path.parent().context("Missing image parent")?,
+    )?;
+    let (bytes, _, pin) = read_sample_pinned(path, 31, false, &mut budget)?;
+    ensure!(
+        bytes.len() >= 31 && bytes.starts_with(&V2_MAGIC),
+        "No V2 image sample"
+    );
+    let template: [u8; 16] = bytes[15..31].try_into()?;
+    ensure!(
+        verify_aes_key(aes_key, &[template]),
+        "Image material sample verification failed"
+    );
+    let verified = VerifiedImageSamples {
+        root: guard,
+        parents: vec![parent],
+        pins: vec![pin],
+    };
+    verified.verify()?;
+    budget.check()?;
+    Ok(verified)
+}
+
+/// Identity sealed by the host and rechecked by the import worker, with no material in it.
+pub(crate) fn pin_image_root(
+    root: &Path,
+) -> Result<(crate::attachment::local_files::HostOutputGuard, String)> {
+    use ::windows::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION},
+    };
+    use sha2::{Digest, Sha256};
+    use std::os::windows::io::AsRawHandle;
+    let guard = crate::attachment::local_files::HostOutputGuard::new(root)?;
+    let pin = crate::attachment::local_files::Pin::open(root, true)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    unsafe {
+        GetFileInformationByHandle(HANDLE(pin.file.as_raw_handle()), &mut info)?;
+    }
+    let mut hash = Sha256::new();
+    for word in [
+        info.dwVolumeSerialNumber,
+        info.nFileIndexHigh,
+        info.nFileIndexLow,
+        info.ftCreationTime.dwHighDateTime,
+        info.ftCreationTime.dwLowDateTime,
+    ] {
+        hash.update(word.to_le_bytes());
+    }
+    pin.verify()?;
+    guard.verify()?;
+    Ok((guard, format!("{:x}", hash.finalize())))
 }
 
 pub(crate) fn derive_xor_key_from_v2_dat(
@@ -365,6 +515,7 @@ fn collect_templates_with_suffix(
     max_templates: usize,
     files_left: &mut usize,
     budget: &mut ExtractionBudget,
+    pins: &mut Vec<crate::attachment::local_files::Pin>,
 ) -> Result<Vec<[u8; 16]>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -378,10 +529,11 @@ fn collect_templates_with_suffix(
         *files_left = files_left
             .checked_sub(1)
             .context("V2 模板文件采样预算耗尽，未交付截断结果")?;
-        let (bytes, _) = read_sample(path, 31, false, budget)?;
+        let (bytes, _, pin) = read_sample_pinned(path, 31, false, budget)?;
         if bytes.len() >= 0x1F && bytes.starts_with(&V2_MAGIC) {
             let template: [u8; 16] = bytes[0x0F..0x1F].try_into().unwrap();
             if seen.insert(template) {
+                pins.push(pin);
                 out.push(template);
                 if out.len() >= max_templates {
                     return Ok(true);
@@ -428,6 +580,20 @@ fn read_sample(
     with_tail: bool,
     budget: &mut ExtractionBudget,
 ) -> Result<(Zeroizing<Vec<u8>>, Option<u8>)> {
+    let (bytes, tail, _pin) = read_sample_pinned(path, prefix_len, with_tail, budget)?;
+    Ok((bytes, tail))
+}
+
+fn read_sample_pinned(
+    path: &Path,
+    prefix_len: usize,
+    with_tail: bool,
+    budget: &mut ExtractionBudget,
+) -> Result<(
+    Zeroizing<Vec<u8>>,
+    Option<u8>,
+    crate::attachment::local_files::Pin,
+)> {
     budget.check()?;
     let pin = crate::attachment::local_files::Pin::open(path, false)?;
     let len = pin.file.metadata()?.len();
@@ -448,7 +614,7 @@ fn read_sample(
     };
     pin.verify()?;
     budget.check()?;
-    Ok((prefix, last))
+    Ok((prefix, last, pin))
 }
 
 fn visit_files<F>(dir: &Path, budget: &mut ExtractionBudget, f: &mut F) -> Result<bool>
@@ -521,6 +687,94 @@ fn regex32() -> &'static Regex {
 #[cfg(test)]
 mod tests {
     use super::{ascii_alnum_candidates, normalize_wxid, same_wxid};
+
+    fn image_sample(path: &std::path::Path, key: &[u8; 16]) {
+        use aes::cipher::{BlockEncrypt, KeyInit};
+        let mut bytes = vec![0; 31];
+        bytes[..6].copy_from_slice(&super::V2_MAGIC);
+        let mut block = aes::cipher::generic_array::GenericArray::clone_from_slice(
+            b"\x89PNG\r\n\x1a\n12345678",
+        );
+        aes::Aes128::new(key.into()).encrypt_block(&mut block);
+        bytes[15..31].copy_from_slice(&block);
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn explicit_image_source_validates_extensionless_samples_and_holds_identity() {
+        use super::*;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("without-extension");
+        let key = *b"syntheticAESkey1";
+        image_sample(&path, &key);
+        let verified = validate_material_for_image_source(
+            root.path(),
+            &path,
+            &key,
+            Duration::from_secs(5),
+            31,
+        )
+        .unwrap();
+        verified.verify().unwrap();
+        assert!(fs::remove_file(&path).is_err());
+        assert!(fs::write(&path, b"replacement").is_err());
+        assert!(validate_material_for_image_source(
+            root.path(),
+            &path,
+            &[0; 16],
+            Duration::from_secs(5),
+            31
+        )
+        .is_err());
+        assert!(validate_material_for_image_source(
+            root.path(),
+            &path,
+            &key,
+            Duration::from_secs(5),
+            30
+        )
+        .is_err());
+        assert!(
+            validate_material_for_image_source(root.path(), &path, &key, Duration::ZERO, 31)
+                .is_err()
+        );
+        drop(verified);
+        let root_verified =
+            validate_material_for_image_root(root.path(), &key, Duration::from_secs(5), 1024)
+                .unwrap();
+        root_verified.verify().unwrap();
+        drop(root_verified);
+        fs::remove_file(&path).unwrap();
+        assert!(
+            validate_material_for_image_root(root.path(), &key, Duration::from_secs(5), 1024)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn image_root_identity_changes_on_replacement_and_candidate_cannot_escape() {
+        use super::*;
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("samples");
+        fs::create_dir(&root).unwrap();
+        let (guard, identity) = pin_image_root(&root).unwrap();
+        assert!(fs::rename(&root, base.path().join("held")).is_err());
+        drop(guard);
+        fs::rename(&root, base.path().join("old")).unwrap();
+        fs::create_dir(&root).unwrap();
+        let (_guard, new_identity) = pin_image_root(&root).unwrap();
+        assert_ne!(identity, new_identity);
+        let outside = base.path().join("outside");
+        image_sample(&outside, b"syntheticAESkey1");
+        assert!(validate_material_for_image_source(
+            &root,
+            &outside,
+            b"syntheticAESkey1",
+            Duration::from_secs(5),
+            1024
+        )
+        .is_err());
+    }
 
     #[test]
     fn regex_candidates_respect_boundaries() {

@@ -11,6 +11,13 @@ const CHAT: &str = "synthetic_peer";
 mod real_cache_audit;
 mod publish_probe_audit;
 
+fn legacy_key_request(path: &Path) -> serde_json::Result<mcp_image_security::ipc::Request> {
+    serde_json::from_value(serde_json::json!({
+        "cmd": "decode_image", "chat": CHAT, "local_id": 42,
+        "image_key_file": path,
+    }))
+}
+
 #[tokio::test]
 async fn guard_directory_swap_must_not_publish_into_previously_protected_root() {
     use std::sync::Arc;
@@ -24,7 +31,7 @@ async fn guard_directory_swap_must_not_publish_into_previously_protected_root() 
     let entered=Arc::new(tokio::sync::Notify::new()); let release=Arc::new(tokio::sync::Notify::new());
     *f.db.1.lock().unwrap()=Some((entered.clone(),release.clone()));
     let task_f=f.clone();
-    let task=tokio::spawn(async move { mcp_image::q_decode_image_with_key_file(&task_f.db,&task_f.names,CHAT,42,100,&task_f.output,None).await });
+    let task=tokio::spawn(async move { mcp_image::q_decode_image_for_host(&task_f.db,&task_f.names,CHAT,42,100,&task_f.output).await });
     tokio::time::timeout(std::time::Duration::from_secs(5),entered.notified()).await.unwrap();
     fs::rename(&f.output,f.root.path().join("original-output")).expect("reproduce actual output directory rename");
     fs::rename(&protected,&f.output).expect("reproduce actual protected directory relocation");
@@ -68,18 +75,9 @@ async fn all_legacy_key_json_is_rejected_before_database_access() {
         let f = Account::new(b'A');
         let key = f.root.path().join("json-key.json");
         fs::write(&key, json).unwrap();
-        let result = mcp_image::q_decode_image_with_key_file(
-            &f.db,
-            &f.names,
-            CHAT,
-            42,
-            100,
-            &f.output,
-            Some(&key),
-        )
-        .await;
+        let result = legacy_key_request(&key);
         let error = format!("{:#}", result.expect_err(json));
-        assert_eq!(error, "Legacy plaintext image key files are unsupported");
+        assert!(error.contains("unknown field `image_key_file`"));
         assert!(!error.contains("SYNTHETIC_SECRET"));
         assert!(f.db.requests.lock().unwrap().is_empty(), "{json}");
         f.empty();
@@ -96,18 +94,8 @@ async fn all_legacy_key_json_is_rejected_before_database_access() {
         let mut bytes = json.as_bytes().to_vec();
         bytes.resize(4096, b' ');
         fs::write(&key, &bytes).unwrap();
-        let result = mcp_image::q_decode_image_with_key_file(
-            &f.db,
-            &f.names,
-            CHAT,
-            42,
-            100,
-            &f.output,
-            Some(&key),
-        )
-        .await
-        .unwrap_err();
-        assert_eq!(result.to_string(), "Legacy plaintext image key files are unsupported");
+        let result = legacy_key_request(&key).unwrap_err();
+        assert!(result.to_string().contains("unknown field `image_key_file`"));
         assert!(f.db.requests.lock().unwrap().is_empty());
         f.empty();
         assert_eq!(fs::read(key).unwrap(), bytes);
@@ -178,7 +166,7 @@ async fn actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback(
         fs::copy(&f.dat,f.dat.with_file_name(format!("{HASH}{suffix}"))).unwrap();
     }
     let value =
-        mcp_image::q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 100, &f.output, None)
+        mcp_image::q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 100, &f.output)
             .await
             .unwrap();
     let wire = format!("{}\n", serde_json::json!({"version":3,"runtime_id":"synthetic-image",
@@ -194,7 +182,7 @@ async fn actual_ipc_reader_failure_after_publication_has_no_receipt_or_rollback(
     assert!(result.is_err());
     assert_eq!(fs::read(f.destination()).unwrap(), f.plain);
     let retry =
-        mcp_image::q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 100, &f.output, None)
+        mcp_image::q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 100, &f.output)
             .await;
     assert!(retry.is_err());
 }
@@ -256,6 +244,18 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         }
         println!("COMMAND: {command:?}");
         let mut child = command.spawn().unwrap();
+        if mode == "legacy-key" {
+            drop(child.stdin.take());
+            let output = child.wait_with_output().unwrap();
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            assert!(!capture.exists());
+            let stderr = String::from_utf8(output.stderr).unwrap();
+            assert!(stderr.contains("--image-key-file"));
+            assert!(!stderr.contains("SYNTHETIC_SECRET"));
+            assert!(!stderr.contains("AUDIT_RUNTIME_REACHED"));
+            continue;
+        }
         child
             .stdin
             .take()
@@ -270,7 +270,7 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
         assert!(!stderr.contains("SYNTHETIC_SECRET"));
         let reply: serde_json::Value =
             serde_json::from_str(stdout.lines().last().unwrap()).unwrap();
-        if matches!(mode, "unconfigured" | "legacy-key" | "client-path") {
+        if matches!(mode, "unconfigured" | "client-path") {
             assert!(!capture.exists());
             assert!(!stderr.contains("AUDIT_RUNTIME_REACHED"));
             assert!(reply.get("error").is_some() || reply["result"]["isError"] == true);
@@ -287,7 +287,7 @@ fn host_policy_schema_injection_and_secret_error_boundary() {
             assert_eq!(request["cmd"], "decode_image");
             assert_eq!(request["chat"], CHAT);
             assert_eq!(request["output_root"], output_root.to_str().unwrap());
-            assert!(request["image_key_file"].is_null());
+            assert!(request.get("image_key_file").is_none());
             if mode == "secret-error" {
                 assert_eq!(reply["result"]["isError"], true);
                 assert_eq!(reply["result"]["content"][0]["text"], "Query failed");
@@ -391,16 +391,15 @@ async fn v2_correct_material_only_and_wrong_or_missing_material_never_publishes(
 }
 
 #[tokio::test]
-async fn key_file_unconfigured_output_does_not_read_cache_or_secret() {
+async fn unconfigured_output_does_not_read_cache() {
     let f = Account::new(b'A');
-    let result = mcp_image::q_decode_image_with_key_file(
+    let result = mcp_image::q_decode_image_for_host(
         &f.db,
         &f.names,
         CHAT,
         42,
         100,
         Path::new(""),
-        Some(Path::new("SECRET_NOT_A_REAL_KEY_FILE")),
     )
     .await;
     let error = result.unwrap_err().to_string();
@@ -438,16 +437,7 @@ async fn key_file_errors_are_bounded_redacted_and_precede_database_access() {
         } else {
             &key
         };
-        let result = mcp_image::q_decode_image_with_key_file(
-            &f.db,
-            &f.names,
-            CHAT,
-            42,
-            100,
-            &f.output,
-            Some(path),
-        )
-        .await;
+        let result = legacy_key_request(path);
         let error = format!("{:#}", result.unwrap_err());
         println!("KEY MODE {mode}: {error}");
         assert!(!error.contains("SECRET") && !error.contains("secret.json"));
@@ -471,7 +461,7 @@ async fn host_output_cannot_overlap_source_or_decrypted_directories() {
     ] {
         fs::create_dir_all(&output).unwrap();
         let result =
-            mcp_image::q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 100, &output, None)
+            mcp_image::q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 100, &output)
                 .await;
         assert!(result.is_err(), "{}: {result:?}", output.display());
         assert!(f.db.requests.lock().unwrap().is_empty());
@@ -558,14 +548,13 @@ impl Account {
         }
     }
     async fn query(&self, output: &Path) -> anyhow::Result<serde_json::Value> {
-        mcp_image::q_decode_image_with_key_file(
+        mcp_image::q_decode_image_for_host(
             &self.db,
             &self.names,
             CHAT,
             42,
             100,
             output,
-            None,
         )
         .await
     }

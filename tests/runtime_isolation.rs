@@ -124,7 +124,7 @@ fn success(output: Output) -> String {
 
 #[test]
 fn media_image_decode_cache_is_native_and_validates_arguments_without_python() {
-    let fixture = Fixture::new();
+    let mut fixture = Fixture::new();
     let profile = fixture.root.join("unconfigured");
     let input = fixture.root.join("images");
     let output = fixture.root.join("decoded");
@@ -135,6 +135,24 @@ fn media_image_decode_cache_is_native_and_validates_arguments_without_python() {
         plain.iter().map(|b| b ^ 0x37).collect::<Vec<_>>(),
     )
     .unwrap();
+    let refused = fixture.run(
+        &profile,
+        &[
+            "media",
+            "image",
+            "decode-cache",
+            "--attach-dir",
+            input.to_str().unwrap(),
+            "--decoded-dir",
+            output.to_str().unwrap(),
+        ],
+    );
+    assert!(!refused.status.success());
+    assert!(!output.exists());
+    assert!(!profile.join("config.json").exists());
+
+    let profile = fixture.account("image-owner", true);
+    key_store_fixture::seed_image(&profile.join("config.json"), b"1234567890abcdef", 0x37);
     success(fixture.run(
         &profile,
         &[
@@ -350,8 +368,8 @@ fn native_batch_export_keeps_exact_identities_and_legacy_content_omissions() {
 
 #[test]
 fn sns_native_cli_exports_offline_and_preserves_existing_results() {
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
+    let mut fixture = Fixture::new();
+    let profile = fixture.account("sns-offline-owner", true);
     let source = fixture.root.join("source");
     fs::create_dir(&source).unwrap();
     let database = source.join("sns.db");
@@ -393,8 +411,9 @@ fn sns_native_cli_exports_offline_and_preserves_existing_results() {
 #[test]
 fn sns_cache_cli_publishes_consistent_media_references() {
     use base64::Engine;
-    let fixture = Fixture::new();
-    let profile = fixture.root.join("unconfigured");
+    let mut fixture = Fixture::new();
+    let profile = fixture.account("sns-cache-owner", true);
+    key_store_fixture::seed_image(&profile.join("config.json"), b"1234567890abcdef", 0x37);
     let source = fixture.root.join("source");
     fs::create_dir(&source).unwrap();
     let database = source.join("sns.db");

@@ -9,13 +9,16 @@ use crate::{
     attachment::local_files::{HostOutputGuard, Pin},
     runtime::RuntimeContext,
 };
-use anyhow::{ensure, Context, Result};
+#[cfg(test)]
+use anyhow::ensure;
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
 pub(crate) fn parse_aes(value: &str) -> Result<[u8; 16]> {
     ensure!(
         value.is_ascii() && value.len() >= 16,
@@ -34,34 +37,52 @@ pub(crate) fn parse_xor(value: &str) -> Result<u8> {
         Ok(value.parse().context("Invalid XOR key")?)
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct StoredImageKeys {
-    pub aes: Option<[u8; 16]>,
-    pub xor: u8,
+    aes: Option<[u8; 16]>,
+    xor: u8,
+    verify: Box<dyn Fn() -> Result<()>>,
 }
 
-fn image_keys(
-    aes: Option<String>,
-    xor: Option<String>,
-    stored: Option<StoredImageKeys>,
-) -> Result<(Option<[u8; 16]>, u8)> {
-    let aes = aes.as_deref().map(parse_aes).transpose()?;
+impl StoredImageKeys {
+    pub(crate) fn new(
+        aes: Option<[u8; 16]>,
+        xor: u8,
+        verify: impl Fn() -> Result<()> + 'static,
+    ) -> Self {
+        Self {
+            aes,
+            xor,
+            verify: Box::new(verify),
+        }
+    }
+}
+
+impl std::fmt::Debug for StoredImageKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredImageKeys").finish_non_exhaustive()
+    }
+}
+
+impl Drop for StoredImageKeys {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.aes);
+        zeroize::Zeroize::zeroize(&mut self.xor);
+    }
+}
+
+fn image_keys(xor: Option<String>, stored: &StoredImageKeys) -> Result<(Option<[u8; 16]>, u8)> {
+    (stored.verify)()?;
     let xor = xor.as_deref().map(parse_xor).transpose()?;
-    let stored = stored.unwrap_or(StoredImageKeys {
-        aes: None,
-        xor: 0x88,
-    });
-    Ok((aes.or(stored.aes), xor.unwrap_or(stored.xor)))
+    Ok((stored.aes, xor.unwrap_or(stored.xor)))
 }
 
 fn image_keys_scoped(
     scope: &ImageScope,
-    aes: Option<String>,
     xor: Option<String>,
-    stored: Option<StoredImageKeys>,
+    stored: &StoredImageKeys,
 ) -> Result<(Option<[u8; 16]>, u8)> {
     scope.verify()?;
-    let keys = image_keys(aes, xor, stored)?;
+    let keys = image_keys(xor, stored)?;
     scope.verify()?;
     Ok(keys)
 }
@@ -79,6 +100,7 @@ fn publish(
     root: &Path,
     target: &Path,
     bytes: &[u8],
+    verify_material: &dyn Fn() -> Result<()>,
 ) -> Result<()> {
     scope.verify()?;
     input.verify()?;
@@ -88,6 +110,7 @@ fn publish(
         #[cfg(test)]
         publication_probe();
         scope.verify()?;
+        verify_material()?;
         input.verify()
     })
 }
@@ -136,7 +159,7 @@ fn decode_image_scoped(
     if let Some(output) = &output {
         validate_export_paths(Path::new(output), &scope.protected(&input)?)?;
     }
-    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, None, Some(stored))?);
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, &stored)?);
     let (source, bytes) = ImageInput::read(&input)?;
     let Decoded::Image(decoded) = image_batch::decode(
         &bytes,
@@ -153,7 +176,14 @@ fn decode_image_scoped(
         Some(path) => PathBuf::from(path),
         None => image_batch::single_output(&input, decoded.format)?,
     };
-    publish(scope, &source, &input, &output, &decoded.data)?;
+    publish(
+        scope,
+        &source,
+        &input,
+        &output,
+        &decoded.data,
+        &stored.verify,
+    )?;
     println!(
         "{}",
         serde_json::json!({"output":output,"format":decoded.format,"bytes":decoded.data.len(),"engine":"rust"})
@@ -166,36 +196,14 @@ pub(crate) fn decode_images_for(
     runtime: &RuntimeContext,
     input: Option<String>,
     output: Option<String>,
-    aes: Option<String>,
     xor: Option<String>,
     force: bool,
-    stored: Option<StoredImageKeys>,
+    stored: StoredImageKeys,
 ) -> Result<()> {
     decode_images_scoped(
         &ImageScope::for_runtime(runtime)?,
         input,
         output,
-        aes,
-        xor,
-        force,
-        stored,
-    )
-}
-
-/// Foreground offline decoding pins either the selected account or the absence of configuration.
-pub(crate) fn decode_images_current(
-    input: Option<String>,
-    output: Option<String>,
-    aes: Option<String>,
-    xor: Option<String>,
-    force: bool,
-    stored: Option<StoredImageKeys>,
-) -> Result<()> {
-    decode_images_scoped(
-        &ImageScope::current()?,
-        input,
-        output,
-        aes,
         xor,
         force,
         stored,
@@ -206,11 +214,11 @@ fn decode_images_scoped(
     scope: &ImageScope,
     input: Option<String>,
     output: Option<String>,
-    aes: Option<String>,
     xor: Option<String>,
     force: bool,
-    stored: Option<StoredImageKeys>,
+    stored: StoredImageKeys,
 ) -> Result<()> {
+    scope.runtime()?;
     let input = match input {
         Some(path) => PathBuf::from(path),
         None => image_batch::default_input(&scope.runtime()?.config.db_dir)?,
@@ -231,15 +239,18 @@ fn decode_images_scoped(
                 )
         }
     };
-    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, aes, xor, stored)?);
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, xor, &stored)?);
     batch_scoped(
         scope,
         &input,
         &output,
-        material.0.as_ref(),
-        material.1,
+        KeyMaterial {
+            aes_key: material.0.as_ref(),
+            xor_key: material.1,
+        },
         force,
         Layout::Album,
+        &stored.verify,
     )?
     .finish()
 }
@@ -260,7 +271,7 @@ fn batch_images_scoped(
     stored: StoredImageKeys,
 ) -> Result<()> {
     scope.runtime()?;
-    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, None, Some(stored))?);
+    let material = zeroize::Zeroizing::new(image_keys_scoped(scope, None, &stored)?);
     let output = output.map(PathBuf::from).unwrap_or_else(|| {
         PathBuf::from(format!("{}_decoded", input.trim_end_matches(['\\', '/'])))
     });
@@ -268,10 +279,13 @@ fn batch_images_scoped(
         scope,
         Path::new(&input),
         &output,
-        material.0.as_ref(),
-        material.1,
+        KeyMaterial {
+            aes_key: material.0.as_ref(),
+            xor_key: material.1,
+        },
         false,
         Layout::Mirror,
+        &stored.verify,
     )?
     .finish()
 }
@@ -301,10 +315,10 @@ fn batch_scoped(
     scope: &ImageScope,
     input: &Path,
     output: &Path,
-    aes: Option<&[u8; 16]>,
-    xor: u8,
+    material: KeyMaterial<'_>,
     force: bool,
     layout: Layout,
+    verify_material: &dyn Fn() -> Result<()>,
 ) -> Result<Report> {
     enum Outcome {
         Written(&'static str),
@@ -334,8 +348,8 @@ fn batch_scoped(
             let decoded = match image_batch::decode(
                 &bytes,
                 KeyMaterial {
-                    aes_key: aes,
-                    xor_key: xor,
+                    aes_key: material.aes_key,
+                    xor_key: material.xor_key,
                 },
                 DecodeMode::Batch,
             )? {
@@ -343,7 +357,14 @@ fn batch_scoped(
                 Decoded::Image(image) => image,
             };
             let target = image_batch::with_format(&target, decoded.format);
-            publish(scope, &source, &input, &target, &decoded.data)?;
+            publish(
+                scope,
+                &source,
+                &input,
+                &target,
+                &decoded.data,
+                verify_material,
+            )?;
             Ok(Outcome::Written(decoded.format))
         })();
         match result {
@@ -392,14 +413,17 @@ pub(super) fn batch(
         &scope,
         input,
         output,
-        aes,
-        xor,
+        KeyMaterial {
+            aes_key: aes,
+            xor_key: xor,
+        },
         force,
         if album_layout {
             Layout::Album
         } else {
             Layout::Mirror
         },
+        &|| Ok(()),
     )
 }
 
@@ -493,10 +517,7 @@ mod publication_tests {
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nsynthetic publication image";
 
     fn stored() -> StoredImageKeys {
-        StoredImageKeys {
-            aes: Some(*b"syntheticAESkey1"),
-            xor: 0x88,
-        }
+        StoredImageKeys::new(Some(*b"syntheticAESkey1"), 0x88, || Ok(()))
     }
 
     fn put(path: &Path) {
@@ -548,6 +569,108 @@ mod publication_tests {
             *hook.borrow_mut() = Some(Box::new(callback));
         });
         ProbeReset
+    }
+
+    #[test]
+    fn material_change_after_decode_cannot_replace_existing_output() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("source.dat");
+        let output = root.path().join("image.png");
+        put(&input);
+        fs::write(&output, b"previous export").unwrap();
+        let store = Store::for_config(&runtime.config).unwrap();
+        let material = StoredImageKeys::new(None, 0x88, move || {
+            ensure!(
+                store.load()?.revision() == 1,
+                "Image material revision changed"
+            );
+            Ok(())
+        });
+        let config = runtime.config.clone();
+        let _probe = probe(move || {
+            Store::for_config(&config)
+                .unwrap()
+                .update(
+                    Some(1),
+                    &[Update::Image(
+                        b"syntheticAESkey2",
+                        0x88,
+                        Verification::Verified,
+                    )],
+                )
+                .unwrap();
+        });
+        let error = decode_image_for(
+            &runtime,
+            input.to_string_lossy().into_owned(),
+            Some(output.to_string_lossy().into_owned()),
+            material,
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("revision changed"));
+        assert_eq!(fs::read(output).unwrap(), b"previous export");
+    }
+
+    #[test]
+    fn batch_revision_change_preserves_completed_prefix_and_unpublished_target() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("input");
+        let output = root.path().join("output");
+        put(&input.join("a.dat"));
+        put(&input.join("b.dat"));
+        fs::create_dir_all(&output).unwrap();
+        fs::write(output.join("a.png"), b"previous export").unwrap();
+        fs::write(output.join("b.png"), b"previous export").unwrap();
+        let store = Store::for_config(&runtime.config).unwrap();
+        let publishes = std::cell::Cell::new(0);
+        let verify = || {
+            publishes.set(publishes.get() + 1);
+            if publishes.get() == 2 {
+                store.update(
+                    Some(1),
+                    &[Update::Image(
+                        b"syntheticAESkey2",
+                        0x88,
+                        Verification::Verified,
+                    )],
+                )?;
+            }
+            ensure!(
+                store.load()?.revision() == 1,
+                "Image material revision changed"
+            );
+            Ok(())
+        };
+        let report = batch_scoped(
+            &ImageScope::for_runtime(&runtime).unwrap(),
+            &input,
+            &output,
+            KeyMaterial {
+                aes_key: None,
+                xor_key: 0x88,
+            },
+            true,
+            Layout::Mirror,
+            &verify,
+        )
+        .unwrap();
+        assert_eq!(report.written, 1);
+        assert_eq!(report.failures.len(), 1);
+        let bytes = [
+            fs::read(output.join("a.png")).unwrap(),
+            fs::read(output.join("b.png")).unwrap(),
+        ];
+        assert_eq!(
+            bytes.iter().filter(|bytes| bytes.as_slice() == PNG).count(),
+            1
+        );
+        assert_eq!(
+            bytes
+                .iter()
+                .filter(|bytes| bytes.as_slice() == b"previous export")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -604,25 +727,18 @@ mod publication_tests {
                 Some(source.clone()),
                 Some(target.clone()),
                 None,
-                None,
                 true,
-                Some(stored()),
+                stored(),
             )
             .is_err());
             assert!(
                 batch_images_scoped(&scope, source.clone(), Some(target.clone()), stored())
                     .is_err()
             );
-            assert!(decode_images_for(
-                &runtime,
-                Some(source),
-                Some(target),
-                None,
-                None,
-                true,
-                Some(stored())
-            )
-            .is_err());
+            assert!(
+                decode_images_for(&runtime, Some(source), Some(target), None, true, stored())
+                    .is_err()
+            );
         }
         assert_eq!(
             fs::read(&runtime.config.keys_file).unwrap(),
@@ -659,7 +775,7 @@ mod publication_tests {
         );
         let album = image_batch::default_input(&runtime.config.db_dir).unwrap();
         put(&album.join("peer/2026-09/Img/photo_t.dat"));
-        decode_images_for(&runtime, None, None, None, None, false, Some(stored())).unwrap();
+        decode_images_for(&runtime, None, None, None, false, stored()).unwrap();
         assert_eq!(
             fs::read(root.path().join("custom-decoded/peer/2026-09/photo.png")).unwrap(),
             PNG
@@ -667,36 +783,31 @@ mod publication_tests {
     }
 
     #[test]
-    fn explicit_album_paths_and_aes_remain_usable_without_configuration() {
+    fn explicit_album_paths_require_a_fixed_account() {
         let root = tempfile::tempdir().unwrap();
         let config = root.path().join("absent.json");
         let scope = ImageScope::at(&config, root.path().join("runtime")).unwrap();
         let input = root.path().join("input");
         let output = root.path().join("output");
         put(&input.join("peer/2026-09/Img/photo.dat"));
-        decode_images_scoped(
+        assert!(decode_images_scoped(
             &scope,
             Some(input.to_string_lossy().into_owned()),
             Some(output.to_string_lossy().into_owned()),
-            Some("synthetic-key-16".into()),
             Some("0x88".into()),
             false,
-            None,
+            stored(),
         )
-        .unwrap();
-        assert_eq!(
-            fs::read(output.join("peer/2026-09/photo.png")).unwrap(),
-            PNG
-        );
+        .is_err());
+        assert!(!output.exists());
         assert!(!config.exists());
         assert!(decode_images_scoped(
             &scope,
             None,
             Some(output.to_string_lossy().into_owned()),
             None,
-            None,
             false,
-            None,
+            stored(),
         )
         .is_err());
     }
@@ -714,7 +825,19 @@ mod publication_tests {
         fs::create_dir_all(previous.parent().unwrap()).unwrap();
         fs::write(&previous, b"previous output").unwrap();
         let _probe = probe(move || fs::write(&config, b"configuration appeared").unwrap());
-        assert!(batch_scoped(&scope, &input, &output, None, 0x88, true, Layout::Album).is_err());
+        assert!(batch_scoped(
+            &scope,
+            &input,
+            &output,
+            KeyMaterial {
+                aes_key: None,
+                xor_key: 0x88
+            },
+            true,
+            Layout::Album,
+            &|| Ok(())
+        )
+        .is_err());
         assert_eq!(fs::read(&previous).unwrap(), b"previous output");
         assert_eq!(fs::read_dir(previous.parent().unwrap()).unwrap().count(), 1);
         assert!(source.exists());
@@ -766,10 +889,9 @@ mod publication_tests {
             &runtime,
             None,
             Some(output.to_string_lossy().into_owned()),
-            Some("synthetic-key-16".into()),
             Some("0x88".into()),
             false,
-            None,
+            stored(),
         )
         .is_err());
         assert!(!output.exists());
@@ -781,8 +903,8 @@ mod encrypted_image_tests {
     use super::*;
 
     #[test]
-    fn explicit_image_paths_default_without_implicit_storage() -> Result<()> {
-        let (aes, xor) = image_keys(None, None, None)?;
+    fn protected_empty_material_keeps_non_aes_formats() -> Result<()> {
+        let (aes, xor) = image_keys(None, &StoredImageKeys::new(None, 0x88, || Ok(())))?;
         assert_eq!((aes, xor), (None, 0x88));
         let plain = b"\x89PNG\r\n\x1a\nsynthetic image";
         let bytes: Vec<_> = plain.iter().map(|byte| byte ^ 0x37).collect();
@@ -809,25 +931,13 @@ mod encrypted_image_tests {
     }
 
     #[test]
-    fn explicit_values_override_only_the_supplied_stored_fields() -> Result<()> {
+    fn xor_override_preserves_protected_aes_material() -> Result<()> {
         let aes = *b"syntheticAESkey1";
-        let stored = Some(StoredImageKeys {
-            aes: Some(aes),
-            xor: 0xa2,
-        });
-        assert_eq!(image_keys(None, None, stored)?, (Some(aes), 0xa2));
-        assert_eq!(
-            image_keys(Some("explicitAESkey12".into()), None, stored)?,
-            (Some(*b"explicitAESkey12"), 0xa2)
-        );
-        assert_eq!(
-            image_keys(Some("explicitAESkey12".into()), Some("0x51".into()), stored,)?,
-            (Some(*b"explicitAESkey12"), 0x51)
-        );
-        assert_eq!(
-            image_keys(Some("explicitAESkey12".into()), None, None)?,
-            (Some(*b"explicitAESkey12"), 0x88)
-        );
+        let stored = StoredImageKeys::new(Some(aes), 0xa2, || Ok(()));
+        assert_eq!(image_keys(None, &stored)?, (Some(aes), 0xa2));
+        assert_eq!(image_keys(Some("0x51".into()), &stored)?, (Some(aes), 0x51));
+        assert!(image_keys(Some("256".into()), &stored).is_err());
+        assert!(!format!("{stored:?}").contains("synthetic"));
         Ok(())
     }
 }

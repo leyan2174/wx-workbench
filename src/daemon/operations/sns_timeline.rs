@@ -225,9 +225,22 @@ fn export_for(
     } else {
         None
     };
-    let recovery = cache
+    let config_pin = cache
         .as_ref()
-        .map(|index| sns::CacheRecovery { index, keys: &keys });
+        .map(|_| crate::service::config_pin::ConfigPin::new(runtime))
+        .transpose()?;
+    let verify = || -> Result<()> {
+        config_pin
+            .as_ref()
+            .context("SNS 图片材料配置未固定")?
+            .verify(runtime)?;
+        crate::service::worker_keys::verify_image_revision(runtime)
+    };
+    let recovery = cache.as_ref().map(|index| sns::CacheRecovery {
+        index,
+        keys: &keys,
+        verify: &verify,
+    });
     let download = remote.then(sns::DownloadOptions::default);
     let mut report = if missing {
         // Keep report fields, but an absent source is not a successful empty timeline.

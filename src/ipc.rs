@@ -6,6 +6,30 @@ pub const QUERY_VERSION: u32 = 3;
 pub const QUERY_REQUEST_LIMIT: usize = 64 * 1024;
 pub const QUERY_RESPONSE_LIMIT: usize = 32 * 1024 * 1024;
 
+// Reject legacy material fields only at the image query boundary.
+fn deserialize_decode_image<'de, D>(deserializer: D) -> Result<(String, i64, i64, String), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Fields {
+        chat: String,
+        local_id: i64,
+        #[serde(default)]
+        create_time: i64,
+        #[serde(default)]
+        output_root: String,
+    }
+    let fields = Fields::deserialize(deserializer)?;
+    Ok((
+        fields.chat,
+        fields.local_id,
+        fields.create_time,
+        fields.output_root,
+    ))
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueryHello {
@@ -126,6 +150,7 @@ pub enum Request {
         create_time: i64,
     },
     /// 图片写出由 MCP 宿主显式配置；公开工具 schema 不接受以下路径字段。
+    #[serde(deserialize_with = "deserialize_decode_image")]
     DecodeImage {
         chat: String,
         local_id: i64,
@@ -133,8 +158,6 @@ pub enum Request {
         create_time: i64,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         output_root: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        image_key_file: Option<String>,
     },
     Sessions {
         #[serde(default = "default_limit_20")]

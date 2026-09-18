@@ -56,19 +56,14 @@ mod resource_error_tests {
 }
 
 /// MCP 宿主入口：输出目录必须由宿主显式提供，不从配置或消息推断路径与密钥。
-pub async fn q_decode_image_with_key_file(
+pub async fn q_decode_image_for_host(
     db: &DbCache,
     names: &Names,
     chat: &str,
     local_id: i64,
     create_time: i64,
     output_root: &Path,
-    key_file: Option<&Path>,
 ) -> Result<Value> {
-    ensure!(
-        key_file.is_none(),
-        "Legacy plaintext image key files are unsupported"
-    );
     let guard = image_guard(db, output_root, local_id, create_time)?;
     q_decode_image_guarded(
         db,

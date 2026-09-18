@@ -1,6 +1,6 @@
 # 请求契约归属
 
-`service::operation_requests` 是操作请求的唯一 serde 定义；`service::Operation` 引用这些类型，不引用 daemon 的 Args。`service::mcp` 直接拥有 `Call` 和 `HostSettings`，不反向导出 daemon 类型。
+`service::operation_requests` 拥有业务操作请求的 serde 定义；宿主图片材料导入的受保护 envelope 契约由 `service::image_import` 拥有。`service::Operation` 引用这些 service 类型，不引用 daemon 的 Args。`service::mcp` 直接拥有 `Call` 和 `HostSettings`，不反向导出 daemon 类型。
 
 `cli::operation_args` 仅承担 clap 参数解析。CLI 解析后用显式 `From` 转成同一份 service 请求，daemon 直接消费该请求，不增加第三套执行 DTO，也不通过 JSON 往返转换。枚举转换逐项匹配，字段转换保留路径、账号标识、授权位。CLI 默认值与 serde 缺省行为是不同契约，不相互替代。
 
@@ -11,6 +11,10 @@
 - 媒体下载授权不自动补齐；MCP 主机设置仍来自宿主启动参数，不能由 tools/call 注入。
 - CLI 日期解析位于 `service::time`，使用本地时区，拒绝模糊时间，结束日期包含整天；MCP/HTTP 查询接收 Unix 秒，不套用 CLI 日期字符串语义。授权窗口和账号绑定独立校验。
 - 请求模块执行纯参数校验，不读取文件或执行工作流；这些副作用由对应执行模块负责。
+
+图片材料导入只开放宿主 CLI：`wx keys import-image --stdin [--sample-root DIR] [--no-save] [--timeout SECONDS] [--max-mib MIB]`。stdin 必须是非交互输入，严格限 4096 字节，JSON 仅接受 `aes_key`（32 位十六进制）和 `xor_key`（u8）；timeout 默认 120、范围 1..3600，max-mib 默认 4096、范围 1..32768。可选 sample-root 保留外部离线 DAT 样本验证能力，省略时使用当前账号 attach；样本目录身份绑定不等于密码学来源证明。
+
+CLI 固定一次 RuntimeContext，由 `service::image_import::seal_stdin` 读取 daemon 的非秘密 metadata，并把配置、revision、样本根身份及材料封入当前用户 DPAPI envelope，再通过同一 runtime 的 foreground 操作提交。plaintext 使用 Zeroizing；worker 材料提交 RPC 的传输结果不明映射为 `outcome_unknown`，前台 Operation 启动/轮询连接错误按原协议报告，均不自动重封新 revision。导入不向 MCP/HTTP 或模型开放。DecodeCache 的 AES argv、离线 SNS 的 image-key-file 及 MCP 的 image-key-file 已移除并明确拒绝；XOR 格式参数与独立视频材料不据此移除。图片 IPC 仅对 `DecodeImage` 严格拒绝旧字段（含 null），不改变其他 query 的 unknown-fields 语义。
 
 ## 回归与接线
 

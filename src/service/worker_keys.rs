@@ -736,6 +736,10 @@ fn request_error(error: anyhow::Error) -> anyhow::Error {
 
 pub async fn commit(runtime: &RuntimeContext, changes: Vec<MaterialChange>) -> Result<u64> {
     let (access, scope) = snapshot(runtime)?;
+    commit_access(access, scope, changes).await
+}
+
+async fn commit_access(access: Access, scope: u64, changes: Vec<MaterialChange>) -> Result<u64> {
     let image = changes.iter().rev().find_map(|change| match change {
         MaterialChange::Image { aes, xor } => Some(ImageMaterial {
             aes: *aes,
@@ -782,6 +786,38 @@ pub async fn commit(runtime: &RuntimeContext, changes: Vec<MaterialChange>) -> R
 
 pub fn commit_sync(runtime: &RuntimeContext, changes: Vec<MaterialChange>) -> Result<u64> {
     block_on(commit(runtime, changes))
+}
+
+pub(crate) fn verify_image_import_revision(
+    runtime: &RuntimeContext,
+    expected_revision: u64,
+) -> Result<()> {
+    let (access, scope) = snapshot(runtime)?;
+    ensure!(
+        access.revision == expected_revision,
+        super::protocol::ServiceError::new("conflict", "Image import material revision changed")
+    );
+    verify_image_access(&access, scope)
+}
+
+pub(crate) fn commit_image_import_sync(
+    runtime: &RuntimeContext,
+    expected_revision: u64,
+    material: &ImageMaterial,
+) -> Result<u64> {
+    let (access, scope) = snapshot(runtime)?;
+    ensure!(
+        access.revision == expected_revision,
+        super::protocol::ServiceError::new("conflict", "Image import material revision changed")
+    );
+    block_on(commit_access(
+        access,
+        scope,
+        vec![MaterialChange::Image {
+            aes: material.aes,
+            xor: material.xor,
+        }],
+    ))
 }
 
 fn block_on<T: Send>(future: impl std::future::Future<Output = Result<T>> + Send) -> Result<T> {

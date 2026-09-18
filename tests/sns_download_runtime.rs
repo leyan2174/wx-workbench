@@ -111,7 +111,21 @@ struct Fixture {
 impl Fixture {
     fn new(urls: &[String]) -> Self {
         let root = tempfile::tempdir().unwrap();
-        fs::write(root.path().join("ambient.json"), b"invalid ambient config").unwrap();
+        fs::write(root.path().join("config.json"), b"invalid ambient config").unwrap();
+        let account = root.path().join("synthetic-account");
+        fs::create_dir_all(account.join("db_storage")).unwrap();
+        fs::write(
+            account.join("config.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "db_dir": "db_storage",
+                "keys_file": "all_keys.json",
+                "key_store": "keys.dpapi",
+                "decrypted_dir": "decrypted",
+                "wechat_process": "wx-synthetic-sns-download-never-scan.exe"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         fs::create_dir(root.path().join("source")).unwrap();
         let path = root.path().join("source/sns.db");
         let db = Connection::open(&path).unwrap();
@@ -144,6 +158,13 @@ impl Fixture {
     }
 
     fn run(&self, output: &str, options: &[&str], ambient_download: Option<&str>) -> Output {
+        let config = self.path("synthetic-account/config.json");
+        let original_config = fs::read(&config).unwrap();
+        let selected_config = if options.contains(&"--help") {
+            self.path("config.json")
+        } else {
+            config.clone()
+        };
         let mut command = Command::new(env!("CARGO_BIN_EXE_wx"));
         command
             .args(["moments", "export-snapshot"])
@@ -152,11 +173,13 @@ impl Fixture {
             .args(options)
             .current_dir(self.root.path())
             .env_remove("WX_DAEMON_MODE")
+            .env_remove("WX_DAEMON_OPERATION_WORKER")
+            .env_remove("WX_DAEMON_TASK_WORKER")
             .env_remove("WX_CLI_EXPECTED_RUNTIME")
             .env_remove("WECHAT_EXPORT_CONTACTS")
             .env_remove("WECHAT_EXPORT_USERS")
             .env_remove("WECHAT_SNS_DOWNLOAD_MEDIA")
-            .env("WX_CLI_CONFIG", self.path("ambient.json"))
+            .env("WX_CLI_CONFIG", selected_config)
             .env("WX_CLI_HOME", self.path("runtime"))
             .env("PATH", "")
             .env("NO_PROXY", "*")
@@ -166,10 +189,26 @@ impl Fixture {
         }
         let result = command.output().unwrap();
         assert_eq!(
-            fs::read(self.path("ambient.json")).unwrap(),
+            fs::read(self.path("config.json")).unwrap(),
             b"invalid ambient config"
         );
-        bootstrap::assert_only_bootstrap(&self.path("runtime"));
+        assert_eq!(fs::read(config).unwrap(), original_config);
+        if options.contains(&"--help") {
+            bootstrap::assert_only_bootstrap(&self.path("runtime"));
+        } else {
+            for entry in fs::read_dir(self.path("runtime")).unwrap() {
+                let entry = entry.unwrap();
+                assert!(entry.file_type().unwrap().is_dir());
+                assert!(matches!(
+                    entry.file_name().to_str(),
+                    Some("bootstrap" | "accounts")
+                ));
+            }
+            assert_eq!(
+                fs::read_dir(self.path("runtime/accounts")).unwrap().count(),
+                1
+            );
+        }
         assert_eq!(
             fs::read(self.path("source/sns.db")).unwrap(),
             self.original_db
@@ -181,7 +220,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        drop(bootstrap::BootstrapCleanup(self.path("runtime")));
+        drop(bootstrap::RuntimeCleanup(self.path("runtime")));
     }
 }
 

@@ -14,7 +14,7 @@ pub async fn diagnostic(
     for path in db.output_protection_paths()? {
         guard.protect(&path)?;
     }
-    image::q_decode_image_with_key_file(db, names, "synthetic_peer", 42, 100, output, None).await
+    image::q_decode_image_for_host(db, names, "synthetic_peer", 42, 100, output).await
 }
 #[path = "../../../src/daemon/query/chat_identity.rs"]
 #[allow(dead_code)] // This harness exercises image reads, not export projections.

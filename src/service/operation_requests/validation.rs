@@ -169,6 +169,7 @@ fn directory(args: &super::export_messages::Args) -> Result<()> {
 
 pub(crate) fn validate(operation: &Operation) -> Result<()> {
     match operation {
+        Operation::ImportImageMaterial { args } => args.validate(),
         Operation::Initialize {
             force,
             provider,
@@ -299,12 +300,7 @@ pub(crate) fn validate(operation: &Operation) -> Result<()> {
             local_cache.validate_request()?;
             Ok(())
         }
-        Operation::DecodeImageCache {
-            aes_key, xor_key, ..
-        } => {
-            if let Some(key) = aes_key {
-                crate::application::image_publication::parse_aes(key)?;
-            }
+        Operation::DecodeImageCache { xor_key, .. } => {
             if let Some(key) = xor_key {
                 crate::application::image_publication::parse_xor(key)?;
             }

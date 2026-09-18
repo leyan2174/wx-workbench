@@ -424,18 +424,12 @@ async fn explicit_v2_key_is_required_and_forwarded() {
     dat.extend(PLAIN[PLAIN.len() - 2..].iter().map(|b| b ^ 0xa2));
     fs::write(&f.dat, dat).unwrap();
     f.fails("AES key").await;
-    let missing = q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, None)
+    let missing = q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 0, &f.output)
         .await
         .unwrap_err();
     assert_eq!(
         format!("{missing:#}"),
         "image decoding failed; V2 requires an explicit valid image key"
-    );
-    let key_file = f._root.path().join("image-key.json");
-    assert!(
-        q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, Some(&key_file))
-            .await
-            .is_err()
     );
     let out = q_decode_image_with_material(
         &f.db,
@@ -484,21 +478,16 @@ async fn native_root_policy_and_resource_corruption_remain_fail_closed() {
 }
 
 #[tokio::test]
-async fn plaintext_key_override_is_refused_before_account_and_file_access() {
+async fn invalid_output_is_refused_before_account_access() {
     let f = Fixture::new(&[]).await;
     for key in &f.names.msg_db_keys {
         fs::remove_file(f.db.db_dir().join(key)).unwrap();
     }
-    let missing_key = f._root.path().join("SECRET-missing-image-key.json");
     for output in [Path::new(""), Path::new("relative-output")] {
-        let error =
-            q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, output, Some(&missing_key))
-                .await
-                .unwrap_err();
-        assert_eq!(
-            format!("{error:#}"),
-            "Legacy plaintext image key files are unsupported"
-        );
+        let error = q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 0, output)
+            .await
+            .unwrap_err();
+        assert!(!format!("{error:#}").contains("SECRET"));
     }
     f.empty_output();
 }
@@ -522,7 +511,7 @@ async fn host_wrapper_exports_legacy_and_v1_with_default_key_material() {
             dat.extend(PLAIN[PLAIN.len() - 2..].iter().map(|b| b ^ 0x88));
             fs::write(&f.dat, dat).unwrap();
         }
-        let out = q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, None)
+        let out = q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 0, &f.output)
             .await
             .unwrap();
         assert_eq!(out["status"], "published");
@@ -538,10 +527,10 @@ async fn host_wrapper_exports_legacy_and_v1_with_default_key_material() {
 }
 
 #[tokio::test]
-async fn host_wrapper_isolates_source_cache_and_explicit_key_file() {
+async fn host_wrapper_isolates_source_cache() {
     let f = Fixture::new(&[RESOURCE_KEY]).await;
     for output in [f.db.db_dir(), f.resource.parent().unwrap()] {
-        let error = q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, output, None)
+        let error = q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 0, output)
             .await
             .unwrap_err();
         assert_eq!(
@@ -550,44 +539,21 @@ async fn host_wrapper_isolates_source_cache_and_explicit_key_file() {
         );
     }
     f.empty_output();
-    let key = f.output.join("image-key.json");
-    fs::write(&key, b"SECRET protected sentinel").unwrap();
-    let error = q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, Some(&key))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        format!("{error:#}"),
-        "Legacy plaintext image key files are unsupported"
-    );
-    assert_eq!(fs::read(key).unwrap(), b"SECRET protected sentinel");
-    assert_eq!(fs::read_dir(&f.output).unwrap().count(), 1);
 }
 
 #[tokio::test]
-async fn host_wrapper_key_file_limits_and_errors_are_redacted() {
+async fn host_wrapper_does_not_discover_plaintext_key_files() {
     let f = Fixture::new(&[RESOURCE_KEY]).await;
     let path = f._root.path().join("SECRET-image-key.json");
     for bytes in [vec![b'S'; 4097], b"SECRET invalid json".to_vec()] {
         fs::write(&path, bytes).unwrap();
-        let error =
-            q_decode_image_with_key_file(&f.db, &f.names, CHAT, 42, 0, &f.output, Some(&path))
-                .await
-                .unwrap_err();
-        let text = format!("{error:#}");
-        assert!(!text.contains("SECRET"));
-        assert!(!text.contains("image-key.json"));
-        f.empty_output();
+        let out = q_decode_image_for_host(&f.db, &f.names, CHAT, 42, 0, &f.output)
+            .await
+            .unwrap();
+        let published = Path::new(out["image"]["path"].as_str().unwrap());
+        assert_eq!(fs::read(published).unwrap(), PLAIN);
+        fs::remove_file(published).unwrap();
+        assert!(!out.to_string().contains("SECRET"));
     }
-    assert!(q_decode_image_with_key_file(
-        &f.db,
-        &f.names,
-        CHAT,
-        42,
-        0,
-        &f.output,
-        Some(Path::new("relative-key.json"))
-    )
-    .await
-    .is_err());
     f.empty_output();
 }

@@ -603,7 +603,14 @@ fn image_route_never_accepts_host_paths_or_keys() {
         serde_json::to_value(route("decode_image", &input).unwrap()).unwrap(),
         json!({"cmd":"decode_image","chat":"peer","local_id":7,"create_time":0})
     );
-    for field in ["output_root", "image_key_file", "aes_key", "base_dir"] {
+    for field in [
+        "output_root",
+        "image_key_file",
+        "aes_key",
+        "base_dir",
+        "sample_root",
+        "envelope",
+    ] {
         let mut invalid = input.clone();
         invalid[field] = json!("untrusted-private-value");
         assert!(route("decode_image", &invalid).is_err());
@@ -614,6 +621,28 @@ fn image_route_never_accepts_host_paths_or_keys() {
     ] {
         assert!(route("decode_image", &invalid).is_err());
     }
+}
+
+#[test]
+fn image_ipc_rejects_removed_material_fields_without_changing_other_queries() {
+    let baseline = json!({"cmd":"decode_image","chat":"peer","local_id":7});
+    let request: crate::ipc::Request = serde_json::from_value(baseline.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(request).unwrap(),
+        json!({"cmd":"decode_image","chat":"peer","local_id":7,"create_time":0})
+    );
+    for field in ["image_key_file", "aes_key", "sample_root", "envelope"] {
+        for value in [json!("PRIVATE_MATERIAL"), json!(null), json!({})] {
+            let mut wire = baseline.clone();
+            wire[field] = value;
+            let error = serde_json::from_value::<crate::ipc::Request>(wire).unwrap_err();
+            assert!(!error.to_string().contains("PRIVATE_MATERIAL"));
+        }
+    }
+    assert!(serde_json::from_value::<crate::ipc::Request>(
+        json!({"cmd":"sessions","unrelated_extension":true})
+    )
+    .is_ok());
 }
 
 #[test]

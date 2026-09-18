@@ -34,11 +34,109 @@ fn write(data: &ExportData, output: &Path, policy: &TimelinePublication) -> Resu
         None,
         None,
         Some(policy),
+        None,
     )
 }
 
 fn read(path: &Path) -> Value {
     serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+#[test]
+fn no_cache_fresh_rejects_entry_and_final_rename_verification() {
+    for fail_on in [1, 2] {
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("out");
+        let current = data();
+        let calls = std::cell::Cell::new(0);
+        let verify = || -> Result<()> {
+            calls.set(calls.get() + 1);
+            ensure!(
+                calls.get() != fail_on,
+                "synthetic source changed before fresh rename"
+            );
+            Ok(())
+        };
+        let error = write_export_with_publication(
+            &current,
+            &output,
+            TimeZone::Fixed(chrono::FixedOffset::east_opt(0).unwrap()),
+            None,
+            None,
+            None,
+            Some(&verify),
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("synthetic source changed"));
+        assert_eq!(calls.get(), fail_on);
+        let author = output.join(&current.timelines[0].display_name);
+        assert!(!author.join("SNS").exists());
+        assert_eq!(
+            fs::read_dir(author).unwrap().count(),
+            0,
+            "private staging must be removed"
+        );
+    }
+}
+
+#[test]
+fn no_cache_update_second_file_rejection_preserves_first_commit_and_old_later_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("out");
+    let mut current = data();
+    let publication = policy("source", publish::ExistingPolicy::Update);
+    let report = write(&current, &output, &publication).unwrap();
+    let before: Vec<_> = report
+        .files
+        .iter()
+        .map(|path| (path.clone(), fs::read(path).unwrap()))
+        .collect();
+    let first_post = report
+        .files
+        .iter()
+        .find(|path| {
+            path.extension().is_some_and(|ext| ext == "json") && !path.ends_with("timeline.json")
+        })
+        .unwrap();
+    for post in &mut current.timelines[0].posts {
+        post.content_desc = "synthetic changed content".into();
+    }
+    let calls = std::cell::Cell::new(0);
+    let verify = || -> Result<()> {
+        calls.set(calls.get() + 1);
+        // Entry, first persist, then reject immediately before the second persist.
+        ensure!(
+            calls.get() != 3,
+            "synthetic revision changed at second file"
+        );
+        Ok(())
+    };
+    let error = write_export_with_publication(
+        &current,
+        &output,
+        TimeZone::Fixed(chrono::FixedOffset::east_opt(8 * 3600).unwrap()),
+        None,
+        None,
+        Some(&publication),
+        Some(&verify),
+    )
+    .unwrap_err();
+    let message = format!("{error:#}");
+    assert!(message.contains("1 committed file(s)"));
+    assert!(message.contains("synthetic revision changed at second file"));
+    assert_eq!(calls.get(), 3);
+    for (path, bytes) in before {
+        if &path == first_post {
+            assert_ne!(fs::read(&path).unwrap(), bytes);
+            assert_eq!(read(&path)["content_desc"], "synthetic changed content");
+        } else {
+            assert_eq!(
+                fs::read(path).unwrap(),
+                bytes,
+                "uncommitted output must retain old bytes"
+            );
+        }
+    }
 }
 
 #[test]
@@ -217,7 +315,8 @@ fn every_media_format_is_planned_and_dangerous_unused_candidate_blocks_publicati
         TimeZone::Fixed(chrono::FixedOffset::east_opt(8 * 3600).unwrap()),
         None,
         Some(&DownloadOptions::default()),
-        Some(&publication)
+        Some(&publication),
+        None,
     )
     .is_err());
     assert!(!root.join("timeline.json").exists());

@@ -18,6 +18,7 @@ pub(crate) mod export_messages;
 pub(crate) mod export_sns;
 mod extract;
 pub(crate) mod history;
+mod image_import;
 pub(crate) mod image_key_sample;
 pub(crate) mod image_keys;
 pub(crate) mod init;
@@ -37,6 +38,7 @@ pub(crate) mod voices;
 pub(crate) fn execute(operation: Operation) -> Result<()> {
     operation.validate_request()?;
     match operation {
+        Operation::ImportImageMaterial { args } => image_import::execute(args),
         Operation::Extract {
             attachment_id,
             output,
@@ -146,10 +148,9 @@ pub(crate) fn execute(operation: Operation) -> Result<()> {
         Operation::DecodeImageCache {
             attach_dir,
             decoded_dir,
-            aes_key,
             xor_key,
             force,
-        } => decode_images::cache(attach_dir, decoded_dir, aes_key, xor_key, force),
+        } => decode_images::cache(attach_dir, decoded_dir, xor_key, force),
         Operation::DecodeImage {
             dat_file,
             output_file,

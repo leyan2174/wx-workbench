@@ -191,6 +191,7 @@ impl Service {
             | Call::OperationCancel { .. }
             | Call::WorkerKeys { .. }
             | Call::WorkerKeyRevision { .. }
+            | Call::ImageMaterialImportMetadata { .. }
             | Call::WorkerDatabaseKeys { .. }
             | Call::WorkerImageMaterial { .. }
             | Call::Mcp { .. }

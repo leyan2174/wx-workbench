@@ -36,8 +36,6 @@ pub enum ImageCommand {
         #[arg(long)]
         decoded_dir: Option<String>,
         #[arg(long)]
-        aes_key: Option<String>,
-        #[arg(long)]
         xor_key: Option<String>,
         /// Decode again even when output exists.
         #[arg(long)]
@@ -88,14 +86,12 @@ pub fn cmd(command: Command) -> Result<()> {
                 ImageCommand::DecodeCache {
                     attach_dir,
                     decoded_dir,
-                    aes_key,
                     xor_key,
                     force,
                 },
         } => Operation::DecodeImageCache {
             attach_dir,
             decoded_dir,
-            aes_key,
             xor_key,
             force,
         },
@@ -115,4 +111,50 @@ pub fn cmd(command: Command) -> Result<()> {
         },
     };
     operation_client::run(operation)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Invocation {
+        #[command(subcommand)]
+        command: Command,
+    }
+
+    #[test]
+    fn cache_aes_override_is_removed_but_xor_and_video_material_remain() {
+        assert!(Invocation::try_parse_from([
+            "media",
+            "image",
+            "decode-cache",
+            "--aes-key",
+            "synthetic"
+        ])
+        .is_err());
+        let parsed = Invocation::try_parse_from([
+            "media",
+            "image",
+            "decode-cache",
+            "--xor-key",
+            "0x88",
+            "--force",
+        ])
+        .unwrap();
+        assert!(
+            matches!(parsed.command, Command::Image { cmd: ImageCommand::DecodeCache { xor_key: Some(key), force: true, .. } } if key == "0x88")
+        );
+        assert!(Invocation::try_parse_from([
+            "media",
+            "video",
+            "decode",
+            "synthetic.bin",
+            "synthetic.mp4",
+            "--key-file",
+            "synthetic-video-material"
+        ])
+        .is_ok());
+    }
 }

@@ -11,7 +11,6 @@ use std::path::PathBuf;
 #[serde(deny_unknown_fields)]
 pub struct HostSettings {
     pub media_output_root: Option<PathBuf>,
-    pub image_key_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

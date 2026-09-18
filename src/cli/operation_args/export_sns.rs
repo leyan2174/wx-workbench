@@ -8,9 +8,6 @@ pub struct LocalCacheArgs {
     /// 本账号 FileStorage/Sns 缓存根目录
     #[arg(long)]
     sns_cache: Option<PathBuf>,
-    /// V2 图片 AES 密钥文件，UTF-8 文本含 32 位十六进制
-    #[arg(long)]
-    image_key_file: Option<PathBuf>,
     /// V2 图片尾部 XOR 字节，十进制或 0x 前缀；默认 0x88
     #[arg(long)]
     image_xor_key: Option<String>,
@@ -49,7 +46,6 @@ impl From<LocalCacheArgs> for crate::service::operation_requests::export_sns::Lo
         Self {
             xwechat_cache: value.xwechat_cache,
             sns_cache: value.sns_cache,
-            image_key_file: value.image_key_file,
             image_xor_key: value.image_xor_key,
         }
     }
@@ -60,7 +56,6 @@ impl From<crate::service::operation_requests::export_sns::LocalCacheArgs> for Lo
         Self {
             xwechat_cache: value.xwechat_cache,
             sns_cache: value.sns_cache,
-            image_key_file: value.image_key_file,
             image_xor_key: value.image_xor_key,
         }
     }
@@ -94,6 +89,62 @@ impl From<crate::service::operation_requests::export_sns::Args> for Args {
             update: value.update,
             adopt_existing: value.adopt_existing,
             local_cache: value.local_cache.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Invocation {
+        #[command(flatten)]
+        args: Args,
+    }
+
+    #[test]
+    fn offline_sources_and_xor_survive_without_plaintext_image_key_file() {
+        let parsed = Invocation::try_parse_from([
+            "export-sns",
+            "synthetic-sns.db",
+            "synthetic-output",
+            "--contact-db",
+            "synthetic-contact.db",
+            "--xwechat-cache",
+            "synthetic-xwechat",
+            "--sns-cache",
+            "synthetic-sns",
+            "--image-xor-key",
+            "0x88",
+            "--update",
+            "--adopt-existing",
+        ])
+        .unwrap()
+        .args;
+        let request: crate::service::operation_requests::export_sns::Args = parsed.into();
+        assert_eq!(request.sns_db, PathBuf::from("synthetic-sns.db"));
+        assert_eq!(request.contact_db, Some("synthetic-contact.db".into()));
+        assert_eq!(
+            request.local_cache.xwechat_cache,
+            Some("synthetic-xwechat".into())
+        );
+        assert_eq!(request.local_cache.sns_cache, Some("synthetic-sns".into()));
+        assert_eq!(request.local_cache.image_xor_key.as_deref(), Some("0x88"));
+        assert!(request.update && request.adopt_existing);
+        assert!(!request.download_media);
+        let roundtrip = Args::from(request);
+        assert_eq!(roundtrip.local_cache.image_xor_key.as_deref(), Some("0x88"));
+        for flag in ["--image-key-file", "--aes-key"] {
+            assert!(Invocation::try_parse_from([
+                "export-sns",
+                "synthetic-sns.db",
+                "synthetic-output",
+                flag,
+                "synthetic-material"
+            ])
+            .is_err());
         }
     }
 }

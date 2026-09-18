@@ -9,6 +9,9 @@ use std::path::PathBuf;
     deny_unknown_fields
 )]
 pub enum Operation {
+    ImportImageMaterial {
+        args: crate::service::image_import::Args,
+    },
     Extract {
         attachment_id: String,
         output: String,
@@ -128,7 +131,6 @@ pub enum Operation {
     DecodeImageCache {
         attach_dir: Option<String>,
         decoded_dir: Option<String>,
-        aes_key: Option<String>,
         xor_key: Option<String>,
         force: bool,
     },

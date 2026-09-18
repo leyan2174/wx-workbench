@@ -88,6 +88,11 @@ async fn async_run() -> Result<()> {
         let keys = handler_keys.clone();
         async move {
             use crate::service::protocol::{Call, ServiceError, VERSION};
+            if let Call::ImageMaterialImportMetadata {} = call {
+                return serde_json::to_value(keys.image_import_metadata().await?).map_err(|_| {
+                    ServiceError::new("key_read_failed", "Image import metadata unavailable")
+                });
+            }
             if let Call::WorkerKeyRevision { request } = call {
                 keys.verify_image_revision(peer_pid, request).await?;
                 return Ok(serde_json::json!({"verified": true}));

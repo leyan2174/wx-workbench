@@ -300,11 +300,22 @@ fn handshake_does_not_open_image_keys_or_prepare_output_directories() {
     assert!(std::fs::read(&key).is_err());
     let home = temp.path().join("missing-home");
     let output = temp.path().join("missing-output");
-    let mut cmd = command(None, &home);
-    cmd.arg("--image-key-file")
+    let rejected = command(None, &home)
+        .arg("--image-key-file")
         .arg(&key)
         .arg("--media-output-root")
-        .arg(&output);
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(2));
+    assert!(rejected.stdout.is_empty());
+    let stderr = String::from_utf8_lossy(&rejected.stderr);
+    assert!(stderr.contains("--image-key-file"));
+    assert!(!stderr.contains("synthetic-invalid-key"));
+    assert!(!home.exists());
+    assert!(!output.exists());
+    let mut cmd = command(None, &home);
+    cmd.arg("--media-output-root").arg(&output);
     handshake_only(&mut cmd);
     drop(locked);
     assert_eq!(std::fs::read(key).unwrap(), b"synthetic-invalid-key");
@@ -317,6 +328,7 @@ fn removed_voice_host_options_are_cli_errors_without_creating_runtime() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("missing-home");
     for option in [
+        "--image-key-file",
         "--backend",
         "--whisper-binary",
         "--whisper-model",

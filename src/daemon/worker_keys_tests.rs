@@ -575,6 +575,121 @@ fn broker(runtime: &RuntimeContext) -> Arc<Broker> {
 }
 
 #[tokio::test]
+async fn image_import_old_envelope_and_old_grant_cannot_overwrite_new_revision() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    let broker = broker(&runtime);
+    let metadata = broker.image_import_metadata().await.unwrap();
+    assert_eq!(metadata.revision, 0);
+    assert_eq!(metadata.runtime_id, runtime.id);
+    let old = Operation::ImportImageMaterial {
+        args: crate::service::image_import::seal_test(&runtime, metadata.revision, false),
+    };
+    let mut importer = Worker::spawn(root.path(), "hold");
+    let (import_access, _import_registration) = broker
+        .register(importer.pid, child_handle(&importer.child), &old)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(import_access.revision, 0);
+    assert!(import_access.image.is_none());
+    let mut other = Worker::spawn(root.path(), "hold");
+    let (other_access, _other_registration) = broker
+        .register(other.pid, child_handle(&other.child), &database_operation())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        broker
+            .update(other.pid, request(&other_access, 0x41))
+            .await
+            .unwrap(),
+        1
+    );
+    let store = Store::for_runtime(&runtime).unwrap();
+    let bytes = fs::read(store.path()).unwrap();
+    let stale = UpdateRequest {
+        capability: import_access.capability.clone(),
+        expected_revision: 0,
+        changes: vec![MaterialChange::Image {
+            aes: [0x42; 16],
+            xor: 42,
+        }],
+    };
+    assert_eq!(
+        broker
+            .verify_image_revision(
+                importer.pid,
+                RevisionRequest {
+                    capability: import_access.capability.clone(),
+                    expected_revision: import_access.revision,
+                },
+            )
+            .await
+            .unwrap_err()
+            .code,
+        "conflict"
+    );
+    assert_eq!(
+        broker.update(importer.pid, stale).await.unwrap_err().code,
+        "conflict"
+    );
+    assert!(broker
+        .register(importer.pid, child_handle(&importer.child), &old)
+        .await
+        .is_err());
+    let after = broker.image_import_metadata().await.unwrap();
+    assert_eq!(after.revision, 1);
+    assert_eq!(store.load().unwrap().revision(), 1);
+    assert!(store.load().unwrap().image_key().is_none());
+    assert_eq!(fs::read(store.path()).unwrap(), bytes);
+    importer.finish().await;
+    other.finish().await;
+}
+
+#[tokio::test]
+async fn image_import_no_save_grant_has_real_revision_but_cannot_commit() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    let broker = broker(&runtime);
+    let mut worker = Worker::spawn(root.path(), "hold");
+    let operation = Operation::ImportImageMaterial {
+        args: crate::service::image_import::seal_test(&runtime, 0, true),
+    };
+    let (access, _registration) = broker
+        .register(worker.pid, child_handle(&worker.child), &operation)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(access.revision, 0);
+    assert!(access.image.is_none());
+    broker
+        .verify_image_revision(
+            worker.pid,
+            RevisionRequest {
+                capability: access.capability.clone(),
+                expected_revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let update = UpdateRequest {
+        capability: access.capability.clone(),
+        expected_revision: 0,
+        changes: vec![MaterialChange::Image {
+            aes: [0x42; 16],
+            xor: 42,
+        }],
+    };
+    assert_eq!(
+        broker.update(worker.pid, update).await.unwrap_err().code,
+        "unauthorized"
+    );
+    assert!(!runtime.config.key_store.as_ref().unwrap().exists());
+    worker.finish().await;
+}
+
+#[tokio::test]
 async fn valid_write_persists_revision_and_identical_retry_is_byte_for_byte_idempotent() {
     let root = tempfile::tempdir().unwrap();
     let runtime = runtime(root.path());
@@ -1052,7 +1167,6 @@ async fn image_publication_operations_receive_only_lazy_image_read_access() {
         Operation::DecodeImageCache {
             attach_dir: None,
             decoded_dir: None,
-            aes_key: None,
             xor_key: None,
             force: false,
         },

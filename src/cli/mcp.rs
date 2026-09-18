@@ -24,9 +24,6 @@ pub struct McpArgs {
     /// 图片输出根：必须已存在且可信；未配置时图片调用在账号访问前拒绝
     #[arg(long)]
     pub media_output_root: Option<PathBuf>,
-    /// 显式图片 AES/XOR 配置文件；不自动扫描或发现密钥
-    #[arg(long, requires = "media_output_root")]
-    pub image_key_file: Option<PathBuf>,
     #[command(flatten)]
     pub task: mcp_tasks::Args,
 }
@@ -36,7 +33,6 @@ impl Default for McpArgs {
         Self {
             max_frame_bytes: protocol::DEFAULT_MAX_FRAME_BYTES as u32,
             media_output_root: None,
-            image_key_file: None,
             task: mcp_tasks::Args::default(),
         }
     }
@@ -46,7 +42,6 @@ impl McpArgs {
     fn host_settings(&self) -> HostSettings {
         HostSettings {
             media_output_root: self.media_output_root.clone(),
-            image_key_file: self.image_key_file.clone(),
         }
     }
 }
@@ -54,10 +49,7 @@ impl McpArgs {
 /// Capture relative host paths against the stdio process, not the daemon cwd.
 fn absolute_host_settings(mut host: HostSettings) -> Result<HostSettings> {
     let cwd = std::env::current_dir()?;
-    for path in [&mut host.media_output_root, &mut host.image_key_file]
-        .into_iter()
-        .flatten()
-    {
+    if let Some(path) = &mut host.media_output_root {
         if !path.as_os_str().is_empty() && path.is_relative() {
             *path = cwd.join(&*path);
         }

@@ -71,6 +71,8 @@ SNS 图片与视频的 WxIsaac64 WASM 密钥流实现位于 `adapters/wechat/med
 
 daemon `QueryState` 按账号持有惰性密钥快照。查询通过租约读取；独立 worker 通过进程绑定 broker 取得授权材料，更新经过 revision 校验后原子保存。首次绑定及配置修复初始化在执行宿主中直接创建和更新正式 Store。
 
+显式图片材料导入复用前台 Operation 与材料 broker，不另建任务或存储。宿主标准输入经 `service::image_import` 有界解析并封装为当前用户 DPAPI 密文；封装代际来自 daemon 元数据 RPC，而非 CLI 读取 Store。worker 验证固定账号、配置、样本身份和预期 revision 后提交。普通图片发布只消费受保护材料，在最终提交文件前执行宿主注入的版本复核。离线 SNS 每次固定显式数据库和缓存来源，仅对实际 V2 候选验证 AES，不建立持久来源注册表或将路径指纹解释为账号归属证明。
+
 CLI 按业务能力提供 `wx chats`、`wx moments`、`wx emoticons`、`wx media`、`wx database` 和 `wx keys` 命令组，以及账号准备、清理、监控和本地界面入口。用例编排位于 `application`，微信格式位于 `adapters/wechat`，共享文件与编解码能力位于基础设施，Web 与 CLI/MCP 是并列入口。业务层不接管 SQL、文件系统、HTTP 或外部进程。
 
 CLI 业务命令分别注册于 [chats.rs](../src/cli/chats.rs)、[moments.rs](../src/cli/moments.rs)、[media.rs](../src/cli/media.rs)、[keys.rs](../src/cli/keys.rs)、[database.rs](../src/cli/database.rs) 和 [emoticons.rs](../src/cli/emoticons.rs)。

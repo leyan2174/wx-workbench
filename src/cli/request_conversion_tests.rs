@@ -1,6 +1,32 @@
 use crate::service::operations::Operation;
 
 #[test]
+fn mcp_rejects_removed_plaintext_image_material_options() {
+    use clap::Parser;
+    for flag in ["--image-key-file", "--aes-key", "--sample-root"] {
+        assert!(super::Cli::try_parse_from([
+            "wx",
+            "mcp",
+            "--media-output-root",
+            "output",
+            flag,
+            "PRIVATE_MATERIAL"
+        ])
+        .is_err());
+    }
+    for value in [
+        serde_json::json!(null),
+        serde_json::json!("PRIVATE_MATERIAL"),
+    ] {
+        let error = serde_json::from_value::<crate::service::mcp::HostSettings>(
+            serde_json::json!({"image_key_file":value}),
+        )
+        .unwrap_err();
+        assert!(!error.to_string().contains("PRIVATE_MATERIAL"));
+    }
+}
+
+#[test]
 fn removed_audio_commands_and_settings_are_rejected() {
     use clap::Parser;
     for argv in [

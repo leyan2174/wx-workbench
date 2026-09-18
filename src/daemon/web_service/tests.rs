@@ -288,16 +288,10 @@ async fn image_business_codes_keep_missing_distinct_from_export_failure_and_clea
         let (request, reply) = tokio::time::timeout(Duration::from_secs(3), receive.recv())
             .await?
             .unwrap();
-        let Request::DecodeImage {
-            output_root,
-            image_key_file,
-            ..
-        } = request
-        else {
+        let Request::DecodeImage { output_root, .. } = request else {
             anyhow::bail!("unexpected query");
         };
         let output = std::path::PathBuf::from(output_root);
-        assert!(image_key_file.is_none());
         let key = output.parent().unwrap().join("image-key.json");
         assert!(
             !key.exists(),
@@ -419,15 +413,9 @@ async fn cancelled_image_waiter_does_not_own_cleanup_or_daemon_shutdown() -> Res
     let (request, reply) = tokio::time::timeout(Duration::from_secs(3), receive.recv())
         .await?
         .ok_or_else(|| anyhow::anyhow!("image query missing"))?;
-    let Request::DecodeImage {
-        output_root,
-        image_key_file,
-        ..
-    } = request
-    else {
+    let Request::DecodeImage { output_root, .. } = request else {
         anyhow::bail!("unexpected internal query");
     };
-    assert!(image_key_file.is_none());
     let temporary = std::path::PathBuf::from(output_root)
         .parent()
         .unwrap()

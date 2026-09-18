@@ -1,13 +1,12 @@
 use std::path::PathBuf;
 
 #[derive(Default, serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct LocalCacheArgs {
     /// 本账号 xwechat 缓存根目录；显式提供时才扫描
     pub(crate) xwechat_cache: Option<PathBuf>,
     /// 本账号 FileStorage/Sns 缓存根目录
     pub(crate) sns_cache: Option<PathBuf>,
-    /// V2 图片 AES 密钥文件，UTF-8 文本含 32 位十六进制
-    pub(crate) image_key_file: Option<PathBuf>,
     /// V2 图片尾部 XOR 字节，十进制或 0x 前缀；默认 0x88
     pub(crate) image_xor_key: Option<String>,
 }
@@ -38,5 +37,33 @@ impl LocalCacheArgs {
             crate::application::image_publication::parse_xor(raw.trim())?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plaintext_material_fields_are_rejected_but_xor_format_is_preserved() {
+        for field in ["image_key_file", "aes_key", "allow_material_import"] {
+            let mut value = serde_json::json!({});
+            value[field] = serde_json::json!("synthetic");
+            assert!(serde_json::from_value::<LocalCacheArgs>(value).is_err());
+        }
+        for raw in ["0", "255", "0x88", "0Xff"] {
+            let args: LocalCacheArgs =
+                serde_json::from_value(serde_json::json!({"image_xor_key":raw})).unwrap();
+            args.validate_request().unwrap();
+            assert!(serde_json::to_value(args)
+                .unwrap()
+                .get("image_key_file")
+                .is_none());
+        }
+        for raw in ["-1", "256", "0x100", "not-a-byte"] {
+            let args: LocalCacheArgs =
+                serde_json::from_value(serde_json::json!({"image_xor_key":raw})).unwrap();
+            assert!(args.validate_request().is_err());
+        }
     }
 }
