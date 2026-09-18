@@ -57,6 +57,21 @@ pub struct Catalog {
     coordinates: Vec<Coordinate>,
     pub unmapped_rows: usize,
 }
+
+#[derive(Debug)]
+pub struct CatalogBudgetExceeded;
+impl std::fmt::Display for CatalogBudgetExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Voice catalog memory budget exceeded")
+    }
+}
+impl std::error::Error for CatalogBudgetExceeded {}
+fn debit(budget: &mut Option<usize>, bytes: usize) -> Result<()> {
+    if let Some(left) = budget {
+        *left = left.checked_sub(bytes).ok_or(CatalogBudgetExceeded)?;
+    }
+    Ok(())
+}
 impl Source for Catalog {
     fn entries(&self) -> &[Entry] {
         &self.entries
@@ -111,7 +126,13 @@ impl Catalog {
         })
     }
 
-    pub fn open(mut shards: Vec<MediaShard>) -> Result<Self> {
+    pub fn open(shards: Vec<MediaShard>) -> Result<Self> {
+        Self::open_with_budget(shards, None)
+    }
+    pub fn open_bounded(shards: Vec<MediaShard>, bytes: usize) -> Result<Self> {
+        Self::open_with_budget(shards, Some(bytes))
+    }
+    fn open_with_budget(mut shards: Vec<MediaShard>, mut budget: Option<usize>) -> Result<Self> {
         shards.sort_by(|a, b| a.source.cmp(&b.source));
         let mut catalog = Self {
             shards: Vec::new(),
@@ -150,10 +171,14 @@ impl Catalog {
             }
             let names: HashMap<i64, String> = {
                 let mut stmt = conn.prepare("SELECT rowid, user_name FROM Name2Id")?;
-                let rows = stmt
-                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-                    .collect::<rusqlite::Result<_>>()?;
-                rows
+                let mut rows = stmt.query([])?;
+                let mut names = HashMap::new();
+                while let Some(row) = rows.next()? {
+                    let name: String = row.get(1)?;
+                    debit(&mut budget, name.len().saturating_add(64))?;
+                    names.insert(row.get(0)?, name);
+                }
+                names
             };
             {
                 let mut stmt = conn.prepare("SELECT rowid, chat_name_id, create_time, local_id FROM VoiceInfo ORDER BY create_time, local_id, rowid")?;
@@ -164,6 +189,11 @@ impl Catalog {
                         catalog.unmapped_rows += 1;
                         continue;
                     };
+                    // Account also for the selector's cloned entry and vector overhead.
+                    debit(
+                        &mut budget,
+                        username.len().saturating_mul(2).saturating_add(192),
+                    )?;
                     catalog.entries.push(Entry {
                         slot: catalog.coordinates.len(),
                         username: username.clone(),
@@ -314,6 +344,38 @@ mod tests {
         assert_eq!(raw.svr_id, None);
         assert_eq!(raw.data_index, None);
         assert_eq!(raw.chat_name_id, 1);
+    }
+
+    #[test]
+    fn bounded_catalog_fails_explicitly_without_changing_global_selection() {
+        let root = tempfile::tempdir().unwrap();
+        let a = shard(root.path(), "media_0.db", &[10, 10]);
+        let b = shard(root.path(), "media_1.db", &[10, 10]);
+        let source = Catalog::open_bounded(vec![b, a], 4096).unwrap();
+        assert_eq!(select(&source, &Selection::default()).len(), 4);
+        assert!(select(
+            &source,
+            &Selection {
+                limit: Some(0),
+                ..Default::default()
+            }
+        )
+        .is_empty());
+        let page = select(
+            &source,
+            &Selection {
+                offset: 2,
+                limit: Some(1),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            source.material(page[0].slot).unwrap().media_db,
+            "message/media_1.db"
+        );
+        let limited = shard(root.path(), "media_limited.db", &[10]);
+        let failure = Catalog::open_bounded(vec![limited], 1).err().unwrap();
+        assert!(failure.is::<CatalogBudgetExceeded>());
     }
 
     #[test]

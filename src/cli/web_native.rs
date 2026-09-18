@@ -16,6 +16,9 @@ pub struct Args {
     /// 允许本次 Web 启动提交计划媒体扫描；不授予下载或进程内存读取权限
     #[arg(long)]
     pub task_allow_plan_scan: bool,
+    /// 仅允许本次 Web 启动提交 export_voices 并写入固定任务目录；不授予扫描或下载权限
+    #[arg(long)]
+    pub task_allow_media_write: bool,
 }
 
 impl From<Args> for crate::service::web::HostSettings {
@@ -25,6 +28,7 @@ impl From<Args> for crate::service::web::HostSettings {
             open: args.open,
             image_cache_dir: args.image_cache_dir,
             allow_plan_scan: args.task_allow_plan_scan,
+            allow_media_write: args.task_allow_media_write,
         }
     }
 }
@@ -79,6 +83,7 @@ mod tests {
                 open: true,
                 image_cache_dir: Some("synthetic-images".into()),
                 allow_plan_scan: false,
+                allow_media_write: false,
             }
         );
     }
@@ -99,6 +104,31 @@ mod tests {
             .unwrap()
             .args;
         assert!(crate::service::web::HostSettings::from(enabled).allow_plan_scan);
+    }
+
+    #[test]
+    fn voice_media_write_is_host_opt_in_and_independent_of_plan_scan() {
+        assert!(!Args::default().task_allow_media_write);
+        for (flags, media_write, plan_scan) in [
+            (vec![], false, false),
+            (vec!["--task-allow-media-write"], true, false),
+            (vec!["--task-allow-plan-scan"], false, true),
+            (
+                vec!["--task-allow-media-write", "--task-allow-plan-scan"],
+                true,
+                true,
+            ),
+        ] {
+            let mut argv = vec!["web"];
+            argv.extend(flags);
+            let args = Invocation::try_parse_from(&argv).unwrap().args;
+            assert_eq!(args.task_allow_media_write, media_write);
+            let settings = crate::service::web::HostSettings::from(args);
+            assert_eq!(settings.allow_media_write, media_write);
+            assert_eq!(settings.allow_plan_scan, plan_scan);
+        }
+        assert!(Invocation::try_parse_from(["web", "--allow-media-write"]).is_err());
+        assert!(Invocation::try_parse_from(["web", "--task-allow-media-write=false"]).is_err());
     }
 
     #[test]

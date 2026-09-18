@@ -18,5 +18,6 @@ pub mod settings;
 pub mod task_artifacts;
 pub mod time;
 pub mod transport;
+pub mod voice_export;
 pub mod web;
 pub mod worker_keys;

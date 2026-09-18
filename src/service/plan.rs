@@ -11,6 +11,13 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Step {
+    ExportVoices {
+        config: PathBuf,
+        output: PathBuf,
+        request: super::voice_export::Request,
+        since_ts: Option<i64>,
+        until_ts: Option<i64>,
+    },
     ChatPlan {
         config: PathBuf,
         output: PathBuf,
@@ -80,6 +87,7 @@ pub fn capabilities() -> Vec<Value> {
         Kind::ImageKey,
         Kind::ExportAll,
         Kind::ExportHistory,
+        Kind::ExportVoices,
         Kind::ChatPlan,
         Kind::ChatPlanReview,
         Kind::ChatPlanApply,
@@ -102,6 +110,7 @@ pub fn capabilities() -> Vec<Value> {
             ],
             Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
             Kind::ExportHistory => &["history_export"],
+            Kind::ExportVoices => &["voice_export"],
             Kind::ChatPlan => &["chat_plan"],
             Kind::ChatPlanReview => &["chat_plan_review"],
             Kind::ChatPlanApply => &["chat_plan_apply"],
@@ -118,6 +127,10 @@ pub fn capabilities() -> Vec<Value> {
 
 pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
     let o = &request.options;
+    ensure!(
+        o.voice_export.is_none() || request.kind == Kind::ExportVoices,
+        "Unexpected voice selection"
+    );
     ensure!(
         o.chat_plan.is_none() || request.kind == Kind::ChatPlan,
         "Unexpected plan request"
@@ -166,6 +179,19 @@ pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
                 .validate()?,
             _ => unreachable!(),
         }
+        return Ok(());
+    }
+    if request.kind == Kind::ExportVoices {
+        o.voice_export
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Missing voice selection"))?
+            .resolved_window()?;
+        let mut other = o.clone();
+        other.voice_export = None;
+        ensure!(
+            serde_json::to_value(other)? == serde_json::to_value(Options::default())?,
+            "Unsupported voice options"
+        );
         return Ok(());
     }
     if request.kind == Kind::ExportHistory {
@@ -362,6 +388,20 @@ pub fn plan(
                 output: output
                     .join("history")
                     .join(format!("history.{}", request.format.extension())),
+                request,
+                since_ts,
+                until_ts,
+            });
+        }
+        Kind::ExportVoices => {
+            let request = o
+                .voice_export
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Missing voice selection"))?;
+            let (since_ts, until_ts) = request.resolved_window()?;
+            steps.push(Step::ExportVoices {
+                config,
+                output: output.join("voices"),
                 request,
                 since_ts,
                 until_ts,

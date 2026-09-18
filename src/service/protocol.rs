@@ -25,6 +25,7 @@ pub enum Kind {
     ImageKey,
     ExportAll,
     ExportHistory,
+    ExportVoices,
     ChatPlan,
     ChatPlanReview,
     ChatPlanApply,
@@ -73,6 +74,8 @@ pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_export: Option<super::history_export::Request>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_export: Option<super::voice_export::Request>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_plan: Option<super::chat_plan::Request>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_plan_review: Option<super::chat_plan::ReviewRequest>,
@@ -98,6 +101,7 @@ impl Default for Options {
             max_media_bytes: None,
             max_total_media_bytes: None,
             history_export: None,
+            voice_export: None,
             chat_plan: None,
             chat_plan_review: None,
             chat_plan_apply: None,

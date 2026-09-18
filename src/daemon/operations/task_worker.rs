@@ -45,6 +45,21 @@ fn selected(runtime: &RuntimeContext, config: &Path) -> Result<()> {
 
 fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
     match step {
+        Step::ExportVoices {
+            config,
+            output,
+            request,
+            since_ts,
+            until_ts,
+        } => {
+            selected(runtime, &config)?;
+            let id = output
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing voice task identity"))?;
+            super::voices::export_task_for(runtime, id, request, (since_ts, until_ts), &output)
+        }
         Step::ChatPlan {
             config,
             output,

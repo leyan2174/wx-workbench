@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum TaskResult {
     Directory(ExportAllResult),
     History(super::history_export::HistoryExportResult),
+    RawVoices(super::voice_export::VoiceExportResult),
     Plan(super::chat_plan::PlanResult),
     PlanApply(super::chat_plan::ApplyResult),
 }
@@ -14,6 +15,9 @@ impl<'de> Deserialize<'de> for TaskResult {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
         match value.get("scope").and_then(serde_json::Value::as_str) {
+            Some("raw_voices") => serde_json::from_value(value)
+                .map(Self::RawVoices)
+                .map_err(serde::de::Error::custom),
             Some("chat_directory") => serde_json::from_value(value)
                 .map(Self::Directory)
                 .map_err(serde::de::Error::custom),
@@ -36,6 +40,7 @@ impl TaskResult {
         match self {
             Self::Directory(r) => r.artifact_count,
             Self::History(r) => r.artifact_count,
+            Self::RawVoices(r) => r.artifact_count,
             Self::Plan(r) => r.artifact_count,
             Self::PlanApply(r) => r.artifact_count,
         }
@@ -44,12 +49,14 @@ impl TaskResult {
         match self {
             Self::Directory(r) => r.artifacts_complete,
             Self::History(r) => r.artifacts_complete,
+            Self::RawVoices(r) => r.artifacts_complete,
             Self::Plan(r) => r.artifacts_complete,
             Self::PlanApply(r) => r.artifacts_complete,
         }
     }
     pub(crate) fn validate(&self, kind: super::protocol::Kind) -> bool {
         match (self, kind) {
+            (Self::RawVoices(r), super::protocol::Kind::ExportVoices) => r.validate(),
             (Self::Directory(r), super::protocol::Kind::ExportAll) => r.validate(),
             (Self::History(r), super::protocol::Kind::ExportHistory) => r.validate(),
             (

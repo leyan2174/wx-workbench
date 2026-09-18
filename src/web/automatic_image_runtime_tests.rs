@@ -81,6 +81,7 @@ async fn run_case(wrong_source: bool) -> Result<()> {
         runtime,
         token: "synthetic-image-runtime-token".into(),
         allow_plan_scan: false,
+        allow_media_write: false,
         authority: address.to_string(),
         origin: format!("http://{address}"),
         records: Mutex::new(Records {

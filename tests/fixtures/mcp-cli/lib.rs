@@ -46,6 +46,9 @@ pub mod service {
     pub mod history_export {
         include!(concat!(env!("OUT_DIR"), "/service_history_export.rs"));
     }
+    pub mod voice_export {
+        include!(concat!(env!("OUT_DIR"), "/service_voice_export.rs"));
+    }
     pub mod time {
         include!(concat!(env!("OUT_DIR"), "/service_time.rs"));
     }

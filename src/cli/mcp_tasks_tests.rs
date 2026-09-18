@@ -303,6 +303,274 @@ fn history_input(request: Value) -> Value {
         "options":{"history_export":request}})
 }
 
+fn voices_input(request: Value) -> Value {
+    json!({"idempotency_key":"b".repeat(64),"kind":"export_voices",
+        "options":{"voice_export":request}})
+}
+
+#[test]
+fn voices_write_discovery_and_execution_are_independent_of_artifact_read() {
+    use clap::Parser;
+    #[derive(Parser)]
+    struct Host {
+        #[command(flatten)]
+        args: Args,
+    }
+    let host = Host::try_parse_from([
+        "mcp",
+        "--tasks",
+        "--task-kind",
+        "export_voices",
+        "--task-allow-media-write",
+    ])
+    .unwrap();
+    assert!(host
+        .args
+        .authorize(&parse("submit_task", &voices_input(json!({}))).unwrap()));
+    let call = parse("submit_task", &voices_input(json!({}))).unwrap();
+    let list = parse("list_task_artifacts", &json!({"id":"a".repeat(64)})).unwrap();
+    let read = parse(
+        "read_task_artifact",
+        &json!({"id":"a".repeat(64),"artifact_id":"c".repeat(64)}),
+    )
+    .unwrap();
+    for enabled in [false, true] {
+        for allowed_kind in [false, true] {
+            for write in [false, true] {
+                for read_allowed in [false, true] {
+                    let args = Args {
+                        tasks: enabled,
+                        task_kind: if allowed_kind {
+                            vec![Kind::ExportVoices]
+                        } else {
+                            vec![]
+                        },
+                        task_allow_media_write: write,
+                        task_allow_artifact_read: read_allowed,
+                        ..Default::default()
+                    };
+                    assert_eq!(args.authorize(&call), enabled && allowed_kind && write);
+                    assert_eq!(args.authorize(&list), enabled && read_allowed);
+                    assert_eq!(args.authorize(&read), enabled && read_allowed);
+                    let tools = args.tools();
+                    assert_eq!(
+                        tools.iter().any(|t| t.name == "submit_task"),
+                        enabled && allowed_kind && write
+                    );
+                    for name in ["list_task_artifacts", "read_task_artifact"] {
+                        assert_eq!(
+                            tools.iter().any(|t| t.name == name),
+                            enabled && read_allowed
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn voices_schema_and_typed_parser_preserve_none_zero_and_safe_integers() {
+    let args = Args {
+        tasks: true,
+        task_kind: vec![Kind::ExportVoices],
+        task_allow_media_write: true,
+        ..Default::default()
+    };
+    let tools = args.tools();
+    let schema = &tools
+        .iter()
+        .find(|t| t.name == "submit_task")
+        .unwrap()
+        .input_schema;
+    assert_eq!(
+        schema["properties"]["kind"]["enum"],
+        json!(["export_voices"])
+    );
+    let voice = &schema["properties"]["options"]["properties"]["voice_export"];
+    assert_eq!(voice["type"], "object");
+    assert_eq!(voice["additionalProperties"], false);
+    assert_eq!(voice["required"], json!([]));
+    assert_eq!(
+        voice["properties"]["limit"]["type"],
+        json!(["integer", "null"])
+    );
+    assert_eq!(voice["properties"]["limit"]["minimum"], 0);
+    assert_eq!(voice["properties"]["limit"]["maximum"], 9007199254740991u64);
+    assert!(voice["properties"]["limit"].get("default").is_none());
+    assert_eq!(voice["properties"]["overwrite"]["const"], false);
+    assert_eq!(
+        schema["allOf"][0]["then"]["properties"]["options"]["required"],
+        json!(["voice_export"])
+    );
+    assert_eq!(
+        schema["allOf"][0]["else"]["properties"]["options"]["properties"]["voice_export"],
+        false
+    );
+    for request in [
+        json!({}),
+        json!({"chat":null,"since":null,"until":null,"limit":null}),
+        json!({"limit":0}),
+        json!({"limit":10001}),
+        json!({"limit":9007199254740991u64,"offset":9007199254740991u64}),
+    ] {
+        let Call::Submit { task, .. } =
+            parse("submit_task", &voices_input(request.clone())).unwrap()
+        else {
+            panic!("Expected submit")
+        };
+        assert!(task.options.history_export.is_none());
+        let voice = task.options.voice_export.unwrap();
+        assert_eq!(
+            voice.limit.map(|v| v as u64),
+            request.get("limit").and_then(Value::as_u64)
+        );
+        assert_eq!(
+            voice.offset as u64,
+            request.get("offset").and_then(Value::as_u64).unwrap_or(0)
+        );
+    }
+    let Call::Submit { task, .. } = parse(
+        "submit_task",
+        &voices_input(json!({"chat":"alice,bob", "since":"2026-09-18", "until":"2026-09-18"})),
+    )
+    .unwrap() else {
+        panic!("Expected submit")
+    };
+    let voice = task.options.voice_export.unwrap();
+    assert_eq!(voice.chat.as_deref(), Some("alice,bob"));
+    assert_eq!(
+        voice.resolved_window().unwrap(),
+        (
+            Some(crate::service::time::parse_time("2026-09-18 00:00:00").unwrap()),
+            Some(crate::service::time::parse_time("2026-09-18 23:59:59").unwrap()),
+        )
+    );
+}
+
+#[test]
+fn voices_parser_rejects_unknown_wrong_kind_and_unsupported_options() {
+    for request in [
+        json!({"chat":" "}),
+        json!({"overwrite":true}),
+        json!({"since":"123"}),
+        json!({"until":"2026-02-30"}),
+        json!({"since":"2026-09-19","until":"2026-09-18"}),
+        json!({"limit":-1}),
+        json!({"limit":1.5}),
+        json!({"offset":-1}),
+        json!({"offset":null}),
+        json!({"limit":9007199254740992u64}),
+        json!({"offset":9007199254740992u64}),
+        json!({"output":"C:/private"}),
+        json!({"path":"C:/private"}),
+        json!({"decode":true}),
+        json!({"asr":true}),
+        json!({"json":true}),
+        json!({"format":"wav"}),
+        json!({"authorize_media_write":true}),
+    ] {
+        assert!(
+            matches!(
+                parse("submit_task", &voices_input(request.clone())),
+                Err(DispatchError::InvalidArguments)
+            ),
+            "{request}"
+        );
+    }
+    for (key, value) in [
+        ("users", json!(["alice"])),
+        ("formats", json!(["json"])),
+        ("include_images", json!(false)),
+        ("include_sns", json!(true)),
+        ("include_sns_media", json!(true)),
+        ("allow_missing_media", json!(true)),
+        ("authorize_memory_scan", json!(true)),
+        ("dry_run", json!(true)),
+        ("max_media_bytes", json!(1)),
+        ("history_export", json!({"chat":"alice"})),
+        ("chat_plan", json!({})),
+        ("task_allow_media_write", json!(true)),
+    ] {
+        let mut input = voices_input(json!({}));
+        input["options"][key] = value;
+        assert!(parse("submit_task", &input).is_err(), "{input}");
+    }
+    for kind in [
+        "export_all",
+        "export_history",
+        "chat_plan",
+        "wechat_decrypt",
+    ] {
+        let mut input = voices_input(json!({"limit":0}));
+        input["kind"] = json!(kind);
+        if kind == "export_history" {
+            input["options"]["history_export"] = json!({"chat":"alice"});
+        }
+        if kind == "chat_plan" {
+            input["options"]["chat_plan"] = json!({});
+        }
+        assert!(parse("submit_task", &input).is_err(), "{input}");
+    }
+    for options in [json!({}), json!({"voice_export":null})] {
+        let mut input = voices_input(json!({}));
+        input["options"] = options;
+        assert!(parse("submit_task", &input).is_err());
+    }
+    let mut input = voices_input(json!({}));
+    input["task_allow_media_write"] = json!(true);
+    assert!(parse("submit_task", &input).is_err());
+}
+
+#[test]
+fn voices_denial_and_invalid_arguments_precede_account_access() {
+    let args = Args {
+        tasks: true,
+        task_kind: vec![Kind::ExportVoices],
+        task_allow_artifact_read: true,
+        ..Default::default()
+    };
+    let account = Account::new(true);
+    let invalidated = Cell::new(false);
+    let io = tokio::runtime::Runtime::new().unwrap();
+    let mut adapter = Adapter {
+        query: |_request| panic!("Denied request reached account query"),
+        account: &account,
+        invalidated: &invalidated,
+        io: &io,
+        args: &args,
+    };
+    for request in [json!({}), json!({"limit":0})] {
+        let reply = adapter
+            .dispatch_task(
+                "submit_task",
+                &voices_input(request),
+                &CallContext::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            reply["structuredContent"]["error"]["code"],
+            "host_forbidden"
+        );
+    }
+    for request in [
+        json!({"overwrite":true}),
+        json!({"chat":" "}),
+        json!({"output":"C:/private"}),
+    ] {
+        assert!(matches!(
+            adapter.dispatch_task(
+                "submit_task",
+                &voices_input(request),
+                &CallContext::default()
+            ),
+            Err(DispatchError::InvalidArguments)
+        ));
+    }
+    assert!(account.runtime().is_none());
+    assert!(!invalidated.get());
+}
+
 #[test]
 fn history_schema_and_authorization_are_independent_of_media_and_artifact_read() {
     let args = Args {

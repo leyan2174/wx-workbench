@@ -295,6 +295,7 @@ pub struct HostSettings {
     pub open: bool,
     pub image_cache_dir: Option<std::path::PathBuf>,
     pub allow_plan_scan: bool,
+    pub allow_media_write: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

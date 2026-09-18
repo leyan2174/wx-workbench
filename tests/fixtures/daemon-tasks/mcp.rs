@@ -5,6 +5,8 @@ mod artifacts;
 mod chat_plan;
 #[path = "history_export.rs"]
 mod history_export;
+#[path = "voice_export.rs"]
+mod voice_export;
 use super::{call, terminal, Web};
 use crate::{success, Fixture};
 use serde_json::{json, Value};

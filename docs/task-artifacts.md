@@ -1,6 +1,35 @@
 # 任务产物交付
 
-此接口交付 `export_all` 的聊天目录产物、`export_history` 的单会话历史文档，以及聊天计划与计划执行产物，复用 daemon 任务、worker 和受控发布记录。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+此接口交付 `export_all` 的聊天目录产物、`export_history` 的单会话历史文档、`export_voices` 的原始语音及证据，以及聊天计划与计划执行产物，复用 daemon 任务、worker 和受控发布记录。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+
+## 原始语音
+
+`export_voices` 复用原始 SILK 选择及严格消息关联，不解码、不转码、不转写、不下载远端媒体。产物读取沿用本页的列表、分块和下载接口，没有新增文件路径 RPC。
+
+```powershell
+wx tasks submit export_voices --chat synthetic-user --offset 0 --limit 10 --wait
+wx mcp --tasks --task-kind export_voices --task-allow-media-write --task-allow-artifact-read
+```
+
+MCP `submit_task` 请求：
+
+```json
+{"idempotency_key":"<64位小写十六进制ID>","kind":"export_voices","options":{"voice_export":{"chat":"synthetic-user","offset":0,"limit":10}}}
+```
+
+省略 `chat` 表示全账号；显式联系人按已有账号内解析规则选择，重名歧义拒绝。省略 `limit` 表示不限，`limit=0` 明确选空；不能套用语音目录查询的默认条数。分页先按媒体时间和媒体本地 ID 排序，并保留分库/行顺序处理并列，然后全局应用 offset/limit。`since`、`until` 使用本地日期/日期时间，包含端点，纯日期 until 为当天 23:59:59；有时间条件时未知媒体时间不入选。消息关联只补充证据，不反向改变选集或文件身份。
+
+时间字段按对象区分：`summary.manifest[].timestamp` 在严格关联成功时记录消息时间，来源由其 `evidence.timestamp_source` 标注；未证实时保留媒体时间及来源。`summary.items[].timestamp` 与 sidecar 顶层 `timestamp` 始终表示媒体时间，任务投影的 `timestamp_source` 为 `media`。sidecar 另用 `message_timestamp` / `message_timestamp_source` 表达已证实的消息时间；没有证实时为空，不从媒体时间伪造。现有严格关联的一致性检查不变，时间冲突不能被包装成已关联。选集、排序和文件名不会随补证字段变化。
+
+新任务拒绝空白 chat、倒置区间及 `overwrite=true`，只写入全新的宿主受控任务根。原同步 `wx voices -o ... --overwrite` 的已有目录行为继续保留，两者不是完整参数对等。请求不能传输出路径、数据库路径、账号、解码或转写参数。
+
+结果 `scope=raw_voices` 使用 `selected_rows=null` 表示尚未确定选集；`exported` 只统计已登记的完整 SILK/证据文件组。两个文件均发布和校验后才一次提交索引，第二个文件失败时第一个孤立文件不进入列表，也不计成功。此前已登记的组保留，汇总文件发布失败不抹掉它们。实际证据和汇总文件不包含输出绝对路径；来源坐标是诊断证据，不是额外读取授权。
+
+`associated`、`unproven`、`incomplete_items` 区分音频已导出与关联已证实。缺失消息补证、格式不支持、预算耗尽或部分发布失败不能被包装为完整成功。产物数量、索引、哈希及读取预算沿用任务产物限制，超限明确报告，不偷偷给业务选择添加默认上限。
+
+MCP 媒体写入和产物读取分别授权；仅有其中一项不会自动获得另一项。提交返回后任务由 daemon 管理，MCP 断连不取消任务；响应丢失用原幂等键重试，显式任务取消保留已登记前缀。后台重启保留现有 interrupted 语义，不自动断点续跑。
+
+Web 新建原始语音任务要求本地启动 `wx web --task-allow-media-write`，默认关闭。HTTP 请求中的布尔值、Options 或共享设置 RPC 不能授予此权。开关关闭后，同幂等键且完整规范化参数相同的已接受任务只通过 Get 恢复；参数不同返回 409，新请求拒绝且不入队。已有任务不会因开关变化或 Web 退出而取消。Web 读取继续使用账号绑定、token 认证和单产物下载票据，不依赖写入开关；这是 Web 的既有读取授权方式，不等同于 MCP 的 `--task-allow-artifact-read`。
 
 ## 聊天计划
 

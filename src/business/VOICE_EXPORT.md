@@ -3,7 +3,9 @@
 `cmd_voices` consumes `business::voice_export` selection and the real
 `adapters::wechat::media::voice_export::Catalog`. Selection and database adaptation
 own name resolution and Name2Id/VoiceInfo queries, rather than the CLI.
-Database credentials are read through the existing encrypted Store API.
+The daemon supplies protected database material through the existing worker
+broker. Production workers do not open the material Store directly; direct
+synthetic Store access is confined to test assembly.
 
 Directory selection alone is not proof of a strict message association.
 It accepts the historical `message/media_*.db` key inventory (including textual
@@ -45,9 +47,22 @@ resources before directory creation. This is deliberately not a multi-file
 transaction: a failed evidence commit returns an error and leaves already
 published audio intact; previously published evidence/summary is not truncated.
 
+## Task Publication
+
+The persistent `export_voices` task uses the same selector and raw-byte writer,
+but publishes only into a fresh host-controlled task directory. Audio and
+sidecar must both pass registration before their group becomes visible in the
+task artifact index; a half-published group is not counted as exported. Earlier
+complete groups survive later failure or cancellation. This index atomicity
+does not make the two filesystem writes a single transaction. Task manifests
+omit output absolute paths. The synchronous CLI retains its existing overwrite
+and summary replacement behavior.
+
 ## Manifest 字段
 
 条目结构以 [ManifestItem](voice_export.rs) 为准。所有字段均序列化；可选字段未知时为 JSON `null`，不以空字符串、零或猜测值补齐。未知 sender、duration_ms 均为 null；已知的零时长与未知时长不同。
+
+本表指 `summary.manifest[]`，不是所有对象的同名字段。任务 `summary.items[].timestamp` 和 sidecar 顶层 `timestamp` 保持媒体时间，`timestamp_source=media`；sidecar 独立的 `message_timestamp` / `message_timestamp_source` 只记录已证实的消息时间，没有证据时为空。当前严格反向关联要求消息与媒体时间一致；冲突仍为未证实，不为投影测试放宽规则。选集、分页和文件名始终使用媒体侧时间，补证不会反向改写它们。
 
 | 字段 | JSON 类型 | 含义 |
 | --- | --- | --- |

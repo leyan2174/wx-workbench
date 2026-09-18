@@ -7,6 +7,7 @@ pub(crate) mod process;
 mod store;
 #[cfg(test)]
 mod tests;
+pub(crate) mod voice_artifacts;
 mod worker;
 
 use crate::{
@@ -155,7 +156,7 @@ impl Service {
             "settings":records.binding.as_ref().map(|binding| &binding.settings),
             "config_fingerprint":records.binding.as_ref().map(|binding| &binding.fingerprint),
             "history_persisted":records.journal_ok,
-            "capabilities":{"task_artifacts_v1":true,"chat_plan_v1":true},
+            "capabilities":{"task_artifacts_v1":true,"chat_plan_v1":true,"raw_voices_v1":true},
             "task_kinds":plan::capabilities(),
             "running":records.tasks.iter().filter(|task| !task.terminal()).count(),
             "cursor":records.next_event - 1,

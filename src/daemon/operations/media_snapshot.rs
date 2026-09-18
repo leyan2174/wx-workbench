@@ -261,6 +261,178 @@ fn snapshot_source_files(root: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+pub(crate) struct VoiceSnapshot {
+    pub snapshot: Snapshot,
+    pub names: crate::daemon::query::Names,
+    pub missing_media: Vec<String>,
+    pub missing_messages: Vec<String>,
+}
+
+fn voice_source(source: &str) -> bool {
+    source == "contact/contact.db"
+        || (source.starts_with("message/media_") && source.ends_with(".db"))
+        || source
+            .strip_prefix("message/message_")
+            .and_then(|s| s.strip_suffix(".db"))
+            .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn voice_source_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let guard = crate::attachment::local_files::HostOutputGuard::new(root)?;
+    let root = root.canonicalize()?;
+    let mut paths = Vec::new();
+    for directory in ["message", "contact"] {
+        let path = root.join(directory);
+        if !path.try_exists()? {
+            continue;
+        }
+        let _guard = crate::attachment::local_files::HostOutputGuard::new(&path)?;
+        for (count, entry) in fs::read_dir(&path)?.enumerate() {
+            ensure!(count < 4096, "Voice source directory budget exceeded");
+            let entry = entry?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("Invalid voice source name"))?;
+            if voice_source(&format!("{directory}/{}", name.to_ascii_lowercase())) {
+                paths.push(entry.path());
+            }
+        }
+    }
+    paths.sort();
+    let mut identities = std::collections::HashSet::new();
+    for path in &paths {
+        ensure!(
+            identities.insert(same_file::Handle::from_path(path)?),
+            "Voice source aliases another database"
+        );
+    }
+    states(&paths)?;
+    guard.verify()?;
+    Ok(paths)
+}
+
+/// Raw voices accept all media suffixes and report missing sources without using old cache files.
+pub(crate) fn prepare_voice_snapshot(
+    runtime: &RuntimeContext,
+    mut supplied: DatabaseMaterials,
+) -> Result<VoiceSnapshot> {
+    ensure!(
+        !runtime.id.is_empty() && runtime.directory.is_absolute(),
+        "Fixed voice account required"
+    );
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> Result<VoiceSnapshot> {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(async {
+                        let root = runtime.config.db_dir.canonicalize()?;
+                        let paths = voice_source_files(&runtime.config.db_dir)?;
+                        let before = states(&paths)?;
+                        let mut normalized = DatabaseMaterials::new(HashMap::new());
+                        for (mut original, mut key) in supplied.0.drain() {
+                            let source = original.replace('\\', "/").to_ascii_lowercase();
+                            original.zeroize();
+                            if voice_source(&source) {
+                                ensure!(
+                                    normalized.0.insert(source, key).is_none(),
+                                    "Duplicate voice source material"
+                                );
+                            } else {
+                                key.zeroize();
+                            }
+                        }
+                        let mut missing_media = Vec::new();
+                        let mut missing_messages = Vec::new();
+                        let mut selected = DatabaseMaterials::new(HashMap::new());
+                        for path in &paths {
+                            let source = path
+                                .strip_prefix(&root)?
+                                .to_str()
+                                .context("Invalid voice source")?
+                                .replace('\\', "/");
+                            let canonical = source.to_ascii_lowercase();
+                            if let Some(key) = normalized.0.remove(&canonical) {
+                                selected.0.insert(source, key);
+                            } else if canonical.starts_with("message/media_") {
+                                missing_media.push(canonical);
+                            } else if canonical.starts_with("message/message_") {
+                                missing_messages.push(canonical);
+                            }
+                        }
+                        for source in normalized.0.keys() {
+                            if source.starts_with("message/media_") {
+                                missing_media.push(source.clone());
+                            } else if source.starts_with("message/message_") {
+                                missing_messages.push(source.clone());
+                            }
+                        }
+                        fs::create_dir_all(&runtime.directory)?;
+                        let directory = tempfile::Builder::new()
+                            .prefix("voice-snapshot-")
+                            .tempdir_in(&runtime.directory)?;
+                        let db = DbCache::with_dirs(
+                            root,
+                            directory.path().to_owned(),
+                            directory.path().join("_mtimes.json"),
+                            std::mem::take(&mut selected.0),
+                        )
+                        .await?;
+                        let mut sources = Vec::new();
+                        for source in db.raw_db_keys() {
+                            match db.get(&source).await? {
+                                Some(path) => sources.push(DecryptedSource { source, path }),
+                                None => {
+                                    let source = source.replace('\\', "/").to_ascii_lowercase();
+                                    if source.starts_with("message/media_") {
+                                        missing_media.push(source);
+                                    } else if source.starts_with("message/message_") {
+                                        missing_messages.push(source);
+                                    }
+                                }
+                            }
+                        }
+                        let names = if sources
+                            .iter()
+                            .any(|source| source.source.eq_ignore_ascii_case("contact/contact.db"))
+                        {
+                            crate::daemon::query::load_names(&db).await?
+                        } else {
+                            crate::daemon::query::Names {
+                                map: HashMap::new(),
+                                msg_db_keys: Vec::new(),
+                                biz_msg_db_keys: Vec::new(),
+                                verify_flags: HashMap::new(),
+                            }
+                        };
+                        ensure!(
+                            paths == voice_source_files(&runtime.config.db_dir)?
+                                && before == states(&paths)?,
+                            "Voice source changed during snapshot"
+                        );
+                        missing_media.sort();
+                        missing_media.dedup();
+                        missing_messages.sort();
+                        missing_messages.dedup();
+                        Ok(VoiceSnapshot {
+                            snapshot: Snapshot {
+                                account_id: runtime.id.clone(),
+                                sources,
+                                _directory: directory,
+                            },
+                            names,
+                            missing_media,
+                            missing_messages,
+                        })
+                    })
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("Voice snapshot worker panicked"))?
+    })
+}
+
 #[cfg(test)]
 mod plan_tests {
     use super::*;

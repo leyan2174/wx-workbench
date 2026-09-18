@@ -20,6 +20,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 读取聊天导出文件另需宿主启用 `--task-allow-artifact-read`，才增加 `list_task_artifacts` 和 `read_task_artifact`。任务管理权限不自动授予文件内容读取权限。导出 dry-run、媒体预算、结构化结果及分块交付见[任务产物](task-artifacts.md)。
 
+`export_voices` 使用 `options.voice_export` 提交原始 SILK 导出；daemon 能力 `raw_voices_v1` 与宿主类型授权共同控制工具可用性。MCP 提交需要 `--task-allow-media-write`，读取需要独立的 `--task-allow-artifact-read`。Web 新提交也需要本地 `--task-allow-media-write`，默认不开放；Web 的原有认证产物读取不依赖写入标志。任务使用新受控目录，拒绝模型路径、转写和转码参数，详见[原始语音任务](task-artifacts.md#原始语音)。
+
 daemon 宣告 `chat_plan_v1` 时，产物读取授权还启用 `read_chat_plan`。`chat_plan`、`chat_plan_review`、`chat_plan_apply` 通过既有 `submit_task` 提交，审阅和执行需要相应类型及产物读取双重授权。`--task-allow-plan-scan` 只允许该 MCP/Web 宿主新提交目录大小扫描计划，不修改 daemon 全局设置，也不是内存扫描授权。没有该标志的 MCP 拒绝 scan Submit（包括相同键重试），但可显式 `get_task` 查询已接受任务；Web 可对同键同参数的已接受任务仅执行 Get，参数改变返回冲突。入口退出不撤销已接受任务。
 
 初始化 MCP 后，`tools/call` 示例：

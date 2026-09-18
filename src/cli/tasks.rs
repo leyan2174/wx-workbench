@@ -12,6 +12,7 @@ use crate::{
         history_export,
         protocol::{Call, Format, Kind, Options, Submission, Task},
         settings::SettingsInput,
+        voice_export,
     },
 };
 
@@ -99,18 +100,24 @@ pub struct SubmitArgs {
     pub users: Vec<String>,
     #[arg(long, value_delimiter = ',', value_parser = parse_format)]
     pub formats: Vec<Format>,
-    /// Single chat selector for export_history; never a filesystem path.
+    /// Chat selector: required for history; omitted voices selects all chats.
     #[arg(long)]
     pub chat: Option<String>,
-    /// History start in host local time (date or date-time, not Unix seconds).
+    /// History/voices start in host local time, not Unix seconds.
     #[arg(long)]
     pub since: Option<String>,
-    /// History end; a date includes that day's 23:59:59.
+    /// History/voices end; a date includes that day's 23:59:59.
     #[arg(long)]
     pub until: Option<String>,
-    /// Positive history message limit; defaults to 500.
+    /// History: positive, default 500. Voices: omitted is unlimited, 0 selects none.
     #[arg(long)]
     pub limit: Option<usize>,
+    /// Voices selection offset; defaults to 0.
+    #[arg(long)]
+    pub offset: Option<usize>,
+    /// Voices only; immutable task output currently rejects overwrite.
+    #[arg(long)]
+    pub overwrite: bool,
     /// Single history format; defaults to markdown, separate from --formats.
     #[arg(long, value_parser = parse_history_format)]
     pub format: Option<history_export::Format>,
@@ -175,12 +182,24 @@ impl SubmitArgs {
                 dry_run: self.dry_run && self.kind != Kind::ChatPlanApply,
                 max_media_bytes: self.max_media_bytes,
                 max_total_media_bytes: self.max_total_media_bytes,
-                history_export: self.chat.as_ref().map(|chat| history_export::Request {
-                    chat: chat.clone(),
+                history_export: self
+                    .chat
+                    .as_ref()
+                    .filter(|_| self.kind == Kind::ExportHistory)
+                    .map(|chat| history_export::Request {
+                        chat: chat.clone(),
+                        since: self.since.clone(),
+                        until: self.until.clone(),
+                        limit: self.limit.unwrap_or(history_export::DEFAULT_LIMIT),
+                        format: self.format.unwrap_or_default(),
+                    }),
+                voice_export: (self.kind == Kind::ExportVoices).then(|| voice_export::Request {
+                    chat: self.chat.clone(),
                     since: self.since.clone(),
                     until: self.until.clone(),
-                    limit: self.limit.unwrap_or(history_export::DEFAULT_LIMIT),
-                    format: self.format.unwrap_or_default(),
+                    limit: self.limit,
+                    offset: self.offset.unwrap_or(0),
+                    overwrite: self.overwrite,
                 }),
                 chat_plan: (self.kind == Kind::ChatPlan).then(|| chat_plan::Request {
                     users: self.plan_users.as_ref().map(|users| users.0.clone()),
@@ -248,13 +267,20 @@ impl SubmitArgs {
             "--plan-mode requires chat_plan_apply"
         );
         ensure!(
-            self.kind == Kind::ExportHistory
+            matches!(self.kind, Kind::ExportHistory | Kind::ExportVoices)
                 || (self.chat.is_none()
                     && self.since.is_none()
                     && self.until.is_none()
-                    && self.limit.is_none()
-                    && self.format.is_none()),
-            "--chat, --since, --until, --limit and --format require export_history"
+                    && self.limit.is_none()),
+            "--chat, --since, --until and --limit require export_history or export_voices"
+        );
+        ensure!(
+            self.kind == Kind::ExportHistory || self.format.is_none(),
+            "--format requires export_history"
+        );
+        ensure!(
+            self.kind == Kind::ExportVoices || (self.offset.is_none() && !self.overwrite),
+            "--offset and --overwrite require export_voices"
         );
         if let Some(id) = &self.request_id {
             parse_id(id).map_err(anyhow::Error::msg)?;
@@ -277,11 +303,19 @@ impl SubmitArgs {
 pub(super) fn validate_export_options(task: &Submission) -> Result<()> {
     if matches!(
         task.kind,
-        Kind::ExportHistory | Kind::ChatPlan | Kind::ChatPlanReview | Kind::ChatPlanApply
+        Kind::ExportHistory
+            | Kind::ExportVoices
+            | Kind::ChatPlan
+            | Kind::ChatPlanReview
+            | Kind::ChatPlanApply
     ) {
         return crate::service::plan::validate(task, &Default::default());
     }
     let o = &task.options;
+    ensure!(
+        o.voice_export.is_none(),
+        "voice_export options require export_voices"
+    );
     ensure!(
         o.chat_plan.is_none() && o.chat_plan_review.is_none() && o.chat_plan_apply.is_none(),
         "Plan options require their matching task kind"
@@ -540,6 +574,10 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
                 args.kind != Kind::ExportHistory || supports_history_export(&info),
                 "This task service does not support export_history"
             );
+            ensure!(
+                args.kind != Kind::ExportVoices || supports_voice_export(&info),
+                "This task service does not support export_voices"
+            );
             match info.get("configured").and_then(Value::as_bool) {
                 Some(false) => {
                     request(
@@ -626,6 +664,15 @@ pub(super) fn supports_history_export(info: &Value) -> bool {
             .iter()
             .any(|kind| kind["kind"] == "export_history" && kind["enabled"] == true)
     })
+}
+
+pub(super) fn supports_voice_export(info: &Value) -> bool {
+    info["capabilities"]["raw_voices_v1"] == true
+        && info["task_kinds"].as_array().is_some_and(|kinds| {
+            kinds
+                .iter()
+                .any(|kind| kind["kind"] == "export_voices" && kind["enabled"] == true)
+        })
 }
 
 fn log_page(task: &Task, cursor: &mut u64) -> Value {
@@ -1231,6 +1278,121 @@ mod tests {
                 &json!({"task_kinds":[{"kind":kind,"enabled":false}]}),
                 kind
             ));
+        }
+    }
+
+    #[test]
+    fn voices_cli_preserves_optional_selection_and_date_end() {
+        let args = submit(&["tasks", "submit", "export_voices"]);
+        args.validate().unwrap();
+        let task = args.submission();
+        assert!(task.options.history_export.is_none());
+        let request = task.options.voice_export.unwrap();
+        assert_eq!(request.chat, None);
+        assert_eq!(request.limit, None);
+        assert_eq!(request.offset, 0);
+        assert!(!request.overwrite);
+        assert_eq!(request.resolved_window().unwrap(), (None, None));
+        for limit in [0, 1, 10001, usize::MAX] {
+            let limit_arg = limit.to_string();
+            let args = submit(&[
+                "tasks",
+                "submit",
+                "export_voices",
+                "--chat",
+                "alice,bob",
+                "--limit",
+                &limit_arg,
+                "--offset",
+                "7",
+                "--since",
+                "2026-09-18",
+                "--until",
+                "2026-09-18",
+                "--wait",
+            ]);
+            args.validate().unwrap();
+            assert!(args.wait);
+            let task = args.submission();
+            assert!(task.options.history_export.is_none());
+            let request = task.options.voice_export.unwrap();
+            assert_eq!(request.chat.as_deref(), Some("alice,bob"));
+            assert_eq!(request.limit, Some(limit));
+            assert_eq!(request.offset, 7);
+            assert_eq!(
+                request.resolved_window().unwrap(),
+                (
+                    Some(crate::service::time::parse_time("2026-09-18 00:00:00").unwrap()),
+                    Some(crate::service::time::parse_time("2026-09-18 23:59:59").unwrap()),
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn voices_cli_rejects_overwrite_paths_and_cross_kind_options() {
+        for extra in [
+            vec!["--chat", " "],
+            vec!["--overwrite"],
+            vec!["--since", "123"],
+            vec!["--until", "2026-02-30"],
+            vec!["--since", "2026-09-19", "--until", "2026-09-18"],
+            vec!["--format", "json"],
+            vec!["--formats", "json"],
+            vec!["--users", "alice"],
+            vec!["--no-images"],
+            vec!["--dry-run"],
+            vec!["--include-sns"],
+            vec!["--include-sns-media"],
+            vec!["--allow-missing-media"],
+            vec!["--authorize-memory-scan"],
+            vec!["--max-media-bytes", "1"],
+            vec!["--plan-users", "[]"],
+        ] {
+            let mut argv = vec!["tasks", "submit", "export_voices"];
+            argv.extend(extra);
+            assert!(submit(&argv).validate().is_err(), "{argv:?}");
+        }
+        for kind in ["export_history", "export_all", "chat_plan"] {
+            for extra in [vec!["--offset", "0"], vec!["--overwrite"]] {
+                let mut argv = vec!["tasks", "submit", kind];
+                if kind == "export_history" {
+                    argv.extend(["--chat", "alice"]);
+                }
+                argv.extend(extra);
+                assert!(submit(&argv).validate().is_err(), "{argv:?}");
+            }
+        }
+        for extra in [
+            vec!["--limit", "-1"],
+            vec!["--limit", "1.5"],
+            vec!["--offset", "-1"],
+            vec!["--output", "C:/private"],
+            vec!["--path", "C:/private"],
+            vec!["--decode"],
+            vec!["--asr"],
+            vec!["--json"],
+        ] {
+            let mut argv = vec!["tasks", "submit", "export_voices"];
+            argv.extend(extra);
+            assert!(Invocation::try_parse_from(&argv).is_err(), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn voices_capability_requires_ready_dispatch_and_enabled_kind() {
+        assert!(supports_voice_export(
+            &json!({"capabilities":{"raw_voices_v1":true},
+            "task_kinds":[{"kind":"export_voices","enabled":true}]})
+        ));
+        for info in [
+            json!({}),
+            json!({"capabilities":{"raw_voices_v1":true}}),
+            json!({"task_kinds":[{"kind":"export_voices","enabled":true}]}),
+            json!({"capabilities":{"raw_voices_v1":false},"task_kinds":[{"kind":"export_voices","enabled":true}]}),
+            json!({"capabilities":{"raw_voices_v1":true},"task_kinds":[{"kind":"export_voices","enabled":false}]}),
+        ] {
+            assert!(!supports_voice_export(&info), "{info}");
         }
     }
 

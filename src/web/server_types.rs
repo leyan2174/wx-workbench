@@ -30,6 +30,7 @@ pub struct Shared {
     pub authority: String,
     pub origin: String,
     pub allow_plan_scan: bool,
+    pub allow_media_write: bool,
     pub records: Mutex<Records>,
     pub events: broadcast::Sender<Event>,
     pub shutdown: watch::Sender<bool>,

@@ -455,6 +455,9 @@ pub(super) fn finalize_task(
     control: &mut FinalizeControl,
 ) -> Result<TaskResult> {
     match task.kind {
+        crate::service::protocol::Kind::ExportVoices => {
+            super::voice_artifacts::finalize(runtime, task, control).map(TaskResult::RawVoices)
+        }
         crate::service::protocol::Kind::ExportAll => {
             finalize(runtime, task, control).map(TaskResult::Directory)
         }
@@ -720,6 +723,9 @@ pub(super) fn list(
     if task.kind == crate::service::protocol::Kind::ExportHistory {
         return super::history_artifacts::list(runtime, task, offset, limit);
     }
+    if task.kind == crate::service::protocol::Kind::ExportVoices {
+        return super::voice_artifacts::list(runtime, task, offset, limit);
+    }
     let index = load(runtime, task)?;
     if !(1..=MAX_LIST_ITEMS).contains(&limit) || offset > index.entries.len() as u64 {
         return Err(error("invalid_artifact_request"));
@@ -757,6 +763,9 @@ pub(super) fn read(
     }
     if task.kind == crate::service::protocol::Kind::ExportHistory {
         return super::history_artifacts::read(runtime, task, id, offset, max_bytes);
+    }
+    if task.kind == crate::service::protocol::Kind::ExportVoices {
+        return super::voice_artifacts::read(runtime, task, id, offset, max_bytes);
     }
     if !valid_task_id(id) || !(1..=CHUNK_BYTES).contains(&max_bytes) {
         return Err(error("invalid_artifact_request"));

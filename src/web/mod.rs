@@ -9,6 +9,7 @@ mod preview;
 mod query;
 mod read_queries;
 mod server_types;
+mod voices;
 
 use crate::ipc;
 use crate::service::{
@@ -61,6 +62,7 @@ impl IntoResponse for ApiError {
                 | "plan_ref_changed"
                 | "plan_selection_invalid"
                 | "plan_scan_not_authorized"
+                | "media_write_not_authorized"
                 | "invalid_page"
         ) {
             return (self.0, Json(json!({"error":self.1,"code":self.1}))).into_response();
@@ -313,6 +315,11 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
         info["capabilities"]["chat_plan_v1"] == true,
         state.allow_plan_scan,
     );
+    let kinds = voices::capabilities(
+        kinds,
+        info["capabilities"]["raw_voices_v1"] == true,
+        state.allow_media_write,
+    );
     let mut limits = info["limits"].clone();
     if let Some(limits) = limits.as_object_mut() {
         limits.insert("sse_clients".into(), json!(16));
@@ -364,6 +371,11 @@ async fn submit(
     };
     if !state.allow_plan_scan && plans::requires_scan(&task) {
         return plans::existing_scan(&state, &idempotency_key, &task)
+            .await
+            .map(|value| (StatusCode::ACCEPTED, Json(value)));
+    }
+    if !state.allow_media_write && task.kind == crate::service::protocol::Kind::ExportVoices {
+        return voices::existing(&state, &idempotency_key, &task)
             .await
             .map(|value| (StatusCode::ACCEPTED, Json(value)));
     }
@@ -775,6 +787,7 @@ pub async fn serve(
         authority,
         origin,
         allow_plan_scan: args.allow_plan_scan,
+        allow_media_write: args.allow_media_write,
         records: Mutex::new(Records::default()),
         events,
         shutdown,
@@ -1466,6 +1479,7 @@ mod tests {
             runtime,
             token: "synthetic-http-test-token".into(),
             allow_plan_scan: false,
+            allow_media_write: false,
             authority: address.to_string(),
             origin: format!("http://{address}"),
             records: Mutex::new(Records {

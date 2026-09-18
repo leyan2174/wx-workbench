@@ -63,7 +63,7 @@ impl Args {
             && self.task_kind.contains(&kind)
             && match kind {
                 Kind::WechatKeys | Kind::ImageKey => self.task_allow_memory_scan,
-                Kind::ExportAll | Kind::DecodeImages | Kind::SnsDecrypt => {
+                Kind::ExportAll | Kind::ExportVoices | Kind::DecodeImages | Kind::SnsDecrypt => {
                     self.task_allow_media_write
                 }
                 Kind::WechatDecrypt | Kind::ExportHistory | Kind::ChatPlan => true,
@@ -234,6 +234,21 @@ impl Args {
                         }),
                         &["chat"],
                     ),
+                    "voice_export" => object(
+                        json!({
+                            "chat":{"type":["string","null"],"minLength":1,
+                                "description":"Omit or null for all chats; blank-only selectors are rejected."},
+                            "since":{"type":["string","null"],
+                                "description":"Inclusive host local date or date-time, not Unix seconds."},
+                            "until":{"type":["string","null"],
+                                "description":"Inclusive; a date includes 23:59:59."},
+                            "limit":{"type":["integer","null"],"minimum":0,"maximum":9007199254740991u64,
+                                "description":"Omit or null for unlimited selection; 0 selects none."},
+                            "offset":{"type":"integer","minimum":0,"maximum":9007199254740991u64,"default":0},
+                            "overwrite":{"type":"boolean","const":false,"default":false}
+                        }),
+                        &[],
+                    ),
                     "chat_plan" => object(
                         json!({
                             "users":{"type":"array","items":{"type":"string","minLength":1,"maxLength":1024},
@@ -306,6 +321,25 @@ impl Args {
                         }
                     }}},
                     "else":{"properties":{"options":{"properties":{"history_export":false}}}}
+                }));
+            }
+            if self.permits(Kind::ExportVoices) {
+                if schema.get("allOf").is_none() {
+                    schema["allOf"] = json!([]);
+                }
+                schema["allOf"].as_array_mut().unwrap().push(json!({
+                    "if":{"properties":{"kind":{"const":"export_voices"}},"required":["kind"]},
+                    "then":{"required":["options"],"properties":{"options":{
+                        "required":["voice_export"],"properties":{
+                            "users":{"const":[]},"formats":{"const":[]},
+                            "include_images":{"const":true},"include_sns":{"const":false},
+                            "include_sns_media":{"const":false},"allow_missing_media":{"const":false},
+                            "authorize_memory_scan":{"const":false},"dry_run":{"const":false},
+                            "max_media_bytes":false,"max_total_media_bytes":false,
+                            "history_export":false,"chat_plan":false,"chat_plan_review":false,"chat_plan_apply":false
+                        }
+                    }}},
+                    "else":{"properties":{"options":{"properties":{"voice_export":false}}}}
                 }));
             }
             for (kind, name) in [
@@ -502,6 +536,14 @@ fn parse(name: &str, arguments: &Value) -> Result<Call, DispatchError> {
                 .as_ref()
                 .is_some_and(|history| history.limit as u64 > 9007199254740991)
             {
+                return Err(invalid());
+            }
+            if task.options.voice_export.as_ref().is_some_and(|voice| {
+                voice
+                    .limit
+                    .is_some_and(|limit| limit as u64 > 9007199254740991)
+                    || voice.offset as u64 > 9007199254740991
+            }) {
                 return Err(invalid());
             }
             Ok(Call::Submit {
@@ -841,6 +883,15 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
                         .into());
                     }
                     let settings: Settings = serde_json::from_value(info["settings"].clone())?;
+                    if task.kind == Kind::ExportVoices
+                        && !super::tasks::supports_voice_export(&info)
+                    {
+                        return Err(ServiceError::new(
+                            "unsupported_task",
+                            "Raw voice export is not supported",
+                        )
+                        .into());
+                    }
                     plan::validate(task, &settings)
                         .map_err(|_| ServiceError::new("invalid_task", "任务参数无效"))?;
                 }

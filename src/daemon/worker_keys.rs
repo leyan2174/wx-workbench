@@ -236,7 +236,9 @@ impl Broker {
                 ..
             } => (config, IMAGE),
             Step::WechatDecrypt { config } => (config, READ_DATABASES),
-            Step::ChatPlan { config, .. } => (config, READ_DATABASES),
+            Step::ChatPlan { config, .. } | Step::ExportVoices { config, .. } => {
+                (config, READ_DATABASES)
+            }
             Step::DecodeImages { config, .. } => (config, READ_IMAGE),
             Step::ExportMessages {
                 config,

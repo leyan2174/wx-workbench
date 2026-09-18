@@ -94,6 +94,7 @@ SOFTWARE.
     { kind: 'image_key', name: '图片密钥', group: '个人微信', icon: 'search' },
     { kind: 'export_all', name: '导出聊天', group: '个人微信', icon: 'download', export: true },
     { kind: 'export_history', name: '导出单会话历史', group: '个人微信', icon: 'download', advertisedOnly: true },
+    { kind: 'export_voices', name: '导出原始语音', group: '个人微信', icon: 'download', advertisedOnly: true },
     { kind: 'chat_plan', name: '生成导出计划', group: '个人微信', icon: 'list-checks', advertisedOnly: true },
     { kind: 'chat_plan_review', name: '保存计划修订', group: '个人微信', icon: 'list-checks', advertisedOnly: true, contextOnly: true },
     { kind: 'chat_plan_apply', name: '应用导出计划', group: '个人微信', icon: 'play', advertisedOnly: true, contextOnly: true },
@@ -110,7 +111,7 @@ SOFTWARE.
   function displayName(item) { return item.remark || item.display_name || item.display || item.name || item.nickname || username(item); }
   function redact(value) { const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); return token ? String(text ?? '').split(token).join('[令牌已隐藏]') : String(text ?? ''); }
   function errorText(error) {
-    const planErrors = { plan_ref_unavailable: '计划引用已不可用，请重新选择计划', plan_ref_changed: '计划内容已变更，已停止操作', plan_selection_invalid: '计划选择无效或会话已变化，请重新审阅', plan_scan_not_authorized: '本次 Web 启动未允许计划扫描', invalid_page: '计划分页参数无效' };
+    const planErrors = { media_write_not_authorized: '本次 Web 启动未允许原始语音写入', plan_ref_unavailable: '计划引用已不可用，请重新选择计划', plan_ref_changed: '计划内容已变更，已停止操作', plan_selection_invalid: '计划选择无效或会话已变化，请重新审阅', plan_scan_not_authorized: '本次 Web 启动未允许计划扫描', invalid_page: '计划分页参数无效' };
     return planErrors[error.code] || redact(error.message || error);
   }
   function timestamp(value, short = false) {
@@ -231,7 +232,7 @@ SOFTWARE.
     $('auth-state').textContent = '令牌无效或已过期'; renderTools(); updateImageButton();
   }
   async function request(path, { method = 'GET', body, signal, stream = false, image = false, idempotencyKey } = {}) {
-    // 同源认证与写操作保护均由本次启动令牌头承担，不写入 URL。
+    // 令牌只用于请求认证，不写入 URL；任务写入资格仍由宿主权限单独校验。
     const headers = { 'X-WX-Token': token, Accept: stream ? 'text/event-stream' : image ? 'image/*' : 'application/json' };
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -246,7 +247,7 @@ SOFTWARE.
     if (!response.ok) {
       let message = `请求失败（HTTP ${response.status}）`, code;
       try { const data = await response.json(); code = data.error?.code || data.code; message = data.error?.message || data.error || data.message || message; } catch { /* 非 JSON 错误保留状态码。 */ }
-      if (response.status === 401 || (response.status === 403 && code !== 'plan_scan_not_authorized')) authenticateFailure();
+      if (response.status === 401 || (response.status === 403 && !['plan_scan_not_authorized', 'media_write_not_authorized'].includes(code))) authenticateFailure();
       const error = new Error(typeof message === 'string' ? message : JSON.stringify(message)); error.status = response.status; error.code = code; throw error;
     }
     // SSE 在收到响应头后取消首包超时，持续流的生命周期仍由调用者控制。
@@ -1035,6 +1036,69 @@ SOFTWARE.
     group.append(summary); target.append(group);
     formReaders.push(options => { options.history_export = historyExportRequest({ chat: chat.value, since: inputs.since.value, until: inputs.until.value, limit: count.value, format: format.value }); });
   }
+  function voiceExportRequest({ scope = 'single', chat = '', since = '', until = '', limited = false, limit = '', offset = 0, overwrite = false }) {
+    if (!['single', 'all'].includes(scope)) throw new Error('请选择有效的会话范围');
+    if (overwrite !== false) throw new Error('原始语音任务仅支持全新归档');
+    const integer = (value, label) => {
+      if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '' || !Number.isSafeInteger(Number(value)) || Number(value) < 0) throw new Error(`${label}必须为非负安全整数`);
+      return Number(value);
+    };
+    const request = { offset: integer(offset, '跳过条数'), overwrite: false };
+    if (scope === 'single') {
+      if (typeof chat !== 'string' || !chat.trim()) throw new Error('请输入会话 username 或唯一名称');
+      request.chat = chat;
+    }
+    if (limited) request.limit = integer(limit, '条数上限');
+    for (const [key, raw] of [['since', since], ['until', until]]) {
+      if (!raw) continue;
+      const value = raw.replace('T', ' ');
+      if (!/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(value)) throw new Error('时间须为日期或本地日期时刻');
+      request[key] = value;
+    }
+    const boundary = (value, end) => value.length === 10 ? `${value} ${end ? '23:59:59' : '00:00:00'}` : value.length === 16 ? `${value}:00` : value;
+    if (request.since && request.until && boundary(request.since, false) > boundary(request.until, true)) throw new Error('开始时间不能晚于结束时间');
+    return request;
+  }
+  function voiceExportFields(target, selectedUser) {
+    const group = el('fieldset', 'history-export-fields voice-export-fields'); group.append(el('legend', '', '原始 SILK'));
+    const add = (label, input) => { const row = el('label', 'field'); row.append(el('span', '', label), input); group.append(row); };
+    const scope = el('select'); scope.name = 'voice_scope'; scope.add(new Option('单会话', 'single')); scope.add(new Option('当前账号全部会话', 'all')); add('会话范围', scope);
+    const chat = el('input'), choices = el('datalist'); choices.id = 'voice-export-chats'; chat.name = 'voice_chat'; chat.type = 'text'; chat.autocomplete = 'off'; chat.required = true;
+    chat.setAttribute('list', choices.id); chat.placeholder = 'username 或唯一会话名称'; chat.value = selectedUser || (model.selected ? username(model.selected) : '');
+    const seen = new Set();
+    for (const person of [...model.sessions, ...model.contacts]) {
+      const id = username(person); if (!id || seen.has(id)) continue;
+      seen.add(id); const option = el('option'); option.value = id; option.label = displayName(person); choices.append(option);
+    }
+    add('会话 username / 名称', chat); group.append(choices);
+    const dates = el('div', 'history-export-dates'), inputs = {};
+    for (const [key, label] of [['since', '开始时间'], ['until', '结束时间']]) {
+      const row = el('div', 'history-export-date'), mode = el('select'), fieldLabel = el('label', 'field'), input = el('input');
+      mode.setAttribute('aria-label', `语音${label}精度`); mode.add(new Option('日期', 'date')); mode.add(new Option('日期时刻', 'datetime-local'));
+      input.type = 'date'; input.name = `voice_${key}`;
+      mode.addEventListener('change', () => {
+        const old = input.value; input.type = mode.value;
+        if (mode.value === 'datetime-local') { input.step = '1'; input.value = old ? `${old.slice(0, 10)}T${key === 'until' ? '23:59:59' : '00:00:00'}` : ''; }
+        else { input.removeAttribute('step'); input.value = old.slice(0, 10); }
+        refresh();
+      });
+      fieldLabel.append(el('span', '', `${label}（可选）`), input); row.append(mode, fieldLabel); dates.append(row); inputs[key] = input;
+    }
+    group.append(dates);
+    const limited = el('input'), toggle = el('label', 'check'); limited.type = 'checkbox'; limited.name = 'voice_limited'; toggle.append(limited, el('span', '', '限制导出条数')); group.append(toggle);
+    const limit = el('input'); limit.name = 'voice_limit'; limit.type = 'number'; limit.min = '0'; limit.max = String(Number.MAX_SAFE_INTEGER); limit.step = '1'; add('条数上限', limit);
+    const offset = el('input'); offset.name = 'voice_offset'; offset.type = 'number'; offset.min = '0'; offset.max = String(Number.MAX_SAFE_INTEGER); offset.step = '1'; offset.required = true; offset.value = '0'; add('跳过条数', offset);
+    const summary = el('dl', 'key-values history-export-summary'); summary.setAttribute('aria-live', 'polite');
+    const refresh = () => {
+      chat.disabled = scope.value === 'all'; chat.required = !chat.disabled; limit.disabled = !limited.checked; limit.required = limited.checked;
+      summary.replaceChildren(); const end = inputs.until.value;
+      const count = !limited.checked ? '不限' : limit.value === '' ? '尚未填写' : Number(limit.value) === 0 ? '0（选空）' : limit.value;
+      for (const [key, value] of [['范围', scope.value === 'all' ? '当前账号全部会话' : chat.value || '单会话（待填写）'], ['条数上限', count], ['跳过条数', offset.value || '尚未填写'], ['时间基准', '宿主本地时间'], ['结束边界', end ? `${end.replace('T', ' ')}${end.length === 10 ? ' 23:59:59' : ''}（含）` : '不限'], ['输出', '全新归档 · 原始 SILK 与关联证据']]) summary.append(el('dt', '', key), el('dd', '', value));
+    };
+    for (const input of [scope, chat, limited, limit, offset, inputs.until]) { input.addEventListener('input', refresh); input.addEventListener('change', refresh); }
+    refresh(); group.append(summary); target.append(group);
+    formReaders.push(options => { options.voice_export = voiceExportRequest({ scope: scope.value, chat: chat.value, since: inputs.since.value, until: inputs.until.value, limited: limited.checked, limit: limit.value, offset: offset.value }); });
+  }
   function planRequest({ scope, users = '', exclude = '', size_mode = 'estimate', threads = 1, start = '', end = '' }, allowedModes) {
     const names = value => [...new Set(value.split(/\r?\n/).filter(name => name !== ''))];
     const count = Number(threads);
@@ -1172,6 +1236,7 @@ SOFTWARE.
     if (spec.kind === 'chat_plan') { planGenerationFields(spec, target); return; }
     if (['chat_plan_review', 'chat_plan_apply'].includes(spec.kind)) { planReferenceFields(spec.kind, planOptions, target); return; }
     if (spec.kind === 'export_history') { historyExportFields(target, selectedUser); return; }
+    if (spec.kind === 'export_voices') { voiceExportFields(target, selectedUser); return; }
     if (!Array.isArray(spec.fields)) taskFlags(spec, target);
     exportBudgets(spec, target);
     if (Array.isArray(spec.fields)) {
@@ -1246,6 +1311,9 @@ SOFTWARE.
     if ((pending?.body.kind || taskSpec.kind) === 'export_history' && !availableTasks.some(spec => spec.kind === 'export_history' && spec.enabled !== false)) {
       notice('task-error', '当前服务不支持或未启用单会话历史导出；待确认提交已保留。'); return;
     }
+    if (!pending && taskSpec.kind === 'export_voices' && !availableTasks.some(spec => spec.kind === 'export_voices' && spec.enabled !== false)) {
+      notice('task-error', '当前服务未允许原始语音导出；待确认提交已保留。'); return;
+    }
     try {
       if (!pending) {
       formReaders.forEach((read) => read(options));
@@ -1311,11 +1379,11 @@ SOFTWARE.
       if (!current()) return;
       target.replaceChildren();
       if (page.scope !== model.detail?.result?.scope) throw new Error('产物范围与任务结果不符');
-      target.append(el('h3', '', { chat_history: '历史导出文档', chat_plan: '计划文件', chat_plan_apply: '计划导出文档' }[page.scope] || '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
+      target.append(el('h3', '', { raw_voices: '原始语音与关联证据', chat_history: '历史导出文档', chat_plan: '计划文件', chat_plan_apply: '计划导出文档' }[page.scope] || '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
       for (const item of page.items) {
         if (!/^[a-f0-9]{64}$/.test(item.artifact_id)) continue;
         const row = el('div', 'artifact-row'), info = el('div', 'artifact-info');
-        const role = {chat_plan_csv: '导出计划 CSV', chat_document: '聊天文档', media_manifest: '媒体清单', voice_manifest: '语音清单', media: '媒体文件', chat_info: '会话信息', export_inventory: '导出清单'}[item.role] || '文件';
+        const role = page.scope === 'raw_voices' ? { media: '原始 SILK', voice_manifest: '关联证据与汇总' }[item.role] || '文件' : {chat_plan_csv: '导出计划 CSV', chat_document: '聊天文档', media_manifest: '媒体清单', voice_manifest: '语音清单', media: '媒体文件', chat_info: '会话信息', export_inventory: '导出清单'}[item.role] || '文件';
         info.append(el('span', 'artifact-name', item.name), el('span', 'muted', `${Number(item.size).toLocaleString('zh-CN')} 字节 · ${role}`));
         const download = button('', () => downloadArtifact(id, item, download), 'icon-button');
         download.title = `下载 ${item.name}`; download.setAttribute('aria-label', download.title); download.append(icon('download'));
@@ -1364,24 +1432,43 @@ SOFTWARE.
     }
     facts.push(['已登记产物', result.artifact_count]); return facts;
   }
+  function voiceResultFacts(result) {
+    const selection = result.selection, request = selection.request;
+    const known = result.selected_rows != null;
+    const outcomes = { partial: '部分完成', failure: '失败', refused: '已拒绝' };
+    const outcome = result.outcome === 'success' ? !result.finalized || !known ? '尚未确定' : result.unproven > 0 ? '已导出，关联未证实' : '成功' : outcomes[result.outcome] || '尚未确定';
+    const count = value => known && value != null ? value : '未确定';
+    const time = value => {
+      if (value === null) return '不限';
+      if (value === undefined) return '未确定';
+      const date = new Date(value * 1000);
+      return Number.isFinite(date.getTime()) ? date.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : '未确定';
+    };
+    const facts = [['原始语音结果', outcome], ['范围', request.chat == null ? '当前账号全部会话' : '单会话']];
+    if (request.chat != null) facts.push(['请求会话', request.chat], ['实际会话 username', selection.target_username ?? '尚未解析']);
+    facts.push(['开始边界（含）', time(selection.since_ts)], ['结束边界（含）', time(selection.until_ts)], ['请求条数上限', request.limit == null ? '不限' : request.limit], ['跳过条数', request.offset],
+      ['选中语音', result.selected_rows ?? '未确定'], ['已导出语音', count(result.exported)], ['已关联语音', count(result.associated)], ['关联未证实', count(result.unproven)], ['不完整条目', count(result.incomplete_items)], ['已登记产物', result.artifact_count ?? '未确定']);
+    if (known && result.selected_rows === 0 && result.finalized) facts.push(['选择结果', '空选择（已核验）']);
+    return facts;
+  }
   function renderExportResult(task) {
     const target = $('task-result'), result = task.result;
     target.replaceChildren();
-    $('export-result-title').textContent = { export_history: '单会话历史导出结果', chat_plan: '导出计划结果', chat_plan_review: '计划修订结果', chat_plan_apply: '计划应用结果' }[task.kind] || '聊天导出结果';
-    const expectedScope = { export_history: 'chat_history', export_all: 'chat_directory', chat_plan: 'chat_plan', chat_plan_review: 'chat_plan', chat_plan_apply: 'chat_plan_apply' }[task.kind] || null;
+    $('export-result-title').textContent = { export_voices: '原始语音导出结果', export_history: '单会话历史导出结果', chat_plan: '导出计划结果', chat_plan_review: '计划修订结果', chat_plan_apply: '计划应用结果' }[task.kind] || '聊天导出结果';
+    const expectedScope = { export_voices: 'raw_voices', export_history: 'chat_history', export_all: 'chat_directory', chat_plan: 'chat_plan', chat_plan_review: 'chat_plan', chat_plan_apply: 'chat_plan_apply' }[task.kind] || null;
     if (!result || result.version !== 1 || !expectedScope || result.scope !== expectedScope) {
-      target.textContent = '暂无聊天导出结果'; $('task-artifacts').replaceChildren(); return;
+      target.textContent = task.kind === 'export_voices' ? '尚未收到原始语音结果' : '暂无聊天导出结果'; $('task-artifacts').replaceChildren(); return;
     }
     const outcomes = { success: '完整', partial: '部分完成', failure: '失败', refused: '已拒绝' };
     const summary = el('dl', 'key-values');
-    const facts = ['chat_plan', 'chat_plan_apply'].includes(result.scope) ? planResultFacts(result) : result.scope === 'chat_history' ? historyResultFacts(result) : result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
+    const facts = result.scope === 'raw_voices' ? voiceResultFacts(result) : ['chat_plan', 'chat_plan_apply'].includes(result.scope) ? planResultFacts(result) : result.scope === 'chat_history' ? historyResultFacts(result) : result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
       : [['聊天结果', outcomes[result.outcome] || '尚未确定'], ['计划会话', result.planned_chats ?? '未确定'],
         ['已导出会话', result.exported_chats], ['失败会话', result.failed_chats], ['消息', result.messages],
         ['媒体问题', result.media_issues], ['已登记产物', result.artifact_count]];
     facts.push(['报告', result.finalized ? '已终结' : '未终结'], ['产物清单', result.artifacts_complete ? '完整' : '不完整']);
     for (const [key, value] of facts) summary.append(el('dt', '', key), el('dd', '', String(value)));
     target.append(summary);
-    const codes = { history_query_warning: '历史查询警告', history_export_failed: '历史导出失败', chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
+    const codes = { voice_export_failed: '原始语音导出失败', voice_sources_incomplete: '语音数据源不完整', voice_unproven: '语音关联未证实', voice_item_failed: '语音条目失败', voice_budget_exceeded: '语音导出预算超限', artifact_finalization_timeout: '产物终结超时', history_query_warning: '历史查询警告', history_export_failed: '历史导出失败', chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
     for (const diagnostic of result.diagnostics || []) target.append(el('p', 'notice', `${codes[diagnostic.code] || diagnostic.code}：${diagnostic.count}`));
     const ready = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(statusOf(task));
     if (ready && result.scope === 'chat_plan' && validPlanRef(result.published_plan_ref)) target.append(button('审阅与应用', () => openPlanReview(result.published_plan_ref)));

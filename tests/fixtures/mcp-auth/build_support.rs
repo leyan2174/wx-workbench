@@ -119,6 +119,7 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
             "settings",
             "task_artifacts",
             "history_export",
+            "voice_export",
             "time",
             "chat_plan",
         ]);
@@ -145,10 +146,10 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
         ast.attrs.clear();
         ast.items.retain(|item| matches!(item, syn::Item::Fn(value)
-            if ["validate_export_options", "supports_artifacts", "supports_history_export", "supports_chat_plan", "supports_plan_kind"].iter().any(|name| value.sig.ident == name)));
+            if ["validate_export_options", "supports_artifacts", "supports_history_export", "supports_voice_export", "supports_chat_plan", "supports_plan_kind"].iter().any(|name| value.sig.ident == name)));
         assert_eq!(
             ast.items.len(),
-            5,
+            6,
             "Production task validation helpers changed"
         );
         ast.items.insert(

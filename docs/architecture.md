@@ -186,6 +186,8 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 `wx voices` 导出原始 SILK；完整聊天导出保留语音引用，并提供原始媒体及关联 manifest 给下游工具。语音目录查询与消息关联是不同契约，媒体行号不能直接当作消息 ID。关联缺失或歧义必须明确报告，不伪造路径或文本。
 
+`service::voice_export` 拥有无路径的原始语音任务请求与结果，`export_voices` 经既有任务 worker 调用同一选择、媒体关联和发布实现。`business::voice_export` 保持纯选择规则，微信媒体适配器负责分库与关联；入口不读取表结构。`daemon::tasks::voice_artifacts` 只在 SILK 与证据均核验完成后登记文件组，保留部分结果和取消前缀。原前台 voices 保持独立生命周期及既有目录覆盖语义，任务只用新受控目录，不把查询或所有媒体操作统一塞进队列。
+
 参见[语音目录](voice-catalog-boundary.md)和[原始语音导出](../src/business/VOICE_EXPORT.md)。
 
 ## 导出、SNS 与 Web
