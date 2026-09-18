@@ -37,6 +37,8 @@ flowchart TB
 
 单会话 `export_history` 使用 `service::history_export::Request`，由现有任务计划和 worker 调用固定账号的历史查询及共享四格式渲染。前台 `wx export` 复用相同渲染但保留前台生命周期与输出行为。`TaskResult` 明确区分 `chat_directory` 与 `chat_history`，按 scope 解码，目录结果 JSON 不变；单文件通过受保护发布后登记到任务产物接口，不把任意路径变成下载能力。
 
+聊天计划任务契约由 `service::chat_plan` 拥有，`daemon::operations::plan_tasks` 装配现有 `application::chat_export_plan` 与计划选集、聊天导出能力。微信统计仍由适配层读取；任务计划不读取旧共享解密目录，而用当前账号材料创建独立快照，再以逻辑来源映射私有文件。`daemon::tasks::plan_artifacts` 管理不可变计划引用、类型化分页及逐聊天发布记录。CLI、MCP、HTTP 共用这些任务和读取 RPC，不复制选择规则。扫描授权留在入口，账号与配置复核留在共享宿主；审阅不是授权状态，发布的空选集不扩大为全量导出。
+
 ```mermaid
 flowchart LR
     C[CLI / Web] --> Q[认证查询请求]

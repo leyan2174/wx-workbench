@@ -24,7 +24,17 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     ];
     let mut types = vec!["Call", "Envelope", "Reply", "ServiceError"];
     if tasks {
-        calls.extend(["Configure", "Submit", "List", "Get", "Cancel", "Events", "TaskArtifacts", "ReadTaskArtifact"]);
+        calls.extend([
+            "Configure",
+            "Submit",
+            "List",
+            "Get",
+            "Cancel",
+            "Events",
+            "TaskArtifacts",
+            "ReadTaskArtifact",
+            "ReadChatPlan",
+        ]);
         types.extend(["Kind", "Format", "Options", "Submission"]);
     }
     let source = root.join("../../../src/service/protocol.rs");
@@ -32,80 +42,165 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
     ast.attrs.clear();
     ast.items.retain(|item| match item {
-        syn::Item::Const(value) => ["VERSION", "MAX_REQUEST_BYTES", "MAX_RESPONSE_BYTES"].iter().any(|name| value.ident == name),
+        syn::Item::Const(value) => ["VERSION", "MAX_REQUEST_BYTES", "MAX_RESPONSE_BYTES"]
+            .iter()
+            .any(|name| value.ident == name),
         syn::Item::Enum(value) => types.iter().any(|name| value.ident == name),
         syn::Item::Struct(value) => types.iter().any(|name| value.ident == name),
         syn::Item::Impl(value) => matches!(value.self_ty.as_ref(), syn::Type::Path(path)
             if types.iter().any(|name| path.path.is_ident(name))),
-        syn::Item::Fn(value) => tasks && ["valid_task_id", "parse_task_kind", "is_false"].iter().any(|name| value.sig.ident == name),
+        syn::Item::Fn(value) => {
+            tasks
+                && ["valid_task_id", "parse_task_kind", "is_false"]
+                    .iter()
+                    .any(|name| value.sig.ident == name)
+        }
         _ => false,
     });
     for item in &mut ast.items {
         match item {
             syn::Item::Enum(value) if value.ident == "Call" => {
-                value.variants = value.variants.clone().into_iter()
-                    .filter(|variant| calls.iter().any(|name| variant.ident == name)).collect();
+                value.variants = value
+                    .variants
+                    .clone()
+                    .into_iter()
+                    .filter(|variant| calls.iter().any(|name| variant.ident == name))
+                    .collect();
                 assert_eq!(value.variants.len(), calls.len());
-            },
+            }
             syn::Item::Impl(value) if matches!(value.self_ty.as_ref(), syn::Type::Path(path) if path.path.is_ident("Call")) => {
                 for item in &mut value.items {
                     if let syn::ImplItem::Fn(method) = item {
                         for statement in &mut method.block.stmts {
                             if let syn::Stmt::Expr(syn::Expr::Match(value), _) = statement {
                                 value.arms.retain(|arm| match &arm.pat {
-                                    syn::Pat::Struct(value) => value.path.segments.last().is_some_and(|segment|
-                                        calls.iter().any(|name| segment.ident == name)),
+                                    syn::Pat::Struct(value) => {
+                                        value.path.segments.last().is_some_and(|segment| {
+                                            calls.iter().any(|name| segment.ident == name)
+                                        })
+                                    }
                                     _ => true,
                                 });
                             }
                         }
                     }
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
-    ast.items.insert(0, syn::parse_quote!(use serde::{Deserialize, Serialize};));
-    ast.items.insert(1, syn::parse_quote!(use serde_json::Value;));
+    ast.items.insert(
+        0,
+        syn::parse_quote!(
+            use serde::{Deserialize, Serialize};
+        ),
+    );
+    ast.items.insert(
+        1,
+        syn::parse_quote!(
+            use serde_json::Value;
+        ),
+    );
     if tasks {
-        ast.items.insert(2, syn::parse_quote!(use super::settings::SettingsInput;));
+        ast.items.insert(
+            2,
+            syn::parse_quote!(
+                use super::settings::SettingsInput;
+            ),
+        );
     }
     fs::write(out.join("service_protocol.rs"), prettyplease::unparse(&ast)).unwrap();
     generate_database_worker_keys(root, out);
     let mut modules = vec!["client", "transport", "query_client"];
     if tasks {
-        modules.extend(["config_pin", "plan", "settings", "task_artifacts", "history_export", "time"]);
+        modules.extend([
+            "config_pin",
+            "plan",
+            "settings",
+            "task_artifacts",
+            "history_export",
+            "time",
+            "chat_plan",
+        ]);
+        for (source_name, output_name, retained_enum) in [
+            ("business/chat_plan.rs", "business_plan_mode.rs", "SizeMode"),
+            (
+                "service/operation_requests/plan.rs",
+                "operation_plan_mode.rs",
+                "Mode",
+            ),
+        ] {
+            let source = root.join("../../../src").join(source_name);
+            println!("cargo:rerun-if-changed={}", source.display());
+            let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
+            ast.attrs.clear();
+            ast.items.retain(
+                |item| matches!(item, syn::Item::Enum(value) if value.ident == retained_enum),
+            );
+            assert_eq!(ast.items.len(), 1, "Production plan mode changed");
+            fs::write(out.join(output_name), prettyplease::unparse(&ast)).unwrap();
+        }
         let source = root.join("../../../src/cli/tasks.rs");
         println!("cargo:rerun-if-changed={}", source.display());
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
         ast.attrs.clear();
         ast.items.retain(|item| matches!(item, syn::Item::Fn(value)
-            if ["validate_export_options", "supports_artifacts", "supports_history_export"].iter().any(|name| value.sig.ident == name)));
-        assert_eq!(ast.items.len(), 3, "Production task validation helpers changed");
-        ast.items.insert(0, syn::parse_quote!(use anyhow::{ensure, Result};));
-        ast.items.insert(1, syn::parse_quote!(use serde_json::Value;));
-        ast.items.insert(2, syn::parse_quote!(use crate::service::protocol::{Kind, Submission};));
-        fs::write(out.join("cli_task_validation.rs"), prettyplease::unparse(&ast)).unwrap();
+            if ["validate_export_options", "supports_artifacts", "supports_history_export", "supports_chat_plan", "supports_plan_kind"].iter().any(|name| value.sig.ident == name)));
+        assert_eq!(
+            ast.items.len(),
+            5,
+            "Production task validation helpers changed"
+        );
+        ast.items.insert(
+            0,
+            syn::parse_quote!(
+                use anyhow::{ensure, Result};
+            ),
+        );
+        ast.items.insert(
+            1,
+            syn::parse_quote!(
+                use serde_json::Value;
+            ),
+        );
+        ast.items.insert(
+            2,
+            syn::parse_quote!(
+                use crate::service::protocol::{Kind, Submission};
+            ),
+        );
+        fs::write(
+            out.join("cli_task_validation.rs"),
+            prettyplease::unparse(&ast),
+        )
+        .unwrap();
     }
     for name in modules {
         let source = root.join(format!("../../../src/service/{name}.rs"));
         println!("cargo:rerun-if-changed={}", source.display());
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
-        ast.attrs.retain(|attribute| !attribute.path().is_ident("doc"));
-        ast.items.retain(|item| !matches!(item, syn::Item::Mod(value) if value.ident == "tests"));
+        ast.attrs
+            .retain(|attribute| !attribute.path().is_ident("doc"));
+        ast.items
+            .retain(|item| !matches!(item, syn::Item::Mod(value) if value.ident == "tests"));
         if name == "query_client" {
             for item in &mut ast.items {
                 if let syn::Item::Fn(value) = item {
                     if value.sig.ident == "start_daemon" {
-                        value.attrs.push(syn::parse_quote!(#[allow(unused_variables)]));
-                        *value.block = syn::parse_quote!({
-                            bail!("fixture never starts a daemon")
-                        });
+                        value
+                            .attrs
+                            .push(syn::parse_quote!(#[allow(unused_variables)]));
+                        *value.block =
+                            syn::parse_quote!({ bail!("fixture never starts a daemon") });
                     }
                 }
             }
         }
-        fs::write(out.join(format!("service_{name}.rs")), prettyplease::unparse(&ast)).unwrap();
+        fs::write(
+            out.join(format!("service_{name}.rs")),
+            prettyplease::unparse(&ast),
+        )
+        .unwrap();
     }
 }
 
@@ -151,11 +246,34 @@ fn generate_database_worker_keys(root: &Path, out: &Path) {
         syn::Item::Fn(value) => functions.iter().any(|name| value.sig.ident == name),
         _ => false,
     });
-    ast.items.insert(0, syn::parse_quote!(use std::{collections::HashMap, fmt};));
-    ast.items.insert(1, syn::parse_quote!(use anyhow::{anyhow, ensure, Result};));
-    ast.items.insert(2, syn::parse_quote!(use serde::{Deserialize, Serialize};));
-    ast.items.insert(3, syn::parse_quote!(use zeroize::Zeroize;));
-    ast.items.push(syn::parse_quote!(#[cfg(test)] fn observe_drop(_: bool) {}));
+    ast.items.insert(
+        0,
+        syn::parse_quote!(
+            use std::{collections::HashMap, fmt};
+        ),
+    );
+    ast.items.insert(
+        1,
+        syn::parse_quote!(
+            use anyhow::{anyhow, ensure, Result};
+        ),
+    );
+    ast.items.insert(
+        2,
+        syn::parse_quote!(
+            use serde::{Deserialize, Serialize};
+        ),
+    );
+    ast.items.insert(
+        3,
+        syn::parse_quote!(
+            use zeroize::Zeroize;
+        ),
+    );
+    ast.items.push(syn::parse_quote!(
+        #[cfg(test)]
+        fn observe_drop(_: bool) {}
+    ));
     fs::write(
         out.join("service_worker_keys.rs"),
         prettyplease::unparse(&ast),

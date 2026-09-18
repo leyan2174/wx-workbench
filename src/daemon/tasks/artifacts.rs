@@ -456,10 +456,15 @@ pub(super) fn finalize_task(
 ) -> Result<TaskResult> {
     match task.kind {
         crate::service::protocol::Kind::ExportAll => {
-            finalize(runtime, task, control).map(TaskResult::ChatDirectory)
+            finalize(runtime, task, control).map(TaskResult::Directory)
         }
         crate::service::protocol::Kind::ExportHistory => {
-            super::history_artifacts::finalize(runtime, task, control).map(TaskResult::ChatHistory)
+            super::history_artifacts::finalize(runtime, task, control).map(TaskResult::History)
+        }
+        crate::service::protocol::Kind::ChatPlan
+        | crate::service::protocol::Kind::ChatPlanReview
+        | crate::service::protocol::Kind::ChatPlanApply => {
+            super::plan_artifacts::finalize(runtime, task, control)
         }
         _ => Err(error("result_unavailable").into()),
     }
@@ -694,7 +699,7 @@ fn load(runtime: &RuntimeContext, task: &Task) -> Result<Index, ServiceError> {
     let index = read_index(runtime, &task.id)?;
     if task.result.as_ref().is_none_or(|result| {
         !result.validate(task.kind)
-            || !matches!(result, TaskResult::ChatDirectory(_))
+            || !matches!(result, TaskResult::Directory(_))
             || result.artifact_count() != index.entries.len() as u64
             || result.artifacts_complete() != index.complete
     }) {
@@ -709,6 +714,9 @@ pub(super) fn list(
     offset: u64,
     limit: u32,
 ) -> Result<ArtifactsPage, ServiceError> {
+    if super::plan_artifacts::is_plan(task.kind) {
+        return super::plan_artifacts::list(runtime, task, offset, limit);
+    }
     if task.kind == crate::service::protocol::Kind::ExportHistory {
         return super::history_artifacts::list(runtime, task, offset, limit);
     }
@@ -744,6 +752,9 @@ pub(super) fn read(
     offset: u64,
     max_bytes: u32,
 ) -> Result<ArtifactBytes, ServiceError> {
+    if super::plan_artifacts::is_plan(task.kind) {
+        return super::plan_artifacts::read(runtime, task, id, offset, max_bytes);
+    }
     if task.kind == crate::service::protocol::Kind::ExportHistory {
         return super::history_artifacts::read(runtime, task, id, offset, max_bytes);
     }

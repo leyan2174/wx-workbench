@@ -13,6 +13,9 @@ pub struct Args {
     /// 当前账号已解码图片缓存；预览仅只读此目录和本服务生成的图片目录
     #[arg(long)]
     pub image_cache_dir: Option<PathBuf>,
+    /// 允许本次 Web 启动提交计划媒体扫描；不授予下载或进程内存读取权限
+    #[arg(long)]
+    pub task_allow_plan_scan: bool,
 }
 
 impl From<Args> for crate::service::web::HostSettings {
@@ -21,6 +24,7 @@ impl From<Args> for crate::service::web::HostSettings {
             port: args.port,
             open: args.open,
             image_cache_dir: args.image_cache_dir,
+            allow_plan_scan: args.task_allow_plan_scan,
         }
     }
 }
@@ -74,6 +78,7 @@ mod tests {
                 port: 12345,
                 open: true,
                 image_cache_dir: Some("synthetic-images".into()),
+                allow_plan_scan: false,
             }
         );
     }
@@ -84,6 +89,16 @@ mod tests {
             .unwrap()
             .args;
         assert_eq!(parsed.image_cache_dir, Some("synthetic-images".into()));
+    }
+
+    #[test]
+    fn plan_scan_is_opt_in_for_this_web_startup() {
+        let disabled = Invocation::try_parse_from(["web"]).unwrap().args;
+        assert!(!crate::service::web::HostSettings::from(disabled).allow_plan_scan);
+        let enabled = Invocation::try_parse_from(["web", "--task-allow-plan-scan"])
+            .unwrap()
+            .args;
+        assert!(crate::service::web::HostSettings::from(enabled).allow_plan_scan);
     }
 
     #[test]

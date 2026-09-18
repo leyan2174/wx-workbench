@@ -4,6 +4,7 @@ mod artifacts;
 mod automatic_image;
 #[cfg(test)]
 mod automatic_image_runtime_tests;
+mod plans;
 mod preview;
 mod query;
 mod read_queries;
@@ -53,6 +54,16 @@ impl IntoResponse for ApiError {
                 })),
             )
                 .into_response();
+        }
+        if matches!(
+            self.1,
+            "plan_ref_unavailable"
+                | "plan_ref_changed"
+                | "plan_selection_invalid"
+                | "plan_scan_not_authorized"
+                | "invalid_page"
+        ) {
+            return (self.0, Json(json!({"error":self.1,"code":self.1}))).into_response();
         }
         (self.0, Json(json!({"error":self.1}))).into_response()
     }
@@ -174,6 +185,13 @@ fn backend_error(error: anyhow::Error) -> ApiError {
     }
     if let Some(error) = error.downcast_ref::<crate::service::protocol::ServiceError>() {
         return match error.code.as_str() {
+            "plan_ref_unavailable" => ApiError(StatusCode::CONFLICT, "plan_ref_unavailable"),
+            "plan_ref_changed" => ApiError(StatusCode::CONFLICT, "plan_ref_changed"),
+            "plan_selection_invalid" => ApiError(StatusCode::BAD_REQUEST, "plan_selection_invalid"),
+            "plan_scan_not_authorized" => {
+                ApiError(StatusCode::FORBIDDEN, "plan_scan_not_authorized")
+            }
+            "invalid_page" => ApiError(StatusCode::BAD_REQUEST, "invalid_page"),
             "invalid_request" | "invalid_task" | "invalid_id" | "invalid_events"
             | "invalid_settings" => bad(),
             "not_found" => ApiError(StatusCode::NOT_FOUND, "任务不存在"),
@@ -286,13 +304,22 @@ async fn css() -> impl IntoResponse {
 
 async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     let info = state.backend(Call::Info {}).await.map_err(backend_error)?;
+    let kinds = info["task_kinds"]
+        .as_array()
+        .cloned()
+        .unwrap_or_else(tasks::capabilities);
+    let kinds = plans::capabilities(
+        kinds,
+        info["capabilities"]["chat_plan_v1"] == true,
+        state.allow_plan_scan,
+    );
     let mut limits = info["limits"].clone();
     if let Some(limits) = limits.as_object_mut() {
         limits.insert("sse_clients".into(), json!(16));
     }
     Ok(Json(
         json!({"api_version":1,"engine":"rust","runtime_id":state.runtime.id,
-        "gui_mode":"browser","task_kinds":tasks::capabilities(),
+        "gui_mode":"browser","task_kinds":kinds,
         "limits":limits,"capabilities":info["capabilities"],
         "history_persisted":info["history_persisted"],"running":info["running"],
         "sources":["wechat"],
@@ -335,10 +362,15 @@ async fn submit(
         }
         None => server_types::random_id().map_err(unavailable)?,
     };
+    if !state.allow_plan_scan && plans::requires_scan(&task) {
+        return plans::existing_scan(&state, &idempotency_key, &task)
+            .await
+            .map(|value| (StatusCode::ACCEPTED, Json(value)));
+    }
     let value = state
         .backend(Call::Submit {
             idempotency_key,
-            task,
+            task: task.into(),
         })
         .await
         .map_err(backend_error)?;
@@ -685,6 +717,10 @@ fn router(state: Arc<Shared>) -> Router {
         .route("/api/images/{id}/decode", post(automatic_image_decode))
         .route("/api/tasks", get(list_tasks).post(submit))
         .route(
+            "/api/tasks/{task_id}/artifacts/{artifact_id}/plan",
+            get(plans::read),
+        )
+        .route(
             "/api/tasks/{id}/artifacts/{artifact_id}/ticket",
             post(artifacts::ticket),
         )
@@ -738,6 +774,7 @@ pub async fn serve(
         token: server_types::random_id()?,
         authority,
         origin,
+        allow_plan_scan: args.allow_plan_scan,
         records: Mutex::new(Records::default()),
         events,
         shutdown,
@@ -1428,6 +1465,7 @@ mod tests {
         let state = Arc::new(Shared {
             runtime,
             token: "synthetic-http-test-token".into(),
+            allow_plan_scan: false,
             authority: address.to_string(),
             origin: format!("http://{address}"),
             records: Mutex::new(Records {

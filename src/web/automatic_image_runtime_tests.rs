@@ -80,6 +80,7 @@ async fn run_case(wrong_source: bool) -> Result<()> {
     let state = Arc::new(Shared {
         runtime,
         token: "synthetic-image-runtime-token".into(),
+        allow_plan_scan: false,
         authority: address.to_string(),
         origin: format!("http://{address}"),
         records: Mutex::new(Records {

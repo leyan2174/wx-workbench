@@ -257,6 +257,9 @@ pub fn restore(
                 task.kind,
                 crate::service::protocol::Kind::ExportAll
                     | crate::service::protocol::Kind::ExportHistory
+                    | crate::service::protocol::Kind::ChatPlan
+                    | crate::service::protocol::Kind::ChatPlanReview
+                    | crate::service::protocol::Kind::ChatPlanApply
             ) {
                 task.result = super::artifacts::finalize_task(
                     runtime,

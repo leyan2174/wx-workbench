@@ -29,6 +29,7 @@ pub struct Shared {
     pub token: String,
     pub authority: String,
     pub origin: String,
+    pub allow_plan_scan: bool,
     pub records: Mutex<Records>,
     pub events: broadcast::Sender<Event>,
     pub shutdown: watch::Sender<bool>,

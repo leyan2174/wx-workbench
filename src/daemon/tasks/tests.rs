@@ -28,7 +28,8 @@ fn submission(id: u64, kind: Kind) -> Call {
         task: Submission {
             kind,
             options: Options::default(),
-        },
+        }
+        .into(),
     }
 }
 
@@ -39,6 +40,109 @@ async fn configure(service: &Arc<Service>) {
         })
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn plan_review_idempotency_survives_parent_eviction_without_recreating_work() {
+    use crate::service::{chat_plan, task_artifacts::TaskResult};
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path(), "plan-idempotency");
+    let (service, mut queue) = service(&runtime);
+    configure(&service).await;
+    // Seed an already checked parent without requiring a live query daemon in this journal test.
+    let generated = service
+        .submit(
+            format!("{:064x}", 501),
+            Submission {
+                kind: Kind::ChatPlan,
+                options: Options {
+                    chat_plan: Some(chat_plan::Request {
+                        users: Some(vec![]),
+                        exclude_users: vec![],
+                        size_mode: chat_plan::SizeMode::Estimate,
+                        threads: 1,
+                        start: None,
+                        end: None,
+                    }),
+                    ..Default::default()
+                },
+            },
+            None,
+        )
+        .unwrap();
+    let parent: Task = serde_json::from_value(generated).unwrap();
+    queue.recv().await.unwrap();
+    fs::create_dir_all(&parent.output_dir).unwrap();
+    artifacts::prepare(&runtime, &parent.id).unwrap();
+    plan_artifacts::start(&runtime, &parent).unwrap();
+    plan_artifacts::publish_plan(&runtime, &parent.id, vec![], (None, None)).unwrap();
+    let result = plan_artifacts::finalize(
+        &runtime,
+        &parent,
+        &mut artifacts::FinalizeControl::supervised_worker(),
+    )
+    .unwrap();
+    let TaskResult::Plan(plan_result) = &result else {
+        panic!();
+    };
+    let reference = plan_result.published_plan_ref.clone().unwrap();
+    service.update(&parent.id, |task| {
+        task.status = "succeeded".into();
+        task.finished_at = Some(now());
+        task.result = Some(result);
+    });
+    let review = Call::Submit {
+        idempotency_key: format!("{:064x}", 502),
+        task: Submission {
+            kind: Kind::ChatPlanReview,
+            options: Options {
+                chat_plan_review: Some(chat_plan::ReviewRequest {
+                    plan_ref: reference.clone(),
+                    changes: vec![],
+                }),
+                ..Default::default()
+            },
+        }
+        .into(),
+    };
+    let first = service.dispatch(review.clone()).await.unwrap();
+    queue.recv().await.unwrap();
+    {
+        let mut records = service.records.lock().unwrap();
+        records.tasks.retain(|t| t.id != parent.id);
+        records.requests.remove(&parent.id);
+    }
+    let retry = service.dispatch(review.clone()).await.unwrap();
+    assert_eq!(first, retry);
+    assert!(queue.try_recv().is_err());
+    let mut changed = review.clone();
+    if let Call::Submit { task, .. } = &mut changed {
+        task.options
+            .chat_plan_review
+            .as_mut()
+            .unwrap()
+            .changes
+            .push(chat_plan::Change {
+                username: "unknown".into(),
+                export: "1".into(),
+            });
+    }
+    assert_eq!(
+        service.dispatch(changed).await.unwrap_err().code,
+        "submission_conflict"
+    );
+    let mut new_id = review;
+    if let Call::Submit {
+        idempotency_key, ..
+    } = &mut new_id
+    {
+        *idempotency_key = format!("{:064x}", 503);
+    }
+    assert_eq!(
+        service.dispatch(new_id).await.unwrap_err().code,
+        "plan_ref_unavailable"
+    );
+    assert!(parent.output_dir.join("plan.csv").is_file());
 }
 
 #[tokio::test]

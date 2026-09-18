@@ -18,7 +18,7 @@ use planning::query_message_table_plan_stats;
 use planning::PlanDatabases;
 #[cfg(test)]
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -57,7 +57,8 @@ impl Default for ScanOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlanRow {
     pub export: String,
     pub index: usize,

@@ -253,7 +253,7 @@ fn load(runtime: &RuntimeContext, task: &Task) -> Result<HistoryPublication, Ser
     }
     let index = load_bound(runtime, &task.id, request).map_err(|_| error("result_unavailable"))?;
     match &task.result {
-        Some(TaskResult::ChatHistory(result))
+        Some(TaskResult::History(result))
             if result.validate()
                 && serde_json::to_value(result).ok()
                     == serde_json::to_value(&index.result).ok() =>

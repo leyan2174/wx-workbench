@@ -25,7 +25,7 @@ use std::{
 };
 use windows::Win32::{
     Foundation::{HANDLE, WAIT_TIMEOUT},
-    System::Threading::WaitForSingleObject,
+    System::Threading::{GetProcessId, WaitForSingleObject},
 };
 
 const ACCOUNT: u8 = 1;
@@ -176,7 +176,8 @@ impl Broker {
 
     pub async fn register(
         self: &Arc<Self>,
-        child: &tokio::process::Child,
+        pid: u32,
+        process: BorrowedHandle<'_>,
         operation: &Operation,
     ) -> Result<Option<(Access, Registration)>> {
         if let Operation::Initialize {
@@ -210,17 +211,18 @@ impl Broker {
             );
             let configuration = document.with_db(&database)?;
             if configuration == document.value {
-                return self.register_permissions(child, permissions).await;
+                return self.register_permissions(pid, process, permissions).await;
             }
             return Ok(None);
         }
-        self.register_permissions(child, permissions(operation))
+        self.register_permissions(pid, process, permissions(operation))
             .await
     }
 
     pub async fn register_step(
         self: &Arc<Self>,
-        child: &tokio::process::Child,
+        pid: u32,
+        process: BorrowedHandle<'_>,
         step: &Step,
     ) -> Result<Option<(Access, Registration)>> {
         let (config, permissions) = match step {
@@ -234,6 +236,7 @@ impl Broker {
                 ..
             } => (config, IMAGE),
             Step::WechatDecrypt { config } => (config, READ_DATABASES),
+            Step::ChatPlan { config, .. } => (config, READ_DATABASES),
             Step::DecodeImages { config, .. } => (config, READ_IMAGE),
             Step::ExportMessages {
                 config,
@@ -248,12 +251,13 @@ impl Broker {
             config == &self.runtime.config_path,
             "Worker configuration mismatch"
         );
-        self.register_permissions(child, permissions).await
+        self.register_permissions(pid, process, permissions).await
     }
 
     async fn register_permissions(
         self: &Arc<Self>,
-        child: &tokio::process::Child,
+        pid: u32,
+        process: BorrowedHandle<'_>,
         permissions: u8,
     ) -> Result<Option<(Access, Registration)>> {
         if permissions == 0 || self.runtime.is_bootstrap() {
@@ -263,13 +267,11 @@ impl Broker {
             !self.closing.load(Ordering::Acquire),
             "Worker key service is stopping"
         );
-        let pid = child
-            .id()
-            .ok_or_else(|| anyhow::anyhow!("Worker has exited"))?;
-        let raw = child
-            .raw_handle()
-            .ok_or_else(|| anyhow::anyhow!("Worker handle unavailable"))?;
-        let process = unsafe { BorrowedHandle::borrow_raw(raw) }.try_clone_to_owned()?;
+        let process = process.try_clone_to_owned()?;
+        ensure!(
+            pid != 0 && unsafe { GetProcessId(HANDLE(process.as_raw_handle())) } == pid,
+            "Worker process identity mismatch"
+        );
         let eager_snapshot = permissions
             & (ACCOUNT | DATABASES | IMAGE | INIT_MEMORY | PRELOAD_IMAGE | INIT_SAVED)
             != 0;

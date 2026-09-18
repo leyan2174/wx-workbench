@@ -115,12 +115,17 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
             "Queued task configuration changed"
         );
         pin = Some(locked);
-        let steps = plan::plan(
+        let mut steps = plan::plan(
             &work.request,
             &work.settings,
             &state.runtime.config_path,
             &task.output_dir,
         )?;
+        for step in &mut steps {
+            if let plan::Step::ChatPlanApply { selected_sha256, .. } = step {
+                *selected_sha256 = work.plan_selection.clone();
+            }
+        }
         for source in [
             Some(&state.runtime.config_path),
             Some(&state.runtime.config.keys_file),
@@ -145,10 +150,13 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         // A task never adopts a pre-existing output root, including one created after submission.
         tokio::fs::create_dir(&task.output_dir).await?;
         let output_guard = HostOutputGuard::new(&task.output_dir)?;
-        if matches!(task.kind, Kind::ExportAll | Kind::ExportHistory) {
+        if matches!(task.kind, Kind::ExportAll | Kind::ExportHistory) || super::plan_artifacts::is_plan(task.kind) {
             super::artifacts::prepare(&state.runtime, &task.id)?;
             if task.kind == Kind::ExportHistory {
                 super::history_artifacts::start(&state.runtime, &task)?;
+            }
+            if super::plan_artifacts::is_plan(task.kind) {
+                super::plan_artifacts::start(&state.runtime, &task)?;
             }
         }
         for (index, step) in steps.iter().enumerate() {
@@ -233,7 +241,8 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         state.log(&work.id, "system", "配置身份复核失败，后台停止接受任务");
         state.request_shutdown();
     }
-    let export_result = if matches!(task.kind, Kind::ExportAll | Kind::ExportHistory)
+    let export_result = if (matches!(task.kind, Kind::ExportAll | Kind::ExportHistory)
+        || super::plan_artifacts::is_plan(task.kind))
         && !identity_changed
     {
         let runtime = state.runtime.clone();

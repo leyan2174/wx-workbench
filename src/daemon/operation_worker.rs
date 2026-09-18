@@ -85,6 +85,7 @@ mod outcome_tests {
                 );
             let output = managed::output(
                 &mut command,
+                true,
                 Instant::now() + Duration::from_secs(5),
                 64 * 1024,
                 || false,

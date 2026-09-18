@@ -79,7 +79,7 @@ fn document(runtime: &RuntimeContext, task: &Task, bytes: &[u8], commit: bool) -
 }
 
 fn finish(runtime: &RuntimeContext, task: &mut Task, control: &mut FinalizeControl) {
-    task.result = Some(TaskResult::ChatHistory(
+    task.result = Some(TaskResult::History(
         finalize(runtime, task, control).unwrap(),
     ));
 }
@@ -94,7 +94,7 @@ fn unregistered_file_is_unknown_not_successful_empty_export() {
         &mut task,
         &mut FinalizeControl::supervised_worker(),
     );
-    let Some(TaskResult::ChatHistory(result)) = &task.result else {
+    let Some(TaskResult::History(result)) = &task.result else {
         panic!("wrong scope")
     };
     assert!(result.query.is_none());
@@ -167,7 +167,7 @@ fn bytes_are_chunked_and_bound_to_request_account_scope_and_file_identity() {
     wrong.kind = Kind::ExportAll;
     assert!(list(&runtime, &wrong, 0, 1).is_err());
     wrong = task.clone();
-    wrong.result = Some(TaskResult::ChatDirectory(ExportAllResult::empty(false)));
+    wrong.result = Some(TaskResult::Directory(ExportAllResult::empty(false)));
     assert!(list(&runtime, &wrong, 0, 1).is_err());
     let (foreign, _) = fixture(root.path(), "foreign", 94, Format::Json);
     assert!(read(&foreign, &task, &id, 0, 1).is_err());

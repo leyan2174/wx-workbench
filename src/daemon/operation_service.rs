@@ -11,7 +11,6 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
-    process::Stdio,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -348,11 +347,11 @@ async fn spawn(
     invocation: &Invocation,
     keys: &Arc<super::worker_keys::Broker>,
 ) -> Result<(
-    tokio::process::Child,
+    crate::windows_process::managed::Child,
     super::tasks::process::Job,
     Option<super::worker_keys::Registration>,
 )> {
-    use tokio::process::Command;
+    use std::process::Command;
     let job = if restarts_user_application(&invocation.operation) {
         super::tasks::process::Job::for_account_capture()?
     } else {
@@ -365,21 +364,17 @@ async fn spawn(
         .current_dir(&invocation.cwd)
         .env("WX_CLI_CONFIG", &runtime.config_path)
         .env("WX_CLI_HOME", &runtime.root)
-        .env("WX_DAEMON_OPERATION_WORKER", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .creation_flags(0x08000004);
+        .env("WX_DAEMON_OPERATION_WORKER", "1");
     if !runtime.is_bootstrap() {
         command.env("WX_CLI_EXPECTED_RUNTIME", &runtime.id);
     }
-    let mut child = command
-        .spawn()
+    let mut child = crate::windows_process::managed::spawn_worker(&command, false, &job)
+        .await
         .context("Unable to create operation worker")?;
     let result = async {
-        job.attach(&child)?;
-        let registered = keys.register(&child, &invocation.operation).await?;
+        let registered = keys
+            .register(child.id(), child.handle(), &invocation.operation)
+            .await?;
         let (access, registration) = match registered {
             Some((access, registration)) => (Some(access), Some(registration)),
             None => (None, None),
@@ -400,6 +395,7 @@ async fn spawn(
             input.shutdown().await
         })
         .await??;
+        drop(input);
         Ok::<_, anyhow::Error>(registration)
     }
     .await;

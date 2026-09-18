@@ -1,6 +1,8 @@
 //! Real stdio MCP -> authenticated service -> daemon queue -> private worker.
 #[path = "artifacts.rs"]
 mod artifacts;
+#[path = "chat_plan.rs"]
+mod chat_plan;
 #[path = "history_export.rs"]
 mod history_export;
 use super::{call, terminal, Web};
@@ -461,7 +463,7 @@ fn mcp_tasks_cancel_reaps_worker_and_crash_restores_interrupted() {
         assert_eq!(
             unsafe { WaitForSingleObject(worker, 5000) },
             WAIT_OBJECT_0,
-            "Worker was not reaped"
+            "Worker was not reaped (daemon_crash={crash})"
         );
         let task = terminal(&fixture, &account, &id);
         assert_eq!(

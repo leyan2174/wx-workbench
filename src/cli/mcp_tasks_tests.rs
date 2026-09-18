@@ -5,6 +5,7 @@ fn all_permissions() -> Args {
     Args {
         tasks: true,
         task_allow_artifact_read: true,
+        task_allow_plan_scan: true,
         task_kind: plan::capabilities()
             .into_iter()
             .map(|entry| serde_json::from_value(entry["kind"].clone()).unwrap())
@@ -19,8 +20,282 @@ fn all_permissions() -> Args {
 fn submit(kind: Kind, options: Options) -> Call {
     Call::Submit {
         idempotency_key: "12".repeat(32),
-        task: Submission { kind, options },
+        task: Submission { kind, options }.into(),
     }
+}
+
+fn plan_reference() -> Value {
+    json!({"task_id":"a".repeat(64),"artifact_id":"b".repeat(64),"sha256":"c".repeat(64)})
+}
+
+fn plan_input(kind: &str, request: Value) -> Value {
+    json!({"idempotency_key":"d".repeat(64),"kind":kind,"options":{(kind):request}})
+}
+
+#[test]
+fn plan_host_scan_and_reference_read_permissions_are_independent() {
+    use clap::Parser;
+    #[derive(Parser)]
+    struct Host {
+        #[command(flatten)]
+        args: Args,
+    }
+    assert!(Host::try_parse_from(["mcp", "--task-allow-plan-scan"]).is_err());
+    let mut args = Host::try_parse_from([
+        "mcp",
+        "--tasks",
+        "--task-kind",
+        "chat_plan,chat_plan_review,chat_plan_apply",
+    ])
+    .unwrap()
+    .args;
+    let estimate = parse("submit_task", &plan_input("chat_plan", json!({}))).unwrap();
+    let scan = parse(
+        "submit_task",
+        &plan_input("chat_plan", json!({"size_mode":"scan"})),
+    )
+    .unwrap();
+    let review = parse(
+        "submit_task",
+        &plan_input(
+            "chat_plan_review",
+            json!({"plan_ref":plan_reference(),"changes":[]}),
+        ),
+    )
+    .unwrap();
+    let apply = parse(
+        "submit_task",
+        &plan_input("chat_plan_apply", json!({"plan_ref":plan_reference()})),
+    )
+    .unwrap();
+    let read = parse("read_chat_plan", &json!({"plan_ref":plan_reference()})).unwrap();
+    assert!(args.authorize(&estimate));
+    for call in [&scan, &review, &apply, &read] {
+        assert!(!args.authorize(call));
+    }
+    args.task_allow_memory_scan = true;
+    args.task_allow_media_write = true;
+    assert!(!args.authorize(&scan));
+    let tools = args.tools();
+    let schema = &tools
+        .iter()
+        .find(|tool| tool.name == "submit_task")
+        .unwrap()
+        .input_schema;
+    assert_eq!(schema["properties"]["kind"]["enum"], json!(["chat_plan"]));
+    assert_eq!(
+        schema["properties"]["options"]["properties"]["chat_plan"]["properties"]["size_mode"]
+            ["enum"],
+        json!(["estimate"])
+    );
+    args.task_allow_plan_scan = true;
+    assert!(args.authorize(&scan));
+    assert!(!args.authorize(&review));
+    args.task_allow_artifact_read = true;
+    args.task_allow_plan_scan = false;
+    for call in [&review, &apply, &read] {
+        assert!(args.authorize(call));
+    }
+    for call in [
+        Call::List {},
+        Call::Get { id: "a".repeat(64) },
+        Call::Cancel { id: "a".repeat(64) },
+    ] {
+        assert!(args.authorize(&call));
+    }
+    args.task_kind.clear();
+    assert!(args.authorize(&read));
+    assert!(!args.authorize(&apply));
+    assert!(args
+        .tools()
+        .iter()
+        .any(|tool| tool.name == "read_chat_plan"));
+}
+
+#[test]
+fn plan_schemas_use_real_types_and_parsers_preserve_empty_selection() {
+    let tools = all_permissions().tools();
+    let properties = &tools
+        .iter()
+        .find(|tool| tool.name == "submit_task")
+        .unwrap()
+        .input_schema["properties"]["options"]["properties"];
+    for name in ["chat_plan", "chat_plan_review", "chat_plan_apply"] {
+        assert_eq!(properties[name]["type"], "object");
+        assert_eq!(properties[name]["additionalProperties"], false);
+    }
+    assert_eq!(
+        properties["chat_plan"]["properties"]["threads"]["maximum"],
+        6
+    );
+    assert_eq!(
+        properties["chat_plan"]["properties"]["size_mode"]["enum"],
+        json!(["estimate", "scan"])
+    );
+    assert_eq!(
+        properties["chat_plan_review"]["properties"]["changes"]["items"]["properties"]["export"]
+            ["enum"],
+        json!(["", "0", "1"])
+    );
+    assert_eq!(
+        properties["chat_plan_apply"]["properties"]["plan_mode"]["default"],
+        "blacklist"
+    );
+    for users in [None, Some(json!([])), Some(json!(["alice,bob"]))] {
+        let mut request = json!({"threads":6,"start":"-1","end":"0"});
+        if let Some(users) = &users {
+            request["users"] = users.clone();
+        }
+        let Call::Submit { task, .. } =
+            parse("submit_task", &plan_input("chat_plan", request)).unwrap()
+        else {
+            panic!()
+        };
+        let actual = task.options.chat_plan.unwrap();
+        assert_eq!(
+            serde_json::to_value(actual.users).unwrap(),
+            users.unwrap_or(Value::Null)
+        );
+    }
+    assert!(matches!(
+        parse("read_chat_plan", &json!({"plan_ref":plan_reference()})).unwrap(),
+        Call::ReadChatPlan {
+            plan_mode: chat_plan::Mode::Blacklist,
+            offset: 0,
+            limit: 50,
+            ..
+        }
+    ));
+    for request in [
+        json!({"threads":0}),
+        json!({"threads":7}),
+        json!({"threads":"1"}),
+        json!({"users":"alice"}),
+        json!({"size_mode":"memory"}),
+        json!({"start":"2","end":"1"}),
+        json!({"source_dir":"C:/private"}),
+        json!({"allow_plan_scan":true}),
+        json!({"decrypted_dir":"C:/private"}),
+    ] {
+        assert!(parse("submit_task", &plan_input("chat_plan", request)).is_err());
+    }
+    for changes in [
+        json!([{"username":"a","export":true}]),
+        json!([{"username":"a","export":"2"}]),
+        json!([{"username":"a","export":"0","message_count":0}]),
+        json!([{"username":"a","export":"0"},{"username":"a","export":"1"}]),
+    ] {
+        assert!(parse(
+            "submit_task",
+            &plan_input(
+                "chat_plan_review",
+                json!({"plan_ref":plan_reference(),"changes":changes})
+            )
+        )
+        .is_err());
+    }
+    for kind in ["chat_plan", "chat_plan_review", "chat_plan_apply"] {
+        let request = match kind {
+            "chat_plan" => json!({}),
+            "chat_plan_review" => json!({"plan_ref":plan_reference(),"changes":[]}),
+            _ => json!({"plan_ref":plan_reference(),"dry_run":true}),
+        };
+        let mut wrong = plan_input(kind, request);
+        wrong["kind"] = json!("export_all");
+        assert!(parse("submit_task", &wrong).is_err());
+        assert!(parse(
+            "submit_task",
+            &json!({"idempotency_key":"a".repeat(64),"kind":kind})
+        )
+        .is_err());
+    }
+    for (key, value) in [
+        ("limit", json!(0)),
+        ("limit", json!(101)),
+        ("offset", json!(-1)),
+        ("plan_mode", json!("all")),
+        ("path", json!("C:/plan.csv")),
+        ("task_allow_plan_scan", json!(true)),
+    ] {
+        let mut input = json!({"plan_ref":plan_reference()});
+        input[key] = value;
+        assert!(parse("read_chat_plan", &input).is_err());
+    }
+    let mut bad_ref = plan_reference();
+    bad_ref["sha256"] = json!("C:/plan.csv");
+    assert!(parse("read_chat_plan", &json!({"plan_ref":bad_ref})).is_err());
+}
+
+#[test]
+fn denied_scan_submit_never_accesses_account_even_for_same_key() {
+    let args = Args {
+        tasks: true,
+        task_kind: vec![Kind::ChatPlan],
+        ..Default::default()
+    };
+    let account = Account::new(true);
+    let invalidated = Cell::new(false);
+    let io = tokio::runtime::Runtime::new().unwrap();
+    let mut adapter = Adapter {
+        query: |_request| Ok(Response::ok(json!({}))),
+        account: &account,
+        invalidated: &invalidated,
+        io: &io,
+        args: &args,
+    };
+    let input = plan_input("chat_plan", json!({"size_mode":"scan"}));
+    for _ in 0..2 {
+        let result = adapter
+            .dispatch_task("submit_task", &input, &CallContext::default())
+            .unwrap();
+        assert_eq!(
+            result["structuredContent"]["error"]["code"],
+            "host_forbidden"
+        );
+    }
+    assert!(account.runtime().is_none());
+    assert!(!invalidated.get());
+}
+
+fn plan_page(rows: Vec<Value>, offset: u64, total: u64) -> Value {
+    let next = offset + rows.len() as u64;
+    json!({"version":1,"plan_ref":plan_reference(),"plan_mode":"blacklist","rows":rows,
+        "offset":offset,"next_offset":if next<total {Some(next)} else {None},"total":total,
+        "selected_count":total,"start_ts":null,"end_ts":null,"source_kind":"runtime_snapshot"})
+}
+
+#[test]
+fn plan_pages_fit_full_frames_without_truncating_rows_or_identity() {
+    let rows:Vec<_>=(0..5).map(|index|json!({"export":"","index":index+31,"username":format!("user-{index}"),
+        "chat_name":"\\\"中文".repeat(40),"chat_type":"private","message_count":2,"first_time":"","last_time":"",
+        "attachment_estimated_bytes":0,"attachment_scanned_bytes":null,"total_estimated_bytes":0,"size_status":"estimated","selected":true})).collect();
+    let response_id = json!("\\\"".repeat(20));
+    let first = content(plan_page(rows[..1].to_vec(), 7, 12), false);
+    let frame = frame_size(&first, &response_id).unwrap() + 1;
+    let context = artifact_context(frame, response_id.clone());
+    let result = bounded_plan_content(plan_page(rows.clone(), 7, 12), &context).unwrap();
+    assert!(frame_size(&result, &response_id).unwrap() <= frame);
+    assert_eq!(result["structuredContent"]["rows"], json!([rows[0]]));
+    assert_eq!(result["structuredContent"]["next_offset"], 8);
+    assert_eq!(result["structuredContent"]["total"], 12);
+    assert_eq!(result["structuredContent"]["selected_count"], 12);
+    assert_eq!(result["structuredContent"]["plan_ref"], plan_reference());
+    let final_page = plan_page(vec![rows[4].clone()], 11, 12);
+    let final_context = artifact_context(frame + 128, response_id.clone());
+    assert_eq!(
+        bounded_plan_content(final_page.clone(), &final_context).unwrap()["structuredContent"],
+        final_page
+    );
+    let too_small = artifact_context(frame_size(&first, &response_id).unwrap() - 1, response_id);
+    assert!(matches!(
+        bounded_plan_content(plan_page(vec![rows[0].clone()], 7, 12), &too_small),
+        Err(DispatchError::ResultLimit)
+    ));
+    let empty = plan_page(vec![], 12, 12);
+    assert_eq!(
+        bounded_plan_content(empty.clone(), &context).unwrap()["structuredContent"],
+        empty
+    );
 }
 
 fn history_input(request: Value) -> Value {
@@ -249,7 +524,7 @@ fn task_discovery_is_opt_in_and_uses_shared_capabilities() {
         .unwrap();
     assert_eq!(
         submit.input_schema["properties"]["kind"]["enum"],
-        json!(["wechat_decrypt", "export_history"])
+        json!(["wechat_decrypt", "export_history", "chat_plan"])
     );
     assert_eq!(
         all_permissions()
@@ -368,6 +643,10 @@ fn service_errors_keep_codes_but_never_backend_text() {
         "invalid_task",
         "outcome_unknown",
         "unsupported_task",
+        "plan_ref_unavailable",
+        "plan_ref_changed",
+        "plan_selection_invalid",
+        "invalid_page",
         "unauthorized",
         "invalid_artifact_request",
         "task_not_terminal",
@@ -419,8 +698,12 @@ fn protocol_lists_task_annotations_and_rejects_invalid_arguments_before_account_
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
     let tools = replies[1]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), crate::mcp::protocol::tools().len() + 7);
-    for name in ["list_task_artifacts", "read_task_artifact"] {
+    assert_eq!(tools.len(), crate::mcp::protocol::tools().len() + 8);
+    for name in [
+        "list_task_artifacts",
+        "read_task_artifact",
+        "read_chat_plan",
+    ] {
         let annotations = &tools.iter().find(|tool| tool["name"] == name).unwrap()["annotations"];
         assert_eq!(annotations["readOnlyHint"], true);
         assert_eq!(annotations["destructiveHint"], false);
@@ -837,7 +1120,7 @@ fn artifact_host_flag_controls_discovery_and_direct_dispatch_before_account_io()
     }
     assert!(Host::try_parse_from(["mcp", "--task-allow-artifact-read"]).is_err());
     let host = Host::try_parse_from(["mcp", "--tasks", "--task-allow-artifact-read"]).unwrap();
-    assert_eq!(host.args.tools().len(), 6);
+    assert_eq!(host.args.tools().len(), 7);
     assert!(host.args.task_kind.is_empty());
     assert!(!host.args.task_allow_media_write);
     assert!(host

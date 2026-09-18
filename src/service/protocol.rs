@@ -25,6 +25,9 @@ pub enum Kind {
     ImageKey,
     ExportAll,
     ExportHistory,
+    ChatPlan,
+    ChatPlanReview,
+    ChatPlanApply,
     DecodeImages,
     SnsDecrypt,
 }
@@ -69,6 +72,12 @@ pub struct Options {
     pub max_total_media_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_export: Option<super::history_export::Request>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_plan: Option<super::chat_plan::Request>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_plan_review: Option<super::chat_plan::ReviewRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_plan_apply: Option<super::chat_plan::ApplyRequest>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -89,6 +98,9 @@ impl Default for Options {
             max_media_bytes: None,
             max_total_media_bytes: None,
             history_export: None,
+            chat_plan: None,
+            chat_plan_review: None,
+            chat_plan_apply: None,
         }
     }
 }
@@ -176,7 +188,7 @@ pub enum Call {
     Info {},
     Submit {
         idempotency_key: String,
-        task: Submission,
+        task: Box<Submission>,
     },
     List {},
     Get {
@@ -192,6 +204,13 @@ pub enum Call {
         artifact_id: String,
         offset: u64,
         max_bytes: u32,
+    },
+    ReadChatPlan {
+        plan_ref: super::chat_plan::PlanRef,
+        #[serde(default)]
+        plan_mode: super::chat_plan::Mode,
+        offset: u64,
+        limit: u32,
     },
     Cancel {
         id: String,
@@ -349,9 +368,17 @@ mod tests {
             task: Submission {
                 kind: Kind::WechatDecrypt,
                 options: Options::default(),
-            },
+            }
+            .into(),
         };
         let bytes = serde_json::to_vec(&call).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap(),
+            serde_json::json!({
+                "op": "submit", "idempotency_key": "retry",
+                "task": { "kind": "wechat_decrypt", "options": Options::default() }
+            })
+        );
         assert!(matches!(
             serde_json::from_slice::<Call>(&bytes).unwrap(),
             Call::Submit { .. }

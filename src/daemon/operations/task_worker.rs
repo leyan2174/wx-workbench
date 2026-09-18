@@ -45,6 +45,38 @@ fn selected(runtime: &RuntimeContext, config: &Path) -> Result<()> {
 
 fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
     match step {
+        Step::ChatPlan {
+            config,
+            output,
+            request,
+        } => {
+            selected(runtime, &config)?;
+            super::plan_tasks::generate(runtime, plan_task_id(runtime, &output)?, request)
+        }
+        Step::ChatPlanReview {
+            config,
+            output,
+            request,
+        } => {
+            selected(runtime, &config)?;
+            super::plan_tasks::review(runtime, plan_task_id(runtime, &output)?, request)
+        }
+        Step::ChatPlanApply {
+            config,
+            output,
+            request,
+            selected_sha256,
+        } => {
+            selected(runtime, &config)?;
+            super::plan_tasks::apply(
+                runtime,
+                plan_task_id(runtime, &output)?,
+                request,
+                selected_sha256
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Missing plan selection binding"))?,
+            )
+        }
         Step::WechatKeys {
             config,
             authorize_memory_scan,
@@ -186,4 +218,16 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             })
         }
     }
+}
+
+fn plan_task_id<'a>(runtime: &RuntimeContext, output: &'a Path) -> Result<&'a str> {
+    let id = output
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing plan task identity"))?;
+    ensure!(
+        crate::daemon::tasks::plan_artifacts::root(runtime, id)? == output,
+        "Plan task output mismatch"
+    );
+    Ok(id)
 }

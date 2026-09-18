@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
 pub enum TaskResult {
-    ChatDirectory(ExportAllResult),
-    ChatHistory(super::history_export::HistoryExportResult),
+    Directory(ExportAllResult),
+    History(super::history_export::HistoryExportResult),
+    Plan(super::chat_plan::PlanResult),
+    PlanApply(super::chat_plan::ApplyResult),
 }
 
 impl<'de> Deserialize<'de> for TaskResult {
@@ -13,10 +15,16 @@ impl<'de> Deserialize<'de> for TaskResult {
         let value = serde_json::Value::deserialize(deserializer)?;
         match value.get("scope").and_then(serde_json::Value::as_str) {
             Some("chat_directory") => serde_json::from_value(value)
-                .map(Self::ChatDirectory)
+                .map(Self::Directory)
                 .map_err(serde::de::Error::custom),
             Some("chat_history") => serde_json::from_value(value)
-                .map(Self::ChatHistory)
+                .map(Self::History)
+                .map_err(serde::de::Error::custom),
+            Some("chat_plan") => serde_json::from_value(value)
+                .map(Self::Plan)
+                .map_err(serde::de::Error::custom),
+            Some("chat_plan_apply") => serde_json::from_value(value)
+                .map(Self::PlanApply)
                 .map_err(serde::de::Error::custom),
             _ => Err(serde::de::Error::custom("Unknown task result scope")),
         }
@@ -26,20 +34,29 @@ impl<'de> Deserialize<'de> for TaskResult {
 impl TaskResult {
     pub fn artifact_count(&self) -> u64 {
         match self {
-            Self::ChatDirectory(r) => r.artifact_count,
-            Self::ChatHistory(r) => r.artifact_count,
+            Self::Directory(r) => r.artifact_count,
+            Self::History(r) => r.artifact_count,
+            Self::Plan(r) => r.artifact_count,
+            Self::PlanApply(r) => r.artifact_count,
         }
     }
     pub fn artifacts_complete(&self) -> bool {
         match self {
-            Self::ChatDirectory(r) => r.artifacts_complete,
-            Self::ChatHistory(r) => r.artifacts_complete,
+            Self::Directory(r) => r.artifacts_complete,
+            Self::History(r) => r.artifacts_complete,
+            Self::Plan(r) => r.artifacts_complete,
+            Self::PlanApply(r) => r.artifacts_complete,
         }
     }
     pub(crate) fn validate(&self, kind: super::protocol::Kind) -> bool {
         match (self, kind) {
-            (Self::ChatDirectory(r), super::protocol::Kind::ExportAll) => r.validate(),
-            (Self::ChatHistory(r), super::protocol::Kind::ExportHistory) => r.validate(),
+            (Self::Directory(r), super::protocol::Kind::ExportAll) => r.validate(),
+            (Self::History(r), super::protocol::Kind::ExportHistory) => r.validate(),
+            (
+                Self::Plan(r),
+                super::protocol::Kind::ChatPlan | super::protocol::Kind::ChatPlanReview,
+            ) => r.validate(),
+            (Self::PlanApply(r), super::protocol::Kind::ChatPlanApply) => r.validate(),
             _ => false,
         }
     }
@@ -192,7 +209,7 @@ mod result_tests {
         let old = ExportAllResult::empty(false);
         let old_json = serde_json::to_value(&old).unwrap();
         assert_eq!(
-            serde_json::to_value(TaskResult::ChatDirectory(old)).unwrap(),
+            serde_json::to_value(TaskResult::Directory(old)).unwrap(),
             old_json
         );
         let decoded: TaskResult = serde_json::from_value(old_json.clone()).unwrap();
@@ -201,14 +218,14 @@ mod result_tests {
         let mut wrong = old_json;
         wrong["scope"] = "chat_history".into();
         assert!(serde_json::from_value::<TaskResult>(wrong).is_err());
-        let history = TaskResult::ChatHistory(HistoryExportResult::empty(Format::Markdown));
+        let history = TaskResult::History(HistoryExportResult::empty(Format::Markdown));
         assert!(history.validate(Kind::ExportHistory));
         let wire = serde_json::to_value(history).unwrap();
         assert!(wire.get("exported_chats").is_none());
         assert!(wire["query"].is_null());
         assert!(matches!(
             serde_json::from_value::<TaskResult>(wire).unwrap(),
-            TaskResult::ChatHistory(_)
+            TaskResult::History(_)
         ));
     }
 }

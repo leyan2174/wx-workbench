@@ -7,6 +7,7 @@ use std::{io::Write, path::PathBuf, time::Duration};
 use crate::{
     runtime::RuntimeContext,
     service::{
+        chat_plan,
         client::request,
         history_export,
         protocol::{Call, Format, Kind, Options, Submission, Task},
@@ -56,8 +57,25 @@ pub enum Command {
         #[arg(long, default_value_t = 1048576, value_parser = clap::value_parser!(u32).range(1..=1048576))]
         max_bytes: u32,
     },
-    Submit(SubmitArgs),
+    Submit(Box<SubmitArgs>),
+    /// Read complete rows from an immutable published plan.
+    ReadPlan {
+        #[arg(long, value_parser = parse_plan_ref)]
+        plan_ref: chat_plan::PlanRef,
+        #[arg(long, default_value = "blacklist", value_parser = parse_plan_mode)]
+        plan_mode: chat_plan::Mode,
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+    },
 }
+
+#[derive(Debug, Clone)]
+pub struct PlanUsers(Vec<String>);
+
+#[derive(Debug, Clone)]
+pub struct PlanChanges(Vec<chat_plan::Change>);
 
 #[derive(Debug, Default, clap::Args)]
 pub struct SettingsArgs {
@@ -96,6 +114,30 @@ pub struct SubmitArgs {
     /// Single history format; defaults to markdown, separate from --formats.
     #[arg(long, value_parser = parse_history_format)]
     pub format: Option<history_export::Format>,
+    /// Exact usernames as a JSON array; omitted means all, [] means none.
+    #[arg(long, value_parser = parse_plan_users)]
+    pub plan_users: Option<PlanUsers>,
+    /// Excluded usernames as a JSON array, for chat_plan only.
+    #[arg(long, value_parser = parse_plan_users)]
+    pub exclude_users: Option<PlanUsers>,
+    /// Plan estimation mode. Explicit scan authorizes this CLI's disk scan.
+    #[arg(long, value_parser = parse_size_mode)]
+    pub size_mode: Option<chat_plan::SizeMode>,
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=6))]
+    pub threads: Option<u8>,
+    #[arg(long, allow_hyphen_values = true)]
+    pub start: Option<String>,
+    /// Plan end is inclusive; a date means midnight, not end of day.
+    #[arg(long, allow_hyphen_values = true)]
+    pub end: Option<String>,
+    /// JSON object containing task_id, artifact_id and sha256, not a path.
+    #[arg(long, value_parser = parse_plan_ref)]
+    pub plan_ref: Option<chat_plan::PlanRef>,
+    /// JSON array of {username, export} objects for chat_plan_review.
+    #[arg(long, value_parser = parse_plan_changes)]
+    pub changes: Option<PlanChanges>,
+    #[arg(long, value_parser = parse_plan_mode)]
+    pub plan_mode: Option<chat_plan::Mode>,
     #[arg(long)]
     pub include_sns: bool,
     #[arg(long)]
@@ -130,7 +172,7 @@ impl SubmitArgs {
                 include_images: !self.no_images,
                 allow_missing_media: self.allow_missing_media,
                 authorize_memory_scan: self.authorize_memory_scan,
-                dry_run: self.dry_run,
+                dry_run: self.dry_run && self.kind != Kind::ChatPlanApply,
                 max_media_bytes: self.max_media_bytes,
                 max_total_media_bytes: self.max_total_media_bytes,
                 history_export: self.chat.as_ref().map(|chat| history_export::Request {
@@ -140,11 +182,71 @@ impl SubmitArgs {
                     limit: self.limit.unwrap_or(history_export::DEFAULT_LIMIT),
                     format: self.format.unwrap_or_default(),
                 }),
+                chat_plan: (self.kind == Kind::ChatPlan).then(|| chat_plan::Request {
+                    users: self.plan_users.as_ref().map(|users| users.0.clone()),
+                    exclude_users: self
+                        .exclude_users
+                        .as_ref()
+                        .map(|users| users.0.clone())
+                        .unwrap_or_default(),
+                    size_mode: self.size_mode.unwrap_or(chat_plan::SizeMode::Estimate),
+                    threads: self.threads.unwrap_or(1),
+                    start: self.start.clone(),
+                    end: self.end.clone(),
+                }),
+                chat_plan_review: self
+                    .plan_ref
+                    .as_ref()
+                    .filter(|_| self.kind == Kind::ChatPlanReview)
+                    .map(|plan_ref| chat_plan::ReviewRequest {
+                        plan_ref: plan_ref.clone(),
+                        changes: self
+                            .changes
+                            .as_ref()
+                            .map(|changes| changes.0.clone())
+                            .unwrap_or_default(),
+                    }),
+                chat_plan_apply: self
+                    .plan_ref
+                    .as_ref()
+                    .filter(|_| self.kind == Kind::ChatPlanApply)
+                    .map(|plan_ref| chat_plan::ApplyRequest {
+                        plan_ref: plan_ref.clone(),
+                        plan_mode: self.plan_mode.unwrap_or_default(),
+                        dry_run: self.dry_run,
+                    }),
             },
         }
     }
 
     fn validate(&self) -> Result<()> {
+        ensure!(
+            self.kind == Kind::ChatPlan
+                || (self.plan_users.is_none()
+                    && self.exclude_users.is_none()
+                    && self.size_mode.is_none()
+                    && self.threads.is_none()
+                    && self.start.is_none()
+                    && self.end.is_none()),
+            "Plan selection, size mode, threads and start/end require chat_plan"
+        );
+        ensure!(
+            matches!(self.kind, Kind::ChatPlanReview | Kind::ChatPlanApply)
+                || self.plan_ref.is_none(),
+            "--plan-ref requires chat_plan_review or chat_plan_apply"
+        );
+        ensure!(
+            self.kind == Kind::ChatPlanReview || self.changes.is_none(),
+            "--changes requires chat_plan_review"
+        );
+        ensure!(
+            self.kind != Kind::ChatPlanReview || self.changes.is_some(),
+            "chat_plan_review requires --changes JSON"
+        );
+        ensure!(
+            self.kind == Kind::ChatPlanApply || self.plan_mode.is_none(),
+            "--plan-mode requires chat_plan_apply"
+        );
         ensure!(
             self.kind == Kind::ExportHistory
                 || (self.chat.is_none()
@@ -173,10 +275,17 @@ impl SubmitArgs {
 
 // Reject the new business options before either entry point opens account files.
 pub(super) fn validate_export_options(task: &Submission) -> Result<()> {
-    if task.kind == Kind::ExportHistory {
+    if matches!(
+        task.kind,
+        Kind::ExportHistory | Kind::ChatPlan | Kind::ChatPlanReview | Kind::ChatPlanApply
+    ) {
         return crate::service::plan::validate(task, &Default::default());
     }
     let o = &task.options;
+    ensure!(
+        o.chat_plan.is_none() && o.chat_plan_review.is_none() && o.chat_plan_apply.is_none(),
+        "Plan options require their matching task kind"
+    );
     ensure!(
         o.history_export.is_none(),
         "history_export options require export_history"
@@ -209,6 +318,36 @@ use crate::service::protocol::parse_task_kind as parse_kind;
 fn parse_history_format(value: &str) -> std::result::Result<history_export::Format, String> {
     serde_json::from_value(Value::String(value.into()))
         .map_err(|_| "History format must be markdown, txt, json, or yaml".into())
+}
+
+fn parse_plan_users(value: &str) -> std::result::Result<PlanUsers, String> {
+    serde_json::from_str(value)
+        .map(PlanUsers)
+        .map_err(|_| "Expected a JSON username array".into())
+}
+
+fn parse_plan_changes(value: &str) -> std::result::Result<PlanChanges, String> {
+    serde_json::from_str(value)
+        .map(PlanChanges)
+        .map_err(|_| "Expected a JSON array of {username, export} objects".into())
+}
+
+fn parse_plan_ref(value: &str) -> std::result::Result<chat_plan::PlanRef, String> {
+    let reference: chat_plan::PlanRef =
+        serde_json::from_str(value).map_err(|_| "Expected a JSON plan reference".to_owned())?;
+    reference
+        .validate()
+        .map_err(|_| "Invalid plan reference".to_owned())?;
+    Ok(reference)
+}
+
+fn parse_plan_mode(value: &str) -> std::result::Result<chat_plan::Mode, String> {
+    serde_json::from_value(json!(value))
+        .map_err(|_| "Plan mode must be blacklist or whitelist".into())
+}
+
+fn parse_size_mode(value: &str) -> std::result::Result<chat_plan::SizeMode, String> {
+    serde_json::from_value(json!(value)).map_err(|_| "Size mode must be estimate or scan".into())
 }
 
 fn parse_format(value: &str) -> std::result::Result<Format, String> {
@@ -245,6 +384,7 @@ pub fn cmd(mut command: Command) -> Result<()> {
     // Validate before loading account files or starting a background process.
     match &command {
         Command::Submit(args) => args.validate()?,
+        Command::ReadPlan { plan_ref, .. } => plan_ref.validate()?,
         Command::Get { id }
         | Command::Logs { id, .. }
         | Command::Cancel { id }
@@ -317,6 +457,29 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
         Command::List => print_json(&request(runtime, Call::List {}).await?),
         Command::Get { id } => print_json(&request(runtime, Call::Get { id }).await?),
         Command::Cancel { id } => print_json(&request(runtime, Call::Cancel { id }).await?),
+        Command::ReadPlan {
+            plan_ref,
+            plan_mode,
+            offset,
+            limit,
+        } => {
+            ensure!(
+                supports_chat_plan(&info),
+                "This task service does not support chat_plan_v1"
+            );
+            print_json(
+                &request(
+                    runtime,
+                    Call::ReadChatPlan {
+                        plan_ref,
+                        plan_mode,
+                        offset,
+                        limit,
+                    },
+                )
+                .await?,
+            )
+        }
         Command::Artifacts { id, offset, limit } => {
             ensure!(
                 supports_artifacts(&info),
@@ -363,6 +526,16 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
             }
         }
         Command::Submit(args) => {
+            let args = *args;
+            if matches!(
+                args.kind,
+                Kind::ChatPlan | Kind::ChatPlanReview | Kind::ChatPlanApply
+            ) {
+                ensure!(
+                    supports_plan_kind(&info, args.kind),
+                    "This task service does not support the requested plan kind"
+                );
+            }
             ensure!(
                 args.kind != Kind::ExportHistory || supports_history_export(&info),
                 "This task service does not support export_history"
@@ -385,7 +558,7 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
                 runtime,
                 Call::Submit {
                     idempotency_key: id.clone(),
-                    task: args.submission(),
+                    task: args.submission().into(),
                 },
             )
             .await?;
@@ -427,6 +600,24 @@ async fn get_task(runtime: &RuntimeContext, id: &str) -> Result<Task> {
 
 pub(super) fn supports_artifacts(info: &Value) -> bool {
     info["capabilities"]["task_artifacts_v1"] == true
+}
+
+pub(super) fn supports_chat_plan(info: &Value) -> bool {
+    info["capabilities"]["chat_plan_v1"] == true
+}
+
+pub(super) fn supports_plan_kind(info: &Value, kind: Kind) -> bool {
+    let name = match kind {
+        Kind::ChatPlan => "chat_plan",
+        Kind::ChatPlanReview => "chat_plan_review",
+        Kind::ChatPlanApply => "chat_plan_apply",
+        _ => return false,
+    };
+    info["task_kinds"].as_array().is_some_and(|kinds| {
+        kinds
+            .iter()
+            .any(|entry| entry["kind"] == name && entry["enabled"] == true)
+    })
 }
 
 pub(super) fn supports_history_export(info: &Value) -> bool {
@@ -481,7 +672,7 @@ mod tests {
 
     fn submit(argv: &[&str]) -> SubmitArgs {
         match Invocation::try_parse_from(argv).unwrap().command {
-            Command::Submit(args) => args,
+            Command::Submit(args) => *args,
             _ => panic!("Expected submit"),
         }
     }
@@ -806,6 +997,241 @@ mod tests {
         ])
         .validate()
         .unwrap();
+    }
+
+    fn plan_reference_json() -> String {
+        json!({"task_id":"a".repeat(64),"artifact_id":"b".repeat(64),"sha256":"c".repeat(64)})
+            .to_string()
+    }
+
+    #[test]
+    fn plan_cli_keeps_absent_and_empty_users_distinct_and_dates_at_midnight() {
+        let defaults = submit(&["tasks", "submit", "chat_plan"]);
+        defaults.validate().unwrap();
+        let request = defaults.submission().options.chat_plan.unwrap();
+        assert!(request.users.is_none());
+        assert!(matches!(request.size_mode, chat_plan::SizeMode::Estimate));
+        assert_eq!(request.threads, 1);
+        let empty = submit(&[
+            "tasks",
+            "submit",
+            "chat_plan",
+            "--plan-users",
+            "[]",
+            "--exclude-users",
+            "[]",
+            "--size-mode",
+            "scan",
+            "--threads",
+            "6",
+            "--start",
+            "2026-09-01",
+            "--end",
+            "2026-09-18",
+        ]);
+        empty.validate().unwrap();
+        let request = empty.submission().options.chat_plan.unwrap();
+        assert_eq!(request.users, Some(vec![]));
+        assert!(matches!(request.size_mode, chat_plan::SizeMode::Scan));
+        assert_eq!(request.threads, 6);
+        assert_eq!(
+            request.resolved_window().unwrap().1,
+            Some(crate::service::time::parse_timestamp("2026-09-18 00:00:00").unwrap())
+        );
+        assert!(submit(&[
+            "tasks",
+            "submit",
+            "chat_plan",
+            "--start",
+            "-1",
+            "--end",
+            "0"
+        ])
+        .validate()
+        .is_ok());
+        let names = submit(&[
+            "tasks",
+            "submit",
+            "chat_plan",
+            "--plan-users",
+            r#"["alice,bob","carol"]"#,
+            "--exclude-users",
+            r#"["carol"]"#,
+        ]);
+        assert_eq!(
+            names.submission().options.chat_plan.unwrap().users,
+            Some(vec!["alice,bob".into(), "carol".into()])
+        );
+    }
+
+    #[test]
+    fn plan_cli_reviews_structured_changes_and_applies_with_nested_dry_run() {
+        let reference = plan_reference_json();
+        let review = submit(&[
+            "tasks",
+            "submit",
+            "chat_plan_review",
+            "--plan-ref",
+            &reference,
+            "--changes",
+            r#"[{"username":"alice","export":"0"},{"username":"bob","export":""}]"#,
+        ]);
+        review.validate().unwrap();
+        let request = review.submission().options.chat_plan_review.unwrap();
+        assert_eq!(request.changes[0].export, "0");
+        assert_eq!(request.changes[1].export, "");
+        let apply = submit(&[
+            "tasks",
+            "submit",
+            "chat_plan_apply",
+            "--plan-ref",
+            &reference,
+            "--dry-run",
+        ]);
+        apply.validate().unwrap();
+        let options = apply.submission().options;
+        assert!(!options.dry_run);
+        let request = options.chat_plan_apply.unwrap();
+        assert!(request.dry_run);
+        assert!(matches!(request.plan_mode, chat_plan::Mode::Blacklist));
+        let parsed = Invocation::try_parse_from(["tasks", "read-plan", "--plan-ref", &reference])
+            .unwrap()
+            .command;
+        assert!(matches!(
+            parsed,
+            Command::ReadPlan {
+                plan_mode: chat_plan::Mode::Blacklist,
+                offset: 0,
+                limit: 50,
+                ..
+            }
+        ));
+        let apply = submit(&[
+            "tasks",
+            "submit",
+            "chat_plan_apply",
+            "--plan-ref",
+            &reference,
+            "--plan-mode",
+            "whitelist",
+        ]);
+        assert!(matches!(
+            apply
+                .submission()
+                .options
+                .chat_plan_apply
+                .unwrap()
+                .plan_mode,
+            chat_plan::Mode::Whitelist
+        ));
+    }
+
+    #[test]
+    fn plan_cli_rejects_paths_cross_kind_flags_and_invalid_changes_locally() {
+        let reference = plan_reference_json();
+        for argv in [
+            vec!["tasks", "submit", "chat_plan", "--threads", "0"],
+            vec!["tasks", "submit", "chat_plan", "--threads", "7"],
+            vec!["tasks", "submit", "chat_plan", "--plan-users", "alice,bob"],
+            vec!["tasks", "submit", "chat_plan", "--plan-users", "null"],
+            vec!["tasks", "submit", "chat_plan", "--output", "C:/private"],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan",
+                "--decrypted-dir",
+                "C:/private",
+            ],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_review",
+                "--plan-ref",
+                &reference,
+                "--changes",
+                r#"[{"username":"a","export":true}]"#,
+            ],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_review",
+                "--plan-ref",
+                &reference,
+                "--changes",
+                r#"[{"username":"a","export":"1","count":2}]"#,
+            ],
+            vec![
+                "tasks",
+                "read-plan",
+                "--plan-ref",
+                &reference,
+                "--limit",
+                "101",
+            ],
+            vec!["tasks", "read-plan", "--plan-ref", "C:/plan.csv"],
+        ] {
+            assert!(Invocation::try_parse_from(argv).is_err());
+        }
+        for argv in [
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_review",
+                "--plan-ref",
+                &reference,
+            ],
+            vec!["tasks", "submit", "chat_plan_apply"],
+            vec!["tasks", "submit", "chat_plan", "--start", "2", "--end", "1"],
+            vec!["tasks", "submit", "chat_plan", "--users", "alice"],
+            vec!["tasks", "submit", "chat_plan", "--dry-run"],
+            vec!["tasks", "submit", "chat_plan", "--plan-ref", &reference],
+            vec!["tasks", "submit", "export_all", "--plan-users", "[]"],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_apply",
+                "--plan-ref",
+                &reference,
+                "--size-mode",
+                "scan",
+            ],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_review",
+                "--plan-ref",
+                &reference,
+                "--changes",
+                r#"[{"username":"a","export":"1"},{"username":"a","export":"0"}]"#,
+            ],
+            vec![
+                "tasks",
+                "submit",
+                "chat_plan_review",
+                "--plan-ref",
+                &reference,
+                "--changes",
+                r#"[{"username":"a","export":"yes"}]"#,
+            ],
+        ] {
+            assert!(submit(&argv).validate().is_err(), "{argv:?}");
+        }
+        assert!(supports_chat_plan(
+            &json!({"capabilities":{"chat_plan_v1":true}})
+        ));
+        assert!(!supports_chat_plan(
+            &json!({"capabilities":{"chat_plan_v1":"true"}})
+        ));
+        for kind in [Kind::ChatPlan, Kind::ChatPlanReview, Kind::ChatPlanApply] {
+            assert!(supports_plan_kind(
+                &json!({"task_kinds":[{"kind":kind,"enabled":true}]}),
+                kind
+            ));
+            assert!(!supports_plan_kind(
+                &json!({"task_kinds":[{"kind":kind,"enabled":false}]}),
+                kind
+            ));
+        }
     }
 
     #[test]

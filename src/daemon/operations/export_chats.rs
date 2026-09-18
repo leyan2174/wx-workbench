@@ -92,7 +92,7 @@ pub fn export_for(runtime: &RuntimeContext, args: Args) -> Result<serde_json::Va
 }
 
 // 仅注入请求边界，测试仍执行真实选择、合并与原子文件发布。
-struct BatchArchive<'a, F> {
+struct BatchArchive<'a, 'h, F> {
     runtime: &'a RuntimeContext,
     targets: &'a [Target],
     index: &'a mut ChatIndex,
@@ -103,7 +103,10 @@ struct BatchArchive<'a, F> {
     next: usize,
     path: Option<std::path::PathBuf>,
     destination: Option<crate::infrastructure::publication::ExportTarget>,
+    published: Option<&'a mut PublishedHook<'h>>,
 }
+
+type PublishedHook<'a> = dyn FnMut(&std::path::Path, &serde_json::Value) -> Result<()> + 'a;
 
 fn archive_failure(stage: domain::Stage, error: anyhow::Error) -> domain::Failure {
     domain::Failure {
@@ -130,7 +133,7 @@ pub(super) fn filter_targets(targets: &mut Vec<Target>, raw: &str) -> Result<()>
     Ok(())
 }
 
-impl<F> domain::FullArchive for BatchArchive<'_, F>
+impl<F> domain::FullArchive for BatchArchive<'_, '_, F>
 where
     F: FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
 {
@@ -252,7 +255,16 @@ where
             self.destination
                 .take()
                 .context("archive output not prepared")?
-                .write_json(document)
+                .write_json(document)?;
+            if let Some(published) = &mut self.published {
+                published(
+                    self.path
+                        .as_deref()
+                        .context("archive output not prepared")?,
+                    document,
+                )?;
+            }
+            Ok(())
         })()
         .map_err(|error| archive_failure(domain::Stage::Publish, error))
     }
@@ -340,7 +352,49 @@ fn export_with(
             serde_json::json!({"engine":"rust","total":0,"written":0,"messages":0,"added_messages":0,"incremental":incremental,"failures":[]}),
         );
     }
-    let mut index = ChatIndex::open_for_runtime(&output, runtime)?;
+    export_targets(runtime, &output, &targets, &range, incremental, send, None)
+}
+
+pub(crate) fn export_selected_for(
+    runtime: &RuntimeContext,
+    output: &std::path::Path,
+    targets: Vec<Target>,
+    window: (Option<i64>, Option<i64>),
+    published: &mut PublishedHook<'_>,
+) -> Result<serde_json::Value> {
+    ensure!(
+        !targets.is_empty(),
+        "Empty selection must not enter batch export"
+    );
+    super::export_chat::validate_output_for(runtime, output)?;
+    for name in ["_export_index.json", ".wx-export.lock"] {
+        super::export_chat::validate_output_for(runtime, &output.join(name))?;
+    }
+    let range = TimeRange {
+        start: window.0,
+        end: window.1,
+    };
+    export_targets(
+        runtime,
+        output,
+        &targets,
+        &range,
+        false,
+        crate::service::query_client::send_for,
+        Some(published),
+    )
+}
+
+fn export_targets(
+    runtime: &RuntimeContext,
+    output: &std::path::Path,
+    targets: &[Target],
+    range: &TimeRange,
+    incremental: bool,
+    send: impl FnMut(&RuntimeContext, Request) -> Result<crate::ipc::Response>,
+    published: Option<&mut PublishedHook<'_>>,
+) -> Result<serde_json::Value> {
+    let mut index = ChatIndex::open_for_runtime(output, runtime)?;
     let legacy_unverified = index.legacy_unverified();
     let usernames: Vec<_> = targets
         .iter()
@@ -350,14 +404,15 @@ fn export_with(
         &usernames,
         &mut BatchArchive {
             runtime,
-            targets: &targets,
+            targets,
             index: &mut index,
-            range: &range,
+            range,
             incremental,
             send,
             next: 0,
             path: None,
             destination: None,
+            published,
         },
     );
     let mut written = 0;

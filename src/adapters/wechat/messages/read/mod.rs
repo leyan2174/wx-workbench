@@ -239,7 +239,7 @@ pub(super) fn logical_name(raw: &str, kind: SourceKind) -> Result<String> {
     );
     Ok(name)
 }
-fn columns(conn: &Connection, table: &str) -> Result<BTreeSet<String>> {
+pub(crate) fn columns(conn: &Connection, table: &str) -> Result<BTreeSet<String>> {
     Ok(conn
         .prepare(&format!("PRAGMA table_xinfo([{table}])"))?
         .query_map([], |row| row.get::<_, String>(1))?

@@ -25,6 +25,7 @@ mod media_snapshot;
 pub(crate) mod monitor_native;
 pub(crate) mod new_messages;
 pub(crate) mod output;
+pub(crate) mod plan_tasks;
 pub(crate) mod setup_native;
 pub(crate) mod sns_album;
 pub(crate) mod sns_archive;

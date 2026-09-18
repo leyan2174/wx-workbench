@@ -234,11 +234,20 @@ struct Web {
 
 impl Web {
     fn start(fixture: &Fixture, account: &Path) -> Self {
+        Self::start_with_flags(fixture, account, &[])
+    }
+
+    fn start_with_flags(fixture: &Fixture, account: &Path, flags: &[&str]) -> Self {
         use std::os::windows::process::CommandExt;
-        let log = account.join("web-process.log");
+        static NEXT_WEB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let log = account.join(format!(
+            "web-process-{}.log",
+            NEXT_WEB.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let stdout = fs::File::create(&log).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_wx"))
             .args(["web", "--port", "0"])
+            .args(flags)
             .env_remove("WX_DAEMON_MODE")
             .env_remove("WX_DAEMON_TASK_WORKER")
             .env_remove("WX_CLI_EXPECTED_RUNTIME")

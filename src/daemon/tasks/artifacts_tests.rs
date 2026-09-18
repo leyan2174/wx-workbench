@@ -7,12 +7,12 @@ use serde_json::json;
 
 fn finalize(runtime: &RuntimeContext, task: &Task) -> Result<TaskResult> {
     super::finalize(runtime, task, &mut FinalizeControl::supervised_worker())
-        .map(TaskResult::ChatDirectory)
+        .map(TaskResult::Directory)
 }
 
 fn directory(task: &Task) -> &ExportAllResult {
     match task.result.as_ref().unwrap() {
-        TaskResult::ChatDirectory(result) => result,
+        TaskResult::Directory(result) => result,
         _ => panic!("Expected directory result"),
     }
 }
@@ -46,7 +46,7 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
     control.cancel_after_blocks = Some((1, cancel.clone()));
     task.result = Some(
         super::finalize(&runtime, &task, &mut control)
-            .map(TaskResult::ChatDirectory)
+            .map(TaskResult::Directory)
             .unwrap(),
     );
     assert!(*cancel.borrow());
@@ -74,7 +74,7 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
     let mut cancelled = FinalizeControl::interrupted();
     task.result = Some(
         super::finalize(&runtime, &task, &mut cancelled)
-            .map(TaskResult::ChatDirectory)
+            .map(TaskResult::Directory)
             .unwrap(),
     );
     assert_eq!(cancelled.blocks_read, 0);
@@ -86,7 +86,7 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
     );
     task.result = Some(
         super::finalize(&runtime, &task, &mut expired)
-            .map(TaskResult::ChatDirectory)
+            .map(TaskResult::Directory)
             .unwrap(),
     );
     assert_eq!(expired.blocks_read, 0);
@@ -164,14 +164,11 @@ fn large_file_cancels_after_one_block_and_terminal_report_keeps_partial() {
     report.artifacts_complete = false;
     report.outcome = Some(ExportOutcome::Partial);
     diagnostic(&mut report, "export_interrupted");
-    super::super::worker::attach_export_report(
-        &mut task,
-        TaskResult::ChatDirectory(report.clone()),
-    );
+    super::super::worker::attach_export_report(&mut task, TaskResult::Directory(report.clone()));
     assert_eq!(task.status, "cancelled");
     assert_eq!(directory(&task).artifact_count, 2);
     task.status = "succeeded".into();
-    super::super::worker::attach_export_report(&mut task, TaskResult::ChatDirectory(report));
+    super::super::worker::attach_export_report(&mut task, TaskResult::Directory(report));
     assert_eq!(task.status, "failed");
     assert_eq!(directory(&task).exported_chats, 1);
 }
@@ -487,7 +484,7 @@ fn pinned_file_refuses_mutation_and_empty_artifact_reads_exact_eof() {
     let mut result = ExportAllResult::empty(false);
     result.artifact_count = 1;
     result.artifacts_complete = true;
-    task.result = Some(TaskResult::ChatDirectory(result));
+    task.result = Some(TaskResult::Directory(result));
     let part = read(&runtime, &task, &id, 0, 1).unwrap();
     assert!(part.eof && part.data_base64.is_empty());
     assert_eq!(part.bytes_read, 0);

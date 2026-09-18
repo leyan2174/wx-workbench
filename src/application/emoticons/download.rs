@@ -292,7 +292,7 @@ fn convert_hevc_to_jpeg(
         .checked_add(opts.timeout)
         .context("emoji conversion timeout invalid")?;
     let result =
-        crate::windows_process::managed::output(&mut command, deadline, 64 * 1024, || false)
+        crate::windows_process::managed::output(&mut command, true, deadline, 64 * 1024, || false)
             .context("emoji converter failed")?;
     ensure!(result.status.success(), "emoji conversion failed");
     guard.verify()?;

@@ -3,7 +3,7 @@ use crate::{
     mcp::protocol::{CallContext, DispatchError, Dispatcher, Tool},
     runtime::RuntimeContext,
     service::{
-        client,
+        chat_plan, client,
         config_pin::ConfigPin,
         plan,
         protocol::{valid_task_id, Call, Kind, Options, ServiceError, Submission},
@@ -27,6 +27,10 @@ pub struct Args {
     /// Independent of task submission and media-write permissions; host-only, default off.
     #[arg(long, requires = "tasks")]
     pub task_allow_artifact_read: bool,
+    /// Allow chat_plan disk-media scans on this MCP host; not process-memory scanning.
+    /// Does not change shared settings or grant plan review/apply/artifact reads.
+    #[arg(long, requires = "tasks")]
+    pub task_allow_plan_scan: bool,
     /// 宿主允许提交的任务类型及其固定目录写入；可重复或用逗号分隔。
     #[arg(long, requires = "tasks", value_delimiter = ',', value_parser = crate::service::protocol::parse_task_kind)]
     pub task_kind: Vec<Kind>,
@@ -62,7 +66,8 @@ impl Args {
                 Kind::ExportAll | Kind::DecodeImages | Kind::SnsDecrypt => {
                     self.task_allow_media_write
                 }
-                Kind::WechatDecrypt | Kind::ExportHistory => true,
+                Kind::WechatDecrypt | Kind::ExportHistory | Kind::ChatPlan => true,
+                Kind::ChatPlanReview | Kind::ChatPlanApply => self.task_allow_artifact_read,
             }
     }
 
@@ -92,7 +97,7 @@ impl Args {
         }
         if matches!(
             call,
-            Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }
+            Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. } | Call::ReadChatPlan { .. }
         ) {
             return self.task_allow_artifact_read;
         }
@@ -101,6 +106,11 @@ impl Args {
         };
         let o = &task.options;
         self.permits(task.kind)
+            && (!o
+                .chat_plan
+                .as_ref()
+                .is_some_and(|request| matches!(request.size_mode, chat_plan::SizeMode::Scan))
+                || self.task_allow_plan_scan)
             && (!o.authorize_memory_scan || self.task_allow_memory_scan)
             && (!o.include_sns_media || self.task_allow_media_download)
             && (!o.include_sns || self.permits(Kind::SnsDecrypt))
@@ -150,6 +160,17 @@ impl Args {
             ),
         ];
         if self.task_allow_artifact_read {
+            tools.push(Tool::task(
+                "read_chat_plan",
+                "Read complete rows of an immutable plan. Resume with next_offset; the frame budget may reduce the page. No paths or implicit apply.",
+                object(json!({
+                    "plan_ref":plan_reference_schema(),
+                    "plan_mode":{"type":"string","enum":["blacklist","whitelist"],"default":"blacklist"},
+                    "offset":{"type":"integer","minimum":0,"default":0},
+                    "limit":{"type":"integer","minimum":1,"maximum":100,"default":50}
+                }), &["plan_ref"]),
+                false,
+            ));
             tools.extend([
             Tool::task(
                 "list_task_artifacts",
@@ -213,6 +234,36 @@ impl Args {
                         }),
                         &["chat"],
                     ),
+                    "chat_plan" => object(
+                        json!({
+                            "users":{"type":"array","items":{"type":"string","minLength":1,"maxLength":1024},
+                                "description":"Omit for all account chats; [] selects none."},
+                            "exclude_users":{"type":"array","items":{"type":"string","minLength":1,"maxLength":1024},"default":[]},
+                            "size_mode":{"type":"string","enum":if self.task_allow_plan_scan {json!(["estimate","scan"])} else {json!(["estimate"])},"default":"estimate"},
+                            "threads":{"type":"integer","minimum":1,"maximum":6,"default":1},
+                            "start":{"type":"string","description":"Host-local date/date-time or Unix seconds; inclusive."},
+                            "end":{"type":"string","description":"Inclusive; a date means midnight, not end of day."}
+                        }),
+                        &[],
+                    ),
+                    "chat_plan_review" => object(
+                        json!({
+                            "plan_ref":plan_reference_schema(),
+                            "changes":{"type":"array","items":object(json!({
+                                "username":{"type":"string","minLength":1,"maxLength":1024},
+                                "export":{"type":"string","enum":["","0","1"]}
+                            }), &["username","export"])}
+                        }),
+                        &["plan_ref", "changes"],
+                    ),
+                    "chat_plan_apply" => object(
+                        json!({
+                            "plan_ref":plan_reference_schema(),
+                            "plan_mode":{"type":"string","enum":["blacklist","whitelist"],"default":"blacklist"},
+                            "dry_run":{"type":"boolean","default":false}
+                        }),
+                        &["plan_ref"],
+                    ),
                     _ => json!({"type":"boolean"}),
                 };
                 properties.insert(option.into(), schema);
@@ -257,6 +308,28 @@ impl Args {
                     "else":{"properties":{"options":{"properties":{"history_export":false}}}}
                 }));
             }
+            for (kind, name) in [
+                (Kind::ChatPlan, "chat_plan"),
+                (Kind::ChatPlanReview, "chat_plan_review"),
+                (Kind::ChatPlanApply, "chat_plan_apply"),
+            ] {
+                if !self.permits(kind) {
+                    continue;
+                }
+                if schema.get("allOf").is_none() {
+                    schema["allOf"] = json!([]);
+                }
+                schema["allOf"].as_array_mut().unwrap().push(json!({
+                    "if":{"properties":{"kind":{"const":name}},"required":["kind"]},
+                    "then":{"required":["options"],"properties":{"options":{"required":[name],"properties":{
+                        "users":{"const":[]},"formats":{"const":[]},"include_images":{"const":true},
+                        "include_sns":{"const":false},"include_sns_media":{"const":false},
+                        "allow_missing_media":{"const":false},"authorize_memory_scan":{"const":false},
+                        "dry_run":{"const":false},"max_media_bytes":false,"max_total_media_bytes":false,"history_export":false
+                    }}}},
+                    "else":{"properties":{"options":{"properties":{(name):false}}}}
+                }));
+            }
             tools.push(Tool::task("submit_task", "异步提交到现有 daemon。必须保存并复用 64 位小写十六进制幂等键；响应丢失、超时或 MCP 断连不自动取消任务。", schema, self.task_allow_media_download));
         }
         tools
@@ -266,6 +339,12 @@ impl Args {
 struct Binding {
     runtime: RuntimeContext,
     fingerprint: Option<String>,
+}
+
+fn plan_reference_schema() -> Value {
+    let id = json!({"type":"string","pattern":"^[0-9a-f]{64}$","minLength":64,"maxLength":64});
+    json!({"type":"object","properties":{"task_id":id,"artifact_id":id,"sha256":id},
+        "required":["task_id","artifact_id","sha256"],"additionalProperties":false})
 }
 
 /// 查询与任务只保留这一份账号选择。只保存配置指纹，不长期锁住图片密钥更新所需的文件。
@@ -355,6 +434,17 @@ struct IdInput {
 struct EmptyInput {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ReadPlanInput {
+    plan_ref: chat_plan::PlanRef,
+    #[serde(default)]
+    plan_mode: chat_plan::Mode,
+    #[serde(default)]
+    offset: u64,
+    #[serde(default = "artifact_limit")]
+    limit: u32,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ArtifactsInput {
     id: String,
     #[serde(default)]
@@ -416,12 +506,26 @@ fn parse(name: &str, arguments: &Value) -> Result<Call, DispatchError> {
             }
             Ok(Call::Submit {
                 idempotency_key: input.idempotency_key,
-                task,
+                task: task.into(),
             })
         }
         "list_tasks" => {
             let _: EmptyInput = serde_json::from_value(arguments.clone()).map_err(|_| invalid())?;
             Ok(Call::List {})
+        }
+        "read_chat_plan" => {
+            let input: ReadPlanInput =
+                serde_json::from_value(arguments.clone()).map_err(|_| invalid())?;
+            input.plan_ref.validate().map_err(|_| invalid())?;
+            if !(1..=100).contains(&input.limit) {
+                return Err(invalid());
+            }
+            Ok(Call::ReadChatPlan {
+                plan_ref: input.plan_ref,
+                plan_mode: input.plan_mode,
+                offset: input.offset,
+                limit: input.limit,
+            })
         }
         "get_task" | "cancel_task" => {
             let input: IdInput =
@@ -532,14 +636,59 @@ fn bounded_content(data: Value, context: &CallContext) -> Result<Value, Dispatch
     Ok(result)
 }
 
+fn bounded_plan_content(mut data: Value, context: &CallContext) -> Result<Value, DispatchError> {
+    let budget = context.budget()?;
+    let offset = data["offset"]
+        .as_u64()
+        .ok_or(DispatchError::InvalidResponse)?;
+    let total = data["total"]
+        .as_u64()
+        .ok_or(DispatchError::InvalidResponse)?;
+    loop {
+        context.check()?;
+        let result = content(data.clone(), false);
+        if frame_size(&result, &budget.response_id)? <= budget.max_response_bytes {
+            return Ok(result);
+        }
+        let rows = data["rows"]
+            .as_array_mut()
+            .ok_or(DispatchError::InvalidResponse)?;
+        if rows.len() <= 1 {
+            return Err(DispatchError::ResultLimit);
+        }
+        rows.pop();
+        let next = offset
+            .checked_add(rows.len() as u64)
+            .ok_or(DispatchError::InvalidResponse)?;
+        if next > total {
+            return Err(DispatchError::InvalidResponse);
+        }
+        data["next_offset"] = if next < total {
+            json!(next)
+        } else {
+            Value::Null
+        };
+    }
+}
+
 fn failure(code: &str) -> Value {
     // 保留共享服务的稳定错误码，不把文件路径、配置内容或底层异常文本交给模型。
     let (code, message) = match code {
         "host_forbidden" => (code, "宿主未授权此任务能力或选项"),
         "unsupported_task" => (
             code,
-            "The task service does not support export_history; no task was submitted",
+            "The task service does not support this task capability; no task was submitted",
         ),
+        "plan_ref_unavailable" => (code, "The referenced plan is unavailable for this account"),
+        "plan_ref_changed" => (
+            code,
+            "The referenced plan no longer matches its registered version",
+        ),
+        "plan_selection_invalid" => (
+            code,
+            "The plan selection is invalid for the current account",
+        ),
+        "invalid_page" => (code, "Invalid plan page offset or limit"),
         "configuration_changed" => (code, "固定账号配置已改变或不可用；请重启 MCP，不会切换账号"),
         "settings_conflict" | "invalid_settings" => {
             (code, "后台设置与宿主配置不匹配；未覆盖已有设置")
@@ -616,6 +765,7 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
             call,
             Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }
         );
+        let plan_read = matches!(call, Call::ReadChatPlan { .. });
         if self.invalidated.get() {
             return Ok(failure("configuration_changed"));
         }
@@ -662,7 +812,25 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
                     )
                     .into());
                 }
+                if plan_read && !super::tasks::supports_chat_plan(&info) {
+                    return Err(ServiceError::new(
+                        "unsupported_task",
+                        "Plan reading is not supported",
+                    )
+                    .into());
+                }
                 if let Call::Submit { task, .. } = &call {
+                    if matches!(
+                        task.kind,
+                        Kind::ChatPlan | Kind::ChatPlanReview | Kind::ChatPlanApply
+                    ) && !super::tasks::supports_plan_kind(&info, task.kind)
+                    {
+                        return Err(ServiceError::new(
+                            "unsupported_task",
+                            "Plan tasks are not supported",
+                        )
+                        .into());
+                    }
                     if task.kind == Kind::ExportHistory
                         && !super::tasks::supports_history_export(&info)
                     {
@@ -692,6 +860,7 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
             return Ok(failure("configuration_changed"));
         }
         Ok(match result {
+            Ok(data) if plan_read => return bounded_plan_content(data, context),
             Ok(data) if artifact_call => return bounded_content(data, context),
             Ok(data) => content(data, false),
             Err(error) => {

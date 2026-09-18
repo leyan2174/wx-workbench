@@ -1,6 +1,50 @@
 # 任务产物交付
 
-此接口交付 `export_all` 的聊天目录产物和 `export_history` 的单会话历史文档，复用 daemon 任务、worker 和受控发布记录。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+此接口交付 `export_all` 的聊天目录产物、`export_history` 的单会话历史文档，以及聊天计划与计划执行产物，复用 daemon 任务、worker 和受控发布记录。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+
+## 聊天计划
+
+`chat_plan`、`chat_plan_review`、`chat_plan_apply` 分别生成计划、产生修改选择标记后的新版本、执行选集。三者使用现有任务队列和取消接口，不另建审阅数据库或后台服务。普通前台计划命令仍保留独立生命周期。
+
+```powershell
+wx tasks submit chat_plan --plan-users '["synthetic-user"]' --size-mode estimate --threads 1 --wait
+# 将生成任务的 published_plan_ref JSON 保存在 $planRef 中。
+wx tasks read-plan --plan-ref $planRef --offset 0 --limit 50
+wx tasks submit chat_plan_review --plan-ref $planRef --changes '[{"username":"synthetic-user","export":"1"}]' --wait
+# 应用修订时使用修订任务返回的新引用。
+wx tasks submit chat_plan_apply --plan-ref $planRef --plan-mode blacklist --dry-run --wait
+wx mcp --tasks --task-kind chat_plan --task-kind chat_plan_review --task-kind chat_plan_apply --task-allow-artifact-read
+```
+
+MCP 宿主通过对应 `--task-kind` 授权。审阅、执行及 `read_chat_plan` 还需要 `--task-allow-artifact-read`。`size_mode=scan` 是本地媒体目录大小扫描，不是内存扫描；MCP 与 Web 新提交额外要求宿主启动参数 `--task-allow-plan-scan`，模型请求不能替代此授权。已接受任务不因入口断连或其他入口未启用该标志而取消，管理任务也不要求此标志。
+
+提交 `chat_plan` 的 options 示例：
+
+```json
+{"chat_plan":{"users":["synthetic-user"],"size_mode":"estimate","threads":1,"start":"2026-09-01","end":"2026-09-18"}}
+```
+
+省略 `users` 表示账号会话摘要目录中的全部会话，显式空数组表示空选集；使用稳定 username，不按重名昵称推断身份。重复 username 去重，未知选中身份拒绝。此入口沿用原始聊天导出的会话目录，不是按消息表枚举的消息全集；只有消息记录而没有会话摘要的身份不会进入计划，显式选择也拒绝。`threads` 为 1..6。时间沿用批量计划规则，支持 Unix 秒；起止端点均包含，纯日期 `end` 为当日 00:00，不是单会话 `until` 的 23:59:59。解析后的秒值固定在发布计划中。
+
+生成结果的 `scope=chat_plan`。`published_plan_ref` 包含 `task_id`、`artifact_id`、`sha256`，后续请求必须原样携带，不能传 CSV 文件路径。daemon 核验账号、配置、发布身份及内容摘要。`read_chat_plan` 按 `offset`、`limit`（1..100）返回类型化行及选集数量，单次序列化结果至多 1MiB；计划本体至多 16MiB、100000 行。越过末尾返回空页。预览不承诺执行时数据目录未变化。
+
+```json
+{"chat_plan_review":{"plan_ref":{"task_id":"<id>","artifact_id":"<artifact>","sha256":"<sha256>"},"changes":[{"username":"synthetic-user","export":"1"}]}}
+```
+
+只能修改 `export` 为 `""`、`"0"` 或 `"1"`；重复或未知身份拒绝，不能修改统计或时间。审阅发布新的不可变引用，原版本不变，不产生“已批准”状态。`plan_mode=blacklist` 排除 `0`，`whitelist` 只包含 `1`；空白新计划在白名单模式下为空，不回退为全部导出。
+
+```json
+{"chat_plan_apply":{"plan_ref":{"task_id":"<id>","artifact_id":"<artifact>","sha256":"<sha256>"},"plan_mode":"whitelist","dry_run":false}}
+```
+
+执行复用现有原始聊天 JSON 导出和选集规则，写入全新任务目录，不增量合并旧目录，不接受源或输出路径。结果 `scope=chat_plan_apply` 区分选中、发布和失败数量。每个聊天发布后登记产物，再推进索引；取消或失败保留已登记前缀。强杀发生在发布与登记之间的文件不保证可读，不扫描收编孤立文件。dry-run 不生成聊天文件。
+
+计划统计使用当前账号已保存材料，从受控加密数据库创建独立私有快照；不信任旧 `decrypted_dir` 缓存，不获取新密钥或扫描进程。缺少资源库等不完整来源通过行状态表达，不能视为完整远端历史。恢复仍将意外中断任务标记为 `interrupted`，不是自动续跑。
+
+内容体积沿用现有估计：只统计实际存在的可选压缩/附加正文列，TEXT 的 `length` 保持字符计数语义，不宣称磁盘占用字节。缺少必需正文或时间列、读取失败仍报告 partial/error；不得仅看零计数忽略行状态。
+
+计划执行报告 `finalized=false` 时，初始 `selected_count=0` 不能证明选集为空，`failed_count=0` 也不能证明没有失败；调用方必须结合任务状态、终结标记及诊断。Web 将前者显示为“尚未确认”，后者只表示已记录失败数量；已持久化的非零选集和已发布文件、消息仍保留。只有终结报告中的零选集才是确认的空选择，不能单凭计数零判定成功。
 
 ## 单会话历史
 

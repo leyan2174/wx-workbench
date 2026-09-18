@@ -1,15 +1,13 @@
-//! Suspended start, Job assignment, then resume; descendants are owned by default.
+//! Creation-time Job ownership; descendants are owned by default.
+use crate::windows_process::managed::Child;
 pub use crate::windows_process::managed::Job;
 use crate::{
     runtime::RuntimeContext,
     service::{plan::Step, protocol::MAX_REQUEST_BYTES},
 };
 use anyhow::{ensure, Context, Result};
-use std::{process::Stdio, sync::Arc};
-use tokio::{
-    io::AsyncWriteExt,
-    process::{Child, Command},
-};
+use std::{process::Command, sync::Arc};
+use tokio::io::AsyncWriteExt;
 
 pub async fn spawn(
     runtime: &RuntimeContext,
@@ -35,19 +33,16 @@ pub async fn spawn(
         .env_remove("WECHAT_EXPORT_FORMATS")
         .env_remove("WECHAT_EXPORT_IMAGES")
         .env_remove("WXWORK_EXPORT_CONVERSATIONS")
-        .env("WECHAT_SNS_DOWNLOAD_MEDIA", "0")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .creation_flags(0x08000004);
-    let mut child = command.spawn().context("Unable to create task worker")?;
+        .env("WECHAT_SNS_DOWNLOAD_MEDIA", "0");
+    let mut child = crate::windows_process::managed::spawn_worker(&command, true, &job)
+        .await
+        .context("Unable to create task worker")?;
     let result = async {
-        job.attach(&child)?;
-        let (access, registration) = match keys.register_step(&child, step).await? {
-            Some((access, registration)) => (Some(access), Some(registration)),
-            None => (None, None),
-        };
+        let (access, registration) =
+            match keys.register_step(child.id(), child.handle(), step).await? {
+                Some((access, registration)) => (Some(access), Some(registration)),
+                None => (None, None),
+            };
         let bytes =
             zeroize::Zeroizing::new(serde_json::to_vec(&crate::service::worker_keys::Input {
                 operation: step,
@@ -64,6 +59,7 @@ pub async fn spawn(
             input.shutdown().await
         })
         .await??;
+        drop(input);
         Ok::<_, anyhow::Error>(registration)
     }
     .await;
@@ -99,6 +95,7 @@ pub async fn reap(mut child: Child, job: Job) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Stdio;
     const FIXTURE: &str = "daemon::tasks::process::tests::process_tree_fixture";
 
     #[test]
@@ -153,17 +150,13 @@ mod tests {
                 .args(["--exact", FIXTURE, "--ignored", "--nocapture"])
                 .env("WX_TEST_JOB_DIRECTORY", root.path())
                 .env_remove("WX_TEST_JOB_DESCENDANT")
-                .env_remove("WX_TEST_JOB_PARENT_EXIT")
-                .creation_flags(0x08000004)
-                .kill_on_drop(true)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .env_remove("WX_TEST_JOB_PARENT_EXIT");
             if completed {
                 command.env("WX_TEST_JOB_PARENT_EXIT", "1");
             }
-            let mut child = command.spawn()?;
-            job.attach(&child)?;
+            let mut child =
+                crate::windows_process::managed::spawn_worker(&command, true, &job).await?;
+            drop(child.stdin.take());
             let pid = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 loop {
                     if let Ok(value) = std::fs::read_to_string(root.path().join("descendant.pid")) {
@@ -212,21 +205,14 @@ mod tests {
         let root = tempfile::tempdir()?;
         let marker = root.path().join("descendant.pid");
         let job = Job::new()?;
-        let child = Command::new(std::env::current_exe()?)
+        let mut command = Command::new(std::env::current_exe()?);
+        command
             .args(["--exact", FIXTURE, "--ignored", "--nocapture"])
             .env("WX_TEST_JOB_DIRECTORY", root.path())
-            .env_remove("WX_TEST_JOB_DESCENDANT")
-            .creation_flags(0x08000004)
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
+            .env_remove("WX_TEST_JOB_DESCENDANT");
         assert!(!marker.exists());
-        if let Err(error) = job.attach(&child) {
-            reap(child, job).await?;
-            return Err(error);
-        }
+        let mut child = crate::windows_process::managed::spawn_worker(&command, true, &job).await?;
+        drop(child.stdin.take());
         let descendant = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 if let Ok(value) = std::fs::read_to_string(&marker) {

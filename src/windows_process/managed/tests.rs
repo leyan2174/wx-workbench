@@ -1,5 +1,6 @@
 use super::*;
 use std::io::Write;
+use std::{os::windows::process::CommandExt, process::Stdio};
 use windows::Win32::{
     Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
@@ -32,6 +33,7 @@ fn helper_process() {
         let seconds = if mode == "nested" { 2 } else { 20 };
         let result = output(
             &mut command,
+            true,
             Instant::now() + Duration::from_secs(seconds),
             65536,
             || false,
@@ -105,6 +107,7 @@ fn captures_both_pipes() {
     let root = tempfile::tempdir().unwrap();
     let result = output(
         &mut helper("success", root.path()),
+        true,
         Instant::now() + Duration::from_secs(5),
         65536,
         || false,
@@ -122,6 +125,7 @@ fn deadline_terminates_hanging_process_and_descendants() {
         let start = Instant::now();
         let error = output(
             &mut helper(mode, root.path()),
+            true,
             start + Duration::from_secs(2),
             65536,
             || false,
@@ -141,6 +145,7 @@ fn output_flood_is_bounded_and_reaped() {
     let root = tempfile::tempdir().unwrap();
     let error = output(
         &mut helper("flood", root.path()),
+        true,
         Instant::now() + Duration::from_secs(5),
         16384,
         || false,
@@ -155,6 +160,7 @@ fn cancellation_terminates_actual_tree() {
     let root = tempfile::tempdir().unwrap();
     let error = output(
         &mut helper("tree", root.path()),
+        true,
         Instant::now() + Duration::from_secs(5),
         65536,
         || root.path().join("descendant.pid").exists(),
@@ -170,6 +176,7 @@ fn successful_parent_exit_also_reaps_descendant() {
     let root = tempfile::tempdir().unwrap();
     let result = output(
         &mut helper("orphan", root.path()),
+        true,
         Instant::now() + Duration::from_secs(5),
         65536,
         || false,
@@ -184,6 +191,7 @@ fn inner_job_cleanup_preserves_outer_worker() {
     let root = tempfile::tempdir().unwrap();
     let result = output(
         &mut helper("nested", root.path()),
+        true,
         Instant::now() + Duration::from_secs(8),
         65536,
         || false,
@@ -203,6 +211,7 @@ fn expired_deadline_does_not_spawn() {
     let root = tempfile::tempdir().unwrap();
     assert!(output(
         &mut helper("hang", root.path()),
+        true,
         Instant::now(),
         1024,
         || false
@@ -216,6 +225,7 @@ fn outer_job_termination_also_terminates_inner_job_tree() {
     let root = tempfile::tempdir().unwrap();
     let error = output(
         &mut helper("nested-hang", root.path()),
+        true,
         Instant::now() + Duration::from_secs(5),
         65536,
         || root.path().join("descendant.pid").exists(),

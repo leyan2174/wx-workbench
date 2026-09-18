@@ -105,7 +105,11 @@ async fn initialization_grant_is_bound_to_complete_memory_configuration() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "init");
     let (access, _registration) = broker
-        .register(&worker.child, &memory_initialization())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &memory_initialization(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -126,7 +130,11 @@ async fn initialization_grant_is_bound_to_complete_memory_configuration() {
         ),
     ] {
         let (access, _registration) = broker
-            .register(&worker.child, &operation)
+            .register(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &operation,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -134,7 +142,8 @@ async fn initialization_grant_is_bound_to_complete_memory_configuration() {
     }
     assert!(broker
         .register(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &initialization_with(
                 false,
                 crate::service::operation_requests::key_provider::KeyProvider::Account,
@@ -145,7 +154,8 @@ async fn initialization_grant_is_bound_to_complete_memory_configuration() {
         .is_none());
     assert!(broker
         .register(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &initialization_with_override(
                 root.path().join("other-db").to_string_lossy().into_owned()
             ),
@@ -172,7 +182,8 @@ async fn saved_initialization_receives_only_redacted_account_material() {
     let mut worker = Worker::spawn(root.path(), "unverified-saved-init");
     let (access, registration) = unverified_broker
         .register(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &initialization_with(
                 true,
                 crate::service::operation_requests::key_provider::KeyProvider::Saved,
@@ -195,7 +206,8 @@ async fn saved_initialization_receives_only_redacted_account_material() {
     let mut worker = Worker::spawn(root.path(), "saved-init");
     let (access, _registration) = broker
         .register(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &initialization_with(
                 true,
                 crate::service::operation_requests::key_provider::KeyProvider::Saved,
@@ -232,7 +244,11 @@ async fn authorized_account_capture_commits_account_and_databases_in_one_revisio
         timeout: 300,
     };
     let (access, _registration) = broker
-        .register(&worker.child, &operation)
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &operation,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -344,6 +360,10 @@ struct Worker {
     child: Child,
     job: Job,
     pid: u32,
+}
+
+fn child_handle(child: &Child) -> std::os::windows::io::BorrowedHandle<'_> {
+    unsafe { std::os::windows::io::BorrowedHandle::borrow_raw(child.raw_handle().unwrap()) }
 }
 
 impl Worker {
@@ -561,7 +581,11 @@ async fn valid_write_persists_revision_and_identical_retry_is_byte_for_byte_idem
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, _registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -607,7 +631,11 @@ async fn reordered_database_retry_returns_original_revision_without_rewriting_ci
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, _registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -643,7 +671,11 @@ async fn wrong_pid_permissions_and_revoked_capability_cannot_mutate_store() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -697,7 +729,11 @@ async fn exited_process_handle_and_closed_broker_reject_previously_valid_grants(
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, _registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -712,7 +748,11 @@ async fn exited_process_handle_and_closed_broker_reject_previously_valid_grants(
     );
     let mut live = Worker::spawn(root.path(), "hold");
     let (access, _live_registration) = broker
-        .register(&live.child, &database_operation())
+        .register(
+            live.child.id().unwrap(),
+            child_handle(&live.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -726,7 +766,11 @@ async fn exited_process_handle_and_closed_broker_reject_previously_valid_grants(
         "unauthorized"
     );
     assert!(broker
-        .register(&live.child, &database_operation())
+        .register(
+            live.child.id().unwrap(),
+            child_handle(&live.child),
+            &database_operation()
+        )
         .await
         .is_err());
     assert!(!runtime.config.key_store.as_ref().unwrap().exists());
@@ -741,12 +785,20 @@ async fn concurrent_grants_with_the_same_revision_have_exactly_one_committed_win
     let mut first = Worker::spawn(root.path(), "hold");
     let mut second = Worker::spawn(root.path(), "hold");
     let (a, _a_registration) = broker
-        .register(&first.child, &database_operation())
+        .register(
+            first.child.id().unwrap(),
+            child_handle(&first.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
     let (b, _b_registration) = broker
-        .register(&second.child, &database_operation())
+        .register(
+            second.child.id().unwrap(),
+            child_handle(&second.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -783,7 +835,11 @@ async fn cancelling_accepted_waiter_preserves_commit_and_idempotency_record() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (mut access, _registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -884,7 +940,8 @@ async fn register_step_requires_matching_config_and_explicit_supported_write_con
     fs::write(&other, &before).unwrap();
     assert!(broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::WechatKeys {
                 config: other.clone(),
                 authorize_memory_scan: true,
@@ -905,7 +962,11 @@ async fn register_step_requires_matching_config_and_explicit_supported_write_con
         },
     ] {
         assert!(broker
-            .register_step(&worker.child, &step)
+            .register_step(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &step
+            )
             .await
             .unwrap()
             .is_none());
@@ -931,7 +992,11 @@ async fn decode_images_step_receives_only_lazy_image_read_access() {
         output: root.path().join("output"),
     };
     let (access, _registration) = broker
-        .register_step(&worker.child, &step)
+        .register_step(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &step,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1002,7 +1067,11 @@ async fn image_publication_operations_receive_only_lazy_image_read_access() {
     ];
     for operation in operations {
         let (access, _registration) = broker
-            .register(&worker.child, &operation)
+            .register(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &operation,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1051,7 +1120,11 @@ async fn decrypt_step_receives_read_only_database_material_from_daemon_snapshot(
     let broker = broker(&runtime);
     let mut writer = Worker::spawn(root.path(), "hold");
     let (write_access, _registration) = broker
-        .register(&writer.child, &database_operation())
+        .register(
+            writer.child.id().unwrap(),
+            child_handle(&writer.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1064,7 +1137,8 @@ async fn decrypt_step_receives_read_only_database_material_from_daemon_snapshot(
     let mut decryptor = Worker::spawn(root.path(), "hold");
     let (access, _registration) = broker
         .register_step(
-            &decryptor.child,
+            decryptor.child.id().unwrap(),
+            child_handle(&decryptor.child),
             &Step::WechatDecrypt {
                 config: runtime.config_path.clone(),
             },
@@ -1094,7 +1168,8 @@ async fn decrypt_step_receives_read_only_database_material_from_daemon_snapshot(
         .is_err());
     let (foreground, _foreground_registration) = broker
         .register(
-            &decryptor.child,
+            decryptor.child.id().unwrap(),
+            child_handle(&decryptor.child),
             &crate::service::operations::Operation::DecryptDatabases {
                 incremental: false,
                 dry_run: false,
@@ -1146,7 +1221,8 @@ async fn lazy_database_read_rejects_corrupt_store_wrong_pid_revocation_and_shutd
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, registration) = broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::WechatDecrypt {
                 config: runtime.config_path.clone(),
             },
@@ -1188,7 +1264,8 @@ async fn lazy_database_read_rejects_corrupt_store_wrong_pid_revocation_and_shutd
 
     let (closing_access, _registration) = broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::WechatDecrypt {
                 config: runtime.config_path.clone(),
             },
@@ -1251,7 +1328,11 @@ async fn image_grants_require_supported_mode_consent_save_and_matching_step_conf
         for consent in [false, true] {
             for no_save in [false, true] {
                 let grant = broker
-                    .register(&worker.child, &image_operation(offline, consent, no_save))
+                    .register(
+                        worker.child.id().unwrap(),
+                        child_handle(&worker.child),
+                        &image_operation(offline, consent, no_save),
+                    )
                     .await
                     .unwrap();
                 assert_eq!(grant.is_some(), !no_save && (offline != consent));
@@ -1262,7 +1343,11 @@ async fn image_grants_require_supported_mode_consent_save_and_matching_step_conf
     for consent in [false, true] {
         for no_save in [false, true] {
             let grant = broker
-                .register(&worker.child, &image_monitor(consent, no_save))
+                .register(
+                    worker.child.id().unwrap(),
+                    child_handle(&worker.child),
+                    &image_monitor(consent, no_save),
+                )
                 .await
                 .unwrap();
             assert_eq!(grant.is_some(), consent);
@@ -1281,7 +1366,8 @@ async fn image_grants_require_supported_mode_consent_save_and_matching_step_conf
     fs::write(&other, &before).unwrap();
     assert!(broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::ImageKey {
                 config: other.clone(),
                 authorize_memory_scan: true,
@@ -1294,7 +1380,8 @@ async fn image_grants_require_supported_mode_consent_save_and_matching_step_conf
     for consent in [false, true] {
         let grant = broker
             .register_step(
-                &worker.child,
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
                 &Step::ImageKey {
                     config: runtime.config_path.clone(),
                     authorize_memory_scan: consent,
@@ -1389,7 +1476,11 @@ async fn image_readers_receive_material_without_inheriting_write_access() {
         },
     ] {
         let (access, _registration) = broker
-            .register(&worker.child, &operation)
+            .register(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &operation,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1499,14 +1590,19 @@ async fn image_readers_receive_material_without_inheriting_write_access() {
         },
     ] {
         assert!(broker
-            .register(&worker.child, &Operation::ExportMessages { args })
+            .register(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &Operation::ExportMessages { args }
+            )
             .await
             .unwrap()
             .is_none());
     }
     let (access, _registration) = broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::ImageKey {
                 config: runtime.config_path.clone(),
                 authorize_memory_scan: true,
@@ -1528,7 +1624,8 @@ async fn image_readers_receive_material_without_inheriting_write_access() {
     );
     let (access, _registration) = broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::SnsArchive {
                 config: runtime.config_path.clone(),
                 output: root.path().join("sns-output"),
@@ -1548,7 +1645,8 @@ async fn image_readers_receive_material_without_inheriting_write_access() {
     );
     let (access, _registration) = broker
         .register_step(
-            &worker.child,
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
             &Step::ExportMessages {
                 config: runtime.config_path.clone(),
                 output: root.path().join("chat-output"),
@@ -1596,7 +1694,11 @@ async fn image_revision_rejects_wrong_identity_revocation_and_concurrent_commit(
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1645,12 +1747,20 @@ async fn image_revision_rejects_wrong_identity_revocation_and_concurrent_commit(
     assert!(fs::read(store.path()).unwrap() == before);
 
     let (reader, _reader_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
     let (writer, _writer_registration) = broker
-        .register(&worker.child, &database_operation())
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1669,7 +1779,11 @@ async fn image_revision_rejects_wrong_identity_revocation_and_concurrent_commit(
         "conflict"
     );
     let (fresh, _fresh_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1698,7 +1812,11 @@ async fn image_revision_uses_query_snapshot_until_explicit_invalidation() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (access, _registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1717,7 +1835,11 @@ async fn image_revision_uses_query_snapshot_until_explicit_invalidation() {
         .await
         .unwrap();
     let (cached, _cached_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1733,7 +1855,11 @@ async fn image_revision_uses_query_snapshot_until_explicit_invalidation() {
         "conflict"
     );
     let (fresh, _fresh_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1764,7 +1890,11 @@ async fn no_save_monitor_reuses_cached_image_after_ciphertext_corruption() {
     let broker = broker(&runtime);
     let mut worker = Worker::spawn(root.path(), "hold");
     let (initial, _initial_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1773,7 +1903,11 @@ async fn no_save_monitor_reuses_cached_image_after_ciphertext_corruption() {
     fs::write(store.path(), corrupt).unwrap();
     assert!(store.load().is_err());
     let (cached, _cached_registration) = broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -1802,7 +1936,11 @@ async fn no_save_monitor_reuses_cached_image_after_ciphertext_corruption() {
         "key_read_failed"
     );
     assert!(broker
-        .register(&worker.child, &image_monitor(true, true))
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &image_monitor(true, true)
+        )
         .await
         .is_err());
     assert!(fs::read(store.path()).unwrap() == corrupt);
@@ -1842,16 +1980,40 @@ async fn image_broker_save_preserves_other_material_config_and_rejects_stale_wri
             _ => image_monitor(true, false),
         };
         let (access, _registration) = if source == 3 {
-            broker.register_step(&worker.child, &step).await
+            broker
+                .register_step(
+                    worker.child.id().unwrap(),
+                    child_handle(&worker.child),
+                    &step,
+                )
+                .await
         } else {
-            broker.register(&worker.child, &operation).await
+            broker
+                .register(
+                    worker.child.id().unwrap(),
+                    child_handle(&worker.child),
+                    &operation,
+                )
+                .await
         }
         .unwrap()
         .unwrap();
         let (stale, _stale_registration) = if source == 3 {
-            broker.register_step(&worker.child, &step).await
+            broker
+                .register_step(
+                    worker.child.id().unwrap(),
+                    child_handle(&worker.child),
+                    &step,
+                )
+                .await
         } else {
-            broker.register(&worker.child, &operation).await
+            broker
+                .register(
+                    worker.child.id().unwrap(),
+                    child_handle(&worker.child),
+                    &operation,
+                )
+                .await
         }
         .unwrap()
         .unwrap();
@@ -1944,7 +2106,11 @@ async fn named_pipe_monitor_reads_private_stdin_image_and_receives_only_verifica
     let mut worker = Worker::spawn(root.path(), "pipe-monitor");
     let operation = image_monitor(true, true);
     let (access, _registration) = broker
-        .register(&worker.child, &operation)
+        .register(
+            worker.child.id().unwrap(),
+            child_handle(&worker.child),
+            &operation,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -2043,7 +2209,11 @@ async fn named_pipe_reads_large_database_snapshot_without_expanding_worker_input
     let broker = broker(&runtime);
     let mut writer = Worker::spawn(root.path(), "hold");
     let (write_access, _writer_registration) = broker
-        .register(&writer.child, &database_operation())
+        .register(
+            writer.child.id().unwrap(),
+            child_handle(&writer.child),
+            &database_operation(),
+        )
         .await
         .unwrap()
         .unwrap();
@@ -2068,7 +2238,11 @@ async fn named_pipe_reads_large_database_snapshot_without_expanding_worker_input
         config: runtime.config_path.clone(),
     };
     let (access, _reader_registration) = broker
-        .register_step(&reader.child, &step)
+        .register_step(
+            reader.child.id().unwrap(),
+            child_handle(&reader.child),
+            &step,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -2145,7 +2319,11 @@ async fn named_pipe_lazily_reads_image_material_without_write_access() {
         args: Default::default(),
     };
     let (access, _registration) = broker
-        .register(&reader.child, &operation)
+        .register(
+            reader.child.id().unwrap(),
+            child_handle(&reader.child),
+            &operation,
+        )
         .await
         .unwrap()
         .unwrap();
@@ -2264,9 +2442,21 @@ async fn named_pipe_write(step_channel: bool) {
         authorize_memory_scan: true,
     };
     let (access, _registration) = if step_channel {
-        broker.register_step(&worker.child, &step).await
+        broker
+            .register_step(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &step,
+            )
+            .await
     } else {
-        broker.register(&worker.child, &database_operation()).await
+        broker
+            .register(
+                worker.child.id().unwrap(),
+                child_handle(&worker.child),
+                &database_operation(),
+            )
+            .await
     }
     .unwrap()
     .unwrap();

@@ -20,6 +20,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 读取聊天导出文件另需宿主启用 `--task-allow-artifact-read`，才增加 `list_task_artifacts` 和 `read_task_artifact`。任务管理权限不自动授予文件内容读取权限。导出 dry-run、媒体预算、结构化结果及分块交付见[任务产物](task-artifacts.md)。
 
+daemon 宣告 `chat_plan_v1` 时，产物读取授权还启用 `read_chat_plan`。`chat_plan`、`chat_plan_review`、`chat_plan_apply` 通过既有 `submit_task` 提交，审阅和执行需要相应类型及产物读取双重授权。`--task-allow-plan-scan` 只允许该 MCP/Web 宿主新提交目录大小扫描计划，不修改 daemon 全局设置，也不是内存扫描授权。没有该标志的 MCP 拒绝 scan Submit（包括相同键重试），但可显式 `get_task` 查询已接受任务；Web 可对同键同参数的已接受任务仅执行 Get，参数改变返回冲突。入口退出不撤销已接受任务。
+
 初始化 MCP 后，`tools/call` 示例：
 
 ```json
@@ -46,6 +48,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 `MCP tools/call → cli::mcp_tasks → service::client::{wait_ready,request_with_timeout} → Call::{Configure,Submit,List,Get,Cancel,Events} → daemon::tasks → daemon::operations::task_worker`。后台启动仍调用已有 `ensure_running_quiet`；认证、进程身份、请求/回复上限和超时均走现有 service transport。
 
 产物列举和读取使用同一客户端的 `Call::{TaskArtifacts,ReadTaskArtifact}`，由 daemon 核验终态任务及已发布清单后返回，不重新执行 worker。MCP 仍是独立 stdio 协议入口，不承载队列或持久任务数据库。
+
+计划预览使用 `Call::ReadChatPlan`。CLI 为 `wx tasks read-plan --plan-ref '<PlanRef JSON>' --offset 0 --limit 50`；HTTP 为 `GET /api/tasks/{task_id}/artifacts/{artifact_id}/plan?sha256=<sha256>&plan_mode=blacklist&offset=0&limit=50`，仍要求普通 HTTP 认证。计划引用不是文件路径，也不是通用文件读取凭据。
 
 共享 `Info/Configure` 响应包含只读 `config_fingerprint`（尚未配置时为 null）。MCP 在任务 RPC 前核对后台绑定指纹与本会话指纹，不能通过调用参数覆盖它；缺少或不匹配时拒绝。后台提交时仍由原有 `ConfigPin` 验证配置与绑定一致。
 

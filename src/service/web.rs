@@ -294,6 +294,7 @@ pub struct HostSettings {
     pub port: u16,
     pub open: bool,
     pub image_cache_dir: Option<std::path::PathBuf>,
+    pub allow_plan_scan: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

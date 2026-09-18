@@ -1,4 +1,11 @@
 //! Production thin stdio adapter and authenticated transport, isolated from unrelated operations.
+#[path = "../../../src/windows_process/managed/user_security.rs"]
+mod user_security;
+pub(crate) mod windows_process {
+    pub(crate) mod managed {
+        pub(crate) use crate::user_security::with_user_security;
+    }
+}
 pub use mcp_host::{
     config, crypto, daemon, db_cache, fixture_runtime, infrastructure, ipc, mcp, mcp_service,
     protocol, runtime,
@@ -20,8 +27,22 @@ pub mod attachment {
 #[allow(dead_code)] // The CLI transport fixture does not exercise ACL inspection.
 pub mod private_file;
 pub use service::query_client as transport;
+pub mod business {
+    pub use mcp_host::business::*;
+    pub mod chat_plan {
+        include!(concat!(env!("OUT_DIR"), "/business_plan_mode.rs"));
+    }
+}
 #[allow(dead_code)]
 pub mod service {
+    pub mod chat_plan {
+        include!(concat!(env!("OUT_DIR"), "/service_chat_plan.rs"));
+    }
+    pub mod operation_requests {
+        pub mod plan {
+            include!(concat!(env!("OUT_DIR"), "/operation_plan_mode.rs"));
+        }
+    }
     pub mod history_export {
         include!(concat!(env!("OUT_DIR"), "/service_history_export.rs"));
     }

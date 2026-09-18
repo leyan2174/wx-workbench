@@ -11,6 +11,22 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Step {
+    ChatPlan {
+        config: PathBuf,
+        output: PathBuf,
+        request: super::chat_plan::Request,
+    },
+    ChatPlanReview {
+        config: PathBuf,
+        output: PathBuf,
+        request: super::chat_plan::ReviewRequest,
+    },
+    ChatPlanApply {
+        config: PathBuf,
+        output: PathBuf,
+        request: super::chat_plan::ApplyRequest,
+        selected_sha256: Option<String>,
+    },
     WechatKeys {
         config: PathBuf,
         authorize_memory_scan: bool,
@@ -64,6 +80,9 @@ pub fn capabilities() -> Vec<Value> {
         Kind::ImageKey,
         Kind::ExportAll,
         Kind::ExportHistory,
+        Kind::ChatPlan,
+        Kind::ChatPlanReview,
+        Kind::ChatPlanApply,
         Kind::DecodeImages,
         Kind::SnsDecrypt,
     ]
@@ -83,6 +102,9 @@ pub fn capabilities() -> Vec<Value> {
             ],
             Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
             Kind::ExportHistory => &["history_export"],
+            Kind::ChatPlan => &["chat_plan"],
+            Kind::ChatPlanReview => &["chat_plan_review"],
+            Kind::ChatPlanApply => &["chat_plan_apply"],
             Kind::SnsDecrypt => &["users", "include_sns_media"],
             _ => &[],
         };
@@ -96,6 +118,56 @@ pub fn capabilities() -> Vec<Value> {
 
 pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
     let o = &request.options;
+    ensure!(
+        o.chat_plan.is_none() || request.kind == Kind::ChatPlan,
+        "Unexpected plan request"
+    );
+    ensure!(
+        o.chat_plan_review.is_none() || request.kind == Kind::ChatPlanReview,
+        "Unexpected plan review"
+    );
+    ensure!(
+        o.chat_plan_apply.is_none() || request.kind == Kind::ChatPlanApply,
+        "Unexpected plan apply"
+    );
+    if matches!(
+        request.kind,
+        Kind::ChatPlan | Kind::ChatPlanReview | Kind::ChatPlanApply
+    ) {
+        ensure!(
+            o.history_export.is_none()
+                && o.users.is_empty()
+                && o.formats.is_empty()
+                && !o.include_sns
+                && !o.include_sns_media
+                && o.include_images
+                && !o.allow_missing_media
+                && !o.authorize_memory_scan
+                && !o.dry_run
+                && o.max_media_bytes.is_none()
+                && o.max_total_media_bytes.is_none(),
+            "Unsupported plan options"
+        );
+        match request.kind {
+            Kind::ChatPlan => o
+                .chat_plan
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing plan request"))?
+                .validate()?,
+            Kind::ChatPlanReview => o
+                .chat_plan_review
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing plan review"))?
+                .validate()?,
+            Kind::ChatPlanApply => o
+                .chat_plan_apply
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("Missing plan apply"))?
+                .validate()?,
+            _ => unreachable!(),
+        }
+        return Ok(());
+    }
     if request.kind == Kind::ExportHistory {
         let history = o
             .history_export
@@ -234,6 +306,22 @@ pub fn plan(
     };
     let mut steps = Vec::new();
     match request.kind {
+        Kind::ChatPlan => steps.push(Step::ChatPlan {
+            config,
+            output: output.to_owned(),
+            request: o.chat_plan.clone().unwrap(),
+        }),
+        Kind::ChatPlanReview => steps.push(Step::ChatPlanReview {
+            config,
+            output: output.to_owned(),
+            request: o.chat_plan_review.clone().unwrap(),
+        }),
+        Kind::ChatPlanApply => steps.push(Step::ChatPlanApply {
+            config,
+            output: output.to_owned(),
+            request: o.chat_plan_apply.clone().unwrap(),
+            selected_sha256: None,
+        }),
         Kind::WechatKeys => steps.push(Step::WechatKeys {
             config: config.clone(),
             authorize_memory_scan: true,

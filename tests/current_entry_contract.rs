@@ -121,6 +121,7 @@ impl Fixture {
         command.env("PATH", "").env("NO_COLOR", "1");
         let output = windows_process::managed::output(
             &mut command,
+            true,
             Instant::now() + Duration::from_secs(20),
             256 * 1024,
             || false,

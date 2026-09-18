@@ -249,6 +249,7 @@ impl Tool {
                 | "get_task_events"
                 | "list_task_artifacts"
                 | "read_task_artifact"
+                | "read_chat_plan"
         )
     }
 }

@@ -1,5 +1,7 @@
 //! Read-only planning sources. Source layout and SQL do not cross this boundary.
 pub(crate) mod scan;
+#[cfg(test)]
+mod schema_tests;
 use super::messages::read::layout;
 use crate::business::chat_plan::{
     self as domain, MessageStatistics, PlanChat, ReadFailure, TimeRange,
@@ -39,7 +41,22 @@ pub fn query_message_table_plan_stats(
         |r| r.get(0),
     )?;
     ensure!(exists, "消息表不存在或不是实体表");
-    let sql = format!("SELECT COUNT(*), MIN(create_time), MAX(create_time), COALESCE(SUM(COALESCE(length(message_content),0) + COALESCE(length(compress_content),0) + COALESCE(length(packed_info_data),0)),0) FROM [{table}] WHERE (?1 IS NULL OR create_time >= ?1) AND (?2 IS NULL OR create_time <= ?2)");
+    let columns = super::messages::read::columns(conn, table)?;
+    ensure!(
+        columns.contains("create_time") && columns.contains("message_content"),
+        "消息表缺少必需统计列"
+    );
+    let compressed = if columns.contains("compress_content") {
+        "COALESCE(length(compress_content),0)"
+    } else {
+        "0"
+    };
+    let packed = if columns.contains("packed_info_data") {
+        "COALESCE(length(packed_info_data),0)"
+    } else {
+        "0"
+    };
+    let sql = format!("SELECT COUNT(*), MIN(create_time), MAX(create_time), COALESCE(SUM(COALESCE(length(message_content),0) + {compressed} + {packed}),0) FROM [{table}] WHERE (?1 IS NULL OR create_time >= ?1) AND (?2 IS NULL OR create_time <= ?2)");
     Ok(conn.query_row(&sql, params![range.start, range.end], |r| {
         Ok(MessageStatistics {
             message_count: r.get(0)?,

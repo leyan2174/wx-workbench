@@ -94,6 +94,9 @@ SOFTWARE.
     { kind: 'image_key', name: '图片密钥', group: '个人微信', icon: 'search' },
     { kind: 'export_all', name: '导出聊天', group: '个人微信', icon: 'download', export: true },
     { kind: 'export_history', name: '导出单会话历史', group: '个人微信', icon: 'download', advertisedOnly: true },
+    { kind: 'chat_plan', name: '生成导出计划', group: '个人微信', icon: 'list-checks', advertisedOnly: true },
+    { kind: 'chat_plan_review', name: '保存计划修订', group: '个人微信', icon: 'list-checks', advertisedOnly: true, contextOnly: true },
+    { kind: 'chat_plan_apply', name: '应用导出计划', group: '个人微信', icon: 'play', advertisedOnly: true, contextOnly: true },
     { kind: 'decode_images', name: '批量解密图片', group: '个人微信', icon: 'play' },
     { kind: 'sns_decrypt', name: '朋友圈解密与导出', group: '朋友圈', icon: 'download', users: true },
   ];
@@ -106,7 +109,10 @@ SOFTWARE.
   function username(item) { return String(item.username ?? item.user_name ?? ''); }
   function displayName(item) { return item.remark || item.display_name || item.display || item.name || item.nickname || username(item); }
   function redact(value) { const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); return token ? String(text ?? '').split(token).join('[令牌已隐藏]') : String(text ?? ''); }
-  function errorText(error) { return redact(error.message || error); }
+  function errorText(error) {
+    const planErrors = { plan_ref_unavailable: '计划引用已不可用，请重新选择计划', plan_ref_changed: '计划内容已变更，已停止操作', plan_selection_invalid: '计划选择无效或会话已变化，请重新审阅', plan_scan_not_authorized: '本次 Web 启动未允许计划扫描', invalid_page: '计划分页参数无效' };
+    return planErrors[error.code] || redact(error.message || error);
+  }
   function timestamp(value, short = false) {
     if (!value) return '';
     const numeric = Number(value), date = new Date(Number.isFinite(numeric) ? numeric * (numeric < 1e12 ? 1000 : 1) : value);
@@ -238,9 +244,9 @@ SOFTWARE.
     const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal, cache: 'no-store', credentials: 'omit', redirect: 'error' });
     if (epoch !== model.epoch) throw new DOMException('连接已更换', 'AbortError');
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) authenticateFailure();
       let message = `请求失败（HTTP ${response.status}）`, code;
       try { const data = await response.json(); code = data.error?.code || data.code; message = data.error?.message || data.error || data.message || message; } catch { /* 非 JSON 错误保留状态码。 */ }
+      if (response.status === 401 || (response.status === 403 && code !== 'plan_scan_not_authorized')) authenticateFailure();
       const error = new Error(typeof message === 'string' ? message : JSON.stringify(message)); error.status = response.status; error.code = code; throw error;
     }
     // SSE 在收到响应头后取消首包超时，持续流的生命周期仍由调用者控制。
@@ -779,6 +785,7 @@ SOFTWARE.
   function renderTools() {
     const target = $('task-tools'); target.replaceChildren(); let group = '';
     availableTasks.forEach((spec) => {
+      if (spec.contextOnly) return;
       if (group !== spec.group) { group = spec.group; target.append(el('p', 'tool-group', group || '任务')); }
       const node = button('', () => { if (model.online && spec.enabled !== false) openTask(spec); }, 'tool-button'); node.append(icon(spec.icon), el('span', '', spec.name || spec.kind));
       // 能力禁用仍可聚焦，从原生 tooltip 读取不可用原因。
@@ -1028,12 +1035,142 @@ SOFTWARE.
     group.append(summary); target.append(group);
     formReaders.push(options => { options.history_export = historyExportRequest({ chat: chat.value, since: inputs.since.value, until: inputs.until.value, limit: count.value, format: format.value }); });
   }
-  async function openTask(spec, selectedUser) {
+  function planRequest({ scope, users = '', exclude = '', size_mode = 'estimate', threads = 1, start = '', end = '' }, allowedModes) {
+    const names = value => [...new Set(value.split(/\r?\n/).filter(name => name !== ''))];
+    const count = Number(threads);
+    if (!Number.isInteger(count) || count < 1 || count > 6) throw new Error('线程数必须为 1–6');
+    if (!['all', 'selected'].includes(scope) || !allowedModes.includes(size_mode)) throw new Error('计划范围或扫描模式未获授权');
+    const request = { users: scope === 'all' ? null : names(users), exclude_users: names(exclude), size_mode, threads: count };
+    for (const name of [...(request.users || []), ...request.exclude_users]) {
+      if (new TextEncoder().encode(name).length > 1024 || /[\u0000-\u001f\u007f-\u009f]/u.test(name)) throw new Error('username 长度或字符无效');
+    }
+    for (const [key, value] of [['start', start], ['end', end]]) if (value) request[key] = value.replace('T', ' ');
+    return request;
+  }
+  function planGenerationFields(spec, target) {
+    const group = el('fieldset', 'plan-fields'); group.append(el('legend', '', '当前账号计划'));
+    const add = (label, input) => { const row = el('label', 'field'); row.append(el('span', '', label), input); group.append(row); return input; };
+    const scope = el('select'); scope.name = 'plan_scope'; scope.add(new Option('当前账号全部会话', 'all')); scope.add(new Option('明确选择', 'selected')); add('会话范围', scope);
+    const users = el('textarea'); users.name = 'plan_users'; users.rows = 3; users.value = model.selected ? username(model.selected) : ''; add('包含 username（每行一个）', users);
+    const exclude = el('textarea'); exclude.name = 'plan_exclude'; exclude.rows = 2; add('排除 username（每行一个）', exclude);
+    const modes = spec.size_modes?.includes('scan') ? ['estimate', 'scan'] : ['estimate'];
+    const mode = el('select'); mode.name = 'plan_size_mode'; mode.add(new Option('估算', 'estimate')); if (modes.includes('scan')) mode.add(new Option('扫描', 'scan')); add('容量统计', mode);
+    const threads = el('input'); threads.name = 'plan_threads'; threads.type = 'number'; threads.min = '1'; threads.max = '6'; threads.step = '1'; threads.value = '1'; threads.required = true; add('线程数', threads);
+    const times = {};
+    for (const [key, label] of [['start', '开始时间'], ['end', '结束时间']]) {
+      const precision = el('select'); precision.setAttribute('aria-label', `计划${label}精度`);
+      for (const [value, text] of [['date', '日期'], ['datetime-local', '日期时刻'], ['text', 'Unix 秒']]) precision.add(new Option(text, value));
+      const input = el('input'); input.type = 'date'; input.name = `plan_${key}`;
+      precision.addEventListener('change', () => { input.type = precision.value; input.value = ''; if (precision.value === 'datetime-local') input.step = '1'; refresh(); });
+      group.append(precision); add(`${label}（可选）`, input); times[key] = input;
+    }
+    const summary = el('dl', 'key-values'); group.append(summary);
+    const refresh = () => {
+      users.disabled = scope.value === 'all'; summary.replaceChildren();
+      const end = times.end.value;
+      for (const [key, value] of [['来源', '当前账号新建快照'], ['选择范围', scope.value === 'all' ? '全部会话（扣除排除项）' : `明确选择 ${new Set(users.value.split(/\r?\n/).filter(Boolean)).size} 个`], ['时间基准', '宿主本地时间'], ['结束边界', end ? `${end.replace('T', ' ')}${end.length === 10 && end.includes('-') ? ' 00:00:00' : ''}（含）` : '不限']]) summary.append(el('dt', '', key), el('dd', '', value));
+    };
+    scope.addEventListener('change', refresh); users.addEventListener('input', refresh); times.end.addEventListener('input', refresh); refresh();
+    target.append(group);
+    formReaders.push(options => { options.chat_plan = planRequest({ scope: scope.value, users: users.value, exclude: exclude.value, size_mode: mode.value, threads: threads.value, start: times.start.value, end: times.end.value }, modes); });
+  }
+  function validPlanRef(ref) { return ref && ['task_id', 'artifact_id', 'sha256'].every(key => /^[a-f0-9]{64}$/.test(ref[key] || '')); }
+  function planSelected(flag, mode) { return mode === 'whitelist' ? flag === '1' : flag !== '0'; }
+  function planPreviewCount(base, changes, mode) {
+    return base + [...changes.values()].reduce((count, change) => count + Number(planSelected(change.export, mode)) - Number(planSelected(change.original, mode)), 0);
+  }
+  function setPlanChange(changes, row, flag) {
+    if (!['', '0', '1'].includes(flag)) throw new Error('导出标记无效');
+    if (flag === row.export) changes.delete(row.username);
+    else changes.set(row.username, { username: row.username, original: row.export, export: flag });
+  }
+  function planSizeStatus(status) {
+    if (status === 'ok') return '完整';
+    const labels = { media_error: '媒体读取失败', media_missing: '媒体来源缺失', message_db_missing: '消息库缺失', message_error: '消息读取失败', no_message_table: '会话消息表缺失', resource_error: '资源读取失败', resource_missing: '资源库缺失', scan_base_missing: '扫描根缺失', scan_depth_limited: '扫描深度受限', scan_error: '扫描失败', scan_limited: '扫描数量受限', scan_missing: '扫描来源缺失', scan_overflow: '扫描统计溢出', scan_reparse_skipped: '已跳过重解析点' };
+    return status.startsWith('partial:') ? `部分统计：${status.slice(8).split(',').map(code => labels[code] || code).join('、')}` : status;
+  }
+  let planReview = { sequence: 0, ref: null, changes: new Map(), page: null, mode: 'blacklist', busy: false };
+  function updatePlanActions() {
+    const dirty = planReview.changes.size > 0, page = planReview.page;
+    const count = page ? planPreviewCount(page.selected_count, planReview.changes, planReview.mode) : null;
+    $('plan-selection-count').textContent = count === null ? '选择数未确定' : `预览选择 ${count} / ${page.total} 个 · 未保存修改 ${planReview.changes.size} 项`;
+    $('plan-save-review').disabled = planReview.busy || !page || !dirty || !availableTasks.some(spec => spec.kind === 'chat_plan_review' && spec.enabled !== false);
+    $('plan-apply').disabled = planReview.busy || !page || dirty || count === 0 || !availableTasks.some(spec => spec.kind === 'chat_plan_apply' && spec.enabled !== false);
+    $('plan-read-mode').disabled = planReview.busy;
+  }
+  async function openPlanReview(ref) {
+    if (!validPlanRef(ref)) return;
+    if (planReview.changes.size && !window.confirm('放弃未保存的计划标记修改？')) return;
+    planReview = { sequence: planReview.sequence + 1, ref: { ...ref }, changes: new Map(), page: null, mode: 'blacklist', busy: false };
+    $('plan-read-mode').value = 'blacklist'; $('plan-apply-dry').checked = false;
+    $('plan-review-dialog').showModal(); await readPlanPage(0);
+  }
+  async function readPlanPage(offset) {
+    const epoch = model.epoch, sequence = ++planReview.sequence, ref = planReview.ref, mode = planReview.mode;
+    if (!ref) return;
+    planReview.busy = true; planReview.page = null; updatePlanActions(); notice('plan-error'); $('plan-rows').replaceChildren();
+    $('plan-meta').replaceChildren(); $('plan-page').textContent = ''; $('plan-previous').disabled = true; $('plan-next').disabled = true;
+    const current = () => epoch === model.epoch && sequence === planReview.sequence && $('plan-review-dialog').open;
+    try {
+      const page = await request(`/api/tasks/${ref.task_id}/artifacts/${ref.artifact_id}/plan?${new URLSearchParams({ sha256: ref.sha256, plan_mode: mode, offset, limit: 50 })}`);
+      if (!current()) return;
+      if (page.version !== 1 || !validPlanRef(page.plan_ref) || !['task_id', 'artifact_id', 'sha256'].every(key => page.plan_ref[key] === ref[key]) || page.plan_mode !== mode || page.source_kind !== 'runtime_snapshot') throw new Error('计划引用或来源不符');
+      planReview.page = page;
+      const meta = $('plan-meta'); meta.replaceChildren();
+      const time = value => value === null ? '不限' : new Date(value * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+      for (const [key, value] of [['来源', '当前账号新建快照'], ['计划任务', ref.task_id], ['版本 SHA-256', ref.sha256], ['开始边界（含）', time(page.start_ts)], ['结束边界（含）', time(page.end_ts)]]) meta.append(el('dt', '', key), el('dd', '', value));
+      for (const row of page.rows) {
+        const tr = el('tr'), identity = el('td'), statistics = el('td'), sizes = el('td'), marker = el('td'), select = el('select');
+        identity.append(el('div', '', row.chat_name), el('div', 'muted', row.username), el('div', 'muted', { direct: '单聊', group: '群聊', public: '公众号' }[row.chat_type] || row.chat_type));
+        select.setAttribute('aria-label', `导出标记 ${row.username}`);
+        for (const [value, text] of [['', '未设'], ['0', '0 · 排除'], ['1', '1 · 纳入']]) select.add(new Option(text, value));
+        select.value = planReview.changes.get(row.username)?.export ?? row.export;
+        select.addEventListener('change', () => {
+          setPlanChange(planReview.changes, row, select.value);
+          updatePlanActions();
+        });
+        marker.append(select);
+        statistics.append(el('div', '', `消息：${row.message_count < 0 || /message_db_missing|message_error/.test(row.size_status) ? '未统计' : row.message_count}`), el('div', 'muted', `首条：${row.first_time || '未提供'}`), el('div', 'muted', `末条：${row.last_time || '未提供'}`));
+        const bytes = value => value === null || value < 0 ? '未统计' : `${value.toLocaleString('zh-CN')} 字节`;
+        sizes.append(el('div', '', `附件估算：${bytes(row.attachment_estimated_bytes)}`), el('div', '', `附件扫描：${bytes(row.attachment_scanned_bytes)}`), el('div', '', `总估算：${bytes(row.total_estimated_bytes)}`), el('div', 'muted', `统计状态：${planSizeStatus(row.size_status)}`));
+        tr.append(el('td', '', row.index), identity, marker, statistics, sizes); $('plan-rows').append(tr);
+      }
+      $('plan-previous').disabled = offset === 0; $('plan-next').disabled = page.next_offset === null;
+      $('plan-page').textContent = `${Math.floor(offset / 50) + 1} / ${Math.max(1, Math.ceil(page.total / 50))}`;
+    } catch (error) { if (current()) notice('plan-error', errorText(error)); }
+    finally { if (current()) { planReview.busy = false; updatePlanActions(); } }
+  }
+  async function submitPlanAction(kind) {
+    if (!planReview.page || planReview.busy) return;
+    const spec = availableTasks.find(spec => spec.kind === kind && spec.enabled !== false); if (!spec) return;
+    const ref = { ...planReview.ref };
+    let request;
+    if (kind === 'chat_plan_review') {
+      if (!planReview.changes.size) return;
+      request = { plan_ref: ref, changes: [...planReview.changes.values()].map(({ username, export: flag }) => ({ username, export: flag })) };
+    } else {
+      if (planReview.changes.size || planReview.page.selected_count === 0) return;
+      request = { plan_ref: ref, plan_mode: planReview.mode, dry_run: $('plan-apply-dry').checked };
+    }
+    await openTask(spec, undefined, request);
+  }
+  function planReferenceFields(kind, request, target) {
+    if (!request || !validPlanRef(request.plan_ref)) { notice('task-error', '请从已登记计划进入审阅或应用'); $('task-submit').disabled = true; return; }
+    const summary = el('dl', 'key-values');
+    const facts = [['计划任务', request.plan_ref.task_id], ['版本 SHA-256', request.plan_ref.sha256]];
+    if (kind === 'chat_plan_review') facts.push(['修改标记', request.changes.length], ['发布方式', '新的不可变计划版本']);
+    else facts.push(['选择模式', request.plan_mode === 'whitelist' ? '白名单：仅纳入 1' : '黑名单：仅排除 0'], ['执行意图', request.dry_run ? '仅预演选择' : '导出到全新归档'], ['预览选择', planReview.page.selected_count]);
+    for (const [key, value] of facts) summary.append(el('dt', '', key), el('dd', '', value));
+    target.append(summary); formReaders.push(options => { options[kind] = request; });
+  }
+  async function openTask(spec, selectedUser, planOptions) {
     if (!model.online || submitting) return;
     taskSpec = spec; formReaders = []; selection = new Set(selectedUser ? [selectedUser] : []);
     const generation = ++formGeneration; $('task-options').replaceChildren(); $('task-title').textContent = spec.name || spec.kind; notice('task-error');
     $('task-submit').disabled = false; $('task-dialog').showModal();
     const target = $('task-options');
+    if (spec.kind === 'chat_plan') { planGenerationFields(spec, target); return; }
+    if (['chat_plan_review', 'chat_plan_apply'].includes(spec.kind)) { planReferenceFields(spec.kind, planOptions, target); return; }
     if (spec.kind === 'export_history') { historyExportFields(target, selectedUser); return; }
     if (!Array.isArray(spec.fields)) taskFlags(spec, target);
     exportBudgets(spec, target);
@@ -1103,6 +1240,9 @@ SOFTWARE.
     event.preventDefault(); if (submitting || !taskSpec || !model.online) return;
     notice('task-error'); const options = Object.create(null);
     let pending = savedSubmission();
+    if (['chat_plan', 'chat_plan_review', 'chat_plan_apply'].includes(pending?.body.kind || taskSpec.kind) && !availableTasks.some(spec => spec.kind === (pending?.body.kind || taskSpec.kind) && spec.enabled !== false)) {
+      notice('task-error', '当前服务未启用此计划任务；待确认提交已保留。'); return;
+    }
     if ((pending?.body.kind || taskSpec.kind) === 'export_history' && !availableTasks.some(spec => spec.kind === 'export_history' && spec.enabled !== false)) {
       notice('task-error', '当前服务不支持或未启用单会话历史导出；待确认提交已保留。'); return;
     }
@@ -1110,6 +1250,7 @@ SOFTWARE.
       if (!pending) {
       formReaders.forEach((read) => read(options));
       if (Array.isArray(taskSpec.options)) Object.keys(options).forEach((key) => { if (!taskSpec.options.includes(key)) delete options[key]; });
+      if (new TextEncoder().encode(JSON.stringify({ kind: taskSpec.kind, options })).length > 65536) throw new Error('本次提交超过 64 KiB，请减少修改标记或选择项');
       const key = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('');
       pending = { account: model.accountKey, key, body: { kind: taskSpec.kind, options } };
       } else if (!window.confirm('上一笔提交尚未确认。是否使用原参数和原幂等键重试上一笔任务？')) return;
@@ -1124,11 +1265,12 @@ SOFTWARE.
       pendingSubmission = null; try { sessionStorage.removeItem(pendingKey()); } catch { /* No persistent attempt. */ }
       const task = data?.task || data;
       $('task-dialog').close();
+      if (['chat_plan_review', 'chat_plan_apply'].includes(pending.body.kind)) { $('plan-review-dialog').close(); planReview.changes.clear(); }
       try { await loadTasks(); } catch (error) { notice('global-error', `任务已提交，但队列刷新失败：${errorText(error)}`); }
       if (task && taskId(task)) openDetail(taskId(task));
     } catch (error) {
       if (epoch === model.epoch) {
-        if ([400, 401, 403, 404, 422, 429].includes(error.status)) {
+        if ([400, 401, 403, 404, 422, 429].includes(error.status) || ['plan_ref_changed', 'plan_ref_unavailable', 'plan_selection_invalid'].includes(error.code)) {
           pendingSubmission = null; try { sessionStorage.removeItem(pendingKey()); } catch { /* No persistent attempt. */ }
         }
         notice('task-error', `${errorText(error)}。${savedSubmission() ? '提交尚未确认；再次提交将重试原任务，不采用新参数。' : '请检查参数或稍后重试。'}`);
@@ -1169,11 +1311,11 @@ SOFTWARE.
       if (!current()) return;
       target.replaceChildren();
       if (page.scope !== model.detail?.result?.scope) throw new Error('产物范围与任务结果不符');
-      target.append(el('h3', '', page.scope === 'chat_history' ? '历史导出文档' : '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
+      target.append(el('h3', '', { chat_history: '历史导出文档', chat_plan: '计划文件', chat_plan_apply: '计划导出文档' }[page.scope] || '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
       for (const item of page.items) {
         if (!/^[a-f0-9]{64}$/.test(item.artifact_id)) continue;
         const row = el('div', 'artifact-row'), info = el('div', 'artifact-info');
-        const role = {chat_document: '聊天文档', media_manifest: '媒体清单', voice_manifest: '语音清单', media: '媒体文件', chat_info: '会话信息', export_inventory: '导出清单'}[item.role] || '文件';
+        const role = {chat_plan_csv: '导出计划 CSV', chat_document: '聊天文档', media_manifest: '媒体清单', voice_manifest: '语音清单', media: '媒体文件', chat_info: '会话信息', export_inventory: '导出清单'}[item.role] || '文件';
         info.append(el('span', 'artifact-name', item.name), el('span', 'muted', `${Number(item.size).toLocaleString('zh-CN')} 字节 · ${role}`));
         const download = button('', () => downloadArtifact(id, item, download), 'icon-button');
         download.title = `下载 ${item.name}`; download.setAttribute('aria-label', download.title); download.append(icon('download'));
@@ -1208,17 +1350,31 @@ SOFTWARE.
     facts.push(['已登记产物', result.artifact_count]);
     return facts;
   }
+  function planResultFacts(result) {
+    const outcomes = { success: '成功', partial: '部分完成', failure: '失败', refused: '已拒绝' };
+    const facts = [['计划结果', outcomes[result.outcome] || '尚未确定']];
+    if (result.scope === 'chat_plan') {
+      const time = value => value === null ? '不限' : new Date(value * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+      facts.push(['来源', result.source_kind === 'runtime_snapshot' ? '当前账号新建快照' : '未确定'], ['计划行数', result.row_count], ['部分统计行', result.partial_rows],
+        ['开始边界（含）', time(result.start_ts)], ['结束边界（含）', time(result.end_ts)], ['版本 SHA-256', result.published_plan_ref?.sha256 || '尚未发布']);
+      if (result.parent_ref) facts.push(['父版本 SHA-256', result.parent_ref.sha256]);
+    } else {
+      facts.push(['引用 SHA-256', result.plan_ref.sha256], ['选择模式', result.plan_mode === 'whitelist' ? '白名单：仅纳入 1' : '黑名单：仅排除 0'],
+        ['执行意图', result.dry_run ? '仅预演选择' : '全新归档'], ['已选择会话', result.selected_count === 0 && !result.finalized ? '尚未确认' : result.selected_count], ['已发布文档', result.published_count], [result.finalized ? '失败会话' : '已记录失败会话', result.failed_count], ['已发布消息', result.messages]);
+    }
+    facts.push(['已登记产物', result.artifact_count]); return facts;
+  }
   function renderExportResult(task) {
     const target = $('task-result'), result = task.result;
     target.replaceChildren();
-    $('export-result-title').textContent = task.kind === 'export_history' ? '单会话历史导出结果' : '聊天导出结果';
-    const expectedScope = task.kind === 'export_history' ? 'chat_history' : task.kind === 'export_all' ? 'chat_directory' : null;
+    $('export-result-title').textContent = { export_history: '单会话历史导出结果', chat_plan: '导出计划结果', chat_plan_review: '计划修订结果', chat_plan_apply: '计划应用结果' }[task.kind] || '聊天导出结果';
+    const expectedScope = { export_history: 'chat_history', export_all: 'chat_directory', chat_plan: 'chat_plan', chat_plan_review: 'chat_plan', chat_plan_apply: 'chat_plan_apply' }[task.kind] || null;
     if (!result || result.version !== 1 || !expectedScope || result.scope !== expectedScope) {
       target.textContent = '暂无聊天导出结果'; $('task-artifacts').replaceChildren(); return;
     }
     const outcomes = { success: '完整', partial: '部分完成', failure: '失败', refused: '已拒绝' };
     const summary = el('dl', 'key-values');
-    const facts = result.scope === 'chat_history' ? historyResultFacts(result) : result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
+    const facts = ['chat_plan', 'chat_plan_apply'].includes(result.scope) ? planResultFacts(result) : result.scope === 'chat_history' ? historyResultFacts(result) : result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
       : [['聊天结果', outcomes[result.outcome] || '尚未确定'], ['计划会话', result.planned_chats ?? '未确定'],
         ['已导出会话', result.exported_chats], ['失败会话', result.failed_chats], ['消息', result.messages],
         ['媒体问题', result.media_issues], ['已登记产物', result.artifact_count]];
@@ -1228,6 +1384,7 @@ SOFTWARE.
     const codes = { history_query_warning: '历史查询警告', history_export_failed: '历史导出失败', chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
     for (const diagnostic of result.diagnostics || []) target.append(el('p', 'notice', `${codes[diagnostic.code] || diagnostic.code}：${diagnostic.count}`));
     const ready = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(statusOf(task));
+    if (ready && result.scope === 'chat_plan' && validPlanRef(result.published_plan_ref)) target.append(button('审阅与应用', () => openPlanReview(result.published_plan_ref)));
     if (result.dry_run || !ready) { ++artifactPage.generation; $('task-artifacts').replaceChildren(); return; }
     const capabilities = model.state.capabilities;
     const supported = Array.isArray(capabilities) ? capabilities.includes('task_artifacts_v1') : capabilities?.task_artifacts_v1 === true;
@@ -1416,6 +1573,12 @@ SOFTWARE.
   $('page-size').addEventListener('change', () => { model.offset = 0; loadHistory(); });
   $('export-chat').addEventListener('click', () => { const spec = availableTasks.find((item) => item.kind === 'export_all'); if (spec && model.selected && spec.enabled !== false) openTask(spec, username(model.selected)); });
   $('task-form').addEventListener('submit', submitTask);
+  $('plan-read-mode').addEventListener('change', () => { planReview.mode = $('plan-read-mode').value; readPlanPage(0); });
+  $('plan-previous').addEventListener('click', () => { if (!planReview.busy && planReview.page) readPlanPage(Math.max(0, planReview.page.offset - 50)); });
+  $('plan-next').addEventListener('click', () => { if (!planReview.busy && planReview.page?.next_offset != null) readPlanPage(planReview.page.next_offset); });
+  $('plan-reload').addEventListener('click', () => { if (!planReview.busy) readPlanPage(planReview.page?.offset || 0); });
+  $('plan-save-review').addEventListener('click', () => submitPlanAction('chat_plan_review'));
+  $('plan-apply').addEventListener('click', () => submitPlanAction('chat_plan_apply'));
   $('detail-refresh').addEventListener('click', loadDetail);
   $('cancel-task').addEventListener('click', cancelTask);
   $('download-log').addEventListener('click', () => {

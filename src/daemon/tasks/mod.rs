@@ -2,6 +2,7 @@
 mod artifact_file;
 pub(crate) mod artifacts;
 pub(crate) mod history_artifacts;
+pub(crate) mod plan_artifacts;
 pub(crate) mod process;
 mod store;
 #[cfg(test)]
@@ -67,6 +68,7 @@ pub(crate) struct Work {
     settings: Settings,
     fingerprint: String,
     cancel: watch::Receiver<bool>,
+    plan_selection: Option<String>,
 }
 
 fn failure(code: &str, message: &str) -> ServiceError {
@@ -153,7 +155,7 @@ impl Service {
             "settings":records.binding.as_ref().map(|binding| &binding.settings),
             "config_fingerprint":records.binding.as_ref().map(|binding| &binding.fingerprint),
             "history_persisted":records.journal_ok,
-            "capabilities":{"task_artifacts_v1":true},
+            "capabilities":{"task_artifacts_v1":true,"chat_plan_v1":true},
             "task_kinds":plan::capabilities(),
             "running":records.tasks.iter().filter(|task| !task.terminal()).count(),
             "cursor":records.next_event - 1,
@@ -177,6 +179,7 @@ impl Service {
                     | Call::Shutdown {}
                     | Call::TaskArtifacts { .. }
                     | Call::ReadTaskArtifact { .. }
+                    | Call::ReadChatPlan { .. }
             )
         {
             return Err(failure("stopping", "后台正在关闭，不接受新操作"));
@@ -223,7 +226,7 @@ impl Service {
             Call::Submit {
                 idempotency_key,
                 task,
-            } => self.submit(idempotency_key, task),
+            } => self.submit_checked(idempotency_key, *task).await,
             Call::List {} => {
                 let records = self.records.lock().unwrap();
                 let tasks: Vec<_> = records.tasks.iter().rev().map(summary).collect();
@@ -243,9 +246,9 @@ impl Service {
                 serde_json::to_value(task).map_err(|_| failure("serialization", "任务响应不可用"))
             }
             Call::Cancel { id } => self.cancel(&id),
-            call @ (Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }) => {
-                self.artifact_call(call).await
-            }
+            call @ (Call::TaskArtifacts { .. }
+            | Call::ReadTaskArtifact { .. }
+            | Call::ReadChatPlan { .. }) => self.artifact_call(call).await,
             Call::Events {
                 after,
                 limit,
@@ -282,6 +285,17 @@ impl Service {
         call: Call,
     ) -> std::result::Result<Value, ServiceError> {
         let id = match &call {
+            Call::ReadChatPlan {
+                plan_ref, limit, ..
+            } => {
+                if !(1..=100).contains(limit) {
+                    return Err(artifact_file::error("invalid_page"));
+                }
+                plan_ref
+                    .validate()
+                    .map_err(|_| artifact_file::error("plan_ref_unavailable"))?;
+                &plan_ref.task_id
+            }
             Call::TaskArtifacts { id, limit, .. }
                 if (1..=crate::service::task_artifacts::MAX_LIST_ITEMS).contains(limit) =>
             {
@@ -343,6 +357,19 @@ impl Service {
                 }
             }
             let value = match call {
+                Call::ReadChatPlan {
+                    plan_ref,
+                    plan_mode,
+                    offset,
+                    limit,
+                } => serde_json::to_value(plan_artifacts::read_plan(
+                    &state.runtime,
+                    &task,
+                    plan_ref,
+                    plan_mode,
+                    offset,
+                    limit,
+                )?),
                 Call::TaskArtifacts { offset, limit, .. } => {
                     serde_json::to_value(artifacts::list(&state.runtime, &task, offset, limit)?)
                 }
@@ -369,7 +396,110 @@ impl Service {
         .map_err(|_| artifact_file::error("result_unavailable"))?
     }
 
-    fn submit(&self, id: String, request: Submission) -> std::result::Result<Value, ServiceError> {
+    async fn submit_checked(
+        self: &Arc<Self>,
+        id: String,
+        request: Submission,
+    ) -> std::result::Result<Value, ServiceError> {
+        // Existing idempotent requests do not depend on the parent still being retained.
+        let exists = self
+            .records
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .any(|task| task.id == id);
+        if exists
+            || (plan_artifacts::reference(&request).is_none() && request.kind != Kind::ChatPlan)
+        {
+            return self.submit(id, request, None);
+        }
+        plan::validate(&request, &Default::default())
+            .map_err(|_| failure("invalid_task", "Invalid task options"))?;
+        if request.kind == Kind::ChatPlan {
+            let permit = self
+                .artifact_reads
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| artifact_file::error("artifact_busy"))?;
+            let runtime = self.runtime.clone();
+            let selection = request.options.chat_plan.clone().unwrap();
+            tokio::task::spawn_blocking(move || -> std::result::Result<(), ServiceError> {
+                let _permit = permit;
+                let pin = ConfigPin::new(&runtime)
+                    .map_err(|_| artifact_file::error("configuration_changed"))?;
+                super::operations::plan_tasks::plan_chats(&runtime, &selection)
+                    .map_err(|_| artifact_file::error("plan_selection_invalid"))?;
+                pin.verify(&runtime)
+                    .map_err(|_| artifact_file::error("configuration_changed"))?;
+                Ok(())
+            })
+            .await
+            .map_err(|_| artifact_file::error("plan_selection_invalid"))??;
+            return self.submit(id, request, None);
+        }
+        let reference = plan_artifacts::reference(&request).unwrap().clone();
+        let parent = self
+            .records
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|task| task.id == reference.task_id)
+            .cloned()
+            .ok_or_else(|| artifact_file::error("plan_ref_unavailable"))?;
+        let permit = self
+            .artifact_reads
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| artifact_file::error("artifact_busy"))?;
+        let runtime = self.runtime.clone();
+        let checked = request.clone();
+        let selection = tokio::task::spawn_blocking(
+            move || -> std::result::Result<Option<String>, ServiceError> {
+                let _permit = permit;
+                let pin = ConfigPin::new(&runtime)
+                    .map_err(|_| artifact_file::error("configuration_changed"))?;
+                let resolved = plan_artifacts::resolve(&runtime, &parent, &reference)?;
+                let selection = match checked.kind {
+                    crate::service::protocol::Kind::ChatPlanReview => {
+                        plan_artifacts::validate_changes(
+                            &resolved.rows,
+                            checked.options.chat_plan_review.as_ref().unwrap(),
+                        )
+                        .map_err(|_| artifact_file::error("plan_selection_invalid"))?;
+                        None
+                    }
+                    crate::service::protocol::Kind::ChatPlanApply => {
+                        let targets = super::operations::plan_tasks::selected(
+                            &runtime,
+                            &resolved.csv,
+                            checked.options.chat_plan_apply.as_ref().unwrap().plan_mode,
+                        )
+                        .map_err(|_| artifact_file::error("plan_selection_invalid"))?;
+                        Some(
+                            super::operations::plan_tasks::selection_hash(&targets)
+                                .map_err(|_| artifact_file::error("plan_selection_invalid"))?,
+                        )
+                    }
+                    _ => unreachable!(),
+                };
+                pin.verify(&runtime)
+                    .map_err(|_| artifact_file::error("configuration_changed"))?;
+                Ok(selection)
+            },
+        )
+        .await
+        .map_err(|_| artifact_file::error("plan_ref_unavailable"))??;
+        self.submit(id, request, selection)
+    }
+
+    fn submit(
+        &self,
+        id: String,
+        request: Submission,
+        plan_selection: Option<String>,
+    ) -> std::result::Result<Value, ServiceError> {
         if !valid_id(&id) {
             return Err(failure("invalid_id", "提交 ID 须为完整随机标识"));
         }
@@ -463,6 +593,7 @@ impl Service {
         self.event_locked(&mut records, "task", serde_json::to_value(&task).unwrap());
         drop(records);
         permit.send(Work {
+            plan_selection,
             id,
             request,
             settings,

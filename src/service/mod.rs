@@ -1,4 +1,5 @@
 //! Shared daemon protocol and planning, independent of HTTP and CLI argument types.
+pub mod chat_plan;
 pub mod client;
 pub mod config_pin;
 pub mod favorite_filter;

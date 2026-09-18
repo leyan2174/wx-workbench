@@ -236,7 +236,10 @@ async fn metadata(state: &Shared, id: &str, artifact_id: &str) -> Result<Artifac
         ensure!(
             page.version == 1
                 && page.task_id == id
-                && matches!(page.scope.as_str(), "chat_directory" | "chat_history")
+                && matches!(
+                    page.scope.as_str(),
+                    "chat_directory" | "chat_history" | "chat_plan" | "chat_plan_apply"
+                )
                 && page.offset == offset
                 && page.total <= MAX_ARTIFACTS as u64
                 && page.items.len() <= 100,

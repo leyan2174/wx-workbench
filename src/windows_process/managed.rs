@@ -1,29 +1,115 @@
 //! Windows child ownership: suspended start, nested Job, bounded pipes and cleanup.
-use anyhow::{bail, ensure, Context, Result};
+#[cfg(test)]
+use anyhow::bail;
+use anyhow::{ensure, Context, Result};
 use std::{
     io::Read,
-    os::windows::{io::AsRawHandle, process::CommandExt},
-    process::{Child, Command, Output, Stdio},
+    os::windows::io::AsRawHandle,
+    process::{Command, Output},
     thread,
     time::{Duration, Instant},
+};
+#[cfg(test)]
+use windows::Win32::System::{
+    Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    },
+    Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
 };
 use windows::{
     core::PCWSTR,
     Win32::{
         Foundation::{CloseHandle, HANDLE},
-        System::{
-            Diagnostics::ToolHelp::{
-                CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD,
-                THREADENTRY32,
-            },
-            JobObjects::*,
-            Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
-        },
+        System::JobObjects::*,
     },
 };
 
+#[cfg(test)]
 pub(crate) const SUSPENDED_NO_WINDOW: u32 = 0x0800_0004;
 pub(crate) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[path = "managed/async_pipes.rs"]
+mod async_pipes;
+#[path = "managed/native.rs"]
+mod native;
+#[path = "managed/sync_pipes.rs"]
+mod sync_pipes;
+#[path = "managed/user_security.rs"]
+mod user_security;
+pub(crate) use user_security::with_user_security;
+
+/// Only the daemon's two private worker entry points use this owner.
+pub(crate) struct Child {
+    process: native::Process,
+    pub(crate) stdin: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
+    pub(crate) stdout: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
+    pub(crate) stderr: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
+}
+
+impl Child {
+    pub(crate) fn id(&self) -> u32 {
+        self.process.id()
+    }
+    pub(crate) fn handle(&self) -> std::os::windows::io::BorrowedHandle<'_> {
+        self.process.handle()
+    }
+    pub(crate) fn start_kill(&mut self) -> std::io::Result<()> {
+        self.process.kill()
+    }
+    pub(crate) async fn kill(&mut self) -> std::io::Result<()> {
+        self.start_kill()?;
+        self.wait().await?;
+        Ok(())
+    }
+    pub(crate) fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.process.try_wait()
+    }
+    pub(crate) async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        loop {
+            if let Some(status) = self.try_wait()? {
+                return Ok(status);
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+}
+
+pub(crate) async fn spawn_worker(
+    command: &Command,
+    inherit_environment: bool,
+    job: &Job,
+) -> Result<Child> {
+    use std::os::windows::io::AsHandle;
+    ensure!(
+        std::path::Path::new(command.get_program()).is_absolute(),
+        "Worker executable must be absolute"
+    );
+    let async_pipes::Prepared {
+        stdin,
+        stdout,
+        stderr,
+        child,
+    } = async_pipes::prepare().await?;
+    let process = native::create(
+        command,
+        inherit_environment,
+        job,
+        child.each_ref().map(|handle| handle.as_handle()),
+    )?;
+    // Only child-side copies in the new process remain; input shutdown/drop can deliver EOF.
+    drop(child);
+    process.resume()?;
+    Ok(Child {
+        process,
+        stdin: Some(stdin),
+        stdout: Some(stdout),
+        stderr: Some(stderr),
+    })
+}
+
+#[cfg(test)]
+#[path = "managed/job_assignment.rs"]
+mod job_assignment;
 
 pub struct Job(HANDLE);
 // The handle owns a kernel Job, with no thread-affine state.
@@ -67,6 +153,7 @@ impl Job {
         Ok(job)
     }
 
+    #[cfg(test)]
     fn assign_and_resume(&self, handle: HANDLE, pid: u32) -> Result<()> {
         // No breakaway flag: an inner Job must remain owned by the worker's outer Job.
         // Incompatible host Jobs fail closed while the new child is still suspended.
@@ -74,17 +161,12 @@ impl Job {
         resume(pid)
     }
 
+    #[cfg(test)]
     pub(crate) fn attach(&self, child: &tokio::process::Child) -> Result<()> {
         self.assign_and_resume(
             HANDLE(child.raw_handle().context("Missing child handle")?),
             child.id().context("Child exited before Job assignment")?,
         )
-    }
-
-    pub(crate) fn attach_suspended(child: &Child) -> Result<Self> {
-        let job = Self::new()?;
-        job.assign_and_resume(HANDLE(child.as_raw_handle()), child.id())?;
-        Ok(job)
     }
 
     pub(crate) fn terminate_until(&self, deadline: Instant) -> Result<()> {
@@ -121,6 +203,7 @@ impl Job {
     }
 }
 
+#[cfg(test)]
 fn resume(pid: u32) -> Result<()> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)? };
     let result = (|| -> Result<()> {
@@ -212,10 +295,9 @@ pub(crate) fn drain<R: Read + AsRawHandle>(
 }
 
 /// Cleanup has its own small, finite budget, even after the operation deadline expires.
-pub(crate) fn stop(child: &mut Child, job: Option<&Job>) -> Result<()> {
+fn stop(child: &native::Process, job: &Job) -> Result<()> {
     let deadline = Instant::now() + CLEANUP_TIMEOUT;
-    let job_result = job.map_or(Ok(()), |job| job.terminate_until(deadline));
-    // Also handles Job assignment failure (the direct child is still suspended).
+    let job_result = job.terminate_until(deadline);
     let _ = child.kill();
     loop {
         if child.try_wait().context("Reap child process")?.is_some() {
@@ -230,8 +312,8 @@ pub(crate) fn stop(child: &mut Child, job: Option<&Job>) -> Result<()> {
 }
 
 struct Process {
-    child: Child,
-    job: Option<Job>,
+    child: native::Process,
+    job: Job,
     cleanup_attempted: bool,
 }
 
@@ -241,7 +323,7 @@ impl Process {
             return Ok(());
         }
         self.cleanup_attempted = true;
-        stop(&mut self.child, self.job.as_ref())
+        stop(&self.child, &self.job)
     }
 }
 
@@ -255,6 +337,7 @@ impl Drop for Process {
 /// Cancellation is checked between bounded drain rounds; cleanup is never just detaching.
 pub(crate) fn output(
     command: &mut Command,
+    inherit_environment: bool,
     deadline: Instant,
     limit: u64,
     mut cancelled: impl FnMut() -> bool,
@@ -262,28 +345,33 @@ pub(crate) fn output(
     ensure!(limit > 0, "Child output limit must be positive");
     ensure!(!cancelled(), "Child process cancelled");
     ensure!(Instant::now() < deadline, "Child process deadline expired");
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(SUSPENDED_NO_WINDOW);
+    use std::os::windows::io::AsHandle;
+    let sync_pipes::Prepared {
+        stdin,
+        mut stdout,
+        mut stderr,
+        child_stdout,
+        child_stderr,
+    } = sync_pipes::prepare()?;
+    let job = Job::new()?;
     let mut process = Process {
-        child: command.spawn().context("Start child process")?,
-        job: None,
+        child: native::create(
+            command,
+            inherit_environment,
+            &job,
+            [
+                stdin.as_handle(),
+                child_stdout.as_handle(),
+                child_stderr.as_handle(),
+            ],
+        )
+        .context("Start child process")?,
+        job,
         cleanup_attempted: false,
     };
+    drop((stdin, child_stdout, child_stderr));
     let result = (|| -> Result<Output> {
-        process.job = Some(Job::attach_suspended(&process.child)?);
-        let mut stdout = process
-            .child
-            .stdout
-            .take()
-            .context("Missing child stdout")?;
-        let mut stderr = process
-            .child
-            .stderr
-            .take()
-            .context("Missing child stderr")?;
+        process.child.resume()?;
         let (mut out, mut err, mut total) = (Vec::new(), Vec::new(), 0);
         let status = loop {
             ensure!(!cancelled(), "Child process cancelled");
