@@ -253,8 +253,12 @@ pub fn restore(
         if !task.terminal() {
             task.status = "interrupted".into();
             task.finished_at = Some(now());
-            if task.kind == crate::service::protocol::Kind::ExportAll {
-                task.result = super::artifacts::finalize(
+            if matches!(
+                task.kind,
+                crate::service::protocol::Kind::ExportAll
+                    | crate::service::protocol::Kind::ExportHistory
+            ) {
+                task.result = super::artifacts::finalize_task(
                     runtime,
                     task,
                     &mut super::artifacts::FinalizeControl::interrupted(),
@@ -263,7 +267,9 @@ pub fn restore(
             }
         }
         ensure!(
-            task.result.as_ref().is_none_or(|result| result.validate()),
+            task.result
+                .as_ref()
+                .is_none_or(|result| result.validate(task.kind)),
             "Invalid task result"
         );
         if task.error.is_some() {

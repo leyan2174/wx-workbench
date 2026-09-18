@@ -36,7 +36,7 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 - `--task-kind` 是任务类型白名单，也明确授权该类型在配置绑定目录内的数据库/密钥写入；不会隐式扫描。`--tasks` 本身允许查看及取消固定账号的全部保留任务，包括 CLI/Web 提交的任务。
 - 取钥还需 `--task-allow-memory-scan`，并在提交中设置 `authorize_memory_scan: true`。模型的布尔值不能替代宿主开关。
-- 导出、图片和朋友圈任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改同步图片工具的 `--media-output-root`。组合导出的 `include_sns` 还需允许 `sns_decrypt` 类型。
+- 目录导出、图片和朋友圈任务还需 `--task-allow-media-write`。这是 daemon 固定输出目录的授权，不更改同步图片工具的 `--media-output-root`。组合导出的 `include_sns` 还需允许 `sns_decrypt` 类型。单会话文本任务 `export_history` 由对应 `--task-kind` 白名单授权，不需要媒体权限，产物读取仍独立授权。
 - 朋友圈媒体下载另需 `--task-allow-media-download`，不由导出授权自动获得。
 - `--task-image-cache-dir` 只能由宿主传入，并通过现有 `Configure` 绑定；与当前 daemon 设置不一致会报 `settings_conflict`，不会覆盖。模型没有 `configure` 工具。
 - 查询和任务共享同一个惰性固定的 `RuntimeContext`，首次实际访问必须显式配置 `WX_CLI_CONFIG`。启用任务后记录共享配置指纹，每次任务调用前后复核；账号切换或不可变配置变化会使本 MCP 会话失效，需重启，不静默换账号。沿用共享指纹对合法图片密钥轮换的豁免，不另外发明配置身份规则。
@@ -80,6 +80,7 @@ wx tasks cancel $taskId
 | `wechat_decrypt` | 数据库快照解密 | 使用已保存密钥，不隐式扫描 |
 | `image_key` | 图片取钥 | 必须逐任务授权，输出日志完全抑制 |
 | `export_all` | 聊天导出，可选 SNS | 筛选和格式显式传递；完整聊天保留语音引用 |
+| `export_history` | 单会话 Markdown/TXT/JSON/YAML | 复用历史查询，支持 since/until/limit；不接受输出路径或媒体选项 |
 | `decode_images` | 图片批量解码 | 不接受任意输出路径 |
 | `sns_decrypt` | SNS 归档、导出 | 媒体下载是显式选项 |
 

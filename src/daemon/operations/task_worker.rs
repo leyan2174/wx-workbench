@@ -147,6 +147,22 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             )?;
             crate::service::worker_keys::verify_image_revision(runtime)
         }
+        Step::ExportHistory {
+            config,
+            output,
+            request,
+            since_ts,
+            until_ts,
+        } => {
+            selected(runtime, &config)?;
+            let id = output
+                .parent()
+                .and_then(Path::parent)
+                .and_then(Path::file_name)
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing history task identity"))?;
+            super::export::export_task_for(runtime, id, request, (since_ts, until_ts), &output)
+        }
         Step::SnsArchive { config, output } => {
             selected(runtime, &config)?;
             super::sns_archive::cmd(super::sns_archive::Args {

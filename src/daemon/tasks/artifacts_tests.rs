@@ -5,8 +5,16 @@ use crate::{
 };
 use serde_json::json;
 
-fn finalize(runtime: &RuntimeContext, task: &Task) -> Result<ExportAllResult> {
+fn finalize(runtime: &RuntimeContext, task: &Task) -> Result<TaskResult> {
     super::finalize(runtime, task, &mut FinalizeControl::supervised_worker())
+        .map(TaskResult::ChatDirectory)
+}
+
+fn directory(task: &Task) -> &ExportAllResult {
+    match task.result.as_ref().unwrap() {
+        TaskResult::ChatDirectory(result) => result,
+        _ => panic!("Expected directory result"),
+    }
 }
 
 #[test]
@@ -36,10 +44,14 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
         tokio::time::Instant::now() + std::time::Duration::from_secs(60),
     );
     control.cancel_after_blocks = Some((1, cancel.clone()));
-    task.result = Some(super::finalize(&runtime, &task, &mut control).unwrap());
+    task.result = Some(
+        super::finalize(&runtime, &task, &mut control)
+            .map(TaskResult::ChatDirectory)
+            .unwrap(),
+    );
     assert!(*cancel.borrow());
     assert_eq!(control.blocks_read, 1);
-    let result = task.result.as_ref().unwrap();
+    let result = directory(&task);
     assert_eq!(result.exported_chats, 1);
     assert!(!result.artifacts_complete);
     assert!(result
@@ -60,7 +72,11 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
     assert!(read(&runtime, &task, &ids[0], 0, 32).is_ok());
     let budget = index.chunks_left;
     let mut cancelled = FinalizeControl::interrupted();
-    task.result = Some(super::finalize(&runtime, &task, &mut cancelled).unwrap());
+    task.result = Some(
+        super::finalize(&runtime, &task, &mut cancelled)
+            .map(TaskResult::ChatDirectory)
+            .unwrap(),
+    );
     assert_eq!(cancelled.blocks_read, 0);
     assert_eq!(read_index(&runtime, &task.id).unwrap().chunks_left, budget);
     let mut expired = FinalizeControl::new(
@@ -68,13 +84,14 @@ fn cancellation_and_deadline_preserve_worker_prefix_without_processing_remaining
         tokio::sync::watch::channel(false).1,
         tokio::time::Instant::now(),
     );
-    task.result = Some(super::finalize(&runtime, &task, &mut expired).unwrap());
+    task.result = Some(
+        super::finalize(&runtime, &task, &mut expired)
+            .map(TaskResult::ChatDirectory)
+            .unwrap(),
+    );
     assert_eq!(expired.blocks_read, 0);
-    assert_eq!(task.result.as_ref().unwrap().exported_chats, 1);
-    assert!(task
-        .result
-        .as_ref()
-        .unwrap()
+    assert_eq!(directory(&task).exported_chats, 1);
+    assert!(directory(&task)
         .diagnostics
         .iter()
         .any(|d| d.code == "artifact_finalization_timeout"));
@@ -147,13 +164,16 @@ fn large_file_cancels_after_one_block_and_terminal_report_keeps_partial() {
     report.artifacts_complete = false;
     report.outcome = Some(ExportOutcome::Partial);
     diagnostic(&mut report, "export_interrupted");
-    super::super::worker::attach_export_report(&mut task, report.clone());
+    super::super::worker::attach_export_report(
+        &mut task,
+        TaskResult::ChatDirectory(report.clone()),
+    );
     assert_eq!(task.status, "cancelled");
-    assert_eq!(task.result.as_ref().unwrap().artifact_count, 2);
+    assert_eq!(directory(&task).artifact_count, 2);
     task.status = "succeeded".into();
-    super::super::worker::attach_export_report(&mut task, report);
+    super::super::worker::attach_export_report(&mut task, TaskResult::ChatDirectory(report));
     assert_eq!(task.status, "failed");
-    assert_eq!(task.result.as_ref().unwrap().exported_chats, 1);
+    assert_eq!(directory(&task).exported_chats, 1);
 }
 
 fn runtime(root: &Path, name: &str) -> RuntimeContext {
@@ -275,7 +295,7 @@ fn cancelled_publication_is_readable_bounded_and_stable_without_stdout() {
     let output = published(&runtime, &task, false);
     fs::write(output.join("unlisted-secret.txt"), b"not an artifact").unwrap();
     task.result = Some(finalize(&runtime, &task).unwrap());
-    let result = task.result.as_ref().unwrap();
+    let result = directory(&task);
     assert!(!result.finalized);
     assert_eq!(result.outcome, Some(ExportOutcome::Partial));
     assert_eq!(result.exported_chats, 1);
@@ -363,10 +383,7 @@ fn completed_chat_scope_survives_later_step_failure_and_rejects_file_replacement
     task.status = "failed".into();
     let output = published(&runtime, &task, true);
     task.result = Some(finalize(&runtime, &task).unwrap());
-    assert_eq!(
-        task.result.as_ref().unwrap().outcome,
-        Some(ExportOutcome::Success)
-    );
+    assert_eq!(directory(&task).outcome, Some(ExportOutcome::Success));
     let page = list(&runtime, &task, 0, 100).unwrap();
     let artifact = page
         .items
@@ -405,11 +422,11 @@ fn uncommitted_files_and_foreign_binding_never_become_artifacts() {
     binding["source_id"] = "another-account".into();
     fs::write(&binding_path, serde_json::to_vec(&binding).unwrap()).unwrap();
     task.result = Some(finalize(&runtime, &task).unwrap());
-    assert_eq!(task.result.as_ref().unwrap().artifact_count, 0);
-    assert!(!task.result.as_ref().unwrap().artifacts_complete);
+    assert_eq!(directory(&task).artifact_count, 0);
+    assert!(!directory(&task).artifacts_complete);
     fs::remove_file(output.join("_directory_export.json")).unwrap();
     task.result = Some(finalize(&runtime, &task).unwrap());
-    assert_eq!(task.result.as_ref().unwrap().exported_chats, 0);
+    assert_eq!(directory(&task).exported_chats, 0);
     assert!(list(&runtime, &task, 0, 50).unwrap().items.is_empty());
 }
 
@@ -423,10 +440,7 @@ fn dry_run_has_no_business_directory_or_artifacts() {
     checkpoint.result.finalized = true;
     checkpoint.save(&runtime).unwrap();
     task.result = Some(finalize(&runtime, &task).unwrap());
-    assert_eq!(
-        task.result.as_ref().unwrap().outcome,
-        Some(ExportOutcome::Success)
-    );
+    assert_eq!(directory(&task).outcome, Some(ExportOutcome::Success));
     assert!(list(&runtime, &task, 0, 50).unwrap().items.is_empty());
     assert!(!task.output_dir.join("chats").exists());
 }
@@ -473,7 +487,7 @@ fn pinned_file_refuses_mutation_and_empty_artifact_reads_exact_eof() {
     let mut result = ExportAllResult::empty(false);
     result.artifact_count = 1;
     result.artifacts_complete = true;
-    task.result = Some(result);
+    task.result = Some(TaskResult::ChatDirectory(result));
     let part = read(&runtime, &task, &id, 0, 1).unwrap();
     assert!(part.eof && part.data_base64.is_empty());
     assert_eq!(part.bytes_read, 0);

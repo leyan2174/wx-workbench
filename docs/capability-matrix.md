@@ -54,12 +54,12 @@
 
 | 分组 | 当前已有 | 尚未完成的跨入口范围 |
 | --- | --- | --- |
-| 导出与计划 | CLI 单聊/批量、delta、计划、表情、SNS 相册/快照/归档；目录任务支持 dry-run、媒体预算、结构化结果及三入口受控产物交付 | 顶层 export 的 Markdown/TXT/YAML、计划审阅/应用、增量更新及其他导出仍未完整跨入口公开。目录任务 JSON/CSV/HTML 不替代所有 CLI 导出；任务成功也不等于文件已被用户下载。 |
+| 导出与计划 | CLI 单聊/批量、delta、计划、表情、SNS 相册/快照/归档；目录任务支持 dry-run、媒体预算与产物交付；单会话历史任务支持 Markdown/TXT/JSON/YAML、时间与条数选择，三入口共享结果和文件 | 计划审阅/应用、增量更新及其他导出仍未完整跨入口公开。目录任务 JSON/CSV/HTML 不替代所有 CLI 导出；任务成功也不等于文件已被用户下载。 |
 | 受控媒体与原始语音 | CLI voices 与完整聊天导出保留 SILK/关联 manifest；MCP 受控图片，Web 图片预览，任务图片/SNS 子集 | 原始 SILK 导出和证据尚无完整 MCP/HTTP/Web 对等入口；CLI 离线图片/视频能力也未全部对等公开。 |
 | 配置治理与诊断 | CLI setup、cleanup、progress/status/latency、账号和材料命令；任务仅有明确注册的初始化/材料/解密子集 | 不具备全量的 MCP/HTTP/Web setup 审阅/应用、清理计划及精确删除、诊断与高级账号材料入口。 |
 | 增量语义与交互 | CLI new-messages 与 monitor；MCP get_new_messages 会话摘要轮询；Web 监控/事件/任务状态 | 三者不是同一语义；尚不能宣称全部增量参数、游标与满额行为、幂等提交、未知结果恢复及取消/重连交互已对齐验收。 |
 
-持久任务当前只注册六种公开 kind：wechat_keys、wechat_decrypt、image_key、export_all、decode_images、sns_decrypt。任务管理的 list/get/cancel/events 和受控 submit 是执行方式，不是所有业务的替代接口。MCP 任务默认关闭，宿主授权与模型请求不能互相替代。详见[任务服务](daemon-tasks.md)。
+持久任务当前注册七种公开 kind：wechat_keys、wechat_decrypt、image_key、export_all、export_history、decode_images、sns_decrypt。任务管理的 list/get/cancel/events 和受控 submit 是执行方式，不是所有业务的替代接口。MCP 任务默认关闭，宿主授权与模型请求不能互相替代。详见[任务服务](daemon-tasks.md)。
 
 原始 SILK 与证据交付边界保持不变。语音识别、音频转码、模型管理与转录回写已经移除，不是待补缺口；语音目录也不承诺 SILK 能在浏览器原生播放。
 

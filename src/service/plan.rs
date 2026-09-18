@@ -35,6 +35,13 @@ pub enum Step {
         max_media_bytes: Option<u64>,
         max_total_media_bytes: Option<u64>,
     },
+    ExportHistory {
+        config: PathBuf,
+        output: PathBuf,
+        request: super::history_export::Request,
+        since_ts: Option<i64>,
+        until_ts: Option<i64>,
+    },
     DecodeImages {
         config: PathBuf,
         output: PathBuf,
@@ -56,6 +63,7 @@ pub fn capabilities() -> Vec<Value> {
         Kind::WechatDecrypt,
         Kind::ImageKey,
         Kind::ExportAll,
+        Kind::ExportHistory,
         Kind::DecodeImages,
         Kind::SnsDecrypt,
     ]
@@ -74,11 +82,12 @@ pub fn capabilities() -> Vec<Value> {
                 "max_total_media_bytes",
             ],
             Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
+            Kind::ExportHistory => &["history_export"],
             Kind::SnsDecrypt => &["users", "include_sns_media"],
             _ => &[],
         };
         json!({"kind":kind,"enabled":true,"reason":null,"options":options,
-            "formats":if kind == Kind::ExportAll { vec!["json","csv","html"] } else {vec![]},
+            "formats":match kind { Kind::ExportAll => vec!["json","csv","html"], Kind::ExportHistory => vec!["markdown","txt","json","yaml"], _ => vec![] },
             "defaults":Options::default(),
             "requires_memory_consent":matches!(kind,Kind::ImageKey|Kind::WechatKeys)})
     })
@@ -87,6 +96,31 @@ pub fn capabilities() -> Vec<Value> {
 
 pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
     let o = &request.options;
+    if request.kind == Kind::ExportHistory {
+        let history = o
+            .history_export
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Missing history export selection"))?;
+        history.resolved_window()?;
+        ensure!(
+            o.users.is_empty()
+                && o.formats.is_empty()
+                && !o.include_sns
+                && !o.include_sns_media
+                && o.include_images
+                && !o.allow_missing_media
+                && !o.authorize_memory_scan
+                && !o.dry_run
+                && o.max_media_bytes.is_none()
+                && o.max_total_media_bytes.is_none(),
+            "Unsupported history export options"
+        );
+        return Ok(());
+    }
+    ensure!(
+        o.history_export.is_none(),
+        "Task does not accept history export selection"
+    );
     use super::task_artifacts::{
         DEFAULT_MEDIA_BYTES, DEFAULT_TOTAL_MEDIA_BYTES, MAX_TOTAL_MEDIA_BYTES,
     };
@@ -228,6 +262,22 @@ pub fn plan(
             if o.include_sns {
                 steps.push(sns());
             }
+        }
+        Kind::ExportHistory => {
+            let request = o
+                .history_export
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Missing history export selection"))?;
+            let (since_ts, until_ts) = request.resolved_window()?;
+            steps.push(Step::ExportHistory {
+                config,
+                output: output
+                    .join("history")
+                    .join(format!("history.{}", request.format.extension())),
+                request,
+                since_ts,
+                until_ts,
+            });
         }
         Kind::DecodeImages => steps.push(Step::DecodeImages {
             config: config.clone(),

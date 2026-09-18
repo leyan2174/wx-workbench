@@ -1,6 +1,8 @@
 //! Real stdio MCP -> authenticated service -> daemon queue -> private worker.
 #[path = "artifacts.rs"]
 mod artifacts;
+#[path = "history_export.rs"]
+mod history_export;
 use super::{call, terminal, Web};
 use crate::{success, Fixture};
 use serde_json::{json, Value};

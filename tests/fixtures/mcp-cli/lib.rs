@@ -22,6 +22,12 @@ pub mod private_file;
 pub use service::query_client as transport;
 #[allow(dead_code)]
 pub mod service {
+    pub mod history_export {
+        include!(concat!(env!("OUT_DIR"), "/service_history_export.rs"));
+    }
+    pub mod time {
+        include!(concat!(env!("OUT_DIR"), "/service_time.rs"));
+    }
     pub mod task_artifacts {
         include!(concat!(env!("OUT_DIR"), "/service_task_artifacts.rs"));
     }

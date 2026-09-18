@@ -2,6 +2,7 @@
 pub mod client;
 pub mod config_pin;
 pub mod favorite_filter;
+pub mod history_export;
 pub mod mcp;
 pub mod message_filter;
 pub mod operation_client;

@@ -62,7 +62,7 @@ impl Args {
                 Kind::ExportAll | Kind::DecodeImages | Kind::SnsDecrypt => {
                     self.task_allow_media_write
                 }
-                Kind::WechatDecrypt => true,
+                Kind::WechatDecrypt | Kind::ExportHistory => true,
             }
     }
 
@@ -200,6 +200,19 @@ impl Args {
                         json!({"type":"integer","minimum":1,"maximum":17179869184u64,"default":2147483648u64})
                     }
                     "dry_run" => json!({"type":"boolean","default":false}),
+                    "history_export" => object(
+                        json!({
+                            "chat":{"type":"string","minLength":1,"maxLength":256,
+                                "description":"Single chat selector, at most 256 UTF-8 bytes; no control characters or blank-only value."},
+                            "since":{"type":"string","minLength":1,"maxLength":19,
+                                "description":"Host local date or date-time, not Unix seconds."},
+                            "until":{"type":"string","minLength":1,"maxLength":19,
+                                "description":"Host local date or date-time; a date includes 23:59:59."},
+                            "limit":{"type":"integer","minimum":1,"maximum":9007199254740991u64,"default":500},
+                            "format":{"type":"string","enum":["markdown","txt","json","yaml"],"default":"markdown"}
+                        }),
+                        &["chat"],
+                    ),
                     _ => json!({"type":"boolean"}),
                 };
                 properties.insert(option.into(), schema);
@@ -225,6 +238,24 @@ impl Args {
                     {"if":{"properties":{"dry_run":{"const":true}},"required":["dry_run"]},
                      "then":{"properties":{"include_sns":{"const":false}}}}
                 ]);
+            }
+            if self.permits(Kind::ExportHistory) {
+                if schema.get("allOf").is_none() {
+                    schema["allOf"] = json!([]);
+                }
+                schema["allOf"].as_array_mut().unwrap().push(json!({
+                    "if":{"properties":{"kind":{"const":"export_history"}},"required":["kind"]},
+                    "then":{"required":["options"],"properties":{"options":{
+                        "required":["history_export"],"properties":{
+                            "users":{"const":[]},"formats":{"const":[]},
+                            "include_images":{"const":true},"include_sns":{"const":false},
+                            "include_sns_media":{"const":false},"allow_missing_media":{"const":false},
+                            "authorize_memory_scan":{"const":false},"dry_run":{"const":false},
+                            "max_media_bytes":false,"max_total_media_bytes":false
+                        }
+                    }}},
+                    "else":{"properties":{"options":{"properties":{"history_export":false}}}}
+                }));
             }
             tools.push(Tool::task("submit_task", "异步提交到现有 daemon。必须保存并复用 64 位小写十六进制幂等键；响应丢失、超时或 MCP 断连不自动取消任务。", schema, self.task_allow_media_download));
         }
@@ -375,6 +406,14 @@ fn parse(name: &str, arguments: &Value) -> Result<Call, DispatchError> {
                 options: input.options,
             };
             super::tasks::validate_export_options(&task).map_err(|_| invalid())?;
+            if task
+                .options
+                .history_export
+                .as_ref()
+                .is_some_and(|history| history.limit as u64 > 9007199254740991)
+            {
+                return Err(invalid());
+            }
             Ok(Call::Submit {
                 idempotency_key: input.idempotency_key,
                 task,
@@ -497,6 +536,10 @@ fn failure(code: &str) -> Value {
     // 保留共享服务的稳定错误码，不把文件路径、配置内容或底层异常文本交给模型。
     let (code, message) = match code {
         "host_forbidden" => (code, "宿主未授权此任务能力或选项"),
+        "unsupported_task" => (
+            code,
+            "The task service does not support export_history; no task was submitted",
+        ),
         "configuration_changed" => (code, "固定账号配置已改变或不可用；请重启 MCP，不会切换账号"),
         "settings_conflict" | "invalid_settings" => {
             (code, "后台设置与宿主配置不匹配；未覆盖已有设置")
@@ -620,6 +663,15 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
                     .into());
                 }
                 if let Call::Submit { task, .. } = &call {
+                    if task.kind == Kind::ExportHistory
+                        && !super::tasks::supports_history_export(&info)
+                    {
+                        return Err(ServiceError::new(
+                            "unsupported_task",
+                            "History export is not supported",
+                        )
+                        .into());
+                    }
                     let settings: Settings = serde_json::from_value(info["settings"].clone())?;
                     plan::validate(task, &settings)
                         .map_err(|_| ServiceError::new("invalid_task", "任务参数无效"))?;

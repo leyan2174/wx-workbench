@@ -1,6 +1,29 @@
 # 任务产物交付
 
-此接口交付 `export_all` 任务的聊天目录产物，复用 daemon 任务、worker 和目录发布清单。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+此接口交付 `export_all` 的聊天目录产物和 `export_history` 的单会话历史文档，复用 daemon 任务、worker 和受控发布记录。它不代表所有 CLI 导出形式均已接入任务，也不提供任意文件浏览、路径读取或命令执行。
+
+## 单会话历史
+
+`export_history` 使用现有历史查询与渲染，支持 Markdown、TXT、JSON、YAML。一次任务选择一个会话及一种格式，输出文件由宿主确定。原 `wx export` 仍是前台操作，stdout 和显式输出路径行为不改成后台任务。
+
+```text
+wx tasks submit export_history --chat wxid_example --since 2026-09-01 --until 2026-09-18 --limit 10001 --format yaml --wait
+wx mcp --tasks --task-kind export_history --task-allow-artifact-read
+```
+
+对应 `submit_task` 的参数：
+
+```json
+{"idempotency_key":"<64位小写十六进制ID>","kind":"export_history","options":{"history_export":{"chat":"wxid_example","since":"2026-09-01","until":"2026-09-18","limit":10001,"format":"yaml"}}}
+```
+
+`chat` 优先按账号内精确 username 解析，唯一名称也可使用；歧义或不存在会失败。`limit` 默认 500，必须为正整数，不额外设置一万条业务上限。MCP/Web 使用 JSON 安全整数。任务查询超时为 300 秒，响应沿用 32 MiB 查询上限，渲染文件上限为 64 MiB；超限明确失败，不承诺无限大小或流式查询全部历史。
+
+日期按宿主本地时间解析。`since` 包含开始边界；纯日期 `until` 包含当天 `23:59:59`，显式时刻保持原值。此规则与批量计划的 `end` 不同，不可互换。
+
+单会话结果的 `scope` 为 `chat_history`，包含格式、查询摘要、发布状态、产物数量及诊断；查询摘要未知时为 `null`，不是零条成功。它不包含目录导出的会话统计字段。任务成功与取得文件仍是不同步骤，文件通过下述产物 ID 接口读取。
+
+宿主允许 `export_history` 即授权该任务在固定目录写入文本，不需要媒体写入授权；读取文件仍独立要求 `--task-allow-artifact-read`。模型不能传输出路径、启用授权或借此下载媒体。单文件发布和产物登记不是同一原子事务，强杀发生在两者之间时不保证文件可通过任务接口读取，不扫描并收编未登记文件。
 
 ## 状态与结果
 

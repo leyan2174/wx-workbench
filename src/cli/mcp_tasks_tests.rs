@@ -23,6 +23,216 @@ fn submit(kind: Kind, options: Options) -> Call {
     }
 }
 
+fn history_input(request: Value) -> Value {
+    json!({"idempotency_key":"a".repeat(64),"kind":"export_history",
+        "options":{"history_export":request}})
+}
+
+#[test]
+fn history_schema_and_authorization_are_independent_of_media_and_artifact_read() {
+    let args = Args {
+        tasks: true,
+        task_kind: vec![Kind::ExportHistory],
+        ..Default::default()
+    };
+    let tools = args.tools();
+    assert_eq!(tools.len(), 5);
+    assert!(tools
+        .iter()
+        .all(|tool| !matches!(tool.name, "list_task_artifacts" | "read_task_artifact")));
+    let schema = &tools
+        .iter()
+        .find(|tool| tool.name == "submit_task")
+        .unwrap()
+        .input_schema;
+    assert_eq!(
+        schema["properties"]["kind"]["enum"],
+        json!(["export_history"])
+    );
+    let history = &schema["properties"]["options"]["properties"]["history_export"];
+    assert_eq!(history["type"], "object");
+    assert_eq!(history["additionalProperties"], false);
+    assert_eq!(history["required"], json!(["chat"]));
+    for name in ["chat", "since", "until", "format"] {
+        assert_eq!(history["properties"][name]["type"], "string");
+    }
+    assert_eq!(
+        history["properties"]["limit"],
+        json!({"type":"integer","minimum":1,"maximum":9007199254740991u64,"default":500})
+    );
+    assert_eq!(
+        history["properties"]["format"]["enum"],
+        json!(["markdown", "txt", "json", "yaml"])
+    );
+    assert_eq!(history["properties"]["format"]["default"], "markdown");
+    assert!(schema["properties"]["options"]["properties"]
+        .get("formats")
+        .is_none());
+    assert_eq!(schema["allOf"][0]["then"]["required"], json!(["options"]));
+    assert_eq!(
+        schema["allOf"][0]["then"]["properties"]["options"]["required"],
+        json!(["history_export"])
+    );
+    assert_eq!(
+        schema["allOf"][0]["else"]["properties"]["options"]["properties"]["history_export"],
+        false
+    );
+    let call = parse("submit_task", &history_input(json!({"chat":"alice"}))).unwrap();
+    assert!(args.authorize(&call));
+    for denied in [
+        Args::default(),
+        Args {
+            tasks: true,
+            task_allow_artifact_read: true,
+            task_allow_media_write: true,
+            ..Default::default()
+        },
+        Args {
+            task_kind: vec![Kind::ExportHistory],
+            ..Default::default()
+        },
+    ] {
+        assert!(!denied.authorize(&call));
+    }
+    let Call::Submit { task, .. } = call else {
+        panic!()
+    };
+    let request = task.options.history_export.unwrap();
+    assert_eq!(request.limit, 500);
+    assert_eq!(
+        request.format,
+        crate::service::history_export::Format::Markdown
+    );
+    assert!(request.since.is_none() && request.until.is_none());
+}
+
+#[test]
+fn history_parse_reuses_validation_and_rejects_unknown_or_cross_kind_fields() {
+    for format in ["markdown", "txt", "json", "yaml"] {
+        for limit in [1u64, 10001, 9007199254740991] {
+            assert!(parse(
+                "submit_task",
+                &history_input(json!({"chat":"alice","format":format,"limit":limit,
+                "since":"2026-09-18 23:59:59","until":"2026-09-18"}))
+            )
+            .is_ok());
+        }
+    }
+    for request in [
+        json!({}),
+        json!(null),
+        json!({"chat":""}),
+        json!({"chat":"  "}),
+        json!({"chat":"a\nb"}),
+        json!({"chat":"中".repeat(86)}),
+        json!({"chat":"a".repeat(257)}),
+        json!({"chat":"alice","since":"123"}),
+        json!({"chat":"alice","until":"2026-02-30"}),
+        json!({"chat":"alice","since":"2026-09-19","until":"2026-09-18"}),
+        json!({"chat":"alice","format":"html"}),
+        json!({"chat":"alice","format":["json"]}),
+        json!({"chat":"alice","formats":["json"]}),
+        json!({"chat":"alice","offset":0}),
+        json!({"chat":"alice","output":"C:/private"}),
+        json!({"chat":"alice","path":"C:/private"}),
+        json!({"chat":"alice","command":"cmd.exe"}),
+        json!({"chat":"alice","debug_source":true}),
+        json!({"chat":"alice","authorize_export":true}),
+    ] {
+        assert!(
+            parse("submit_task", &history_input(request.clone())).is_err(),
+            "{request}"
+        );
+    }
+    for limit in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!("500"),
+        json!(true),
+        json!(9007199254740992u64),
+        json!(u64::MAX),
+    ] {
+        assert!(parse(
+            "submit_task",
+            &history_input(json!({"chat":"alice","limit":limit}))
+        )
+        .is_err());
+    }
+    for (key, value) in [
+        ("users", json!(["alice"])),
+        ("formats", json!(["json"])),
+        ("include_images", json!(false)),
+        ("include_sns", json!(true)),
+        ("include_sns_media", json!(true)),
+        ("allow_missing_media", json!(true)),
+        ("authorize_memory_scan", json!(true)),
+        ("dry_run", json!(true)),
+        ("max_media_bytes", json!(1)),
+        ("max_total_media_bytes", json!(67108864)),
+    ] {
+        let mut input = history_input(json!({"chat":"alice"}));
+        input["options"][key] = value;
+        assert!(parse("submit_task", &input).is_err(), "{key}");
+    }
+    for kind in [
+        "export_all",
+        "wechat_decrypt",
+        "wechat_keys",
+        "image_key",
+        "decode_images",
+        "sns_decrypt",
+    ] {
+        let mut input = history_input(json!({"chat":"alice"}));
+        input["kind"] = json!(kind);
+        assert!(parse("submit_task", &input).is_err());
+    }
+    assert!(parse(
+        "submit_task",
+        &json!({"idempotency_key":"a".repeat(64),"kind":"export_history"})
+    )
+    .is_err());
+}
+
+#[test]
+fn history_invalid_input_and_host_denial_precede_account_access() {
+    let args = Args {
+        tasks: true,
+        ..Default::default()
+    };
+    let account = Account::new(true);
+    let invalidated = Cell::new(false);
+    let io = tokio::runtime::Runtime::new().unwrap();
+    let mut adapter = Adapter {
+        query: |_request| Ok(Response::ok(json!({}))),
+        account: &account,
+        invalidated: &invalidated,
+        io: &io,
+        args: &args,
+    };
+    let reply = adapter
+        .dispatch_task(
+            "submit_task",
+            &history_input(json!({"chat":"alice"})),
+            &CallContext::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        reply["structuredContent"]["error"]["code"],
+        "host_forbidden"
+    );
+    assert!(matches!(
+        adapter.dispatch_task(
+            "submit_task",
+            &history_input(json!({"chat":"alice","limit":0})),
+            &CallContext::default()
+        ),
+        Err(DispatchError::InvalidArguments)
+    ));
+    assert!(account.runtime().is_none());
+    assert!(!invalidated.get());
+}
+
 #[test]
 fn task_discovery_is_opt_in_and_uses_shared_capabilities() {
     assert!(Args::default().tools().is_empty());
@@ -39,7 +249,7 @@ fn task_discovery_is_opt_in_and_uses_shared_capabilities() {
         .unwrap();
     assert_eq!(
         submit.input_schema["properties"]["kind"]["enum"],
-        json!(["wechat_decrypt"])
+        json!(["wechat_decrypt", "export_history"])
     );
     assert_eq!(
         all_permissions()
@@ -157,6 +367,7 @@ fn service_errors_keep_codes_but_never_backend_text() {
         "queue_full",
         "invalid_task",
         "outcome_unknown",
+        "unsupported_task",
         "unauthorized",
         "invalid_artifact_request",
         "task_not_terminal",

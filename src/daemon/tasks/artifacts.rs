@@ -41,7 +41,7 @@ pub(crate) struct Checkpoint {
     pub result: ExportAllResult,
 }
 
-fn private_dir(runtime: &RuntimeContext, id: &str) -> Result<PathBuf> {
+pub(super) fn private_dir(runtime: &RuntimeContext, id: &str) -> Result<PathBuf> {
     ensure!(valid_task_id(id), "Invalid task identity");
     Ok(runtime.directory.join("task-results").join(id))
 }
@@ -61,7 +61,7 @@ pub(crate) fn prepare(runtime: &RuntimeContext, id: &str) -> Result<()> {
     guard.verify()
 }
 
-fn persist(
+pub(super) fn persist(
     runtime: &RuntimeContext,
     id: &str,
     name: &str,
@@ -83,7 +83,7 @@ fn persist(
     guard.verify()
 }
 
-fn json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
+pub(super) fn json<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> Result<T> {
     Ok(serde_json::from_slice(
         &Reader::open(path)?.bounded(limit)?,
     )?)
@@ -196,11 +196,11 @@ struct Inventory {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Entry {
-    artifact: Artifact,
-    relative: String,
-    identity: Identity,
-    chunks: Vec<String>,
+pub(super) struct Entry {
+    pub(super) artifact: Artifact,
+    pub(super) relative: String,
+    pub(super) identity: Identity,
+    pub(super) chunks: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -308,7 +308,7 @@ fn metadata(name: &str) -> (&'static str, &'static str) {
     }
 }
 
-fn register(
+pub(super) fn register(
     path: &Path,
     rel: String,
     name: &str,
@@ -449,6 +449,22 @@ fn digest_controlled(bytes: &[u8], control: &FinalizeControl) -> Result<String> 
 }
 
 /// Reuse the worker's durable prefix; recover only published checkpoint gaps.
+pub(super) fn finalize_task(
+    runtime: &RuntimeContext,
+    task: &Task,
+    control: &mut FinalizeControl,
+) -> Result<TaskResult> {
+    match task.kind {
+        crate::service::protocol::Kind::ExportAll => {
+            finalize(runtime, task, control).map(TaskResult::ChatDirectory)
+        }
+        crate::service::protocol::Kind::ExportHistory => {
+            super::history_artifacts::finalize(runtime, task, control).map(TaskResult::ChatHistory)
+        }
+        _ => Err(error("result_unavailable").into()),
+    }
+}
+
 pub(crate) fn finalize(
     runtime: &RuntimeContext,
     task: &Task,
@@ -677,8 +693,10 @@ fn read_index(runtime: &RuntimeContext, id: &str) -> Result<Index, ServiceError>
 fn load(runtime: &RuntimeContext, task: &Task) -> Result<Index, ServiceError> {
     let index = read_index(runtime, &task.id)?;
     if task.result.as_ref().is_none_or(|result| {
-        result.artifact_count != index.entries.len() as u64
-            || result.artifacts_complete != index.complete
+        !result.validate(task.kind)
+            || !matches!(result, TaskResult::ChatDirectory(_))
+            || result.artifact_count() != index.entries.len() as u64
+            || result.artifacts_complete() != index.complete
     }) {
         return Err(error("result_unavailable"));
     }
@@ -691,6 +709,9 @@ pub(super) fn list(
     offset: u64,
     limit: u32,
 ) -> Result<ArtifactsPage, ServiceError> {
+    if task.kind == crate::service::protocol::Kind::ExportHistory {
+        return super::history_artifacts::list(runtime, task, offset, limit);
+    }
     let index = load(runtime, task)?;
     if !(1..=MAX_LIST_ITEMS).contains(&limit) || offset > index.entries.len() as u64 {
         return Err(error("invalid_artifact_request"));
@@ -723,6 +744,9 @@ pub(super) fn read(
     offset: u64,
     max_bytes: u32,
 ) -> Result<ArtifactBytes, ServiceError> {
+    if task.kind == crate::service::protocol::Kind::ExportHistory {
+        return super::history_artifacts::read(runtime, task, id, offset, max_bytes);
+    }
     if !valid_task_id(id) || !(1..=CHUNK_BYTES).contains(&max_bytes) {
         return Err(error("invalid_artifact_request"));
     }
@@ -734,14 +758,32 @@ pub(super) fn read(
         .ok_or_else(|| {
             ServiceError::new("not_found", "Artifact not found for this account task")
         })?;
+    read_entry(
+        runtime,
+        &task.id,
+        &task.output_dir.join("chats"),
+        entry,
+        offset,
+        max_bytes,
+    )
+}
+
+pub(super) fn read_entry(
+    runtime: &RuntimeContext,
+    task_id: &str,
+    root: &Path,
+    entry: &Entry,
+    offset: u64,
+    max_bytes: u32,
+) -> Result<ArtifactBytes, ServiceError> {
+    if !(1..=CHUNK_BYTES).contains(&max_bytes) {
+        return Err(error("invalid_artifact_request"));
+    }
     let size = entry.artifact.size;
     if offset > size {
         return Err(error("invalid_artifact_request"));
     }
-    let path = task
-        .output_dir
-        .join("chats")
-        .join(relative(&entry.relative)?);
+    let path = root.join(relative(&entry.relative)?);
     crate::infrastructure::publication::validate_export_target(runtime, &path)
         .map_err(|_| error("artifact_unsafe"))?;
     let mut reader = Reader::open(&path)?;
@@ -769,8 +811,8 @@ pub(super) fn read(
     reader.verify()?;
     Ok(ArtifactBytes {
         version: 1,
-        task_id: task.id.clone(),
-        artifact_id: id.into(),
+        task_id: task_id.into(),
+        artifact_id: entry.artifact.artifact_id.clone(),
         offset,
         bytes_read: bytes.len() as u64,
         next_offset: end,

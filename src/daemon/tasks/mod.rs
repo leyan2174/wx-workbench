@@ -1,6 +1,7 @@
 //! Account-scoped task ownership. Frontends submit typed capabilities, never commands.
 mod artifact_file;
 pub(crate) mod artifacts;
+pub(crate) mod history_artifacts;
 pub(crate) mod process;
 mod store;
 #[cfg(test)]
@@ -153,6 +154,7 @@ impl Service {
             "config_fingerprint":records.binding.as_ref().map(|binding| &binding.fingerprint),
             "history_persisted":records.journal_ok,
             "capabilities":{"task_artifacts_v1":true},
+            "task_kinds":plan::capabilities(),
             "running":records.tasks.iter().filter(|task| !task.terminal()).count(),
             "cursor":records.next_event - 1,
             "limits":{"queue":QUEUE_LIMIT,"history":HISTORY_LIMIT,"logs_per_task":LOG_LIMIT}})
@@ -310,7 +312,7 @@ impl Service {
             if !task.terminal() {
                 return Err(failure("task_not_terminal", "Task has not finished"));
             }
-            if task.result.is_none() {
+            if task.result.as_ref().is_none_or(|r| !r.validate(task.kind)) {
                 return Err(artifact_file::error("result_unavailable"));
             }
             let fingerprint = records

@@ -8,6 +8,7 @@ use crate::{
     runtime::RuntimeContext,
     service::{
         client::request,
+        history_export,
         protocol::{Call, Format, Kind, Options, Submission, Task},
         settings::SettingsInput,
     },
@@ -80,6 +81,21 @@ pub struct SubmitArgs {
     pub users: Vec<String>,
     #[arg(long, value_delimiter = ',', value_parser = parse_format)]
     pub formats: Vec<Format>,
+    /// Single chat selector for export_history; never a filesystem path.
+    #[arg(long)]
+    pub chat: Option<String>,
+    /// History start in host local time (date or date-time, not Unix seconds).
+    #[arg(long)]
+    pub since: Option<String>,
+    /// History end; a date includes that day's 23:59:59.
+    #[arg(long)]
+    pub until: Option<String>,
+    /// Positive history message limit; defaults to 500.
+    #[arg(long)]
+    pub limit: Option<usize>,
+    /// Single history format; defaults to markdown, separate from --formats.
+    #[arg(long, value_parser = parse_history_format)]
+    pub format: Option<history_export::Format>,
     #[arg(long)]
     pub include_sns: bool,
     #[arg(long)]
@@ -117,11 +133,27 @@ impl SubmitArgs {
                 dry_run: self.dry_run,
                 max_media_bytes: self.max_media_bytes,
                 max_total_media_bytes: self.max_total_media_bytes,
+                history_export: self.chat.as_ref().map(|chat| history_export::Request {
+                    chat: chat.clone(),
+                    since: self.since.clone(),
+                    until: self.until.clone(),
+                    limit: self.limit.unwrap_or(history_export::DEFAULT_LIMIT),
+                    format: self.format.unwrap_or_default(),
+                }),
             },
         }
     }
 
     fn validate(&self) -> Result<()> {
+        ensure!(
+            self.kind == Kind::ExportHistory
+                || (self.chat.is_none()
+                    && self.since.is_none()
+                    && self.until.is_none()
+                    && self.limit.is_none()
+                    && self.format.is_none()),
+            "--chat, --since, --until, --limit and --format require export_history"
+        );
         if let Some(id) = &self.request_id {
             parse_id(id).map_err(anyhow::Error::msg)?;
         }
@@ -141,7 +173,14 @@ impl SubmitArgs {
 
 // Reject the new business options before either entry point opens account files.
 pub(super) fn validate_export_options(task: &Submission) -> Result<()> {
+    if task.kind == Kind::ExportHistory {
+        return crate::service::plan::validate(task, &Default::default());
+    }
     let o = &task.options;
+    ensure!(
+        o.history_export.is_none(),
+        "history_export options require export_history"
+    );
     let has_budget = o.max_media_bytes.is_some() || o.max_total_media_bytes.is_some();
     ensure!(
         task.kind == Kind::ExportAll || (!o.dry_run && !has_budget),
@@ -166,6 +205,11 @@ pub(super) fn validate_export_options(task: &Submission) -> Result<()> {
 }
 
 use crate::service::protocol::parse_task_kind as parse_kind;
+
+fn parse_history_format(value: &str) -> std::result::Result<history_export::Format, String> {
+    serde_json::from_value(Value::String(value.into()))
+        .map_err(|_| "History format must be markdown, txt, json, or yaml".into())
+}
 
 fn parse_format(value: &str) -> std::result::Result<Format, String> {
     serde_json::from_value(Value::String(value.into()))
@@ -319,6 +363,10 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
             }
         }
         Command::Submit(args) => {
+            ensure!(
+                args.kind != Kind::ExportHistory || supports_history_export(&info),
+                "This task service does not support export_history"
+            );
             match info.get("configured").and_then(Value::as_bool) {
                 Some(false) => {
                     request(
@@ -379,6 +427,14 @@ async fn get_task(runtime: &RuntimeContext, id: &str) -> Result<Task> {
 
 pub(super) fn supports_artifacts(info: &Value) -> bool {
     info["capabilities"]["task_artifacts_v1"] == true
+}
+
+pub(super) fn supports_history_export(info: &Value) -> bool {
+    info["task_kinds"].as_array().is_some_and(|kinds| {
+        kinds
+            .iter()
+            .any(|kind| kind["kind"] == "export_history" && kind["enabled"] == true)
+    })
 }
 
 fn log_page(task: &Task, cursor: &mut u64) -> Value {
@@ -750,6 +806,143 @@ mod tests {
         ])
         .validate()
         .unwrap();
+    }
+
+    #[test]
+    fn history_cli_maps_single_format_and_preserves_history_date_semantics() {
+        let args = submit(&["tasks", "submit", "export_history", "--chat", "alice"]);
+        args.validate().unwrap();
+        let request = args.submission().options.history_export.unwrap();
+        assert_eq!(request.chat, "alice");
+        assert_eq!(request.limit, 500);
+        assert_eq!(request.format, history_export::Format::Markdown);
+        assert_eq!(request.resolved_window().unwrap(), (None, None));
+        for format in ["markdown", "txt", "json", "yaml"] {
+            let args = submit(&[
+                "tasks",
+                "submit",
+                "export_history",
+                "--chat",
+                "alice,bob",
+                "--format",
+                format,
+                "--since",
+                "2026-09-01",
+                "--until",
+                "2026-09-18",
+                "--limit",
+                "10001",
+            ]);
+            args.validate().unwrap();
+            let request = args.submission().options.history_export.unwrap();
+            assert_eq!(request.chat, "alice,bob");
+            assert_eq!(request.limit, 10001);
+            assert_eq!(serde_json::to_value(request.format).unwrap(), format);
+            assert_eq!(
+                request.resolved_window().unwrap(),
+                (
+                    Some(crate::service::time::parse_time("2026-09-01 00:00:00").unwrap()),
+                    Some(crate::service::time::parse_time("2026-09-18 23:59:59").unwrap())
+                )
+            );
+        }
+        assert!(serde_json::to_value(
+            submit(&["tasks", "submit", "export_all"])
+                .submission()
+                .options
+        )
+        .unwrap()
+        .get("history_export")
+        .is_none());
+    }
+
+    #[test]
+    fn history_cli_rejects_invalid_requests_before_account_io() {
+        assert!(submit(&["tasks", "submit", "export_history"])
+            .validate()
+            .is_err());
+        for extra in [
+            vec!["--limit", "0"],
+            vec!["--limit", "9223372036854775808"],
+            vec!["--since", "123"],
+            vec!["--until", "2026-02-30"],
+            vec!["--since", "2026-09-19", "--until", "2026-09-18"],
+            vec!["--users", "alice"],
+            vec!["--formats", "json"],
+            vec!["--no-images"],
+            vec!["--include-sns"],
+            vec!["--include-sns-media"],
+            vec!["--allow-missing-media"],
+            vec!["--authorize-memory-scan"],
+            vec!["--dry-run"],
+            vec!["--max-media-bytes", "1"],
+            vec!["--max-total-media-bytes", "67108864"],
+        ] {
+            let mut argv = vec!["tasks", "submit", "export_history", "--chat", "alice"];
+            argv.extend(extra);
+            assert!(submit(&argv).validate().is_err(), "{argv:?}");
+        }
+        for chat in [
+            "".to_owned(),
+            " ".to_owned(),
+            "a\nb".to_owned(),
+            "a".repeat(257),
+            "中".repeat(86),
+        ] {
+            assert!(
+                submit(&["tasks", "submit", "export_history", "--chat", &chat])
+                    .validate()
+                    .is_err()
+            );
+        }
+        for (flag, value) in [
+            ("--chat", "alice"),
+            ("--since", "2026-09-01"),
+            ("--until", "2026-09-18"),
+            ("--limit", "500"),
+            ("--format", "json"),
+        ] {
+            assert!(submit(&["tasks", "submit", "export_all", flag, value])
+                .validate()
+                .is_err());
+        }
+        for (flag, value) in [
+            ("--format", "html"),
+            ("--limit", "1.5"),
+            ("--limit", "-1"),
+            ("--output", "C:/private"),
+            ("--path", "C:/private"),
+            ("--command", "cmd.exe"),
+        ] {
+            assert!(Invocation::try_parse_from([
+                "tasks",
+                "submit",
+                "export_history",
+                "--chat",
+                "alice",
+                flag,
+                value
+            ])
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn history_service_support_requires_an_enabled_matching_kind() {
+        for info in [
+            json!({}),
+            json!({"capabilities":{"task_artifacts_v1":true}}),
+            json!({"task_kinds":null}),
+            json!({"task_kinds":{"export_history":true}}),
+            json!({"task_kinds":[{"kind":"export_all","enabled":true}]}),
+            json!({"task_kinds":[{"kind":"export_history","enabled":false}]}),
+            json!({"task_kinds":[{"kind":"export_history","enabled":"true"}]}),
+        ] {
+            assert!(!supports_history_export(&info));
+        }
+        assert!(supports_history_export(&json!({"task_kinds":[
+            {"kind":"export_all","enabled":true},{"kind":"export_history","enabled":true}
+        ]})));
     }
 
     #[test]

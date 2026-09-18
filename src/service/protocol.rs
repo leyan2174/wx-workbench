@@ -24,6 +24,7 @@ pub enum Kind {
     WechatDecrypt,
     ImageKey,
     ExportAll,
+    ExportHistory,
     DecodeImages,
     SnsDecrypt,
 }
@@ -66,6 +67,8 @@ pub struct Options {
     pub max_media_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_total_media_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_export: Option<super::history_export::Request>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -85,6 +88,7 @@ impl Default for Options {
             dry_run: false,
             max_media_bytes: None,
             max_total_media_bytes: None,
+            history_export: None,
         }
     }
 }
@@ -120,7 +124,7 @@ pub struct Task {
     pub output_dir: PathBuf,
     pub error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result: Option<super::task_artifacts::ExportAllResult>,
+    pub result: Option<super::task_artifacts::TaskResult>,
 }
 impl Task {
     pub fn terminal(&self) -> bool {

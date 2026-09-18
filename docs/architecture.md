@@ -35,6 +35,8 @@ flowchart TB
 
 聊天目录任务的发布清单在现有任务宿主内登记为账号绑定的产物引用，入口通过专门 RPC 分页列举和有界读取，不把请求路径交给文件系统。聊天步骤结果与整个任务状态分别表达，取消或后续步骤失败仍可交付已发布产物；清单不是新队列或任意文件浏览服务。详见[任务产物交付](task-artifacts.md)。
 
+单会话 `export_history` 使用 `service::history_export::Request`，由现有任务计划和 worker 调用固定账号的历史查询及共享四格式渲染。前台 `wx export` 复用相同渲染但保留前台生命周期与输出行为。`TaskResult` 明确区分 `chat_directory` 与 `chat_history`，按 scope 解码，目录结果 JSON 不变；单文件通过受保护发布后登记到任务产物接口，不把任意路径变成下载能力。
+
 ```mermaid
 flowchart LR
     C[CLI / Web] --> Q[认证查询请求]

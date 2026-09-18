@@ -74,14 +74,14 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     generate_database_worker_keys(root, out);
     let mut modules = vec!["client", "transport", "query_client"];
     if tasks {
-        modules.extend(["config_pin", "plan", "settings", "task_artifacts"]);
+        modules.extend(["config_pin", "plan", "settings", "task_artifacts", "history_export", "time"]);
         let source = root.join("../../../src/cli/tasks.rs");
         println!("cargo:rerun-if-changed={}", source.display());
         let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
         ast.attrs.clear();
         ast.items.retain(|item| matches!(item, syn::Item::Fn(value)
-            if ["validate_export_options", "supports_artifacts"].iter().any(|name| value.sig.ident == name)));
-        assert_eq!(ast.items.len(), 2, "Production task validation helpers changed");
+            if ["validate_export_options", "supports_artifacts", "supports_history_export"].iter().any(|name| value.sig.ident == name)));
+        assert_eq!(ast.items.len(), 3, "Production task validation helpers changed");
         ast.items.insert(0, syn::parse_quote!(use anyhow::{ensure, Result};));
         ast.items.insert(1, syn::parse_quote!(use serde_json::Value;));
         ast.items.insert(2, syn::parse_quote!(use crate::service::protocol::{Kind, Submission};));

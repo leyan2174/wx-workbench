@@ -14,14 +14,14 @@ const EXPORT: &[&str] = &[
     "--task-allow-artifact-read",
 ];
 
-fn refused(reply: &Value) {
+pub(super) fn refused(reply: &Value) {
     assert!(
         reply.get("error").is_some() || reply["result"]["isError"] == true,
         "unexpected successful response: {reply}"
     );
 }
 
-fn read_artifact(mcp: &mut Mcp, task_id: &str, artifact: &Value) -> Vec<u8> {
+pub(super) fn read_artifact(mcp: &mut Mcp, task_id: &str, artifact: &Value) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut offset = 0;
     loop {

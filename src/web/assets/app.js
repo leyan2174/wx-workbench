@@ -93,10 +93,11 @@ SOFTWARE.
     { kind: 'wechat_decrypt', name: '微信解密', group: '个人微信', icon: 'play' },
     { kind: 'image_key', name: '图片密钥', group: '个人微信', icon: 'search' },
     { kind: 'export_all', name: '导出聊天', group: '个人微信', icon: 'download', export: true },
+    { kind: 'export_history', name: '导出单会话历史', group: '个人微信', icon: 'download', advertisedOnly: true },
     { kind: 'decode_images', name: '批量解密图片', group: '个人微信', icon: 'play' },
     { kind: 'sns_decrypt', name: '朋友圈解密与导出', group: '朋友圈', icon: 'download', users: true },
   ];
-  let availableTasks = catalog, taskSpec = null, formReaders = [], selection = new Set(), submitting = false, formGeneration = 0;
+  let availableTasks = catalog.filter(spec => !spec.advertisedOnly), taskSpec = null, formReaders = [], selection = new Set(), submitting = false, formGeneration = 0;
   function unwrap(value) { return value && typeof value === 'object' && !Array.isArray(value) && value.data !== undefined ? value.data : value; }
   function rows(value, key) { const data = unwrap(value); if (Array.isArray(data)) return data; if (data && Array.isArray(data[key])) return data[key]; if (data && Array.isArray(data.items)) return data.items; throw new Error('接口返回的列表格式不正确'); }
   function statusOf(task) { return String(task.status || task.state || 'unknown').toLowerCase(); }
@@ -768,7 +769,7 @@ SOFTWARE.
   }
   function descriptors(state) {
     const advertised = state.task_kinds || state.available_tasks || state.capabilities?.tasks || (Array.isArray(state.capabilities) ? state.capabilities : null);
-    if (!advertised) return catalog;
+    if (!advertised) return catalog.filter(spec => !spec.advertisedOnly);
     const list = Array.isArray(advertised) ? advertised : Object.entries(advertised).map(([kind, spec]) => ({ kind, ...(typeof spec === 'object' ? spec : { name: spec }) }));
     return list.map((value) => {
       const spec = typeof value === 'string' ? { kind: value } : value;
@@ -968,12 +969,72 @@ SOFTWARE.
     });
     target.append(group);
   }
+  function historyExportRequest({ chat, since = '', until = '', limit = 500, format = 'markdown' }) {
+    if (typeof chat !== 'string' || !chat.trim() || new TextEncoder().encode(chat).length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(chat)) throw new Error('会话标识必须为 1–256 字节，且不含控制字符');
+    const count = Number(limit);
+    if (!Number.isSafeInteger(count) || count < 1) throw new Error('消息条数必须为正的安全整数');
+    if (!['markdown', 'txt', 'json', 'yaml'].includes(format)) throw new Error('请选择有效的导出格式');
+    const request = { chat, limit: count, format };
+    for (const [key, raw] of [['since', since], ['until', until]]) {
+      if (!raw) continue;
+      const value = raw.replace('T', ' ');
+      if (!/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(value)) throw new Error('时间须为日期或本地日期时刻');
+      request[key] = value;
+    }
+    const boundary = (value, end) => value.length === 10 ? `${value} ${end ? '23:59:59' : '00:00:00'}` : value.length === 16 ? `${value}:00` : value;
+    if (request.since && request.until && boundary(request.since, false) > boundary(request.until, true)) throw new Error('开始时间不能晚于结束时间');
+    return request;
+  }
+  function historyExportFields(target, selectedUser) {
+    const group = el('fieldset', 'history-export-fields'); group.append(el('legend', '', '单会话历史'));
+    const chatRow = el('label', 'field'), chat = el('input'), choices = el('datalist');
+    choices.id = 'history-export-chats'; chat.name = 'history_chat'; chat.type = 'text'; chat.required = true; chat.autocomplete = 'off';
+    chat.setAttribute('list', choices.id); chat.placeholder = 'username 或唯一会话名称';
+    chat.value = selectedUser || (model.selected ? username(model.selected) : '');
+    const seen = new Set();
+    for (const person of [...model.sessions, ...model.contacts]) {
+      const id = username(person); if (!id || seen.has(id)) continue;
+      seen.add(id); const option = el('option'); option.value = id; option.label = displayName(person); choices.append(option);
+    }
+    chatRow.append(el('span', '', '会话 username / 名称'), chat); group.append(chatRow, choices);
+    const dates = el('div', 'history-export-dates'); const inputs = {};
+    for (const [key, label] of [['since', '开始时间'], ['until', '结束时间']]) {
+      const row = el('div', 'history-export-date'), mode = el('select'), fieldLabel = el('label', 'field'), input = el('input');
+      mode.setAttribute('aria-label', `${label}精度`); mode.add(new Option('日期', 'date')); mode.add(new Option('日期时刻', 'datetime-local'));
+      input.type = 'date'; input.name = `history_${key}`;
+      mode.addEventListener('change', () => {
+        const old = input.value; input.type = mode.value;
+        if (mode.value === 'datetime-local') { input.step = '1'; input.value = old ? `${old.slice(0, 10)}T${key === 'until' ? '23:59:59' : '00:00:00'}` : ''; }
+        else { input.removeAttribute('step'); input.value = old.slice(0, 10); }
+        refresh();
+      });
+      fieldLabel.append(el('span', '', `${label}（可选）`), input); row.append(mode, fieldLabel); dates.append(row); inputs[key] = input;
+    }
+    group.append(dates);
+    const countRow = el('label', 'field'), count = el('input');
+    count.name = 'history_limit'; count.type = 'number'; count.min = '1'; count.max = String(Number.MAX_SAFE_INTEGER); count.step = '1'; count.required = true; count.value = '500';
+    countRow.append(el('span', '', '最多消息条数'), count);
+    const formatRow = el('label', 'field'), format = el('select'); format.name = 'history_format';
+    for (const [value, label] of [['markdown', 'Markdown (.md)'], ['txt', 'TXT (.txt)'], ['json', 'JSON (.json)'], ['yaml', 'YAML (.yaml)']]) format.add(new Option(label, value));
+    formatRow.append(el('span', '', '导出格式'), format); group.append(countRow, formatRow);
+    const summary = el('dl', 'key-values history-export-summary'); summary.setAttribute('aria-live', 'polite');
+    const refresh = () => {
+      summary.replaceChildren();
+      const end = inputs.until.value;
+      const facts = [['时间基准', '宿主本地时间'], ['结束边界', end ? `${end.replace('T', ' ')}${end.length === 10 ? ' 23:59:59' : ''}（含）` : '不限'], ['条数上限', count.value || '500']];
+      for (const [key, value] of facts) summary.append(el('dt', '', key), el('dd', '', value));
+    };
+    inputs.until.addEventListener('input', refresh); count.addEventListener('input', refresh); refresh();
+    group.append(summary); target.append(group);
+    formReaders.push(options => { options.history_export = historyExportRequest({ chat: chat.value, since: inputs.since.value, until: inputs.until.value, limit: count.value, format: format.value }); });
+  }
   async function openTask(spec, selectedUser) {
     if (!model.online || submitting) return;
     taskSpec = spec; formReaders = []; selection = new Set(selectedUser ? [selectedUser] : []);
     const generation = ++formGeneration; $('task-options').replaceChildren(); $('task-title').textContent = spec.name || spec.kind; notice('task-error');
     $('task-submit').disabled = false; $('task-dialog').showModal();
     const target = $('task-options');
+    if (spec.kind === 'export_history') { historyExportFields(target, selectedUser); return; }
     if (!Array.isArray(spec.fields)) taskFlags(spec, target);
     exportBudgets(spec, target);
     if (Array.isArray(spec.fields)) {
@@ -1042,6 +1103,9 @@ SOFTWARE.
     event.preventDefault(); if (submitting || !taskSpec || !model.online) return;
     notice('task-error'); const options = Object.create(null);
     let pending = savedSubmission();
+    if ((pending?.body.kind || taskSpec.kind) === 'export_history' && !availableTasks.some(spec => spec.kind === 'export_history' && spec.enabled !== false)) {
+      notice('task-error', '当前服务不支持或未启用单会话历史导出；待确认提交已保留。'); return;
+    }
     try {
       if (!pending) {
       formReaders.forEach((read) => read(options));
@@ -1104,7 +1168,8 @@ SOFTWARE.
       const page = await request(`/api/tasks/${encodeURIComponent(id)}/artifacts?${new URLSearchParams({ offset, limit: 50 })}`);
       if (!current()) return;
       target.replaceChildren();
-      target.append(el('h3', '', '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
+      if (page.scope !== model.detail?.result?.scope) throw new Error('产物范围与任务结果不符');
+      target.append(el('h3', '', page.scope === 'chat_history' ? '历史导出文档' : '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
       for (const item of page.items) {
         if (!/^[a-f0-9]{64}$/.test(item.artifact_id)) continue;
         const row = el('div', 'artifact-row'), info = el('div', 'artifact-info');
@@ -1126,22 +1191,41 @@ SOFTWARE.
       target.replaceChildren(el('p', 'notice error', artifactErrors[error.code] || errorText(error)), button('重试', () => loadArtifacts(id, offset)));
     }
   }
+  function historyResultFacts(result) {
+    const outcomes = { success: '成功', partial: '含查询警告', failure: '失败', refused: '已拒绝' };
+    const facts = [['历史导出结果', outcomes[result.outcome] || '尚未确定'], ['格式', { markdown: 'Markdown', txt: 'TXT', json: 'JSON', yaml: 'YAML' }[result.format] || '未提供']];
+    const time = value => {
+      if (value === null) return '不限';
+      const date = new Date(value * 1000);
+      return Number.isFinite(date.getTime()) ? date.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : `${value} Unix 秒`;
+    };
+    if (result.query === null) facts.push(['查询摘要', '尚未取得可信查询结果']);
+    else if (result.query) {
+      facts.push(['实际会话 username', result.query.username], ['开始边界（含）', time(result.query.since_ts)], ['结束边界（含）', time(result.query.until_ts)],
+        ['请求条数上限', result.query.limit], ['实际消息条数', result.query.messages]);
+      if (result.query.messages === 0) facts.push(['查询结果', '合法空结果']);
+    }
+    facts.push(['已登记产物', result.artifact_count]);
+    return facts;
+  }
   function renderExportResult(task) {
     const target = $('task-result'), result = task.result;
     target.replaceChildren();
-    if (!result || result.version !== 1 || result.scope !== 'chat_directory') {
+    $('export-result-title').textContent = task.kind === 'export_history' ? '单会话历史导出结果' : '聊天导出结果';
+    const expectedScope = task.kind === 'export_history' ? 'chat_history' : task.kind === 'export_all' ? 'chat_directory' : null;
+    if (!result || result.version !== 1 || !expectedScope || result.scope !== expectedScope) {
       target.textContent = '暂无聊天导出结果'; $('task-artifacts').replaceChildren(); return;
     }
     const outcomes = { success: '完整', partial: '部分完成', failure: '失败', refused: '已拒绝' };
     const summary = el('dl', 'key-values');
-    const facts = result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
+    const facts = result.scope === 'chat_history' ? historyResultFacts(result) : result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
       : [['聊天结果', outcomes[result.outcome] || '尚未确定'], ['计划会话', result.planned_chats ?? '未确定'],
         ['已导出会话', result.exported_chats], ['失败会话', result.failed_chats], ['消息', result.messages],
         ['媒体问题', result.media_issues], ['已登记产物', result.artifact_count]];
     facts.push(['报告', result.finalized ? '已终结' : '未终结'], ['产物清单', result.artifacts_complete ? '完整' : '不完整']);
     for (const [key, value] of facts) summary.append(el('dt', '', key), el('dd', '', String(value)));
     target.append(summary);
-    const codes = { chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
+    const codes = { history_query_warning: '历史查询警告', history_export_failed: '历史导出失败', chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
     for (const diagnostic of result.diagnostics || []) target.append(el('p', 'notice', `${codes[diagnostic.code] || diagnostic.code}：${diagnostic.count}`));
     const ready = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(statusOf(task));
     if (result.dry_run || !ready) { ++artifactPage.generation; $('task-artifacts').replaceChildren(); return; }
