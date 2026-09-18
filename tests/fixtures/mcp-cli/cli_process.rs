@@ -125,7 +125,7 @@ fn eight_tools_use_real_account_isolated_transport_without_database_access() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     );
     let list = read_reply(&mut output);
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 15);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 23);
     let calls = [
         ("get_recent_sessions", json!({})),
         ("get_contacts", json!({})),
@@ -275,7 +275,7 @@ fn handshake_only(cmd: &mut Command) {
     let reply = read_reply(&mut output);
     println!("STDOUT tools/list: {reply}");
     let tools = reply["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 23);
     for name in ["decode_voice", "transcribe_voice"] {
         assert!(!tools.iter().any(|tool| tool["name"] == name));
     }

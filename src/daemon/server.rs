@@ -9,6 +9,52 @@ use super::query::Names;
 use super::query_state::QueryState;
 use crate::ipc::{Request, Response};
 
+fn query_response(result: Result<serde_json::Value>) -> Response {
+    match result {
+        Ok(value) => Response::ok(value),
+        Err(error) => query_error(error),
+    }
+}
+
+fn query_error(error: anyhow::Error) -> Response {
+    let ambiguous = matches!(
+        error.downcast_ref::<crate::business::contacts::Error>(),
+        Some(crate::business::contacts::Error::Ambiguous)
+    ) || matches!(
+        error.downcast_ref::<crate::business::messages::Error>(),
+        Some(crate::business::messages::Error::Ambiguous)
+    );
+    let mut response = Response::err(error.to_string());
+    if ambiguous {
+        response.data = serde_json::json!({
+            "status": "ambiguous", "error_code": "ambiguous_identity", "exit_code": 2
+        });
+    }
+    response
+}
+
+#[cfg(test)]
+mod query_error_tests {
+    use super::*;
+
+    #[test]
+    fn typed_ambiguity_survives_context_but_error_text_is_not_a_classifier() {
+        for error in [
+            anyhow::Error::new(crate::business::contacts::Error::Ambiguous).context("tag lookup"),
+            anyhow::Error::new(crate::business::messages::Error::Ambiguous).context("chat lookup"),
+        ] {
+            let response = query_error(error);
+            assert!(!response.ok);
+            assert_eq!(response.data["status"], "ambiguous");
+            assert_eq!(response.data["exit_code"], 2);
+            assert!(response.require_success().is_err());
+        }
+        let response = query_error(anyhow::anyhow!("ambiguous tag name"));
+        assert!(response.data.is_null());
+        assert!(response.require_success().is_err());
+    }
+}
+
 #[cfg(test)]
 #[path = "server_contacts_tests.rs"]
 mod contacts_tests;
@@ -132,7 +178,7 @@ pub(super) async fn dispatch_state(req: Request, state: &QueryState) -> Response
                     attachment_id,
                     output,
                     overwrite,
-                } => Response::from_result(
+                } => query_response(
                     super::query::q_extract(
                         lease.db(),
                         state.runtime(),
@@ -257,7 +303,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
         Arc::clone(&*guard)
     };
 
-    match req {
+    let structured_decode = matches!(
+        &req,
+        DecodeTransfer { .. }
+            | DecodeLocation { .. }
+            | DecodeRefer { .. }
+            | DecodeFileMessage { .. }
+            | DecodeRecordItem { .. }
+    );
+    let mut response = match req {
         Ping => Response::ok(serde_json::json!({ "pong": true })),
         LatencyProbe { limit } => match db.latency_probe(limit).await {
             Ok(probe) => Response::from_result(serde_json::to_value(probe)),
@@ -280,21 +334,21 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
         TagMembers { tag_name } => {
             match query::mcp_contacts::q_tag_members(db, &names_arc.map, &tag_name).await {
                 Ok(value) => Response::ok(serde_json::json!(value)),
-                Err(error) => Response::err(error.to_string()),
+                Err(error) => query_error(error),
             }
         }
         DecodeRefer {
             chat,
             local_id,
             create_time,
-        } => Response::from_result(
+        } => query_response(
             query::q_decode_refer(db, &names_arc, &chat, local_id, create_time).await,
         ),
         DecodeFileMessage {
             chat,
             local_id,
             create_time,
-        } => Response::from_result(
+        } => query_response(
             query::mcp_attachments::q_attachment_reference(
                 db,
                 &names_arc,
@@ -310,7 +364,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             local_id,
             item_index,
             create_time,
-        } => Response::from_result(
+        } => query_response(
             query::mcp_attachments::q_attachment_reference(
                 db,
                 &names_arc,
@@ -376,33 +430,31 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 Ok::<_, anyhow::Error>(serde_json::json!({"voices": rows, "count": rows.len()}))
             }
             .await;
-            Response::from_result(result)
+            query_response(result)
         }
-        ExportChatList => Response::from_result(query::q_export_chat_list(db, &names_arc).await),
+        ExportChatList => query_response(query::q_export_chat_list(db, &names_arc).await),
         ExportDirectoryCatalog => {
-            Response::from_result(query::q_export_directory_catalog(db, &names_arc).await)
+            query_response(query::q_export_directory_catalog(db, &names_arc).await)
         }
         ExportDelta {
             username,
             start,
             end,
-        } => Response::from_result(
+        } => query_response(
             query::q_export_delta_username(db, &names_arc, username, Some(start), end).await,
         ),
         ExportChatByUsername { username } => {
-            Response::from_result(query::q_export_username(db, &names_arc, username).await)
+            query_response(query::q_export_username(db, &names_arc, username).await)
         }
-        ExportDirectoryByUsername { username } => Response::from_result(
-            query::q_export_directory_by_username(db, &names_arc, username).await,
-        ),
-        ExportChat { chat } => {
-            Response::from_result(query::q_export_chat(db, &names_arc, &chat).await)
+        ExportDirectoryByUsername { username } => {
+            query_response(query::q_export_directory_by_username(db, &names_arc, username).await)
         }
+        ExportChat { chat } => query_response(query::q_export_chat(db, &names_arc, &chat).await),
         DecodeTransfer {
             chat,
             local_id,
             create_time,
-        } => Response::from_result(
+        } => query_response(
             query::q_decode(
                 db,
                 &names_arc,
@@ -417,7 +469,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             chat,
             local_id,
             create_time,
-        } => Response::from_result(
+        } => query_response(
             query::q_decode(
                 db,
                 &names_arc,
@@ -432,9 +484,9 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             limit,
             with_meta,
             debug_source,
-        } => Response::from_result(
-            query::q_sessions(db, &names_arc, limit, with_meta, debug_source).await,
-        ),
+        } => {
+            query_response(query::q_sessions(db, &names_arc, limit, with_meta, debug_source).await)
+        }
         History {
             chat,
             limit,
@@ -513,7 +565,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
                 Err(e) => Response::err(e.to_string()),
             }
         }
-        Contacts(request) => Response::from_result(
+        Contacts(request) => query_response(
             query::q_contacts(&names_arc, request.query.as_deref(), request.limit).await,
         ),
         Unread {
@@ -521,30 +573,30 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             filter,
             with_meta,
             debug_source,
-        } => Response::from_result(
+        } => query_response(
             query::q_unread(db, &names_arc, limit, filter, with_meta, debug_source).await,
         ),
-        Members { chat } => Response::from_result(query::q_members(db, &names_arc, &chat).await),
+        Members { chat } => query_response(query::q_members(db, &names_arc, &chat).await),
         NewMessages {
             state,
             limit,
             with_meta,
             debug_source,
-        } => Response::from_result(
+        } => query_response(
             query::q_new_messages(db, &names_arc, state, limit, with_meta, debug_source).await,
         ),
         Favorites {
             limit,
             fav_type,
             query,
-        } => Response::from_result(query::q_favorites(db, limit, fav_type, query).await),
+        } => query_response(query::q_favorites(db, limit, fav_type, query).await),
         Stats {
             chat,
             since,
             until,
             with_meta,
             debug_source,
-        } => Response::from_result(
+        } => query_response(
             query::q_stats(db, &names_arc, &chat, since, until, with_meta, debug_source).await,
         ),
         SnsNotifications {
@@ -552,7 +604,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             since,
             until,
             include_read,
-        } => Response::from_result(
+        } => query_response(
             query::q_sns_notifications(db, &names_arc, limit, since, until, include_read).await,
         ),
         SnsFeed {
@@ -560,7 +612,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             since,
             until,
             user,
-        } => Response::from_result(
+        } => query_response(
             query::q_sns_feed(db, &names_arc, limit, since, until, user.as_deref()).await,
         ),
         SnsSearch {
@@ -569,7 +621,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             since,
             until,
             user,
-        } => Response::from_result(
+        } => query_response(
             query::q_sns_search(
                 db,
                 &names_arc,
@@ -599,7 +651,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             since,
             until,
             unread,
-        } => Response::from_result(
+        } => query_response(
             query::q_biz_articles(db, &names_arc, limit, account, since, until, unread).await,
         ),
         Attachments {
@@ -628,10 +680,15 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
             } else {
                 query::q_attachments(db, &names_arc, &chat, options).await
             };
-            Response::from_result(result)
+            query_response(result)
         }
         Extract { .. } => {
             Response::err("Attachment extraction requires an account-bound query lease")
         }
+    };
+    if structured_decode && response.data["exit_code"] == 2 {
+        response.data["status"] = serde_json::json!("ambiguous");
+        response.data["error_code"] = serde_json::json!("ambiguous_identity");
     }
+    response
 }

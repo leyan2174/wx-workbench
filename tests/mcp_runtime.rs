@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TOOLS: [&str; 15] = [
+const TOOLS: [&str; 23] = [
     "get_recent_sessions",
     "get_contacts",
     "get_chat_history",
@@ -40,6 +40,14 @@ const TOOLS: [&str; 15] = [
     "decode_file_message",
     "decode_record_item",
     "decode_image",
+    "get_unread_messages",
+    "get_chat_members",
+    "get_chat_stats",
+    "get_favorites",
+    "get_biz_articles",
+    "get_sns_feed",
+    "search_sns",
+    "get_sns_notifications",
 ];
 const REMOVED_VOICE_TOOLS: [&str; 2] = ["decode_voice", "transcribe_voice"];
 
@@ -311,7 +319,7 @@ fn tool_error(reply: &Value, expected: &str) {
 }
 
 #[test]
-fn real_wx_initializes_lists_fifteen_tools_without_account_and_never_falls_back() {
+fn real_wx_initializes_lists_twenty_three_tools_without_account_and_never_falls_back() {
     let fixture = Fixture::new();
     let account = fixture.account("default-decoy");
     // 即便默认发现位置有配置，没有显式WX_CLI_CONFIG也不得尝试发送。
@@ -328,10 +336,10 @@ fn real_wx_initializes_lists_fifteen_tools_without_account_and_never_falls_back(
         .map(|t| t["name"].as_str().unwrap())
         .collect();
     // 工具清单顺序是客户端兼容契约；原始语音列表保留。
-    assert_eq!(names.len(), 15);
+    assert_eq!(names.len(), TOOLS.len());
     assert_eq!(&names[..8], &TOOLS[..8]);
     assert_eq!(
-        &names[8..],
+        &names[8..15],
         &[
             "get_contact_tags",
             "get_tag_members",
@@ -342,7 +350,14 @@ fn real_wx_initializes_lists_fifteen_tools_without_account_and_never_falls_back(
             "decode_image",
         ]
     );
-    assert_eq!(names.last(), Some(&"decode_image"));
+    assert_eq!(names[14], "decode_image");
+    assert_eq!(&names[15..], &TOOLS[15..]);
+    for tool in &list["result"]["tools"].as_array().unwrap()[15..] {
+        assert_eq!(tool["annotations"]["readOnlyHint"], true);
+        assert_eq!(tool["annotations"]["destructiveHint"], false);
+        assert_eq!(tool["annotations"]["openWorldHint"], false);
+        assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+    }
     let image = &list["result"]["tools"][14];
     assert_eq!(image["annotations"]["readOnlyHint"], false);
     assert_eq!(image["annotations"]["destructiveHint"], false);
@@ -374,7 +389,7 @@ fn real_wx_initializes_lists_fifteen_tools_without_account_and_never_falls_back(
 }
 
 #[test]
-fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes() {
+fn real_wx_routes_all_twenty_three_tools_to_selected_pipe_and_locks_account_changes() {
     let fixture = Fixture::new();
     let a = fixture.account("a");
     let b = fixture.account("b");
@@ -411,6 +426,35 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
                     "local_id":91,"create_time":200,"voice_data_bytes":0},
                 {"username":"synthetic-a","source":"message/media_1.db","chat_name_id":4,"media_rowid":8,
                     "local_id":92,"create_time":100,"voice_data_bytes":null}]}),
+            "unread" => json!({"ok":true,"sessions":[
+                {"username":"synthetic-a","unread":2,"summary":"synthetic unread"}],
+                "total_unread":2,"meta":{"partial":false}}),
+            "members" => json!({"ok":true,"chat":"synthetic group","username":"synthetic@chatroom",
+                "count":1,"members":[{"username":"synthetic-a","display":"Synthetic A",
+                    "contact_display":"Synthetic A","group_nickname":"Member A","is_owner":false}],
+                "membership_complete":false,"membership_source":"observed_senders"}),
+            "stats" => json!({"ok":true,"chat":"synthetic","username":"synthetic-a","total":3,
+                "by_type":[{"type":"text","count":3}],"meta":{"partial":false}}),
+            "favorites" => json!({"ok":true,"count":1,"items":[
+                {"id":17,"type_num":5,"preview":"synthetic favorite"}],"has_more":true}),
+            "biz_articles" => json!({"ok":true,"count":1,"articles":[
+                {"account":"Synthetic News","account_username":"synthetic-news",
+                    "title":"synthetic article","timestamp":150,"recv_time":150}],
+                "partial":true,"has_more":true,"source_unfinished":true,
+                "issues":[{"code":"synthetic_source_issue"}]}),
+            "sns_feed" => json!({"ok":true,"posts":[
+                {"post_id":"feed-1","author_username":"synthetic-a","timestamp":150,
+                    "content":"synthetic feed"}],"total":1,"resolved_user":"synthetic-a",
+                "meta":{"coverage":"local_cache_only","scan_truncated":true,
+                    "has_more":true,"unreadable":1,"author_conflicts":0}}),
+            "sns_search" => json!({"ok":true,"keyword":"synthetic needle","posts":[
+                {"post_id":"search-1","author_username":"synthetic-a","timestamp":160,
+                    "content":"synthetic needle"}],"total":1,
+                "meta":{"coverage":"local_cache_only","scan_truncated":false,
+                    "has_more":false,"unreadable":0,"author_conflicts":1}}),
+            "sns_notifications" => json!({"ok":true,"notifications":[
+                {"type":"comment","timestamp":170,"from_username":"synthetic-a",
+                    "content":"synthetic interaction","feed_id":"feed-1"}],"total":1}),
             _ => panic!("unregistered query reached IPC"),
         })
     });
@@ -437,7 +481,30 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
             "get_voice_messages" => {
                 json!({"chat_name":"synthetic","limit":2,"offset":3,"since":100,"until":200})
             }
-            _ => json!({}),
+            "get_unread_messages" => {
+                json!({"limit":7,"filter":["private","group"],"with_meta":true})
+            }
+            "get_chat_members" => json!({"chat_name":"synthetic@chatroom"}),
+            "get_chat_stats" => {
+                json!({"chat_name":"synthetic","since":100,"until":200,"with_meta":true})
+            }
+            "get_favorites" => json!({"limit":7,"fav_type":5,"query":"synthetic favorite"}),
+            "get_biz_articles" => {
+                json!({"limit":7,"account":"Synthetic News","since":100,"until":200,"unread":true})
+            }
+            "get_sns_feed" => {
+                json!({"limit":7,"user":"synthetic-a","since":100,"until":200})
+            }
+            "search_sns" => {
+                json!({"keyword":"synthetic needle","limit":7,"user":"synthetic-a","since":100,"until":200})
+            }
+            "get_sns_notifications" => {
+                json!({"limit":7,"since":100,"until":200,"include_read":true})
+            }
+            "get_recent_sessions" | "get_contacts" | "get_new_messages" | "get_contact_tags" => {
+                json!({})
+            }
+            _ => panic!("missing arguments for registered tool {name}"),
         };
         let reply = wx.call(index as i64, name, args);
         assert_eq!(reply["result"]["isError"], false, "{name}: {reply}");
@@ -491,6 +558,55 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
                     assert_eq!(data["voices"][0]["voice_data_bytes"], 0);
                     assert!(data["voices"][1]["voice_data_bytes"].is_null());
                 }
+                "get_unread_messages" => assert_eq!(
+                    data,
+                    json!({"sessions":[{"username":"synthetic-a","unread":2,
+                        "summary":"synthetic unread"}],"total_unread":2,"meta":{"partial":false}})
+                ),
+                "get_chat_members" => assert_eq!(
+                    data,
+                    json!({"chat":"synthetic group","username":"synthetic@chatroom","count":1,
+                        "members":[{"username":"synthetic-a","display":"Synthetic A",
+                            "contact_display":"Synthetic A","group_nickname":"Member A","is_owner":false}],
+                        "membership_complete":false,"membership_source":"observed_senders"})
+                ),
+                "get_chat_stats" => assert_eq!(
+                    data,
+                    json!({"chat":"synthetic","username":"synthetic-a","total":3,
+                        "by_type":[{"type":"text","count":3}],"meta":{"partial":false}})
+                ),
+                "get_favorites" => assert_eq!(
+                    data,
+                    json!({"count":1,"items":[{"id":17,"type_num":5,
+                        "preview":"synthetic favorite"}],"has_more":true})
+                ),
+                "get_biz_articles" => assert_eq!(
+                    data,
+                    json!({"count":1,"articles":[{"account":"Synthetic News",
+                        "account_username":"synthetic-news","title":"synthetic article",
+                        "timestamp":150,"recv_time":150}],"partial":true,"has_more":true,
+                        "source_unfinished":true,"issues":[{"code":"synthetic_source_issue"}]})
+                ),
+                "get_sns_feed" => assert_eq!(
+                    data,
+                    json!({"posts":[{"post_id":"feed-1","author_username":"synthetic-a",
+                        "timestamp":150,"content":"synthetic feed"}],"total":1,"resolved_user":"synthetic-a",
+                        "meta":{"coverage":"local_cache_only","scan_truncated":true,
+                            "has_more":true,"unreadable":1,"author_conflicts":0}})
+                ),
+                "search_sns" => assert_eq!(
+                    data,
+                    json!({"keyword":"synthetic needle","posts":[{"post_id":"search-1",
+                        "author_username":"synthetic-a","timestamp":160,"content":"synthetic needle"}],
+                        "total":1,"meta":{"coverage":"local_cache_only","scan_truncated":false,
+                            "has_more":false,"unreadable":0,"author_conflicts":1}})
+                ),
+                "get_sns_notifications" => assert_eq!(
+                    data,
+                    json!({"notifications":[{"type":"comment","timestamp":170,
+                        "from_username":"synthetic-a","content":"synthetic interaction",
+                        "feed_id":"feed-1"}],"total":1})
+                ),
                 _ => unreachable!(),
             }
         }
@@ -505,7 +621,12 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
     success(wx.finish());
     let requests = server_a.finish();
     let queries: Vec<_> = requests.iter().filter(|r| r["cmd"] != "ping").collect();
-    assert_eq!(requests.len(), 30);
+    assert_eq!(requests.len(), 46);
+    assert_eq!(queries.len(), TOOLS.len());
+    assert_eq!(
+        requests.iter().filter(|r| r["cmd"] == "ping").count(),
+        TOOLS.len()
+    );
     assert_eq!(
         queries
             .iter()
@@ -527,6 +648,14 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
             "decode_file_message",
             "decode_record_item",
             "decode_image",
+            "unread",
+            "members",
+            "stats",
+            "favorites",
+            "biz_articles",
+            "sns_feed",
+            "sns_search",
+            "sns_notifications",
         ]
     );
     assert_eq!(queries[6]["limit"], 10001);
@@ -556,6 +685,38 @@ fn real_wx_routes_all_fifteen_tools_to_selected_pipe_and_locks_account_changes()
     assert_eq!(
         queries[14],
         &json!({"cmd":"decode_image","chat":"synthetic","local_id":9,"create_time":0,"output_root":output})
+    );
+    assert_eq!(
+        queries[15],
+        &json!({"cmd":"unread","limit":7,"filter":["private","group"],"with_meta":true})
+    );
+    assert_eq!(
+        queries[16],
+        &json!({"cmd":"members","chat":"synthetic@chatroom"})
+    );
+    assert_eq!(
+        queries[17],
+        &json!({"cmd":"stats","chat":"synthetic","since":100,"until":200,"with_meta":true})
+    );
+    assert_eq!(
+        queries[18],
+        &json!({"cmd":"favorites","limit":7,"fav_type":5,"query":"synthetic favorite"})
+    );
+    assert_eq!(
+        queries[19],
+        &json!({"cmd":"biz_articles","limit":7,"account":"Synthetic News","since":100,"until":200,"unread":true})
+    );
+    assert_eq!(
+        queries[20],
+        &json!({"cmd":"sns_feed","limit":7,"user":"synthetic-a","since":100,"until":200})
+    );
+    assert_eq!(
+        queries[21],
+        &json!({"cmd":"sns_search","keyword":"synthetic needle","limit":7,"user":"synthetic-a","since":100,"until":200})
+    );
+    assert_eq!(
+        queries[22],
+        &json!({"cmd":"sns_notifications","limit":7,"since":100,"until":200,"include_read":true})
     );
     assert!(server_b.finish().is_empty());
     assert_eq!(fs::read(&a.config).unwrap(), original);

@@ -33,6 +33,7 @@ mod monitor_native;
 pub mod new_messages;
 pub(crate) mod operation_args;
 pub mod output;
+mod query_details;
 pub mod search;
 pub mod sessions;
 mod setup_native;
@@ -569,6 +570,8 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    #[command(flatten)]
+    Queries(query_details::Command),
     /// 管理 wx-daemon
     Daemon {
         #[command(subcommand)]
@@ -602,6 +605,7 @@ pub fn run() {
 
 fn finish_dispatch(cli: Cli) {
     let json = match &cli.command {
+        Commands::Queries(command) => command.json(),
         Commands::History(args) => args.json,
         Commands::Voices(args) => args.json,
         Commands::Sessions { json, .. }
@@ -658,6 +662,7 @@ fn dispatch(cli: Cli) -> Result<()> {
     let base_with_meta = cli.with_meta;
     let base_debug_source = cli.debug_source;
     match cli.command {
+        Commands::Queries(command) => query_details::cmd(command),
         Commands::Mcp(args) => mcp::cmd(args),
         Commands::Init {
             force,

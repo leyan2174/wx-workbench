@@ -153,14 +153,19 @@ wx history $chat -n 50 --json
 wx history $chat --types text,image --oldest-first -n 20 --json
 wx search '测试关键词' --in $chat -n 20 --json
 wx contacts -q '测试联系人' --json
+wx tags --json
+wx tag-members '测试标签' --json
 wx members $chat --json
 wx unread --filter private,group --json
 wx new-messages --json
 wx stats $chat --json
 wx favorites -n 20 --json
+wx voice-messages $chat -n 20 --json
 ```
 
 历史支持偏移、日期和类型筛选。`--type` 与 `--types` 不能同时使用；`--oldest-first` 从全部分片合并后的最早记录分页。默认取最新页，页内按时间展示。
+
+CLI 日期采用本地时区，`--until YYYY-MM-DD` 包含当天最后一秒；MCP 和 HTTP 接收 Unix 秒。`link` 与 `file` 都映射到 legacy 应用消息类型 49，并非精确链接/文件分类。分页、类型及各入口的差异见[查询协议](docs/query-protocol.md)。
 
 `--with-meta` 返回较重的来源与新鲜度信息。调试来源可能包含本地路径，不直接贴入公开报告。首次读取较大的数据库可能触发私有缓存准备；超时不表示无数据，也不构成自动重试写入操作的依据。
 
@@ -173,12 +178,17 @@ wx favorites -n 20 --json
 ```powershell
 wx decode-transfer $chat 123 1700000000 --json
 wx decode-location $chat 123 1700000000 --json
+wx decode-refer $chat 123 1700000000 --json
+wx decode-file-message $chat 123 1700000000 --json
+wx decode-record-item $chat 123 0 1700000000 --json
 wx attachments --help
 wx extract --help
 wx voices --help
 ```
 
 附件元数据、资源是否存在和明文导出是不同能力。缺失或匹配不唯一时，不伪造路径、大小或绑定证据。输出目录必须与账号源、缓存、配置和密钥分离。详见[附件契约](docs/native-attachment-contract.md)。
+
+CLI 详情的时间戳省略或为 `0` 时不按时间筛选，仍要求消息唯一；HTTP 详情必须提交正数 `local_id` 和正数 `create_time` 精确定位。记录条目索引从 `0` 开始。只读详情不会下载或导出附件。
 
 ## 导出与账号维护
 
@@ -217,7 +227,7 @@ wx media video decode --help
 wx voices --help
 ```
 
-`voices` 导出原始 SILK，保留已有 `0x02` 前缀，不转换为 WAV/MP3；`get_voice_messages` 提供只读语音目录查询。`voices` 的 `_voice_export_summary.json` 包含 `manifest`；完整聊天目录保留语音引用并生成 `_voice_manifest.json`，一起交给下游工具处理。
+`voices` 导出原始 SILK，保留已有 `0x02` 前缀，不转换为 WAV/MP3；CLI `voice-messages`、MCP `get_voice_messages` 与 HTTP `/api/voice-messages` 提供只读语音目录查询，不读取音频正文。`voices` 的 `_voice_export_summary.json` 包含 `manifest`；完整聊天目录保留语音引用并生成 `_voice_manifest.json`，一起交给下游工具处理。
 
 消息身份由精确会话和非零服务端 ID 组成，账号由 `account_id` 单独限定，不以 rowid 或媒体 ID 替代。语音已写出但关联未证明时，`voices` 仍报告 `partial`、`incomplete_items` 并以非零状态退出。字段与时间来源见[原始语音导出契约](src/business/VOICE_EXPORT.md#manifest-字段)。
 
@@ -233,7 +243,9 @@ wx daemon status
 wx daemon stop
 ```
 
-MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。15 项注册工具包含只读查询及受控媒体执行，没有独立 stats 工具。工具参数不能设置账号或宿主输出根。详见[MCP 协议](src/mcp/PROTOCOL.md)。
+MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。默认注册 23 项工具，包含查询及受控图片执行；未读、群成员、统计、收藏、公众号和朋友圈各有只读工具。任务工具由宿主另行启用，不算在默认 23 项内。工具参数不能设置账号或宿主输出根。当前查询工具与参数见[查询协议](docs/query-protocol.md)，会话和媒体宿主边界见[MCP 协议](src/mcp/PROTOCOL.md)。
+
+Web 的资料查询面板接入搜索、未读、成员、统计、收藏、公众号、朋友圈和语音目录；聊天页的“记录范围”向服务端提交时间、类型和顺序，原本的本页筛选仍只作用于当前页。消息详情可查询引用、文件、合并记录条目、转账和位置。HTTP 参数与错误见[本地 HTTP API](docs/http-api.md)。当前 Web 接线不等于浏览器操作已验收，跨入口覆盖与剩余边界见[能力矩阵](docs/capability-matrix.md)。
 
 Web 是本地界面，不应暴露到不可信网络。只停止本任务创建且身份可验证的 daemon，不按进程名清理其他账号或用户应用。MCP 按操作短时固定配置，同一账号的密钥更新不需要关闭会话；替换配置或切换账号仍需重新连接。生命周期见[入口边界](docs/daemon-entrypoints.md)和[后台任务](docs/daemon-tasks.md)。
 

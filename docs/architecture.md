@@ -146,6 +146,8 @@ daemon 在复用或更新缓存前也验证当前源库首页，密钥失效或�
 
 MCP 在短查询租约外执行编排；需要数据时调用进程内查询分发，不向 daemon 自身发送管道查询。每个调用保留原始响应 ID、响应预算和绝对截止时间。超时预算不能在启动或重试时重新授予。
 
+默认 23 项工具包含 22 项查询/元数据入口和受控 `decode_image`；未读、成员、统计、收藏、公众号、SNS 查询均通过固定白名单进入原查询分发，不重新实现业务。MCP 不公开 `debug_source`；普通 `with_meta` 不是源路径授权。任务工具由宿主另行启用，不能用任务列表替代完整业务覆盖。参数差异与结果语义见[查询协议](query-protocol.md)。
+
 会话绑定账号、策略和拥有者进程。EOF 尽力关闭，会话拥有者退出后定期回收锁；daemon 重启后不能静默恢复旧会话。停机先取消并排空在途调用，再释放会话与运行时。
 
 ## worker 与任务
@@ -182,7 +184,7 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 ## 导出、SNS 与 Web
 
-`src/daemon/operations` 组织初始化、导出、增量、计划、音频和 SNS 操作。类型化调用不递归解析公共 CLI，不执行未知命令或任意业务脚本。
+`src/daemon/operations` 组织初始化、导出、增量、计划、原始语音导出和 SNS 操作。类型化调用不递归解析公共 CLI，不执行未知命令或任意业务脚本。
 
 全量归档的准备、读取、身份核对、转换、发布和索引顺序，以及增量归档的目标去重、部分失败与批次完成由 `business::archive` 负责。宿主装配既有查询传输及原始文档发布器。全量目录索引在发布聊天文件之前绑定 `RuntimeContext.id`，拒绝其他运行上下文复用；旧无绑定记录标记 `legacy_unverified`，损坏索引不静默回退。文件已发布但索引失败时报告 `artifact_published`，不推进成功计数。
 
@@ -194,11 +196,17 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 
 `service/query_client.rs` 提供共享查询客户端，`service/transport.rs` 实现通信帧，`service/client.rs` 和 `service/protocol.rs` 承载宿主 RPC。Web 启动参数使用不带 clap 的 `service::web::HostSettings`；CLI 在入口转换，HTTP 入口位于 `src/web/mod.rs`。
 
+CLI `query_details` 将标签、三类新增详情和只读语音目录映射到已有 `ipc::Request`，共享查询客户端负责传输和业务失败检查。HTTP 查询经 `web::read_queries` 解析固定字段，再由 `service::web::Call::validate_read` 校验；daemon 的 `web_service::read_queries` 显式映射到同一 Request，最终进入账号绑定的 `server::dispatch_state`。HTTP 没有任意 Request/Operation 入口。见[HTTP API](http-api.md)。
+
+daemon 共享 `query_response` 按 contacts/messages 的 typed Ambiguous 识别身份歧义，保留标签及 SNS 作者解析的错误上下文，不在分类前把错误压成字符串。查询响应标记 `status=ambiguous`、`error_code=ambiguous_identity`、`exit_code=2`；CLI 保留退出码 2，MCP 经 Refused 返回 `Business request refused`，HTTP 经窄 `query_ambiguous` 投影为安全 409。HTTP 同时保留五类结构化详情的既有 exit_code=2 契约；其他业务和来源失败不依据文本猜测为歧义，继续沿用其真实类别。
+
 SNS 领域模块分别处理数据库解析、缓存、下载、时间线、相册和目录发布。默认离线和显式下载须分开说明；MP4 文件头有效不等于可播放。Web 的鉴权、Host/Origin、CSRF 与输出目录限制仍由适配层维护。
 
 界面关闭不等于后台业务停止。HTTP 错误、限流与超时必须在界面可识别，不应静默显示为空列表。功能条件见[工作流条件](workflow-requirements.md)。
 
 聊天页的本地文字和类型筛选只改变当前页的可见消息，保留这一页已有的图片缓存和在途解码。恢复筛选时复用同一图片状态，不因隐藏再显示而取消并重新发起解码。账号、会话和页面切换仍有各自的失效边界；保留本页状态不表示可以跨会话复用图片，也不保证后台不会返回限流错误。
+
+“记录范围”是另一组服务端历史条件，提交时间、多类型与最早页顺序；资料查询面板调用搜索、未读、成员、统计、收藏、文章、SNS 和语音目录接口，消息详情使用当前消息的精确身份。UI 不将本页筛选当全库搜索，也不把语音满页当作已证明 has_more。当前查询覆盖及未完成的导出、媒体、治理和增量跨入口范围见[能力矩阵](capability-matrix.md)。
 
 ## 维护
 

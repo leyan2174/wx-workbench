@@ -248,7 +248,7 @@ mod tests {
             .collect();
         assert_eq!(replies.len(), 2);
         let tools = replies[1]["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 23);
         for added in ["decode_file_message", "decode_record_item"] {
             let tool = tools.iter().find(|t| t["name"] == added).unwrap();
             assert_eq!(tool["annotations"]["readOnlyHint"], true);

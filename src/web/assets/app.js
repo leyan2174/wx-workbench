@@ -596,6 +596,10 @@ SOFTWARE.
       if (kind !== 'text') meta.append(el('span', 'message-type', kindLabel));
       node.append(meta, renderRich(item.rich) || el('div', 'message-content', messageText(item) || `[${kindLabel}]`));
       if (kind === 'image' && model.source === 'wechat') node.append(renderInline(item));
+      if (model.source === 'wechat' && Number.isSafeInteger(Number(item.local_id)) && Number(item.local_id) > 0 && Number(item.create_time ?? item.timestamp) > 0) {
+        const detail = button('', () => openMessageDetail(item), 'icon-button');
+        detail.title = '结构化消息详情'; detail.setAttribute('aria-label', '结构化消息详情'); detail.append(icon('list-checks')); meta.append(detail);
+      }
       fragment.append(node);
     });
     target.append(fragment);
@@ -614,7 +618,15 @@ SOFTWARE.
     if (!quiet) empty($('messages'), '正在加载消息…'); notice('history-error');
     try {
       // 已落地的原生 Filter 使用 chat 字段；不把令牌放入查询参数。
-      const data = await request(`/api/history?${new URLSearchParams({ chat: selected, source: model.source, limit: String(limit), offset: String(offset) })}`, { signal: historyController.signal });
+      const params = new URLSearchParams({ chat: selected, source: model.source, limit: String(limit), offset: String(offset) });
+      if (model.source === 'wechat') {
+        for (const key of ['since', 'until']) { const value = $(`history-${key}`).value; if (value) params.set(key, String(Math.floor(new Date(value).getTime() / 1000))); }
+        if (params.has('since') && params.has('until') && Number(params.get('since')) > Number(params.get('until'))) throw new Error('开始时间不能晚于结束时间');
+        const types = Array.from($('history-types').selectedOptions, option => option.value).filter(Boolean);
+        if (types.length) params.set('msg_types', types.join(','));
+        params.set('oldest_first', String($('history-oldest').checked));
+      }
+      const data = await request(`/api/history?${params}`, { signal: historyController.signal });
       if (seq !== model.historySeq || epoch !== model.epoch) return;
       model.messages = rows(data, 'messages'); model.total = Number.isFinite(data?.total) ? data.total : null;
       model.hasMore = typeof data?.has_more === 'boolean' ? data.has_more : model.total !== null ? offset + model.messages.length < model.total : model.messages.length === limit;
@@ -624,6 +636,134 @@ SOFTWARE.
       notice('history-error', errorText(error)); if (!quiet) empty($('messages'), '消息加载失败');
       $('previous-page').disabled = offset === 0;
     } finally { if (seq === model.historySeq) $('messages').setAttribute('aria-busy', 'false'); }
+  }
+  const querySpecs = {
+    search: { fields: ['keyword!', 'chats', 'since', 'until', 'msg_type', 'limit'], rows: 'results', columns: ['chat', 'sender', 'time', 'content'] },
+    unread: { fields: ['filter', 'limit'], rows: 'sessions', columns: ['chat', 'username', 'unread', 'summary'] },
+    members: { fields: ['chat!'], rows: 'members', columns: ['display', 'username', 'group_nickname', 'is_owner'] },
+    stats: { fields: ['chat!', 'since', 'until'], rows: null },
+    favorites: { fields: ['query', 'fav_type', 'limit'], rows: 'items', columns: ['type', 'time', 'from', 'preview'] },
+    articles: { fields: ['account', 'since', 'until', 'unread', 'limit'], rows: 'articles', columns: ['account', 'time', 'title', 'digest'] },
+    'sns-feed': { fields: ['user', 'since', 'until', 'limit'], rows: 'posts', columns: ['author', 'time', 'content', 'media_count'] },
+    'sns-search': { fields: ['keyword!', 'user', 'since', 'until', 'limit'], rows: 'posts', columns: ['author', 'time', 'content', 'media_count'] },
+    'sns-notifications': { fields: ['since', 'until', 'include_read', 'limit'], rows: 'notifications', columns: ['from_nickname', 'type', 'time', 'content', 'feed_preview'] },
+    'voice-messages': { fields: ['chat!', 'since', 'until', 'limit'], rows: 'voices', columns: ['create_time', 'voice_data_bytes'] }
+  };
+  const queryLabels = { keyword: '关键词', chats: '会话（逗号分隔）', chat: '会话账号', since: '开始时间', until: '结束时间', msg_type: '消息类型', limit: '数量上限', filter: '会话类型', query: '收藏关键词', fav_type: '收藏类型', account: '公众号', unread: '仅未读公众号', user: '作者', include_read: '包含已读互动', display: '名称', name: '名称', username: '账号', unread_count: '未读数', summary: '摘要', group_nickname: '群昵称', is_owner: '群主', sender: '发送人', time: '时间', content: '内容', type: '类型', from: '来源', preview: '摘要', title: '标题', digest: '摘要', author: '作者', media_count: '媒体数量', from_nickname: '互动人', feed_preview: '原帖摘要', create_time: '时间戳', voice_size: '字节数', total: '消息总数', count: '数量', hour: '小时' };
+  let queryOffset = 0, queryController, querySequence = 0, queryLastParams;
+  queryLabels.voice_data_bytes = '字节数';
+  queryLabels.unread = '未读数';
+  Object.assign(queryLabels, { refer: '引用内容', refer_chatusr: '引用会话', refer_createtime: '引用时间', refer_displayname: '引用发送人', refer_fromusr: '来源账号', refer_sender: '发送账号', refer_summary: '引用摘要', refer_svrid: '原消息标识', refer_type_label: '消息类型', reply_text: '回复正文', metadata: '附件信息', reference: '关联结果', identity: '消息身份', status: '状态', binding: '关联依据', size: '字节数', equivalent_copies: '相同副本', warning: '提示', description: '描述', extension: '扩展名', item_count: '条目数量', item_index: '条目序号', kind: '内容类型', expected_size: '声明字节数' });
+  function queryFields() {
+    queryController?.abort(); ++querySequence; queryOffset = 0; queryLastParams = null;
+    const kind = $('query-kind').value, target = $('query-fields'); target.replaceChildren();
+    for (const descriptor of querySpecs[kind].fields) {
+      const key = descriptor.replace('!', ''), label = el('label', '', key === 'unread' ? '仅未读公众号' : queryLabels[key]);
+      let input;
+      const choices = key === 'msg_type' ? ['', 'text', 'image', 'voice', 'video', 'sticker', 'location', 'link', 'call', 'system'] : key === 'filter' ? ['', 'private', 'group', 'official', 'folded'] : key === 'fav_type' ? ['', '1', '2', '5', '19', '20'] : null;
+      if (choices) {
+        input = el('select');
+        const labels = { '': '全部', text: '文字', image: '图片', voice: '语音', video: '视频', sticker: '表情', location: '位置', link: '链接', file: '文件', call: '通话事件', system: '系统', private: '单聊', group: '群聊', official: '公众号', folded: '折叠会话', 1: '文本', 2: '图片', 5: '文章', 19: '名片', 20: '视频' };
+        labels.link = '应用消息（含链接、文件）';
+        choices.forEach(value => { const option = el('option', '', labels[value]); option.value = value; input.append(option); });
+      } else {
+        input = el('input'); input.type = ['unread', 'include_read'].includes(key) ? 'checkbox' : ['since', 'until'].includes(key) ? 'datetime-local' : key === 'limit' ? 'number' : 'text';
+      }
+      input.name = key; input.id = `query-${key}`; input.required = descriptor.endsWith('!');
+      if (key === 'limit') { input.min = '1'; input.max = kind === 'voice-messages' ? '500' : '2000'; input.step = '1'; input.value = '100'; }
+      if (key === 'chat' && model.selected) input.value = username(model.selected);
+      label.append(input); target.append(label);
+    }
+    $('query-results').replaceChildren(); $('query-status').textContent = '尚未查询'; notice('query-error');
+    $('query-previous').disabled = true; $('query-next').disabled = true; $('query-page').textContent = '';
+    $('query-submit').disabled = false;
+  }
+  function queryParameters() {
+    const params = new URLSearchParams();
+    for (const input of $('query-fields').querySelectorAll('input,select')) {
+      if (input.type === 'checkbox') { params.set(input.name, String(input.checked)); continue; }
+      if (!input.value.trim()) continue;
+      const value = input.type === 'datetime-local' ? String(Math.floor(new Date(input.value).getTime() / 1000)) : input.value.trim();
+      params.set(input.name, value);
+    }
+    if (params.has('since') && params.has('until') && Number(params.get('since')) > Number(params.get('until'))) throw new Error('开始时间不能晚于结束时间');
+    return params;
+  }
+  function valueText(value) {
+    if (value === null || value === undefined || value === '') return '未知';
+    if (typeof value === 'boolean') return value ? '是' : '否';
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+  function resultTable(items, columns) {
+    const table = el('table', 'query-table'), head = el('thead'), title = el('tr'), body = el('tbody');
+    columns.forEach(key => title.append(el('th', '', queryLabels[key] || key))); head.append(title);
+    for (const item of items) { const row = el('tr'); columns.forEach(key => row.append(el('td', '', valueText(item[key])))); body.append(row); }
+    table.append(head, body); return table;
+  }
+  function resultEvidence(data) {
+    const details = el('details'), summary = el('summary', '', '完整字段与来源证据');
+    details.append(summary, el('pre', '', JSON.stringify(data, null, 2))); return details;
+  }
+  function detailFields(data, depth = 0) {
+    const list = el('dl', 'key-values');
+    for (const [key, value] of Object.entries(data)) {
+      if (['source', 'local_id', 'local_type', 'exit_code', 'refer_type', 'datatype', 'path', 'md5', 'expected_md5', 'raw_content', 'raw_xml'].includes(key) || (depth === 0 && key === 'text')) continue;
+      const term = el('dt', '', queryLabels[key] || key), definition = el('dd');
+      if (value && typeof value === 'object' && depth < 3) definition.append(detailFields(value, depth + 1));
+      else definition.textContent = valueText(value);
+      list.append(term, definition);
+    }
+    return list;
+  }
+  async function runQuery(paging = false) {
+    if (!$('query-form').reportValidity()) return;
+    const kind = $('query-kind').value, spec = querySpecs[kind];
+    let params;
+    try { params = paging && queryLastParams ? new URLSearchParams(queryLastParams) : queryParameters(); } catch (error) { notice('query-error', errorText(error)); return; }
+    if (!paging) queryOffset = 0;
+    queryLastParams = params.toString(); if (kind === 'voice-messages') params.set('offset', String(queryOffset));
+    queryController?.abort(); queryController = new AbortController(); const seq = ++querySequence;
+    $('query-submit').disabled = true; $('query-previous').disabled = true; $('query-next').disabled = true;
+    $('query-results').replaceChildren(); $('query-status').textContent = '查询中…'; notice('query-error');
+    try {
+      const data = await request(`/api/${kind}?${params}`, { signal: queryController.signal });
+      if (seq !== querySequence) return;
+      const target = $('query-results'), items = spec.rows ? rows(data, spec.rows) : [];
+      if (kind === 'stats') {
+        target.append(el('h3', '', `消息总数：${valueText(data.total)}`));
+        for (const [key, title, columns] of [['by_type', '类型分布', ['type', 'count']], ['by_hour', '小时分布', ['hour', 'count']], ['top_senders', '发言排行', ['sender', 'count']]]) {
+          target.append(el('h3', '', title), resultTable(rows(data, key), columns));
+        }
+      } else if (items.length) target.append(resultTable(items, spec.columns)); else empty(target, '没有符合条件的记录');
+      const partial = data.partial || data.meta?.partial || data.membership_complete === false || data.meta?.unreadable > 0 || data.meta?.author_conflicts > 0;
+      const more = data.has_more || data.meta?.has_more || data.meta?.scan_truncated || data.source_unfinished;
+      $('query-status').textContent = `${spec.rows ? `${items.length} 条` : '统计完成'}${partial ? ' · 部分结果' : ''}${more ? ' · 结果未结束' : ''}${kind.startsWith('sns-') ? ' · 本地缓存' : ''}${data.meta?.unreadable ? ` · ${data.meta.unreadable} 条解析失败` : ''}${data.meta?.author_conflicts ? ` · ${data.meta.author_conflicts} 条作者冲突` : ''}`;
+      target.append(resultEvidence(data));
+      if (kind === 'voice-messages') {
+        const limit = Number(params.get('limit'));
+        $('query-previous').disabled = queryOffset === 0; $('query-next').disabled = items.length < limit;
+        $('query-page').textContent = `第 ${Math.floor(queryOffset / limit) + 1} 页${items.length === limit ? ' · 可能还有记录' : ''}`;
+      }
+    } catch (error) { if (seq !== querySequence || error.name === 'AbortError') return; notice('query-error', errorText(error)); $('query-status').textContent = '查询失败'; }
+    finally { if (seq === querySequence) $('query-submit').disabled = false; }
+  }
+  let detailMessage, detailController, detailSequence = 0;
+  function openMessageDetail(item) {
+    detailMessage = { chat: username(model.selected), local_id: item.local_id, create_time: item.create_time ?? item.timestamp };
+    $('message-detail-result').replaceChildren(); notice('message-detail-error'); $('message-detail-dialog').showModal();
+  }
+  async function loadMessageDetail(event) {
+    event.preventDefault(); if (!detailMessage) return;
+    const params = new URLSearchParams(detailMessage), kind = $('message-detail-kind').value;
+    if (kind === 'record-item') params.set('item_index', $('message-item-index').value);
+    detailController?.abort(); detailController = new AbortController(); const seq = ++detailSequence;
+    notice('message-detail-error'); empty($('message-detail-result'), '查询中…');
+    try {
+      const data = await request(`/api/decode-${kind}?${params}`, { signal: detailController.signal });
+      if (seq !== detailSequence) return;
+      const target = $('message-detail-result'); target.replaceChildren();
+      target.append(detailFields(data), resultEvidence(data));
+    } catch (error) { if (seq !== detailSequence || error.name === 'AbortError') return; $('message-detail-result').replaceChildren(); notice('message-detail-error', errorText(error)); }
   }
   function descriptors(state) {
     const advertised = state.task_kinds || state.available_tasks || state.capabilities?.tasks || (Array.isArray(state.capabilities) ? state.capabilities : null);
@@ -983,6 +1123,9 @@ SOFTWARE.
     pollTimer = setInterval(() => { if (model.online && !document.hidden) { loadTasks().catch((error) => notice('global-error', `任务同步失败：${errorText(error)}`)); if ($('task-detail-dialog').open) loadDetail(); } }, 10000);
   }
   function clearRecords() {
+    queryController?.abort(); detailController?.abort(); ++querySequence; ++detailSequence;
+    queryLastParams = null; detailMessage = null;
+    $('query-results').replaceChildren(); $('message-detail-result').replaceChildren();
     closeNotifications(); resetInlineImages();
     closeImages();
     capabilitiesDirty = false; directoriesDirty = false; ++directorySeq; ++directoryRevision; notice('monitor-warning');
@@ -1000,6 +1143,28 @@ SOFTWARE.
   }
   initNotificationSettings(); initInlinePreview();
   document.querySelectorAll('[data-icon]').forEach((node) => node.append(icon(node.dataset.icon)));
+  const historyFilters = el('details', 'history-query');
+  historyFilters.append(el('summary', '', '记录范围'));
+  const historyForm = el('form', 'query-fields');
+  for (const [key, title] of [['since', '开始时间'], ['until', '结束时间']]) {
+    const label = el('label', '', title), input = el('input'); input.type = 'datetime-local'; input.id = `history-${key}`; label.append(input); historyForm.append(label);
+  }
+  const typesLabel = el('label', '', '消息类型'), typesSelect = el('select'); typesSelect.id = 'history-types'; typesSelect.multiple = true; typesSelect.size = 3;
+  for (const [key, title] of [['text', '文字'], ['image', '图片'], ['voice', '语音'], ['video', '视频'], ['sticker', '表情'], ['location', '位置'], ['link', '应用消息（含链接、文件）'], ['call', '通话事件'], ['system', '系统']]) { const option = el('option', '', title); option.value = key; typesSelect.append(option); }
+  typesLabel.append(typesSelect); historyForm.append(typesLabel);
+  const oldestLabel = el('label', 'check', '从旧到新'), oldest = el('input'); oldest.type = 'checkbox'; oldest.id = 'history-oldest'; oldestLabel.prepend(oldest); historyForm.append(oldestLabel);
+  const applyHistory = el('button', 'primary', '应用筛选'); applyHistory.type = 'submit'; historyForm.append(applyHistory);
+  historyForm.addEventListener('submit', event => { event.preventDefault(); model.offset = 0; loadHistory(); }); historyFilters.append(historyForm);
+  document.querySelector('.message-filters').after(historyFilters);
+  $('query-open').addEventListener('click', () => { queryFields(); $('query-dialog').showModal(); });
+  $('query-kind').addEventListener('change', queryFields);
+  $('query-form').addEventListener('submit', event => { event.preventDefault(); runQuery(); });
+  $('query-previous').addEventListener('click', () => { queryOffset = Math.max(0, queryOffset - Number(new URLSearchParams(queryLastParams).get('limit'))); runQuery(true); });
+  $('query-next').addEventListener('click', () => { queryOffset += Number(new URLSearchParams(queryLastParams).get('limit')); runQuery(true); });
+  $('query-dialog').addEventListener('close', () => { queryController?.abort(); ++querySequence; });
+  $('message-detail-form').addEventListener('submit', loadMessageDetail);
+  $('message-detail-kind').addEventListener('change', () => { $('message-item-field').hidden = $('message-detail-kind').value !== 'record-item'; });
+  $('message-detail-dialog').addEventListener('close', () => { detailController?.abort(); ++detailSequence; detailMessage = null; });
   document.querySelectorAll('[data-close]').forEach((node) => node.addEventListener('click', () => $(node.dataset.close).close()));
   $('task-dialog').addEventListener('close', () => { ++formGeneration; });
   $('task-detail-dialog').addEventListener('close', () => { model.detailId = null; ++model.detailSeq; });

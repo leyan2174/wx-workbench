@@ -5,6 +5,8 @@ mod automatic_image;
 mod preview;
 #[path = "web_service/query.rs"]
 mod query;
+#[path = "web_service/read_queries.rs"]
+mod read_queries;
 #[cfg(test)]
 #[path = "web_service/tests.rs"]
 mod tests;
@@ -122,6 +124,12 @@ impl WebService {
             ));
         }
         self.execute(call).await.map_err(|error| {
+            if error.is::<crate::service::web::QueryAmbiguity>() {
+                return crate::service::protocol::ServiceError::new(
+                    crate::service::web::QUERY_AMBIGUOUS_CODE,
+                    crate::service::web::QUERY_AMBIGUOUS_MESSAGE,
+                );
+            }
             if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
                 crate::service::protocol::ServiceError::new(
                     failure.service_code(),
@@ -162,30 +170,6 @@ impl WebService {
             } => {
                 validate_page(&chat, limit, offset, 1000)?;
                 preview::list(self, chat, limit, offset, since).await
-            }
-            Call::History {
-                chat,
-                limit,
-                offset,
-                since,
-            } => {
-                validate_page(&chat, limit, offset, 2000)?;
-                query::request(
-                    self,
-                    Request::History {
-                        chat,
-                        limit,
-                        offset,
-                        since,
-                        until: None,
-                        msg_type: None,
-                        msg_types: None,
-                        oldest_first: false,
-                        with_meta: false,
-                        debug_source: false,
-                    },
-                )
-                .await
             }
             Call::Tags { name } => {
                 ensure!(
@@ -266,6 +250,7 @@ impl WebService {
                     .collect();
                 Ok(json!({"messages": messages, "scope": "launch_monitor"}))
             }
+            call => query::request(self, read_queries::request(call)?).await,
         }
     }
 

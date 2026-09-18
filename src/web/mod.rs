@@ -5,6 +5,7 @@ mod automatic_image;
 mod automatic_image_runtime_tests;
 mod preview;
 mod query;
+mod read_queries;
 mod server_types;
 
 use crate::ipc;
@@ -39,6 +40,19 @@ type ApiResult = std::result::Result<Json<Value>, ApiError>;
 struct ApiError(StatusCode, &'static str);
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if self.0 == StatusCode::CONFLICT && self.1 == crate::service::web::QUERY_AMBIGUOUS_MESSAGE
+        {
+            return (
+                self.0,
+                Json(json!({
+                    "error": self.1,
+                    "code": crate::service::web::QUERY_AMBIGUOUS_CODE,
+                    "status": "ambiguous",
+                    "exit_code": 2,
+                })),
+            )
+                .into_response();
+        }
         (self.0, Json(json!({"error":self.1}))).into_response()
     }
 }
@@ -53,6 +67,16 @@ fn bad() -> ApiError {
 }
 
 fn query_error(error: anyhow::Error) -> ApiError {
+    if error.is::<crate::service::web::QueryAmbiguity>()
+        || error
+            .downcast_ref::<crate::service::protocol::ServiceError>()
+            .is_some_and(|error| error.code == crate::service::web::QUERY_AMBIGUOUS_CODE)
+    {
+        return ApiError(
+            StatusCode::CONFLICT,
+            crate::service::web::QUERY_AMBIGUOUS_MESSAGE,
+        );
+    }
     if let Some(failure) = error.downcast_ref::<crate::ipc::outcome::BusinessFailure>() {
         let mut public = business_error(failure.0);
         public.1 = failure.public_message();
@@ -118,6 +142,29 @@ fn query_busy_is_not_reported_as_backend_failure() {
     let error = query_error(anyhow::anyhow!("synthetic-database-detail"));
     assert_eq!(error.0, StatusCode::SERVICE_UNAVAILABLE);
     assert!(!error.1.contains("synthetic-database-detail"));
+}
+
+#[tokio::test]
+async fn query_ambiguity_http_response_preserves_409_and_legacy_code() {
+    for error in [
+        anyhow::Error::new(crate::service::web::QueryAmbiguity),
+        crate::service::protocol::ServiceError::new(
+            crate::service::web::QUERY_AMBIGUOUS_CODE,
+            "SYNTHETIC_PRIVATE_XML_OR_PATH",
+        )
+        .into(),
+    ] {
+        let response = query_error(error).into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["code"], "query_ambiguous");
+        assert_eq!(value["status"], "ambiguous");
+        assert_eq!(value["exit_code"], 2);
+        assert!(!String::from_utf8_lossy(&bytes).contains("SYNTHETIC_PRIVATE"));
+    }
 }
 
 fn backend_error(error: anyhow::Error) -> ApiError {
@@ -374,46 +421,6 @@ async fn sessions(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiR
     .map(Json)
     .map_err(query_error)
 }
-async fn history(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
-    let Query(filter) = filter.map_err(|_| bad())?;
-    filter.validate()?;
-    if let Some(chat) = filter.chat.filter(|s| !s.is_empty()) {
-        return query::request(
-            &state,
-            ipc::Request::History {
-                chat,
-                limit: filter.limit,
-                offset: filter.offset,
-                since: filter.since,
-                until: None,
-                msg_type: None,
-                msg_types: None,
-                oldest_first: false,
-                with_meta: false,
-                debug_source: false,
-            },
-        )
-        .await
-        .map(Json)
-        .map_err(query_error);
-    }
-    let session = state.records.lock().unwrap().monitor_session.clone();
-    let Some(session) = session else {
-        return Ok(Json(json!({"messages":[],"scope":"launch_monitor"})));
-    };
-    query::web(
-        &state,
-        crate::service::web::Call::MonitorHistory {
-            session,
-            limit: filter.limit,
-            offset: filter.offset,
-            since: filter.since,
-        },
-    )
-    .await
-    .map(Json)
-    .map_err(query_error)
-}
 async fn tags(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiResult {
     let Query(filter) = filter.map_err(|_| bad())?;
     filter.validate()?;
@@ -643,7 +650,31 @@ fn router(state: Arc<Shared>) -> Router {
         .route("/api/state", get(state_handler))
         .route("/api/contacts", get(contacts))
         .route("/api/sessions", get(sessions))
-        .route("/api/history", get(history))
+        .route("/api/history", get(read_queries::history))
+        .route("/api/search", get(read_queries::search))
+        .route("/api/unread", get(read_queries::unread))
+        .route("/api/members", get(read_queries::members))
+        .route("/api/stats", get(read_queries::stats))
+        .route("/api/favorites", get(read_queries::favorites))
+        .route("/api/articles", get(read_queries::articles))
+        .route("/api/sns-feed", get(read_queries::sns_feed))
+        .route("/api/sns-search", get(read_queries::sns_search))
+        .route(
+            "/api/sns-notifications",
+            get(read_queries::sns_notifications),
+        )
+        .route("/api/voice-messages", get(read_queries::voice_messages))
+        .route("/api/decode-transfer", get(read_queries::decode_transfer))
+        .route("/api/decode-location", get(read_queries::decode_location))
+        .route("/api/decode-refer", get(read_queries::decode_refer))
+        .route(
+            "/api/decode-file-message",
+            get(read_queries::decode_file_message),
+        )
+        .route(
+            "/api/decode-record-item",
+            get(read_queries::decode_record_item),
+        )
         .route("/api/tags", get(tags))
         .route("/api/tag-members", get(tag_members))
         .route("/api/images", get(images))
@@ -899,6 +930,7 @@ mod tests {
                         "Service request conflicts with current state",
                     )),
                     Call::Shutdown {} => panic!("Web must never stop the daemon"),
+                    Call::Web { request } => Ok(json!({"web_call": request})),
                     _ => Err(ServiceError::new(
                         "invalid_request",
                         "Unsupported fixture request",
@@ -1130,6 +1162,7 @@ mod tests {
     }
 
     async fn http_checks(state: Arc<Shared>) -> Result<()> {
+        read_queries::tests::check_http(&state).await?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())

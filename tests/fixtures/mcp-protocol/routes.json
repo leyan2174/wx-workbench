@@ -192,5 +192,133 @@
       "local_id": 7,
       "create_time": 0
     }
+  },
+  {
+    "name": "get_unread_messages",
+    "arguments": {
+      "limit": 7,
+      "filter": [
+        "private",
+        "group"
+      ],
+      "with_meta": true
+    },
+    "ipc": {
+      "cmd": "unread",
+      "limit": 7,
+      "filter": [
+        "private",
+        "group"
+      ],
+      "with_meta": true
+    }
+  },
+  {
+    "name": "get_chat_members",
+    "arguments": {
+      "chat_name": "group"
+    },
+    "ipc": {
+      "cmd": "members",
+      "chat": "group"
+    }
+  },
+  {
+    "name": "get_chat_stats",
+    "arguments": {
+      "chat_name": "peer",
+      "since": 10,
+      "until": 20,
+      "with_meta": true
+    },
+    "ipc": {
+      "cmd": "stats",
+      "since": 10,
+      "until": 20,
+      "with_meta": true,
+      "chat": "peer"
+    }
+  },
+  {
+    "name": "get_favorites",
+    "arguments": {
+      "limit": 7,
+      "fav_type": 5,
+      "query": "needle"
+    },
+    "ipc": {
+      "cmd": "favorites",
+      "limit": 7,
+      "fav_type": 5,
+      "query": "needle"
+    }
+  },
+  {
+    "name": "get_biz_articles",
+    "arguments": {
+      "limit": 7,
+      "account": "publisher",
+      "since": 10,
+      "until": 20,
+      "unread": true
+    },
+    "ipc": {
+      "cmd": "biz_articles",
+      "limit": 7,
+      "account": "publisher",
+      "since": 10,
+      "until": 20,
+      "unread": true
+    }
+  },
+  {
+    "name": "get_sns_feed",
+    "arguments": {
+      "limit": 7,
+      "user": "peer",
+      "since": 10,
+      "until": 20
+    },
+    "ipc": {
+      "cmd": "sns_feed",
+      "limit": 7,
+      "user": "peer",
+      "since": 10,
+      "until": 20
+    }
+  },
+  {
+    "name": "search_sns",
+    "arguments": {
+      "keyword": "needle",
+      "limit": 7,
+      "user": "peer",
+      "since": 10,
+      "until": 20
+    },
+    "ipc": {
+      "cmd": "sns_search",
+      "keyword": "needle",
+      "limit": 7,
+      "user": "peer",
+      "since": 10,
+      "until": 20
+    }
+  },
+  {
+    "name": "get_sns_notifications",
+    "arguments": {
+      "limit": 7,
+      "since": 10,
+      "until": 20,
+      "include_read": true
+    },
+    "ipc": {
+      "cmd": "sns_notifications",
+      "limit": 7,
+      "since": 10,
+      "until": 20,
+      "include_read": true
+    }
   }
 ]

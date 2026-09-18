@@ -235,6 +235,14 @@ impl Session {
                 | Request::Contacts(_)
                 | Request::History { .. }
                 | Request::Search { .. }
+                | Request::Unread { .. }
+                | Request::Members { .. }
+                | Request::Stats { .. }
+                | Request::Favorites { .. }
+                | Request::BizArticles { .. }
+                | Request::SnsFeed { .. }
+                | Request::SnsSearch { .. }
+                | Request::SnsNotifications { .. }
                 | Request::NewMessages { .. }
                 | Request::Attachments { .. }
                 | Request::DecodeRefer { .. }
@@ -246,6 +254,34 @@ impl Session {
                 | Request::DecodeFileMessage { .. }
                 | Request::DecodeRecordItem { .. }
                 | Request::DecodeImage { .. }
+        ) {
+            return Err(DispatchError::Unavailable);
+        }
+        // Raw source paths are host diagnostics, never authorized by model arguments.
+        if matches!(
+            request,
+            Request::Sessions {
+                debug_source: true,
+                ..
+            } | Request::History {
+                debug_source: true,
+                ..
+            } | Request::Search {
+                debug_source: true,
+                ..
+            } | Request::Unread {
+                debug_source: true,
+                ..
+            } | Request::Stats {
+                debug_source: true,
+                ..
+            } | Request::NewMessages {
+                debug_source: true,
+                ..
+            } | Request::Attachments {
+                debug_source: true,
+                ..
+            }
         ) {
             return Err(DispatchError::Unavailable);
         }
@@ -405,6 +441,30 @@ fn same_account(a: &RuntimeContext, b: &RuntimeContext) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn raw_debug_source_is_rejected_before_account_open_or_query() {
+        let (_root, runtime, call) = fixture();
+        for wire in [
+            serde_json::json!({"cmd":"sessions","debug_source":true}),
+            serde_json::json!({"cmd":"history","chat":"peer","debug_source":true}),
+            serde_json::json!({"cmd":"search","keyword":"needle","debug_source":true}),
+            serde_json::json!({"cmd":"unread","debug_source":true}),
+            serde_json::json!({"cmd":"stats","chat":"peer","debug_source":true}),
+            serde_json::json!({"cmd":"new_messages","debug_source":true}),
+            serde_json::json!({"cmd":"attachments","chat":"peer","debug_source":true}),
+        ] {
+            let mut call = call.clone();
+            call.request = Some(Box::new(serde_json::from_value(wire).unwrap()));
+            let context = CallContext::from_budget(call.budget.clone()).unwrap();
+            let mut session = Session::default();
+            let result = session.execute(call, &runtime, &context, |_, _, _| {
+                panic!("raw debug paths must not reach the query")
+            });
+            assert!(matches!(result, Err(DispatchError::Unavailable)));
+            assert!(session.pinned.is_none());
+        }
+    }
+
+    #[test]
     fn image_host_policy_is_explicit_and_does_not_create_paths() {
         let root = tempfile::tempdir().unwrap();
         let image = || Request::DecodeImage {
@@ -454,7 +514,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn fixture() -> (tempfile::TempDir, RuntimeContext, Call) {
+    pub(super) fn fixture() -> (tempfile::TempDir, RuntimeContext, Call) {
         let temp = tempfile::tempdir().unwrap();
         let config = crate::config::Config {
             key_store: None,

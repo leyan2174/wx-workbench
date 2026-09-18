@@ -190,7 +190,14 @@ pub fn verify(account: &Account, mcp: &mut Mcp) {
         assert_eq!(raw["ok"], true, "{raw}");
         assert_eq!(raw["exit_code"], code, "{raw}");
         assert!(raw.get("reference").is_none(), "{raw}");
-        crate::safe_failure(mcp.call(tool, args(id, index)), "Query failed");
+        let expected = if code == 2 {
+            assert_eq!(raw["status"], "ambiguous", "{raw}");
+            assert_eq!(raw["error_code"], "ambiguous_identity", "{raw}");
+            "Business request refused"
+        } else {
+            "Query failed"
+        };
+        crate::safe_failure(mcp.call(tool, args(id, index)), expected);
     }
     crate::safe_failure(
         mcp.call("decode_file_message", args(26, None)),

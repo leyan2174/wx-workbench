@@ -1,6 +1,9 @@
 use super::*;
 use std::io::{BufReader, Cursor};
 
+#[path = "readonly_tests.rs"]
+mod readonly_tests;
+
 #[test]
 fn contacts_use_one_strict_request_and_reject_removed_inputs() {
     let tool = tools()
@@ -175,8 +178,16 @@ fn schemas_match_real_ipc_and_reject_unimplemented_arguments() {
         "../../tests/fixtures/mcp-protocol/routes.json"
     ))
     .unwrap();
-    assert_eq!(fixtures.as_array().unwrap().len(), tools().len());
-    for case in fixtures.as_array().unwrap() {
+    let fixtures = fixtures.as_array().unwrap();
+    assert_eq!(fixtures.len(), tools().len());
+    let names: std::collections::HashSet<_> = fixtures
+        .iter()
+        .map(|case| case["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), tools().len());
+    assert_eq!(tools()[14].name, "decode_image");
+    for (tool, case) in tools().iter().zip(fixtures) {
+        assert_eq!(tool.name, case["name"].as_str().unwrap());
         let request = route(case["name"].as_str().unwrap(), &case["arguments"]).unwrap();
         assert_eq!(serde_json::to_value(request).unwrap(), case["ipc"]);
     }
@@ -208,7 +219,7 @@ fn lists_only_registered_tools_and_returns_text_content() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     )
     .unwrap();
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 15);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 23);
     assert!(list["result"].get("nextCursor").is_none());
     let r = send(&mut p, call("get_contacts", json!({}))).unwrap();
     assert_eq!(r["result"]["isError"], false);

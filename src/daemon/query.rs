@@ -1709,7 +1709,7 @@ fn resolve_sns_author(query: &str, names: &Names) -> Result<String> {
         .map(|contact| contact.id.0)
         .map_err(|error| match error {
             crate::business::contacts::Error::Ambiguous => {
-                anyhow::anyhow!("ambiguous contact name: {query}")
+                anyhow::Error::new(error).context(format!("ambiguous contact name: {query}"))
             }
             crate::business::contacts::Error::NotFound => anyhow::anyhow!("找不到联系人: {query}"),
             other => other.into(),

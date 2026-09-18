@@ -91,7 +91,7 @@ pub fn select_tag<'a>(tags: &'a ContactTags, query: &str) -> Result<&'a ContactT
 }
 fn tag_error(error: domain::Error) -> anyhow::Error {
     match error {
-        domain::Error::Ambiguous => anyhow::anyhow!("ambiguous tag name"),
+        domain::Error::Ambiguous => anyhow::Error::new(error).context("ambiguous tag name"),
         domain::Error::NotFound => anyhow::anyhow!("tag not found"),
         other => other.into(),
     }

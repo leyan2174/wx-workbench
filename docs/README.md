@@ -4,6 +4,7 @@
 
 ## 使用与执行
 
+- [当前能力矩阵](capability-matrix.md)、[CLI/MCP 查询协议](query-protocol.md)、[本地 HTTP API](http-api.md)
 - [工作流与前置条件](workflow-requirements.md)
 - [账号密钥](account-key-provider.md)、[密钥存储](key-store.md)
 - [请求契约](request-contracts.md)、[通信与导出](communication-and-export.md)

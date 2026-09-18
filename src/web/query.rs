@@ -48,7 +48,12 @@ pub async fn request(state: &Shared, request: Request) -> Result<Value> {
             limit,
             offset,
             since,
-            ..
+            until,
+            msg_type,
+            msg_types,
+            oldest_first,
+            with_meta,
+            debug_source,
         } => {
             web(
                 state,
@@ -57,6 +62,12 @@ pub async fn request(state: &Shared, request: Request) -> Result<Value> {
                     limit,
                     offset,
                     since,
+                    until,
+                    msg_type,
+                    msg_types,
+                    oldest_first,
+                    with_meta,
+                    debug_source,
                 },
             )
             .await
@@ -101,6 +112,9 @@ async fn raw(state: &Shared, request: Request, maximum: usize) -> Result<Value> 
         query_client::write_query(&mut reader, &state.runtime, request, maximum).await?;
         let bytes = framing::line(&mut reader, maximum).await?;
         let response = query_client::decode_query_response(&bytes, &state.runtime)?;
+        if response.data["status"] == "ambiguous" {
+            return Err(crate::service::web::QueryAmbiguity.into());
+        }
         response.require_success()?;
         Ok::<_, anyhow::Error>(response.data)
     })

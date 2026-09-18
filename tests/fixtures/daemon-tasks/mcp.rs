@@ -109,7 +109,7 @@ fn mcp_tasks_real_worker_shared_with_cli_web_and_retry_after_disconnect() {
     let account = fixture.account("mcp-task-owner", true);
     let mut mcp = Mcp::start(&fixture, &account, DECRYPT);
     let tools = mcp.request("tools/list", json!({}));
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 20);
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 28);
     let id = "a1".repeat(32);
     let args = json!({"idempotency_key":id,"kind":"wechat_decrypt"});
     let task = mcp.data("submit_task", args.clone());

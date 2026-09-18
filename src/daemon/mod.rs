@@ -1,4 +1,6 @@
 pub mod cache;
+#[cfg(test)]
+mod mcp_query_tests;
 pub(crate) mod mcp_rpc;
 pub(crate) mod mcp_service;
 pub mod meta;

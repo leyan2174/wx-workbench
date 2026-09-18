@@ -1,6 +1,116 @@
 use super::*;
 use crate::service::web::Failure;
 
+#[tokio::test]
+async fn structured_query_ambiguity_survives_web_rpc_without_private_details() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    for (_, wire) in crate::service::web::read_query_cases() {
+        let decode = wire["op"].as_str().unwrap().starts_with("decode_");
+        for explicit_status in [false, true] {
+            let call: Call = serde_json::from_value(wire.clone())?;
+            let check = async {
+                let (_, reply) = receive.recv().await.unwrap();
+                let mut data = json!({"exit_code":2,"text":"SYNTHETIC_PRIVATE_XML_OR_PATH"});
+                if explicit_status {
+                    data["status"] = json!("ambiguous");
+                }
+                reply.send(Response::ok(data)).unwrap();
+            };
+            let (result, ()) = tokio::join!(state.handle(call), check);
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.code,
+                if decode || explicit_status {
+                    crate::service::web::QUERY_AMBIGUOUS_CODE
+                } else {
+                    "business_failed"
+                }
+            );
+            assert!(!error.message.contains("SYNTHETIC_PRIVATE"));
+        }
+    }
+    Ok(())
+}
+
+// These exercise the production WebService dispatch with an observable query
+// boundary, not a claim that a synthetic reply is a real database result.
+#[tokio::test]
+async fn read_routes_dispatch_every_parameter_and_preserve_business_data() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    for (path, wire) in crate::service::web::read_query_cases() {
+        let call: Call = serde_json::from_value(wire.clone())?;
+        let mut expected = wire;
+        let op = expected.as_object_mut().unwrap().remove("op").unwrap();
+        expected["cmd"] = op;
+        let expected: Request = serde_json::from_value(expected)?;
+        let expected = serde_json::to_value(expected)?;
+        let payload = json!({"partial":true,"has_more":true,"issues":["synthetic"],
+            "meta":{"coverage_proven":false},"fixture_path":path});
+        let check = async {
+            let (request, reply) = receive.recv().await.unwrap();
+            assert_eq!(serde_json::to_value(request).unwrap(), expected, "{path}");
+            reply.send(Response::ok(payload.clone())).unwrap();
+        };
+        let (result, ()) = tokio::join!(state.handle(call), check);
+        assert_eq!(result?, payload, "{path}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_routes_preserve_business_failure_and_partial_classification() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    for (_, wire) in crate::service::web::read_query_cases() {
+        for (status, code) in [
+            ("refused", "business_refused"),
+            ("partial", "business_partial"),
+            ("error", "business_failed"),
+        ] {
+            let call: Call = serde_json::from_value(wire.clone())?;
+            let check = async {
+                let (_, reply) = receive.recv().await.unwrap();
+                reply
+                    .send(Response::ok(
+                        json!({"status":status,"text":"SYNTHETIC_PRIVATE_DETAIL"}),
+                    ))
+                    .unwrap();
+            };
+            let (result, ()) = tokio::join!(state.handle(call), check);
+            let error = result.unwrap_err();
+            assert_eq!(error.code, code);
+            assert!(!error.message.contains("SYNTHETIC_PRIVATE_DETAIL"));
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_route_invalid_calls_never_reach_query_dispatch() -> Result<()> {
+    let (_root, state) = fixture()?;
+    let (send, mut receive) = tokio::sync::mpsc::channel(1);
+    *state.query_fixture.lock().unwrap() = Some(send);
+    for (_, mut wire) in crate::service::web::read_query_cases() {
+        let key = if wire.get("create_time").is_some() {
+            "create_time"
+        } else if wire.get("limit").is_some() {
+            "limit"
+        } else {
+            "chat"
+        };
+        wire[key] = if key == "chat" { json!("") } else { json!(0) };
+        let call: Call = serde_json::from_value(wire)?;
+        assert!(state.handle(call).await.is_err());
+        assert!(receive.try_recv().is_err());
+    }
+    Ok(())
+}
+
 fn fixture() -> Result<(tempfile::TempDir, Arc<WebService>)> {
     let root = tempfile::tempdir()?;
     let config_path = root.path().join("config.json");

@@ -25,6 +25,14 @@ pub(super) fn is_busy(error: &anyhow::Error) -> bool {
 
 pub async fn request(state: &Shared, request: Request) -> Result<Value> {
     let decorate_history = matches!(&request, Request::History { .. });
+    let structured_decode = matches!(
+        &request,
+        Request::DecodeTransfer { .. }
+            | Request::DecodeLocation { .. }
+            | Request::DecodeRefer { .. }
+            | Request::DecodeFileMessage { .. }
+            | Request::DecodeRecordItem { .. }
+    );
     // 调用受 32 个 calls 许可约束；取消后继续的图片任务另受 2 个 decodes 许可约束。
     // 加上单实例监控，等待人数有界；超时或取消只撤销排队，不发送或重放请求。
     let _permit = tokio::time::timeout(
@@ -50,6 +58,13 @@ pub async fn request(state: &Shared, request: Request) -> Result<Value> {
     };
     #[cfg(not(test))]
     let response = dispatch_host_request(state, request).await;
+    // Only structured decoders define legacy exit code 2 as identity ambiguity.
+    // Never infer identity conflicts from arbitrary backend error text.
+    if response.data["status"] == "ambiguous"
+        || (structured_decode && response.data["exit_code"] == 2)
+    {
+        return Err(crate::service::web::QueryAmbiguity.into());
+    }
     response.require_success()?;
     let mut data = response.data;
     if decorate_history {

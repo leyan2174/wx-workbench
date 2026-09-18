@@ -8,7 +8,7 @@ mod support;
 use serde_json::{json, Value};
 use support::{Account, Mcp};
 
-const TOOLS: [&str; 15] = [
+const TOOLS: [&str; 23] = [
     "get_recent_sessions",
     "get_contacts",
     "get_chat_history",
@@ -24,6 +24,14 @@ const TOOLS: [&str; 15] = [
     "decode_file_message",
     "decode_record_item",
     "decode_image",
+    "get_unread_messages",
+    "get_chat_members",
+    "get_chat_stats",
+    "get_favorites",
+    "get_biz_articles",
+    "get_sns_feed",
+    "search_sns",
+    "get_sns_notifications",
 ];
 const REMOVED_VOICE_TOOLS: [&str; 2] = ["decode_voice", "transcribe_voice"];
 
@@ -68,6 +76,7 @@ fn contacts_share_the_native_contract_and_reject_old_arguments_across_accounts()
     }
 }
 
+#[track_caller]
 fn safe_failure(reply: Value, expected: &str) {
     assert_eq!(
         reply["result"],
@@ -151,6 +160,13 @@ fn six_readonly_tools_use_real_encrypted_accounts_and_reject_missing_voice_argum
             .map(|tool| tool["name"].as_str().unwrap())
             .collect();
         let mut expected = TOOLS.to_vec();
+        assert_eq!(names, TOOLS, "tool discovery order changed");
+        for tool in &list["result"]["tools"].as_array().unwrap()[15..] {
+            assert_eq!(tool["annotations"]["readOnlyHint"], true);
+            assert_eq!(tool["annotations"]["destructiveHint"], false);
+            assert_eq!(tool["annotations"]["openWorldHint"], false);
+            assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        }
         names.sort();
         expected.sort();
         assert_eq!(names, expected);
@@ -181,7 +197,7 @@ fn six_readonly_tools_use_real_encrypted_accounts_and_reject_missing_voice_argum
         assert!(ambiguous.get("refer").is_none());
         safe_failure(
             mcp.call("decode_refer", json!({"chat_name":"peer","local_id":8})),
-            "Query failed",
+            "Business request refused",
         );
         // 时间筛选后两条都能恢复成功，避免用损坏库伪造歧义通过。
         refer(mcp, account.marker, 8, 200);

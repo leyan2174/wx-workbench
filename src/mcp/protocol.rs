@@ -227,6 +227,14 @@ impl Tool {
                 | "contacts"
                 | "history"
                 | "search"
+                | "unread"
+                | "members"
+                | "stats"
+                | "favorites"
+                | "biz_articles"
+                | "sns_feed"
+                | "sns_search"
+                | "sns_notifications"
                 | "decode_transfer"
                 | "decode_location"
                 | "attachments"
@@ -322,8 +330,75 @@ pub fn tools() -> Vec<Tool> {
             "create_time":{"type":"integer","minimum":0,"maximum":i64::MAX,"default":0}
         },"required":["chat_name","local_id"],"additionalProperties":false}),
     });
+    // Append new tools so existing discovery order (including decode_image) stays stable.
+    for (name, description, command, properties, required) in [
+        (
+            "get_unread_messages",
+            "List unread session summaries, optionally filtered by contact kind; does not mark messages read",
+            "unread",
+            json!({"limit":limit,"filter":{"type":"array","items":{"type":"string","enum":["private","group","official","official_account","folded","fold","all"]},"maxItems":100},"with_meta":{"type":"boolean"}}),
+            vec![],
+        ),
+        (
+            "get_chat_members",
+            "Read group members; membership_complete and membership_source distinguish directory coverage from observed senders",
+            "members",
+            json!({"chat_name":string()}),
+            vec!["chat_name"],
+        ),
+        (
+            "get_chat_stats",
+            "Read account-scoped chat statistics, with optional Unix-second time bounds and source metadata",
+            "stats",
+            json!({"chat_name":string(),"since":time,"until":time,"with_meta":{"type":"boolean"}}),
+            vec!["chat_name"],
+        ),
+        (
+            "get_favorites",
+            "Read local favorites by numeric type and text query; preserves has_more, does not download attachments",
+            "favorites",
+            json!({"limit":limit,"fav_type":integer(0,i64::MAX),"query":string()}),
+            vec![],
+        ),
+        (
+            "get_biz_articles",
+            "Read local official-account pushes by account display name and receipt time (Unix seconds); unread selects the latest article per unread publisher, not article read status",
+            "biz_articles",
+            json!({"limit":limit,"account":string(),"since":time,"until":time,"unread":{"type":"boolean"}}),
+            vec![],
+        ),
+        (
+            "get_sns_feed",
+            "Read the local Moments feed by author and Unix-second time bounds; preserves local-cache coverage and scan truncation, no network access",
+            "sns_feed",
+            json!({"limit":limit,"user":string(),"since":time,"until":time}),
+            vec![],
+        ),
+        (
+            "search_sns",
+            "Search local Moments text by keyword, author and Unix-second time bounds; preserves scan coverage and truncation, no network access",
+            "sns_search",
+            json!({"keyword":string(),"limit":limit,"user":string(),"since":time,"until":time}),
+            vec!["keyword"],
+        ),
+        (
+            "get_sns_notifications",
+            "Read local Moments interactions; unread only by default, include_read includes read notifications without changing their state",
+            "sns_notifications",
+            json!({"limit":limit,"since":time,"until":time,"include_read":{"type":"boolean"}}),
+            vec![],
+        ),
+    ] {
+        out.push(Tool { name, description, command, input_schema: json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}) });
+    }
     for tool in &mut out {
         let properties = tool.input_schema["properties"].as_object_mut().unwrap();
+        if matches!(tool.name, "get_chat_history" | "search_messages") {
+            properties.insert(
+                "with_meta".into(),
+                json!({"type":"boolean","default":false}),
+            );
+        }
         if tool.name == "get_chat_history" {
             properties.insert("oldest_first".into(), json!({"type":"boolean","default":false,"description":"在全部分片过滤合并后选择最早页；默认选择最新页"}));
             properties.insert("msg_types".into(), json!({"anyOf":[{"type":"null"},{"type":"array","items":string(),"maxItems":100}],"description":"空列表表示全部；多个类型按并集筛选，与 msg_type 互斥"}));
@@ -379,7 +454,7 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
             return Err("Invalid or unknown argument");
         }
     }
-    for key in ["chat_name", "keyword"] {
+    for key in ["chat_name", "keyword", "account", "user"] {
         if args
             .get(key)
             .and_then(Value::as_str)
@@ -387,6 +462,17 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
         {
             return Err("Empty query target");
         }
+    }
+    if args
+        .get("chats")
+        .and_then(Value::as_array)
+        .is_some_and(|chats| {
+            chats
+                .iter()
+                .any(|chat| chat.as_str().is_some_and(|s| s.trim().is_empty()))
+        })
+    {
+        return Err("Empty query target");
     }
     let mut mapped = args.clone();
     if let (Some(since), Some(until)) = (

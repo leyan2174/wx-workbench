@@ -33,9 +33,17 @@ wx history $chat -n 50 --json
 wx search '测试关键词' --in $chat -n 20 --json
 wx members $chat --json
 wx stats $chat --json
+wx tags --json
+wx tag-members '测试标签' --json
+wx voice-messages $chat -n 20 --json
+wx decode-refer $chat 123 1700000000 --json
+wx decode-file-message $chat 123 1700000000 --json
+wx decode-record-item $chat 123 0 1700000000 --json
 ```
 
 限制数量与时间。区分空结果、超时、账号错误和资源缺失；只读重试也要保留前一次失败。不要在未检查副作用时重试发布或覆盖。
+
+CLI 的日期是本地时间，结束日期包含整天；MCP/HTTP 时间参数是 Unix 秒。CLI 详情时间戳默认 `0` 表示不按时间筛选，不保证唯一；HTTP 详情必须使用返回消息的正数时间戳与 local_id，不猜测身份。`link`/`file` 都是宽泛应用消息过滤，不能据此宣称精确分类。参数和分页差异见[查询协议](docs/query-protocol.md)。
 
 监控使用 `wx monitor`，参数以 `--help` 为准。增量状态须完整保留，不截断会话或拆成多次查询；超出 8 MiB 或 100000 个会话时记录限额错误。查询传输层只连接现有 daemon，CLI 外层仍使用前台操作的生命周期。认证分块的未测量计时项为 `null`，不当作 0 ms。详见[监控入口](docs/daemon-entrypoints.md#监控与增量状态)。
 
@@ -51,9 +59,11 @@ provider 和 DPAPI 规则见[账号密钥](docs/account-key-provider.md)。强�
 
 ## MCP 与 Web
 
-`wx mcp` 提供逐行 JSON-RPC，必须显式指定配置。工具参数不能选择账号或输出根。注册工具不等于所有媒体条件均已满足。详见[协议](src/mcp/PROTOCOL.md)。
+`wx mcp` 提供逐行 JSON-RPC，必须显式指定配置。默认 23 项工具包括 `get_chat_stats` 等只读查询；任务工具须宿主另行授权。工具参数不能选择账号或输出根，也不接受 `debug_source`。注册工具不等于所有媒体条件均已满足。当前工具见[查询协议](docs/query-protocol.md)，会话和媒体授权见[宿主协议](src/mcp/PROTOCOL.md)。
 
 `wx web` 启动本地界面，不暴露到不可信网络。只停止本任务创建且身份可验证的 daemon；不按进程名清理其他账号或用户应用。
+
+Web 已接资料查询、聊天记录范围和消息详情；本页筛选不代表全库搜索。HTTP 使用固定账号、严格参数和错误投影，参见[HTTP API](docs/http-api.md)。入口覆盖见[能力矩阵](docs/capability-matrix.md)；没有浏览器操作证据时，不写“Web 已验证”。后台任务只覆盖已注册的业务子集，不能代替其他导出、治理或增量能力。
 
 ## 结果与验证
 
