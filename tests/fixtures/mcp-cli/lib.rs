@@ -10,6 +10,9 @@ pub mod cli_mcp;
 pub mod local_files;
 #[path = "../../../src/cli/mcp_tasks.rs"]
 pub mod mcp_tasks;
+mod tasks {
+    include!(concat!(env!("OUT_DIR"), "/cli_task_validation.rs"));
+}
 pub mod attachment {
     pub use crate::local_files;
 }
@@ -19,6 +22,9 @@ pub mod private_file;
 pub use service::query_client as transport;
 #[allow(dead_code)]
 pub mod service {
+    pub mod task_artifacts {
+        include!(concat!(env!("OUT_DIR"), "/service_task_artifacts.rs"));
+    }
     pub mod query_client {
         include!(concat!(env!("OUT_DIR"), "/service_query_client.rs"));
     }

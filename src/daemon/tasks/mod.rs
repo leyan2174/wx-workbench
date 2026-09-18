@@ -1,4 +1,6 @@
 //! Account-scoped task ownership. Frontends submit typed capabilities, never commands.
+mod artifact_file;
+pub(crate) mod artifacts;
 pub(crate) mod process;
 mod store;
 #[cfg(test)]
@@ -21,7 +23,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
 };
-use tokio::sync::{mpsc, watch, Notify};
+use tokio::sync::{mpsc, watch, Notify, Semaphore};
 
 pub const HISTORY_LIMIT: usize = 100;
 pub const LOG_LIMIT: usize = 256;
@@ -39,6 +41,7 @@ pub struct Service {
     pub(super) shutdown: watch::Sender<bool>,
     changed: Notify,
     pub(super) redactor: Mutex<store::Redactor>,
+    artifact_reads: Arc<Semaphore>,
 }
 
 pub(super) struct Binding {
@@ -96,6 +99,7 @@ impl Service {
             shutdown,
             changed: Notify::new(),
             redactor: Mutex::new(redactor),
+            artifact_reads: Arc::new(Semaphore::new(2)),
             records: Mutex::new(Records {
                 tasks,
                 requests,
@@ -148,6 +152,7 @@ impl Service {
             "settings":records.binding.as_ref().map(|binding| &binding.settings),
             "config_fingerprint":records.binding.as_ref().map(|binding| &binding.fingerprint),
             "history_persisted":records.journal_ok,
+            "capabilities":{"task_artifacts_v1":true},
             "running":records.tasks.iter().filter(|task| !task.terminal()).count(),
             "cursor":records.next_event - 1,
             "limits":{"queue":QUEUE_LIMIT,"history":HISTORY_LIMIT,"logs_per_task":LOG_LIMIT}})
@@ -164,7 +169,12 @@ impl Service {
         if *self.shutdown.borrow()
             && !matches!(
                 &call,
-                Call::Info {} | Call::List {} | Call::Get { .. } | Call::Shutdown {}
+                Call::Info {}
+                    | Call::List {}
+                    | Call::Get { .. }
+                    | Call::Shutdown {}
+                    | Call::TaskArtifacts { .. }
+                    | Call::ReadTaskArtifact { .. }
             )
         {
             return Err(failure("stopping", "后台正在关闭，不接受新操作"));
@@ -231,6 +241,9 @@ impl Service {
                 serde_json::to_value(task).map_err(|_| failure("serialization", "任务响应不可用"))
             }
             Call::Cancel { id } => self.cancel(&id),
+            call @ (Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }) => {
+                self.artifact_call(call).await
+            }
             Call::Events {
                 after,
                 limit,
@@ -260,6 +273,98 @@ impl Service {
                 Ok(json!({"stopping":true}))
             }
         }
+    }
+
+    async fn artifact_call(
+        self: &Arc<Self>,
+        call: Call,
+    ) -> std::result::Result<Value, ServiceError> {
+        let id = match &call {
+            Call::TaskArtifacts { id, limit, .. }
+                if (1..=crate::service::task_artifacts::MAX_LIST_ITEMS).contains(limit) =>
+            {
+                id
+            }
+            Call::ReadTaskArtifact {
+                id,
+                artifact_id,
+                max_bytes,
+                ..
+            } if valid_id(artifact_id)
+                && (1..=crate::service::task_artifacts::CHUNK_BYTES).contains(max_bytes) =>
+            {
+                id
+            }
+            _ => return Err(artifact_file::error("invalid_artifact_request")),
+        };
+        if !valid_id(id) {
+            return Err(artifact_file::error("invalid_artifact_request"));
+        }
+        let (task, fingerprint) = {
+            let records = self.records.lock().unwrap();
+            let task = records
+                .tasks
+                .iter()
+                .find(|task| task.id == *id)
+                .ok_or_else(|| failure("not_found", "Task not found for this account"))?;
+            if !task.terminal() {
+                return Err(failure("task_not_terminal", "Task has not finished"));
+            }
+            if task.result.is_none() {
+                return Err(artifact_file::error("result_unavailable"));
+            }
+            let fingerprint = records
+                .binding
+                .as_ref()
+                .map(|binding| binding.fingerprint.clone());
+            (task.clone(), fingerprint)
+        };
+        let permit = self
+            .artifact_reads
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| failure("artifact_busy", "Artifact read capacity exhausted"))?;
+        let state = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let pin = ConfigPin::new(&state.runtime)
+                .map_err(|_| failure("configuration_changed", "Account configuration changed"))?;
+            if let Some(fingerprint) = fingerprint {
+                if pin.fingerprint().map_err(|_| {
+                    failure("configuration_changed", "Account configuration changed")
+                })? != fingerprint
+                {
+                    return Err(failure(
+                        "configuration_changed",
+                        "Account configuration changed",
+                    ));
+                }
+            }
+            let value = match call {
+                Call::TaskArtifacts { offset, limit, .. } => {
+                    serde_json::to_value(artifacts::list(&state.runtime, &task, offset, limit)?)
+                }
+                Call::ReadTaskArtifact {
+                    artifact_id,
+                    offset,
+                    max_bytes,
+                    ..
+                } => serde_json::to_value(artifacts::read(
+                    &state.runtime,
+                    &task,
+                    &artifact_id,
+                    offset,
+                    max_bytes,
+                )?),
+                _ => unreachable!(),
+            }
+            .map_err(|_| artifact_file::error("result_unavailable"))?;
+            pin.verify(&state.runtime)
+                .map_err(|_| failure("configuration_changed", "Account configuration changed"))?;
+            Ok(value)
+        })
+        .await
+        .map_err(|_| artifact_file::error("result_unavailable"))?
     }
 
     fn submit(&self, id: String, request: Submission) -> std::result::Result<Value, ServiceError> {
@@ -336,6 +441,7 @@ impl Service {
                 .join(&self.runtime.id)
                 .join(&id),
             error: None,
+            result: None,
         };
         let (cancel, receiver) = watch::channel(false);
         records.tasks.push_back(task.clone());

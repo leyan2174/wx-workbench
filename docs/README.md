@@ -8,7 +8,7 @@
 - [工作流与前置条件](workflow-requirements.md)
 - [账号密钥](account-key-provider.md)、[密钥存储](key-store.md)
 - [请求契约](request-contracts.md)、[通信与导出](communication-and-export.md)
-- [daemon 入口](daemon-entrypoints.md)、[后台任务](daemon-tasks.md)、[业务结果与进程管理](business-and-process.md)
+- [daemon 入口](daemon-entrypoints.md)、[后台任务](daemon-tasks.md)、[任务产物](task-artifacts.md)、[业务结果与进程管理](business-and-process.md)
 - [名称与运行约定](project-naming.md)
 
 ## 架构与业务

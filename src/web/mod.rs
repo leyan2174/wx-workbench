@@ -1,5 +1,6 @@
 //! 使用 axum 提供 Web HTTP 接口，并内嵌 HTML、JavaScript 和 CSS 资源。
 //! 任务提交与取消通过服务客户端转交 daemon，Web 维护用于展示的任务状态。
+mod artifacts;
 mod automatic_image;
 #[cfg(test)]
 mod automatic_image_runtime_tests;
@@ -230,7 +231,9 @@ async fn security(State(state): State<Arc<Shared>>, request: Request, next: Next
                     .and_then(|v| v.strip_prefix("Bearer "))
             })
             .unwrap_or_default();
-        if !token_equal(auth, &state.token) {
+        if !token_equal(auth, &state.token)
+            && !artifacts::authorized(&state, request.method(), request.uri())
+        {
             return ApiError(StatusCode::UNAUTHORIZED, "需要本次启动令牌").into_response();
         }
     }
@@ -290,7 +293,7 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     Ok(Json(
         json!({"api_version":1,"engine":"rust","runtime_id":state.runtime.id,
         "gui_mode":"browser","task_kinds":tasks::capabilities(),
-        "limits":limits,
+        "limits":limits,"capabilities":info["capabilities"],
         "history_persisted":info["history_persisted"],"running":info["running"],
         "sources":["wechat"],
         "image_preview":{"enabled":true,"readonly":true,"max_bytes":16777216,"requires_decoded_cache":true},
@@ -681,6 +684,15 @@ fn router(state: Arc<Shared>) -> Router {
         .route("/api/images/{id}", get(image))
         .route("/api/images/{id}/decode", post(automatic_image_decode))
         .route("/api/tasks", get(list_tasks).post(submit))
+        .route(
+            "/api/tasks/{id}/artifacts/{artifact_id}/ticket",
+            post(artifacts::ticket),
+        )
+        .route("/api/tasks/{id}/artifacts", get(artifacts::list))
+        .route(
+            "/api/tasks/{id}/artifacts/{artifact_id}/download",
+            get(artifacts::download),
+        )
         .route("/api/tasks/{id}", get(task))
         .route("/api/tasks/{id}/cancel", post(cancel))
         .route("/api/events", get(events_handler))

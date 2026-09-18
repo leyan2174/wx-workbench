@@ -24,7 +24,7 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     ];
     let mut types = vec!["Call", "Envelope", "Reply", "ServiceError"];
     if tasks {
-        calls.extend(["Configure", "Submit", "List", "Get", "Cancel", "Events"]);
+        calls.extend(["Configure", "Submit", "List", "Get", "Cancel", "Events", "TaskArtifacts", "ReadTaskArtifact"]);
         types.extend(["Kind", "Format", "Options", "Submission"]);
     }
     let source = root.join("../../../src/service/protocol.rs");
@@ -37,7 +37,7 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
         syn::Item::Struct(value) => types.iter().any(|name| value.ident == name),
         syn::Item::Impl(value) => matches!(value.self_ty.as_ref(), syn::Type::Path(path)
             if types.iter().any(|name| path.path.is_ident(name))),
-        syn::Item::Fn(value) => tasks && ["valid_task_id", "parse_task_kind"].iter().any(|name| value.sig.ident == name),
+        syn::Item::Fn(value) => tasks && ["valid_task_id", "parse_task_kind", "is_false"].iter().any(|name| value.sig.ident == name),
         _ => false,
     });
     for item in &mut ast.items {
@@ -74,7 +74,18 @@ fn generate_transport(root: &Path, out: &Path, tasks: bool) {
     generate_database_worker_keys(root, out);
     let mut modules = vec!["client", "transport", "query_client"];
     if tasks {
-        modules.extend(["config_pin", "plan", "settings"]);
+        modules.extend(["config_pin", "plan", "settings", "task_artifacts"]);
+        let source = root.join("../../../src/cli/tasks.rs");
+        println!("cargo:rerun-if-changed={}", source.display());
+        let mut ast = syn::parse_file(&fs::read_to_string(source).unwrap()).unwrap();
+        ast.attrs.clear();
+        ast.items.retain(|item| matches!(item, syn::Item::Fn(value)
+            if ["validate_export_options", "supports_artifacts"].iter().any(|name| value.sig.ident == name)));
+        assert_eq!(ast.items.len(), 2, "Production task validation helpers changed");
+        ast.items.insert(0, syn::parse_quote!(use anyhow::{ensure, Result};));
+        ast.items.insert(1, syn::parse_quote!(use serde_json::Value;));
+        ast.items.insert(2, syn::parse_quote!(use crate::service::protocol::{Kind, Submission};));
+        fs::write(out.join("cli_task_validation.rs"), prettyplease::unparse(&ast)).unwrap();
     }
     for name in modules {
         let source = root.join(format!("../../../src/service/{name}.rs"));

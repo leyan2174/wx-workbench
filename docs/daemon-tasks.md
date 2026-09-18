@@ -18,6 +18,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 
 启用 `--tasks` 后增加 `list_tasks`、`get_task`、`cancel_task`、`get_task_events`。只有存在可提交的授权类型时才增加 `submit_task`；类型枚举由共享 `service::plan::capabilities()` 与宿主授权取交集，未实现的类型不会出现。任务类型使用下划线，参数形状及选项约束沿用共享 `Submission` / `Options` 和 `plan::validate`，拒绝未知字段、任意命令、可执行程序、后端及输出路径。
 
+读取聊天导出文件另需宿主启用 `--task-allow-artifact-read`，才增加 `list_task_artifacts` 和 `read_task_artifact`。任务管理权限不自动授予文件内容读取权限。导出 dry-run、媒体预算、结构化结果及分块交付见[任务产物](task-artifacts.md)。
+
 初始化 MCP 后，`tools/call` 示例：
 
 ```json
@@ -42,6 +44,8 @@ wx mcp --tasks --task-kind export_all --task-allow-media-write
 ### 生命周期与调用链
 
 `MCP tools/call → cli::mcp_tasks → service::client::{wait_ready,request_with_timeout} → Call::{Configure,Submit,List,Get,Cancel,Events} → daemon::tasks → daemon::operations::task_worker`。后台启动仍调用已有 `ensure_running_quiet`；认证、进程身份、请求/回复上限和超时均走现有 service transport。
+
+产物列举和读取使用同一客户端的 `Call::{TaskArtifacts,ReadTaskArtifact}`，由 daemon 核验终态任务及已发布清单后返回，不重新执行 worker。MCP 仍是独立 stdio 协议入口，不承载队列或持久任务数据库。
 
 共享 `Info/Configure` 响应包含只读 `config_fingerprint`（尚未配置时为 null）。MCP 在任务 RPC 前核对后台绑定指纹与本会话指纹，不能通过调用参数覆盖它；缺少或不匹配时拒绝。后台提交时仍由原有 `ConfigPin` 验证配置与绑定一致。
 
@@ -112,9 +116,9 @@ HTTP 可用 `Idempotency-Key` 传相同格式的 ID；省略时由 Web 生成。
 
 ## 存储与认证
 
-任务历史保存为 `WX_CLI_HOME/accounts/<runtime-id>/tasks-history.json`；原 `web-history.json` 仅作只读兼容恢复来源，不覆盖原文件。输出沿用 `WX_CLI_HOME/web-output/<runtime-id>/<task-id>/`，避免破坏已有产物路径约定。
+任务历史采用版本 1，保存在 `WX_CLI_HOME/accounts/<runtime-id>/tasks-history.json`，恢复时校验账号、任务身份、输出归属、记录数量和状态。该文件不存在时可从 `web-history.json` 只读恢复，不覆盖后备文件。任务输出位于 `WX_CLI_HOME/web-output/<runtime-id>/<task-id>/`；历史淘汰与文件清理是不同操作。
 
-升级时，含旧企业任务或已移除字段的历史会先保存为当前账号私有的 `tasks-history-retired-<SHA256>.json` 原始快照，再恢复其中的个人微信任务。企业任务不再列出或执行，原输出目录不删除。个人微信旧配置中的企业字段不再解析或访问；旧版本幂等指纹可能因设置结构变化而冲突，此时应查询旧任务，不要盲目重提。
+恢复器识别明确列举的停用企业任务记录及 `all_conversations=false` 字段，先保留当前账号私有的 `tasks-history-retired-<SHA256>.json` 原始快照，再恢复有效的个人微信任务。停用记录不列出或执行，其输出目录不删除。其他未知或无效记录拒绝恢复，原历史文件保留，不按空历史继续写入。若提交指纹与已保留记录冲突，应查询原任务，不要换键盲目重提。
 
 任务命名管道为 `wx-cli-tasks-v1-<runtime-id>`。管道仅授予当前用户访问并拒绝远程客户端；连接后校验实际服务 PID、创建时间、可执行文件及运行身份，再发送令牌。`service-token.key` 在首次写入前设置当前用户私有 ACL，正常停机按已持有文件句柄清理；重启只轮换经身份、单链接和权限核验的陈旧令牌，不覆盖任意同名文件。
 

@@ -247,6 +247,8 @@ impl Tool {
                 | "list_tasks"
                 | "get_task"
                 | "get_task_events"
+                | "list_task_artifacts"
+                | "read_task_artifact"
         )
     }
 }

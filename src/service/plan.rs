@@ -31,6 +31,9 @@ pub enum Step {
         formats: Vec<Format>,
         include_images: bool,
         allow_missing_media: bool,
+        dry_run: bool,
+        max_media_bytes: Option<u64>,
+        max_total_media_bytes: Option<u64>,
     },
     DecodeImages {
         config: PathBuf,
@@ -66,6 +69,9 @@ pub fn capabilities() -> Vec<Value> {
                 "include_sns_media",
                 "include_images",
                 "allow_missing_media",
+                "dry_run",
+                "max_media_bytes",
+                "max_total_media_bytes",
             ],
             Kind::ImageKey | Kind::WechatKeys => &["authorize_memory_scan"],
             Kind::SnsDecrypt => &["users", "include_sns_media"],
@@ -81,6 +87,34 @@ pub fn capabilities() -> Vec<Value> {
 
 pub fn validate(request: &Submission, _settings: &Settings) -> Result<()> {
     let o = &request.options;
+    use super::task_artifacts::{
+        DEFAULT_MEDIA_BYTES, DEFAULT_TOTAL_MEDIA_BYTES, MAX_TOTAL_MEDIA_BYTES,
+    };
+    let has_budget = o.max_media_bytes.is_some() || o.max_total_media_bytes.is_some();
+    ensure!(
+        request.kind == Kind::ExportAll || (!o.dry_run && !has_budget),
+        "Unsupported export options"
+    );
+    ensure!(
+        !has_budget || o.include_images,
+        "Media budgets require media export"
+    );
+    ensure!(
+        !(o.dry_run && o.include_sns),
+        "SNS export does not support dry run"
+    );
+    if request.kind == Kind::ExportAll {
+        let single = o.max_media_bytes.unwrap_or(DEFAULT_MEDIA_BYTES);
+        let total = o.max_total_media_bytes.unwrap_or(DEFAULT_TOTAL_MEDIA_BYTES);
+        ensure!(
+            (1..=500 * 1024 * 1024).contains(&single),
+            "Invalid media byte budget"
+        );
+        ensure!(
+            total >= single && total <= MAX_TOTAL_MEDIA_BYTES,
+            "Invalid total media byte budget"
+        );
+    }
     ensure!(o.users.len() <= 200, "最多选择 200 个会话");
     ensure!(
         o.users
@@ -187,6 +221,9 @@ pub fn plan(
                 formats: formats(o),
                 include_images: o.include_images,
                 allow_missing_media: o.allow_missing_media,
+                dry_run: o.dry_run,
+                max_media_bytes: o.max_media_bytes,
+                max_total_media_bytes: o.max_total_media_bytes,
             });
             if o.include_sns {
                 steps.push(sns());
@@ -209,6 +246,54 @@ pub fn plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn export_options_preserve_legacy_signatures_and_enforce_budgets() {
+        let legacy = json!({"users":[],"formats":[],"include_sns":false,"include_sns_media":false,
+            "include_images":true,"allow_missing_media":false,"authorize_memory_scan":false});
+        assert_eq!(serde_json::to_value(Options::default()).unwrap(), legacy);
+        let mut request = Submission {
+            kind: Kind::ExportAll,
+            options: Options::default(),
+        };
+        request.options.max_media_bytes = Some(1);
+        request.options.max_total_media_bytes = Some(1);
+        request.options.dry_run = true;
+        assert!(validate(&request, &Settings::default()).is_ok());
+        let steps = plan(
+            &request,
+            &Settings::default(),
+            Path::new("config"),
+            Path::new("out"),
+        )
+        .unwrap();
+        assert!(matches!(
+            &steps[0],
+            Step::ExportMessages {
+                dry_run: true,
+                max_media_bytes: Some(1),
+                max_total_media_bytes: Some(1),
+                ..
+            }
+        ));
+        request.options.max_media_bytes = Some(0);
+        assert!(validate(&request, &Settings::default()).is_err());
+        request.options.max_media_bytes = Some(2);
+        assert!(validate(&request, &Settings::default()).is_err());
+        request.options.max_media_bytes = None;
+        request.options.max_total_media_bytes =
+            Some(super::super::task_artifacts::MAX_TOTAL_MEDIA_BYTES + 1);
+        assert!(validate(&request, &Settings::default()).is_err());
+        request.options.max_total_media_bytes = None;
+        request.options.include_sns = true;
+        assert!(validate(&request, &Settings::default()).is_err());
+        request.options.include_sns = false;
+        request.kind = Kind::WechatDecrypt;
+        assert!(validate(&request, &Settings::default()).is_err());
+        request.kind = Kind::ExportAll;
+        request.options.include_images = false;
+        request.options.max_media_bytes = Some(1);
+        assert!(validate(&request, &Settings::default()).is_err());
+    }
     #[test]
     fn rejects_injection_and_missing_consent() {
         for user in ["--config=other", "a,b", "a\nb", ""] {

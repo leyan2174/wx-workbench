@@ -238,6 +238,7 @@ impl Broker {
             Step::ExportMessages {
                 config,
                 include_images: true,
+                dry_run: false,
                 ..
             } => (config, READ_DATABASES | READ_IMAGE | PRELOAD_IMAGE),
             Step::SnsArchive { config, .. } => (config, READ_IMAGE | PRELOAD_IMAGE),

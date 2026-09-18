@@ -16,7 +16,7 @@ ownership. Audio resolution retains its separate strict account/source checks.
 
 The WeChat `media::voice_catalog::Catalog` implements `Source`. It owns schema
 validation, SQL, physical attribution, ordering, paging and SQLite integer bounds.
-The existing query algorithm has one production implementation. Its explicit
+The query algorithm has one production implementation. Its explicit
 offline inventory is a caller precondition, not a claim that an arbitrary subset
 proves account completeness. Missing, corrupt, aliased or ambiguous supplied
 shards fail the whole read.
@@ -24,10 +24,10 @@ shards fail the whole read.
 `daemon::query::mcp_voice::q_voice_messages` supplies the fixed account's inventory
 and resolved paths through the existing DbCache. It retains pre/post disk
 inventory checks, raw cache-key lookup and canonical duplicate rejection, and
-returns a business Page. No authentication, account selection, query lifecycle
-or audio operation was changed.
+returns a business Page. Authentication, account selection and query lifecycle
+belong to the daemon boundary. Audio export is a separate operation.
 
-## Legacy compatibility
+## Response contract
 
 Business Page carries `PageContinuation::{Exhausted, MayHaveMore}`, with the
 same names and meaning as the messages page state. The two-value enum stays local
@@ -37,13 +37,13 @@ A successful empty/short page is Exhausted; a full page is MayHaveMore even when
 it happens to contain the last records. There is no definite More state and no
 additional query, lookahead or larger candidate budget. This describes the
 current query result, not future arrivals. Invalid state/length combinations
-are rejected by business list. The state is not added to the legacy wire.
+are rejected by business list. The public response does not include this state.
 
 Only the VoiceMessages response boundary calls the adapter's `legacy_rows`.
-Its `LegacyVoiceMessage` retains all seven fields: username, source, chat_name_id,
+Its `LegacyVoiceMessage` contains seven fields: username, source, chat_name_id,
 media_rowid, local_id, create_time and voice_data_bytes. Foreign evidence or
-changed preview metadata is rejected. The response still has `voices` and
-`count`; the existing endpoint pagination limits and error strings remain.
+changed preview metadata is rejected. The response contains `voices` and
+`count`; each endpoint enforces its documented pagination limits.
 
 Ordering remains create_time descending, canonical source lexically ascending,
 local_id descending, rowid descending. Per-shard candidates remain offset+limit,
@@ -62,10 +62,10 @@ and an explicit username wins over a conflicting display label.
   empty/short/full pagination at zero/nonzero offsets, reject false exhaustion
   on a full last page, and assert exactly one source read (no probe).
 - SQLite adapter tests traverse business list + the real Catalog before checking
-  legacy projection. A JSON golden covers every old field, repeated local IDs,
+  response projection. A JSON golden covers every response field, repeated local IDs,
   rowid tie-breaks, canonical source labels and offset slicing. Foreign/modified
   evidence and SQLite pagination overflow have direct tests.
-- Existing alias, schema, ownership and read-only tests remain on the new path.
+- Adapter tests cover aliases, schema validation, ownership and read-only access.
   The security fixture retains its independent cross-shard ordering/paging
   oracle, Name2Id differences, ambiguous media and incomplete inventory tests.
 - Both independent fixtures use the real business/adapter/query modules. Their

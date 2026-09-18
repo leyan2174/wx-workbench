@@ -1556,6 +1556,9 @@ async fn image_readers_receive_material_without_inheriting_write_access() {
                 formats: Vec::new(),
                 include_images: true,
                 allow_missing_media: false,
+                dry_run: false,
+                max_media_bytes: None,
+                max_total_media_bytes: None,
             },
         )
         .await

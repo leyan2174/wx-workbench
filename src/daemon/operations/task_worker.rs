@@ -84,22 +84,49 @@ fn execute(runtime: &RuntimeContext, step: Step) -> Result<()> {
             formats,
             include_images,
             allow_missing_media,
+            dry_run,
+            max_media_bytes,
+            max_total_media_bytes,
         } => {
             selected(runtime, &config)?;
-            super::export_messages::cmd(super::export_messages::Args {
-                output_dir: Some(output),
-                contacts: Some(users.join(",")),
-                formats: Some(
-                    formats
-                        .iter()
-                        .map(|format| format.extension())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                ),
-                no_media: !include_images,
-                allow_missing_media,
-                ..Default::default()
-            })
+            let task_id = output
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing task output identity"))?
+                .to_owned();
+            ensure!(
+                crate::service::protocol::valid_task_id(&task_id)
+                    && output
+                        == runtime
+                            .root
+                            .join("web-output")
+                            .join(&runtime.id)
+                            .join(&task_id)
+                            .join("chats"),
+                "Task output identity mismatch"
+            );
+            super::export_messages::export_task_for(
+                runtime,
+                super::export_messages::Args {
+                    output_dir: Some(output),
+                    contacts: Some(users.join(",")),
+                    formats: Some(
+                        formats
+                            .iter()
+                            .map(|format| format.extension())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    ),
+                    no_media: !include_images,
+                    allow_missing_media,
+                    dry_run,
+                    max_media_bytes,
+                    max_total_media_bytes,
+                    ..Default::default()
+                },
+                &task_id,
+            )
         }
         Step::DecodeImages { config, output } => {
             selected(runtime, &config)?;

@@ -14,6 +14,10 @@ pub fn cmd(args: Args) -> Result<()> {
     let allow_missing = args.allow_missing_media;
     let report = export_for(&RuntimeContext::load()?, args)?;
     println!("{}", serde_json::to_string_pretty(&report)?);
+    require_report(&report, allow_missing)
+}
+
+fn require_report(report: &Value, allow_missing: bool) -> Result<()> {
     ensure!(
         report["failures"].as_array().is_none_or(Vec::is_empty),
         "部分聊天导出失败，详情见 failures"
@@ -28,13 +32,20 @@ pub fn cmd(args: Args) -> Result<()> {
 /// 固定账号程序化入口；返回 failures/media_issues，调用者须检查，不能只判断 Result。
 /// 只在此入口读取一次指定 config_path；不调用全局配置发现、不写配置。
 pub fn export_for(runtime: &RuntimeContext, args: Args) -> Result<Value> {
-    export_with_sources(runtime, args, None)
+    export_with_sources(runtime, args, None, None)
+}
+
+pub(super) fn export_task_for(runtime: &RuntimeContext, args: Args, task_id: &str) -> Result<()> {
+    let allow_missing = args.allow_missing_media;
+    let report = export_with_sources(runtime, args, None, Some(task_id))?;
+    require_report(&report, allow_missing)
 }
 
 fn export_with_sources(
     runtime: &RuntimeContext,
     args: Args,
     sources: Option<&[crate::adapters::wechat::media::voice::DecryptedSource]>,
+    task_id: Option<&str>,
 ) -> Result<Value> {
     let config = chat_directory::read_config(runtime)?;
     let output = match &args.output_dir {
@@ -111,7 +122,27 @@ fn export_with_sources(
         "output":output.join(chat_directory::directory_name(t))})
         })
         .collect();
+    let mut checkpoint = task_id
+        .map(|id| {
+            crate::daemon::tasks::artifacts::Checkpoint::start(
+                runtime,
+                id,
+                args.dry_run,
+                targets
+                    .iter()
+                    .map(|entry| crate::daemon::tasks::artifacts::Candidate {
+                        username: entry.target.username.clone(),
+                        directory: chat_directory::directory_name(&entry.target),
+                    })
+                    .collect(),
+            )
+        })
+        .transpose()?;
     if args.dry_run {
+        if let Some(checkpoint) = &mut checkpoint {
+            checkpoint.result.finalized = true;
+            checkpoint.save(runtime)?;
+        }
         return Ok(
             json!({"engine":"rust","dry_run":true,"planned":planned,"failures":[],"media_issues":0}),
         );
@@ -175,13 +206,29 @@ fn export_with_sources(
         })();
         match result {
             Ok(report) => {
+                if let Some(checkpoint) = &mut checkpoint {
+                    checkpoint.register_chat(runtime, &output, &target.username)?;
+                    checkpoint.result.exported_chats += 1;
+                    checkpoint.result.messages += report.messages as u64;
+                    checkpoint.result.media_issues += report.media_issues as u64;
+                }
                 media_issues += report.media_issues;
                 completed.push(report);
             }
             Err(error) => {
+                if let Some(checkpoint) = &mut checkpoint {
+                    checkpoint.result.failed_chats += 1;
+                }
                 failures.push(json!({"username":target.username,"error":format!("{error:#}")}))
             }
         }
+        if let Some(checkpoint) = &checkpoint {
+            checkpoint.save(runtime)?;
+        }
+    }
+    if let Some(checkpoint) = &mut checkpoint {
+        checkpoint.result.finalized = true;
+        checkpoint.save(runtime)?;
     }
     Ok(
         json!({"engine":"rust","output":output,"complete":failures.is_empty() && media_issues==0,

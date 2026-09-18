@@ -8,7 +8,7 @@ DPAPI 保护落盘数据，不隔离同一 Windows 用户运行的进程；原�
 
 数据库密码材料区分可选账号材料 `account_key` 和逐库材料 `database_keys`，不要求每个账号都有前者。该分类不证明微信服务器保存方式、生成位置或所有版本的派生关系。图片 `image_key` 是实际使用的 AES/XOR 材料，独立保留。
 
-不存在“语音级密钥”：从加密媒体数据库读取语音使用数据库密钥；取得 SILK 字节后，解码器只消费音频数据。SILK 头、封包、24 kHz 单声道 16 位 PCM 输出约定是非秘密格式知识，不进入 DPAPI Record、daemon 密钥快照或 worker MaterialChange，也不参与密钥轮换。不要将数据库路径索引或消息身份索引中的 key 理解成密码。
+不存在“语音级密钥”：从加密媒体数据库读取语音使用数据库密钥；wx-workbench 导出原始 SILK 字节及关联 manifest，不提供音频解码、转码或识别。后续解码与转录由独立 skill 或用户选择的工具处理。SILK 头、封包及可确认的格式信息属于非秘密元数据，不进入 DPAPI Record、daemon 密钥快照或 worker MaterialChange，也不参与密钥轮换。不要将数据库路径索引或消息身份索引中的 key 理解成密码。
 
 ## 初始化与旧材料
 

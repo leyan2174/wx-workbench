@@ -1,4 +1,6 @@
 //! Real stdio MCP -> authenticated service -> daemon queue -> private worker.
+#[path = "artifacts.rs"]
+mod artifacts;
 use super::{call, terminal, Web};
 use crate::{success, Fixture};
 use serde_json::{json, Value};

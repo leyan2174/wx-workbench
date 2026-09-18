@@ -23,6 +23,10 @@ pub struct Args {
     /// 开放固定账号的后台任务列表、详情、取消及事件；默认关闭。
     #[arg(long)]
     pub tasks: bool,
+    /// Allow listing and reading verified CLI/Web/task artifact bytes in the fixed account.
+    /// Independent of task submission and media-write permissions; host-only, default off.
+    #[arg(long, requires = "tasks")]
+    pub task_allow_artifact_read: bool,
     /// 宿主允许提交的任务类型及其固定目录写入；可重复或用逗号分隔。
     #[arg(long, requires = "tasks", value_delimiter = ',', value_parser = crate::service::protocol::parse_task_kind)]
     pub task_kind: Vec<Kind>,
@@ -86,6 +90,12 @@ impl Args {
         if !self.tasks {
             return false;
         }
+        if matches!(
+            call,
+            Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }
+        ) {
+            return self.task_allow_artifact_read;
+        }
         let Call::Submit { task, .. } = call else {
             return true;
         };
@@ -139,6 +149,31 @@ impl Args {
                 false,
             ),
         ];
+        if self.task_allow_artifact_read {
+            tools.extend([
+            Tool::task(
+                "list_task_artifacts",
+                "List verified artifacts of a terminal task in the fixed account; no paths.",
+                object(json!({
+                    "id":id,
+                    "offset":{"type":"integer","minimum":0,"default":0},
+                    "limit":{"type":"integer","minimum":1,"maximum":100,"default":50}
+                }), &["id"]),
+                false,
+            ),
+            Tool::task(
+                "read_task_artifact",
+                "Read one base64 block of a verified task artifact. The frame budget may reduce max_bytes; resume with next_offset. Does not execute or preview the bytes.",
+                object(json!({
+                    "id":id,
+                    "artifact_id":id,
+                    "offset":{"type":"integer","minimum":0,"default":0},
+                    "max_bytes":{"type":"integer","minimum":1,"maximum":1048576,"default":1048576}
+                }), &["id","artifact_id"]),
+                false,
+            ),
+            ]);
+        }
         let capabilities = self.capabilities();
         if !capabilities.is_empty() {
             let mut properties = serde_json::Map::new();
@@ -158,15 +193,40 @@ impl Args {
                     "formats" => {
                         json!({"type":"array","maxItems":3,"uniqueItems":true,"items":{"enum":["json","csv","html"]}})
                     }
+                    "max_media_bytes" => {
+                        json!({"type":"integer","minimum":1,"maximum":524288000,"default":67108864})
+                    }
+                    "max_total_media_bytes" => {
+                        json!({"type":"integer","minimum":1,"maximum":17179869184u64,"default":2147483648u64})
+                    }
+                    "dry_run" => json!({"type":"boolean","default":false}),
                     _ => json!({"type":"boolean"}),
                 };
                 properties.insert(option.into(), schema);
             }
-            tools.push(Tool::task("submit_task", "异步提交到现有 daemon。必须保存并复用 64 位小写十六进制幂等键；响应丢失、超时或 MCP 断连不自动取消任务。", object(json!({
-                "idempotency_key":id,
-                "kind":{"type":"string","enum":capabilities.iter().map(|entry| entry["kind"].clone()).collect::<Vec<_>>()},
-                "options":{"type":"object","properties":properties,"additionalProperties":false}
-            }), &["idempotency_key","kind"]), self.task_allow_media_download));
+            let mut schema = object(
+                json!({
+                    "idempotency_key":id,
+                    "kind":{"type":"string","enum":capabilities.iter().map(|entry| entry["kind"].clone()).collect::<Vec<_>>()},
+                    "options":{"type":"object","properties":properties,"additionalProperties":false}
+                }),
+                &["idempotency_key", "kind"],
+            );
+            if self.permits(Kind::ExportAll) {
+                schema["allOf"] = json!([{
+                    "if":{"properties":{"kind":{"const":"export_all"}},"required":["kind"]},
+                    "else":{"properties":{"options":{"properties":{
+                        "dry_run":{"const":false},"max_media_bytes":false,"max_total_media_bytes":false
+                    }}}}
+                }]);
+                schema["properties"]["options"]["allOf"] = json!([
+                    {"if":{"properties":{"include_images":{"const":false}},"required":["include_images"]},
+                     "then":{"properties":{"max_media_bytes":false,"max_total_media_bytes":false}}},
+                    {"if":{"properties":{"dry_run":{"const":true}},"required":["dry_run"]},
+                     "then":{"properties":{"include_sns":{"const":false}}}}
+                ]);
+            }
+            tools.push(Tool::task("submit_task", "异步提交到现有 daemon。必须保存并复用 64 位小写十六进制幂等键；响应丢失、超时或 MCP 断连不自动取消任务。", schema, self.task_allow_media_download));
         }
         tools
     }
@@ -264,6 +324,31 @@ struct IdInput {
 struct EmptyInput {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ArtifactsInput {
+    id: String,
+    #[serde(default)]
+    offset: u64,
+    #[serde(default = "artifact_limit")]
+    limit: u32,
+}
+fn artifact_limit() -> u32 {
+    50
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadArtifactInput {
+    id: String,
+    artifact_id: String,
+    #[serde(default)]
+    offset: u64,
+    #[serde(default = "artifact_bytes")]
+    max_bytes: u32,
+}
+fn artifact_bytes() -> u32 {
+    1048576
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct EventsInput {
     #[serde(default)]
     after: u64,
@@ -285,12 +370,14 @@ fn parse(name: &str, arguments: &Value) -> Result<Call, DispatchError> {
             if !valid_task_id(&input.idempotency_key) {
                 return Err(invalid());
             }
+            let task = Submission {
+                kind: input.kind,
+                options: input.options,
+            };
+            super::tasks::validate_export_options(&task).map_err(|_| invalid())?;
             Ok(Call::Submit {
                 idempotency_key: input.idempotency_key,
-                task: Submission {
-                    kind: input.kind,
-                    options: input.options,
-                },
+                task,
             })
         }
         "list_tasks" => {
@@ -321,12 +408,89 @@ fn parse(name: &str, arguments: &Value) -> Result<Call, DispatchError> {
                 wait_ms: input.wait_ms,
             })
         }
+        "list_task_artifacts" => {
+            let input: ArtifactsInput =
+                serde_json::from_value(arguments.clone()).map_err(|_| invalid())?;
+            if !valid_task_id(&input.id) || !(1..=100).contains(&input.limit) {
+                return Err(invalid());
+            }
+            Ok(Call::TaskArtifacts {
+                id: input.id,
+                offset: input.offset,
+                limit: input.limit,
+            })
+        }
+        "read_task_artifact" => {
+            let input: ReadArtifactInput =
+                serde_json::from_value(arguments.clone()).map_err(|_| invalid())?;
+            if !valid_task_id(&input.id)
+                || !valid_task_id(&input.artifact_id)
+                || !(1..=1048576).contains(&input.max_bytes)
+                || input
+                    .offset
+                    .checked_add(u64::from(input.max_bytes))
+                    .is_none()
+            {
+                return Err(invalid());
+            }
+            Ok(Call::ReadTaskArtifact {
+                id: input.id,
+                artifact_id: input.artifact_id,
+                offset: input.offset,
+                max_bytes: input.max_bytes,
+            })
+        }
         _ => Err(invalid()),
     }
 }
 
 fn content(data: Value, failed: bool) -> Value {
     json!({"content":[{"type":"text","text":data.to_string()}],"structuredContent":data,"isError":failed})
+}
+
+fn frame_size(data: &Value, response_id: &Value) -> Result<usize, DispatchError> {
+    serde_json::to_vec(&json!({"jsonrpc":"2.0","id":response_id,"result":data}))
+        .map(|bytes| bytes.len() + 1)
+        .map_err(|_| DispatchError::Internal)
+}
+
+fn fit_artifact_read(call: &mut Call, context: &CallContext) -> Result<(), DispatchError> {
+    let Call::ReadTaskArtifact {
+        id,
+        artifact_id,
+        max_bytes,
+        ..
+    } = call
+    else {
+        return Ok(());
+    };
+    let budget = context.budget()?;
+    // Both MCP content and structuredContent carry base64. Reserve worst-case
+    // numeric widths and the full JSON-RPC envelope before requesting bytes.
+    let sample = content(
+        json!({
+            "version":1,"task_id":id,"artifact_id":artifact_id,"offset":u64::MAX,
+            "bytes_read":u64::MAX,"next_offset":u64::MAX,"size":u64::MAX,
+            "sha256":"0".repeat(64),"encoding":"base64","data_base64":"","eof":false
+        }),
+        false,
+    );
+    let overhead = frame_size(&sample, &budget.response_id)?;
+    let bytes = budget.max_response_bytes.saturating_sub(overhead) / 8 * 3;
+    if bytes == 0 {
+        return Err(DispatchError::ResultLimit);
+    }
+    *max_bytes = (*max_bytes).min(bytes.min(1048576) as u32);
+    Ok(())
+}
+
+fn bounded_content(data: Value, context: &CallContext) -> Result<Value, DispatchError> {
+    let result = content(data, false);
+    let budget = context.budget()?;
+    if frame_size(&result, &budget.response_id)? > budget.max_response_bytes {
+        return Err(DispatchError::ResultLimit);
+    }
+    Ok(result)
 }
 
 fn failure(code: &str) -> Value {
@@ -343,6 +507,20 @@ fn failure(code: &str) -> Value {
             "幂等键已用于不同任务；请勿用新键重试结果不确定的原提交",
         ),
         "not_found" => (code, "当前账号的保留任务记录中没有此 ID"),
+        "unauthorized" => (code, "Task service authorization failed"),
+        "invalid_artifact_request" => (code, "Invalid artifact ID, offset, or byte/page limit"),
+        "task_not_terminal" => (code, "Artifacts are available only after the task ends"),
+        "result_unavailable" => (
+            code,
+            "No verified artifact result is available for this task",
+        ),
+        "artifact_unavailable" => (code, "The registered artifact is currently unavailable"),
+        "artifact_changed" => (
+            code,
+            "The registered artifact has changed; bytes were not returned",
+        ),
+        "artifact_unsafe" => (code, "The registered artifact cannot be opened safely"),
+        "artifact_busy" => (code, "Artifact readers are busy; retry this read later"),
         "queue_full" | "history_full" | "stopping" | "not_configured" => {
             (code, "后台任务服务暂不接受此操作；可保留原幂等键重试")
         }
@@ -386,10 +564,15 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
         context: &CallContext,
     ) -> Result<Value, DispatchError> {
         context.check()?;
-        let call = parse(name, arguments)?;
+        let mut call = parse(name, arguments)?;
         if !self.args.authorize(&call) {
             return Ok(failure("host_forbidden"));
         }
+        fit_artifact_read(&mut call, context)?;
+        let artifact_call = matches!(
+            call,
+            Call::TaskArtifacts { .. } | Call::ReadTaskArtifact { .. }
+        );
         if self.invalidated.get() {
             return Ok(failure("configuration_changed"));
         }
@@ -429,6 +612,13 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
                     )
                     .into());
                 }
+                if artifact_call && !super::tasks::supports_artifacts(&info) {
+                    return Err(ServiceError::new(
+                        "result_unavailable",
+                        "This task service does not support task_artifacts_v1",
+                    )
+                    .into());
+                }
                 if let Call::Submit { task, .. } = &call {
                     let settings: Settings = serde_json::from_value(info["settings"].clone())?;
                     plan::validate(task, &settings)
@@ -450,6 +640,7 @@ impl<D: Dispatcher> Dispatcher for Adapter<'_, D> {
             return Ok(failure("configuration_changed"));
         }
         Ok(match result {
+            Ok(data) if artifact_call => return bounded_content(data, context),
             Ok(data) => content(data, false),
             Err(error) => {
                 if let Some(error) = error.downcast_ref::<ServiceError>() {

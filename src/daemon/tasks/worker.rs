@@ -145,6 +145,9 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         // A task never adopts a pre-existing output root, including one created after submission.
         tokio::fs::create_dir(&task.output_dir).await?;
         let output_guard = HostOutputGuard::new(&task.output_dir)?;
+        if task.kind == Kind::ExportAll {
+            super::artifacts::prepare(&state.runtime, &task.id)?;
+        }
         for (index, step) in steps.iter().enumerate() {
             if *work.cancel.borrow() || *shutdown.borrow() {
                 return Ok(None);
@@ -227,6 +230,22 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
         state.log(&work.id, "system", "配置身份复核失败，后台停止接受任务");
         state.request_shutdown();
     }
+    let export_result = if task.kind == Kind::ExportAll && !identity_changed {
+        let runtime = state.runtime.clone();
+        let task = task.clone();
+        let mut control =
+            super::artifacts::FinalizeControl::new(work.cancel.clone(), shutdown.clone(), deadline);
+        Some(
+            tokio::task::spawn_blocking(move || {
+                super::artifacts::finalize(&runtime, &task, &mut control)
+            })
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|result| result),
+        )
+    } else {
+        None
+    };
     let cancelled = *work.cancel.borrow() || *shutdown.borrow();
     state.update(&work.id, |task| {
         task.finished_at = Some(now());
@@ -258,5 +277,29 @@ async fn execute(state: Arc<Service>, mut work: Work, shutdown: &mut watch::Rece
                 ));
             }
         }
+        if let Some(export_result) = export_result {
+            match export_result {
+                Ok(report) => {
+                    attach_export_report(task, report);
+                }
+                Err(_) => {
+                    if task.status == "succeeded" {
+                        task.status = "failed".into();
+                    }
+                    task.error = Some("result_unavailable".into());
+                }
+            }
+        }
     });
+}
+
+pub(super) fn attach_export_report(
+    task: &mut crate::service::protocol::Task,
+    report: crate::service::task_artifacts::ExportAllResult,
+) {
+    if !report.artifacts_complete && task.status == "succeeded" {
+        task.status = "failed".into();
+        task.error = Some("result_unavailable".into());
+    }
+    task.result = Some(report);
 }

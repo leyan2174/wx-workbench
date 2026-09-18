@@ -60,6 +60,16 @@ pub struct Options {
     pub include_images: bool,
     pub allow_missing_media: bool,
     pub authorize_memory_scan: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub dry_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_media_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_total_media_bytes: Option<u64>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for Options {
@@ -72,6 +82,9 @@ impl Default for Options {
             include_images: true,
             allow_missing_media: false,
             authorize_memory_scan: false,
+            dry_run: false,
+            max_media_bytes: None,
+            max_total_media_bytes: None,
         }
     }
 }
@@ -106,6 +119,8 @@ pub struct Task {
     pub next_log_seq: u64,
     pub output_dir: PathBuf,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<super::task_artifacts::ExportAllResult>,
 }
 impl Task {
     pub fn terminal(&self) -> bool {
@@ -162,6 +177,17 @@ pub enum Call {
     List {},
     Get {
         id: String,
+    },
+    TaskArtifacts {
+        id: String,
+        offset: u64,
+        limit: u32,
+    },
+    ReadTaskArtifact {
+        id: String,
+        artifact_id: String,
+        offset: u64,
+        max_bytes: u32,
     },
     Cancel {
         id: String,

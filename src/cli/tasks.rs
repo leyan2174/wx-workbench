@@ -35,6 +35,26 @@ pub enum Command {
         #[arg(value_parser = parse_id)]
         id: String,
     },
+    /// List verified artifacts of a terminal task in the fixed account.
+    Artifacts {
+        #[arg(value_parser = parse_id)]
+        id: String,
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+    },
+    /// Read one bounded base64 block; use next_offset to resume.
+    ReadArtifact {
+        #[arg(value_parser = parse_id)]
+        id: String,
+        #[arg(value_parser = parse_id)]
+        artifact_id: String,
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+        #[arg(long, default_value_t = 1048576, value_parser = clap::value_parser!(u32).range(1..=1048576))]
+        max_bytes: u32,
+    },
     Submit(SubmitArgs),
 }
 
@@ -69,6 +89,12 @@ pub struct SubmitArgs {
     #[arg(long)]
     pub allow_missing_media: bool,
     #[arg(long)]
+    pub dry_run: bool,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=524288000))]
+    pub max_media_bytes: Option<u64>,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=17179869184))]
+    pub max_total_media_bytes: Option<u64>,
+    #[arg(long)]
     pub authorize_memory_scan: bool,
     #[arg(long, value_parser = parse_id)]
     pub request_id: Option<String>,
@@ -88,6 +114,9 @@ impl SubmitArgs {
                 include_images: !self.no_images,
                 allow_missing_media: self.allow_missing_media,
                 authorize_memory_scan: self.authorize_memory_scan,
+                dry_run: self.dry_run,
+                max_media_bytes: self.max_media_bytes,
+                max_total_media_bytes: self.max_total_media_bytes,
             },
         }
     }
@@ -106,8 +135,34 @@ impl SubmitArgs {
             !self.authorize_memory_scan || matches!(self.kind, Kind::WechatKeys | Kind::ImageKey),
             "This task does not accept --authorize-memory-scan"
         );
-        Ok(())
+        validate_export_options(&self.submission())
     }
+}
+
+// Reject the new business options before either entry point opens account files.
+pub(super) fn validate_export_options(task: &Submission) -> Result<()> {
+    let o = &task.options;
+    let has_budget = o.max_media_bytes.is_some() || o.max_total_media_bytes.is_some();
+    ensure!(
+        task.kind == Kind::ExportAll || (!o.dry_run && !has_budget),
+        "Dry run and media budgets require export_all"
+    );
+    ensure!(
+        !has_budget || o.include_images,
+        "Media budgets require images"
+    );
+    ensure!(!o.dry_run || !o.include_sns, "Dry run cannot include SNS");
+    let single = o.max_media_bytes.unwrap_or(67108864);
+    let total = o.max_total_media_bytes.unwrap_or(2147483648);
+    ensure!(
+        (1..=524288000).contains(&single),
+        "Invalid media byte budget"
+    );
+    ensure!(
+        (single..=17179869184).contains(&total),
+        "Total media budget must cover one item and not exceed 16 GiB"
+    );
+    Ok(())
 }
 
 use crate::service::protocol::parse_task_kind as parse_kind;
@@ -146,8 +201,17 @@ pub fn cmd(mut command: Command) -> Result<()> {
     // Validate before loading account files or starting a background process.
     match &command {
         Command::Submit(args) => args.validate()?,
-        Command::Get { id } | Command::Logs { id, .. } | Command::Cancel { id } => {
+        Command::Get { id }
+        | Command::Logs { id, .. }
+        | Command::Cancel { id }
+        | Command::Artifacts { id, .. } => {
             parse_id(id).map_err(anyhow::Error::msg)?;
+        }
+        Command::ReadArtifact {
+            id, artifact_id, ..
+        } => {
+            parse_id(id).map_err(anyhow::Error::msg)?;
+            parse_id(artifact_id).map_err(anyhow::Error::msg)?;
         }
         _ => (),
     }
@@ -209,6 +273,36 @@ async fn run(runtime: &RuntimeContext, command: Command) -> Result<()> {
         Command::List => print_json(&request(runtime, Call::List {}).await?),
         Command::Get { id } => print_json(&request(runtime, Call::Get { id }).await?),
         Command::Cancel { id } => print_json(&request(runtime, Call::Cancel { id }).await?),
+        Command::Artifacts { id, offset, limit } => {
+            ensure!(
+                supports_artifacts(&info),
+                "This task service does not support task_artifacts_v1"
+            );
+            print_json(&request(runtime, Call::TaskArtifacts { id, offset, limit }).await?)
+        }
+        Command::ReadArtifact {
+            id,
+            artifact_id,
+            offset,
+            max_bytes,
+        } => {
+            ensure!(
+                supports_artifacts(&info),
+                "This task service does not support task_artifacts_v1"
+            );
+            print_json(
+                &request(
+                    runtime,
+                    Call::ReadTaskArtifact {
+                        id,
+                        artifact_id,
+                        offset,
+                        max_bytes,
+                    },
+                )
+                .await?,
+            )
+        }
         Command::Logs { id, after, follow } => {
             let mut cursor = after;
             loop {
@@ -281,6 +375,10 @@ async fn get_task(runtime: &RuntimeContext, id: &str) -> Result<Task> {
         .context("Invalid task response")?;
     ensure!(task.id == id, "Task response ID mismatch");
     Ok(task)
+}
+
+pub(super) fn supports_artifacts(info: &Value) -> bool {
+    info["capabilities"]["task_artifacts_v1"] == true
 }
 
 fn log_page(task: &Task, cursor: &mut u64) -> Value {
@@ -578,5 +676,180 @@ mod tests {
         cursor = 100;
         log_page(&task, &mut cursor);
         assert_eq!(cursor, 100);
+    }
+
+    #[test]
+    fn export_dry_run_and_budgets_map_without_changing_defaults() {
+        let options = serde_json::to_value(
+            submit(&["tasks", "submit", "export_all"])
+                .submission()
+                .options,
+        )
+        .unwrap();
+        for key in ["dry_run", "max_media_bytes", "max_total_media_bytes"] {
+            assert!(options.get(key).is_none());
+        }
+        let args = submit(&[
+            "tasks",
+            "submit",
+            "export_all",
+            "--dry-run",
+            "--max-media-bytes",
+            "1",
+            "--max-total-media-bytes",
+            "1",
+        ]);
+        args.validate().unwrap();
+        let o = args.submission().options;
+        assert!(o.dry_run);
+        assert_eq!(o.max_media_bytes, Some(1));
+        assert_eq!(o.max_total_media_bytes, Some(1));
+        for extra in [
+            vec!["--dry-run", "--include-sns"],
+            vec!["--no-images", "--max-media-bytes", "1"],
+            vec!["--no-images", "--max-total-media-bytes", "67108864"],
+            vec!["--max-total-media-bytes", "67108863"],
+            vec!["--max-media-bytes", "2", "--max-total-media-bytes", "1"],
+        ] {
+            let mut argv = vec!["tasks", "submit", "export_all"];
+            argv.extend(extra);
+            assert!(submit(&argv).validate().is_err());
+        }
+        for kind in ["wechat_decrypt", "decode_images", "sns_decrypt"] {
+            for extra in [
+                vec!["--dry-run"],
+                vec!["--max-media-bytes", "1"],
+                vec!["--max-total-media-bytes", "67108864"],
+            ] {
+                let mut argv = vec!["tasks", "submit", kind];
+                argv.extend(extra);
+                assert!(submit(&argv).validate().is_err());
+            }
+        }
+        for (flag, value) in [
+            ("--max-media-bytes", "0"),
+            ("--max-media-bytes", "524288001"),
+            ("--max-media-bytes", "-1"),
+            ("--max-media-bytes", "1.5"),
+            ("--max-media-bytes", "18446744073709551616"),
+            ("--max-total-media-bytes", "0"),
+            ("--max-total-media-bytes", "17179869185"),
+        ] {
+            assert!(
+                Invocation::try_parse_from(["tasks", "submit", "export_all", flag, value]).is_err()
+            );
+        }
+        submit(&[
+            "tasks",
+            "submit",
+            "export_all",
+            "--max-media-bytes",
+            "524288000",
+            "--max-total-media-bytes",
+            "17179869184",
+        ])
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn artifact_commands_accept_only_ids_and_bounded_numeric_options() {
+        let id = "a".repeat(64);
+        let artifact = "b".repeat(64);
+        let command = Invocation::try_parse_from(["tasks", "artifacts", &id])
+            .unwrap()
+            .command;
+        assert!(
+            matches!(command, Command::Artifacts { id:actual, offset:0, limit:50 } if actual == id)
+        );
+        let command = Invocation::try_parse_from(["tasks", "read-artifact", &id, &artifact])
+            .unwrap()
+            .command;
+        assert!(
+            matches!(command, Command::ReadArtifact { id:actual, artifact_id:a, offset:0, max_bytes:1048576 } if actual == id && a == artifact)
+        );
+        let command = Invocation::try_parse_from([
+            "tasks",
+            "read-artifact",
+            &id,
+            &artifact,
+            "--offset",
+            "1048576",
+            "--max-bytes",
+            "1",
+        ])
+        .unwrap()
+        .command;
+        assert!(matches!(
+            command,
+            Command::ReadArtifact {
+                offset: 1048576,
+                max_bytes: 1,
+                ..
+            }
+        ));
+        for argv in [
+            vec!["tasks", "artifacts", &id, "--limit", "0"],
+            vec!["tasks", "artifacts", &id, "--limit", "101"],
+            vec!["tasks", "artifacts", &id, "--offset", "-1"],
+            vec!["tasks", "artifacts", "../other"],
+            vec!["tasks", "artifacts", &id, "--path", "C:/private"],
+            vec!["tasks", "read-artifact", &id, "C:/private"],
+            vec!["tasks", "read-artifact", &id, &artifact, "--max-bytes", "0"],
+            vec![
+                "tasks",
+                "read-artifact",
+                &id,
+                &artifact,
+                "--max-bytes",
+                "1048577",
+            ],
+            vec![
+                "tasks",
+                "read-artifact",
+                &id,
+                &artifact,
+                "--max-bytes",
+                "true",
+            ],
+            vec!["tasks", "read-artifact", &id, &artifact, "--offset", "1.5"],
+            vec![
+                "tasks",
+                "read-artifact",
+                &id,
+                &artifact,
+                "--output",
+                "C:/private",
+            ],
+            vec![
+                "tasks",
+                "read-artifact",
+                &id,
+                &artifact,
+                "--command",
+                "cmd.exe",
+            ],
+        ] {
+            assert!(Invocation::try_parse_from(argv).is_err());
+        }
+        for command in ["artifacts", "read-artifact"] {
+            assert_eq!(
+                Invocation::try_parse_from(["tasks", command, "--help"])
+                    .unwrap_err()
+                    .kind(),
+                clap::error::ErrorKind::DisplayHelp
+            );
+        }
+        for info in [
+            json!({}),
+            json!({"capabilities":[]}),
+            json!({"capabilities":{"task_artifacts_v1":false}}),
+            json!({"capabilities":{"task_artifacts_v1":"true"}}),
+        ] {
+            assert!(!supports_artifacts(&info));
+        }
+        assert!(supports_artifacts(
+            &json!({"capabilities":{"task_artifacts_v1":true}})
+        ));
     }
 }

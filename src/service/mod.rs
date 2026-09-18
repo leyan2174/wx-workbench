@@ -13,6 +13,7 @@ pub mod plan;
 pub mod protocol;
 pub mod query_client;
 pub mod settings;
+pub mod task_artifacts;
 pub mod time;
 pub mod transport;
 pub mod web;

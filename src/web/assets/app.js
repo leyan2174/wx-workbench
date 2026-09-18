@@ -223,9 +223,10 @@ SOFTWARE.
     notice('global-error', '认证失败，请在设置中重新输入访问令牌。');
     $('auth-state').textContent = '令牌无效或已过期'; renderTools(); updateImageButton();
   }
-  async function request(path, { method = 'GET', body, signal, stream = false, image = false } = {}) {
+  async function request(path, { method = 'GET', body, signal, stream = false, image = false, idempotencyKey } = {}) {
     // 同源认证与写操作保护均由本次启动令牌头承担，不写入 URL。
     const headers = { 'X-WX-Token': token, Accept: stream ? 'text/event-stream' : image ? 'image/*' : 'application/json' };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const epoch = model.epoch;
     const controller = new AbortController(); let timedOut = false;
@@ -238,7 +239,7 @@ SOFTWARE.
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) authenticateFailure();
       let message = `请求失败（HTTP ${response.status}）`, code;
-      try { const data = await response.json(); code = data.error?.code; message = data.error?.message || data.error || data.message || message; } catch { /* 非 JSON 错误保留状态码。 */ }
+      try { const data = await response.json(); code = data.error?.code || data.code; message = data.error?.message || data.error || data.message || message; } catch { /* 非 JSON 错误保留状态码。 */ }
       const error = new Error(typeof message === 'string' ? message : JSON.stringify(message)); error.status = response.status; error.code = code; throw error;
     }
     // SSE 在收到响应头后取消首包超时，持续流的生命周期仍由调用者控制。
@@ -916,6 +917,7 @@ SOFTWARE.
     const allowed = new Set(spec.options || fallback);
     const flags = [
       { name: 'include_images', label: '导出聊天图片', default: true },
+      { name: 'dry_run', label: '仅核对导出计划', default: false },
       { name: 'allow_missing_media', label: '允许媒体缺失', default: false },
       { name: 'include_sns', label: '导出朋友圈', default: false },
       { name: 'include_sns_media', label: '下载朋友圈媒体', default: false },
@@ -933,6 +935,39 @@ SOFTWARE.
     dependency('include_sns_media', 'include_sns'); dependency('allow_missing_media', 'include_images');
     target.append(group);
   }
+  function exportBudgets(spec, target) {
+    if (spec.kind !== 'export_all' || !spec.options?.includes('max_media_bytes')) return;
+    const group = el('fieldset'); group.append(el('legend', '', '聊天媒体预算'));
+    const inputs = [];
+    for (const [name, label, max, fallback] of [
+      ['max_media_bytes', '单文件上限（字节）', 524288000, 67108864],
+      ['max_total_media_bytes', '每会话总上限（字节）', 17179869184, 2147483648]
+    ]) {
+      const row = el('label', 'field'), input = el('input');
+      input.name = name; input.type = 'number'; input.min = '1'; input.max = String(max); input.step = '1';
+      input.placeholder = `默认 ${fallback}`; row.append(el('span', '', label), input); group.append(row); inputs.push(input);
+    }
+    const images = target.querySelector('[name=include_images]'), dry = target.querySelector('[name=dry_run]');
+    const sns = target.querySelector('[name=include_sns]'), snsMedia = target.querySelector('[name=include_sns_media]');
+    const update = () => {
+      for (const input of inputs) input.disabled = images ? !images.checked : false;
+      if (sns && dry) { sns.disabled = dry.checked; if (dry.checked) sns.checked = false; }
+      if (snsMedia && sns && dry?.checked) { snsMedia.checked = false; snsMedia.disabled = true; }
+    };
+    images?.addEventListener('change', update); dry?.addEventListener('change', update); update();
+    formReaders.push(options => {
+      if (!options.dry_run) delete options.dry_run;
+      for (const input of inputs) {
+        if (input.disabled || input.value === '') continue;
+        const value = Number(input.value);
+        if (!Number.isSafeInteger(value) || value < 1 || value > Number(input.max)) throw new Error('媒体预算必须为范围内的整数字节数');
+        options[input.name] = value;
+      }
+      if ((options.max_total_media_bytes ?? 2147483648) < (options.max_media_bytes ?? 67108864)) throw new Error('每会话总预算不能小于单文件预算');
+      if (options.dry_run && options.include_sns) throw new Error('仅核对计划不能同时导出朋友圈');
+    });
+    target.append(group);
+  }
   async function openTask(spec, selectedUser) {
     if (!model.online || submitting) return;
     taskSpec = spec; formReaders = []; selection = new Set(selectedUser ? [selectedUser] : []);
@@ -940,6 +975,7 @@ SOFTWARE.
     $('task-submit').disabled = false; $('task-dialog').showModal();
     const target = $('task-options');
     if (!Array.isArray(spec.fields)) taskFlags(spec, target);
+    exportBudgets(spec, target);
     if (Array.isArray(spec.fields)) {
       let unsupported = false;
       spec.fields.forEach((entry) => { if (!field(entry, target) && entry.required) unsupported = true; });
@@ -992,25 +1028,47 @@ SOFTWARE.
       const summary = el('dl', 'key-values'); summary.append(el('dt', '', '账号'), el('dd', '', $('account-summary').textContent), el('dt', '', '参数'), el('dd', '', '使用当前账号配置')); target.append(summary);
     }
   }
+  let pendingSubmission = null;
+  function pendingKey() { return `wx-export-pending:${location.host}:${model.accountKey}`; }
+  function savedSubmission() {
+    if (pendingSubmission?.account === model.accountKey) return pendingSubmission;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(pendingKey()) || 'null');
+      if (saved?.account === model.accountKey && /^[a-f0-9]{64}$/.test(saved.key) && saved.body?.kind && saved.body?.options) return saved;
+    } catch { /* Storage may be unavailable; keep the in-memory attempt. */ }
+    return null;
+  }
   async function submitTask(event) {
     event.preventDefault(); if (submitting || !taskSpec || !model.online) return;
     notice('task-error'); const options = Object.create(null);
+    let pending = savedSubmission();
     try {
+      if (!pending) {
       formReaders.forEach((read) => read(options));
       if (Array.isArray(taskSpec.options)) Object.keys(options).forEach((key) => { if (!taskSpec.options.includes(key)) delete options[key]; });
+      const key = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      pending = { account: model.accountKey, key, body: { kind: taskSpec.kind, options } };
+      } else if (!window.confirm('上一笔提交尚未确认。是否使用原参数和原幂等键重试上一笔任务？')) return;
+      pendingSubmission = pending;
+      try { sessionStorage.setItem(pendingKey(), JSON.stringify(pending)); } catch { /* Retain the in-memory attempt. */ }
     } catch (error) { notice('task-error', errorText(error)); return; }
     submitting = true; $('task-submit').disabled = true;
     const epoch = model.epoch;
     try {
-      const data = await request('/api/tasks', { method: 'POST', body: { kind: taskSpec.kind, options } });
+      const data = await request('/api/tasks', { method: 'POST', body: pending.body, idempotencyKey: pending.key });
       if (epoch !== model.epoch) return;
+      pendingSubmission = null; try { sessionStorage.removeItem(pendingKey()); } catch { /* No persistent attempt. */ }
       const task = data?.task || data;
       $('task-dialog').close();
       try { await loadTasks(); } catch (error) { notice('global-error', `任务已提交，但队列刷新失败：${errorText(error)}`); }
       if (task && taskId(task)) openDetail(taskId(task));
     } catch (error) {
-      // 网络错误可能发生在服务端已接收之后，绝不自动重试写请求。
-      if (epoch === model.epoch) notice('task-error', `${errorText(error)}。若连接中断，请先刷新运行队列，确认是否已创建任务。`);
+      if (epoch === model.epoch) {
+        if ([400, 401, 403, 404, 422, 429].includes(error.status)) {
+          pendingSubmission = null; try { sessionStorage.removeItem(pendingKey()); } catch { /* No persistent attempt. */ }
+        }
+        notice('task-error', `${errorText(error)}。${savedSubmission() ? '提交尚未确认；再次提交将重试原任务，不采用新参数。' : '请检查参数或稍后重试。'}`);
+      }
     } finally { submitting = false; $('task-submit').disabled = false; }
   }
   function logsOf(task) {
@@ -1018,20 +1076,97 @@ SOFTWARE.
     const text = Array.isArray(logs) ? logs.map((entry) => typeof entry === 'string' ? entry : [timestamp(entry.timestamp || entry.time), entry.level || entry.stream, entry.line || entry.message || entry.text].filter(Boolean).join(' ')).join('\n') : typeof logs === 'string' ? logs : JSON.stringify(logs, null, 2);
     return redact((task.log_start_seq > 0 ? `日志从序号 ${task.log_start_seq} 开始，较早内容未包含在当前响应中。\n` : '') + text);
   }
+  let artifactPage = { id: null, offset: 0, generation: 0 };
+  const artifactErrors = {
+    task_not_terminal: '任务尚未结束', result_unavailable: '暂无可信聊天产物', artifact_unavailable: '产物暂不可读取',
+    artifact_changed: '产物已变更，下载已停止', artifact_unsafe: '产物未通过安全核验', artifact_busy: '读取繁忙，请稍后重试',
+    invalid_artifact_request: '产物请求参数无效', not_found: '产物不存在', configuration_changed: '账号配置已变更'
+  };
+  async function downloadArtifact(id, item, control) {
+    const epoch = model.epoch; control.disabled = true;
+    try {
+      const ticket = await request(`/api/tasks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(item.artifact_id)}/ticket`, { method: 'POST', body: {} });
+      if (epoch !== model.epoch || id !== model.detailId) return;
+      const url = new URL(ticket.url, location.origin);
+      const expected = `/api/tasks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(item.artifact_id)}/download`;
+      if (url.origin !== location.origin || url.pathname !== expected) throw new Error('下载票据身份不符');
+      const link = el('a'); link.href = url.href;
+      link.download = item.name; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'; document.body.append(link); link.click(); link.remove();
+    } catch (error) { if (epoch === model.epoch) notice('detail-error', artifactErrors[error.code] || errorText(error)); }
+    finally { control.disabled = false; }
+  }
+  async function loadArtifacts(id, offset = 0) {
+    const epoch = model.epoch, generation = ++artifactPage.generation;
+    artifactPage.id = id; artifactPage.offset = offset;
+    const target = $('task-artifacts'); empty(target, '正在加载聊天产物…');
+    const current = () => epoch === model.epoch && id === model.detailId && generation === artifactPage.generation;
+    try {
+      const page = await request(`/api/tasks/${encodeURIComponent(id)}/artifacts?${new URLSearchParams({ offset, limit: 50 })}`);
+      if (!current()) return;
+      target.replaceChildren();
+      target.append(el('h3', '', '聊天产物'), el('p', 'muted', `共 ${page.total} 项${page.complete ? '' : ' · 清单不完整'}`));
+      for (const item of page.items) {
+        if (!/^[a-f0-9]{64}$/.test(item.artifact_id)) continue;
+        const row = el('div', 'artifact-row'), info = el('div', 'artifact-info');
+        const role = {chat_document: '聊天文档', media_manifest: '媒体清单', voice_manifest: '语音清单', media: '媒体文件', chat_info: '会话信息', export_inventory: '导出清单'}[item.role] || '文件';
+        info.append(el('span', 'artifact-name', item.name), el('span', 'muted', `${Number(item.size).toLocaleString('zh-CN')} 字节 · ${role}`));
+        const download = button('', () => downloadArtifact(id, item, download), 'icon-button');
+        download.title = `下载 ${item.name}`; download.setAttribute('aria-label', download.title); download.append(icon('download'));
+        row.append(info, download); target.append(row);
+      }
+      if (!page.items.length) target.append(el('p', 'muted', '暂无可下载聊天产物'));
+      const nav = el('div', 'artifact-pagination');
+      const previous = button('', () => loadArtifacts(id, Math.max(0, offset - 50)), 'icon-button');
+      previous.append(icon('chevron-left')); previous.title = '上一页'; previous.setAttribute('aria-label', previous.title); previous.disabled = offset === 0;
+      const next = button('', () => loadArtifacts(id, page.next_offset), 'icon-button');
+      next.append(icon('chevron-right')); next.title = '下一页'; next.setAttribute('aria-label', next.title); next.disabled = page.next_offset == null;
+      nav.append(previous, el('span', 'muted', `${Math.floor(offset / 50) + 1} / ${Math.max(1, Math.ceil(page.total / 50))}`), next); target.append(nav);
+    } catch (error) {
+      if (!current()) return;
+      target.replaceChildren(el('p', 'notice error', artifactErrors[error.code] || errorText(error)), button('重试', () => loadArtifacts(id, offset)));
+    }
+  }
+  function renderExportResult(task) {
+    const target = $('task-result'), result = task.result;
+    target.replaceChildren();
+    if (!result || result.version !== 1 || result.scope !== 'chat_directory') {
+      target.textContent = '暂无聊天导出结果'; $('task-artifacts').replaceChildren(); return;
+    }
+    const outcomes = { success: '完整', partial: '部分完成', failure: '失败', refused: '已拒绝' };
+    const summary = el('dl', 'key-values');
+    const facts = result.dry_run ? [['模式', '仅核对计划'], ['计划会话', result.planned_chats ?? '未确定']]
+      : [['聊天结果', outcomes[result.outcome] || '尚未确定'], ['计划会话', result.planned_chats ?? '未确定'],
+        ['已导出会话', result.exported_chats], ['失败会话', result.failed_chats], ['消息', result.messages],
+        ['媒体问题', result.media_issues], ['已登记产物', result.artifact_count]];
+    facts.push(['报告', result.finalized ? '已终结' : '未终结'], ['产物清单', result.artifacts_complete ? '完整' : '不完整']);
+    for (const [key, value] of facts) summary.append(el('dt', '', key), el('dd', '', String(value)));
+    target.append(summary);
+    const codes = { chat_export_failed: '聊天导出失败', media_unavailable: '媒体缺失', artifact_limit_exceeded: '产物数量超限', export_interrupted: '导出中断', ...artifactErrors };
+    for (const diagnostic of result.diagnostics || []) target.append(el('p', 'notice', `${codes[diagnostic.code] || diagnostic.code}：${diagnostic.count}`));
+    const ready = ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(statusOf(task));
+    if (result.dry_run || !ready) { ++artifactPage.generation; $('task-artifacts').replaceChildren(); return; }
+    const capabilities = model.state.capabilities;
+    const supported = Array.isArray(capabilities) ? capabilities.includes('task_artifacts_v1') : capabilities?.task_artifacts_v1 === true;
+    if (!supported) { $('task-artifacts').textContent = '此版本不支持产物读取'; return; }
+    if (artifactPage.loaded !== taskId(task)) {
+      artifactPage.loaded = taskId(task); loadArtifacts(taskId(task));
+    }
+  }
   function renderDetail(task) {
     model.detail = task; const state = statusOf(task), target = $('detail-meta'); target.replaceChildren();
     $('detail-title').textContent = taskName(task); $('detail-id').textContent = taskId(task);
     const meta = el('dl', 'key-values');
-    [['状态', labels[state] || state], ['阶段', task.stage || task.message || '未提供'], ['创建时间', timestamp(task.created_at) || '未提供'], ['结束时间', timestamp(task.finished_at || task.completed_at) || '未提供'], ['输出目录', task.output_dir || '未提供'], ['退出码', task.exit_code ?? '未提供']].forEach(([key, value]) => meta.append(el('dt', '', key), el('dd', '', redact(value))));
+    [['状态', labels[state] || state], ['阶段', task.stage || task.message || '未提供'], ['创建时间', timestamp(task.created_at) || '未提供'], ['结束时间', timestamp(task.finished_at || task.completed_at) || '未提供'], ['退出码', task.exit_code ?? '未提供']].forEach(([key, value]) => meta.append(el('dt', '', key), el('dd', '', redact(value))));
     target.append(meta); if (activeStates.has(state)) target.append(progressNode(task));
     $('task-log').textContent = logsOf(task) || '暂无日志'; if ($('follow-log').checked) $('task-log').scrollTop = $('task-log').scrollHeight;
-    $('task-result').textContent = task.result === undefined ? '暂无结果' : redact(task.result);
+    renderExportResult(task);
     notice('detail-error', task.error ? redact(task.error) : '');
     $('cancel-task').disabled = !activeStates.has(state) || ['cancelling', 'cancel_requested'].includes(state) || !model.online;
   }
   async function openDetail(id) {
     if (!id) return;
     model.detailId = id; model.detail = null; $('detail-title').textContent = '任务详情'; $('detail-id').textContent = id;
+    artifactPage = { id, offset: 0, generation: artifactPage.generation + 1 }; $('task-artifacts').replaceChildren();
     $('detail-meta').replaceChildren(); $('task-result').textContent = ''; $('task-log').textContent = '正在加载…'; notice('detail-error'); $('cancel-task').disabled = true;
     if (!$('task-detail-dialog').open) $('task-detail-dialog').showModal(); await loadDetail();
   }
