@@ -83,7 +83,10 @@ pub async fn q_tag_members(
     .await?
 }
 fn validate_query(query: &str) -> Result<()> {
-    domain::validate_query(query).map_err(|_| anyhow::anyhow!("tag query byte limit exceeded"))
+    domain::validate_tag_query(query).map_err(|error| match error {
+        domain::Error::Limit => anyhow::anyhow!("tag query byte limit exceeded"),
+        other => other.into(),
+    })
 }
 #[cfg(test)]
 pub fn select_tag<'a>(tags: &'a ContactTags, query: &str) -> Result<&'a ContactTag> {

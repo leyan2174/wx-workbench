@@ -457,7 +457,7 @@ pub fn route(name: &str, arguments: &Value) -> Result<Request, &'static str> {
             return Err("Invalid or unknown argument");
         }
     }
-    for key in ["chat_name", "keyword", "account", "user"] {
+    for key in ["chat_name", "keyword", "account", "user", "tag_name"] {
         if args
             .get(key)
             .and_then(Value::as_str)

@@ -77,7 +77,7 @@ fn exact_precedes_contains_and_ambiguity_is_not_first_match() {
     let mut tags = contact_tags_from_path(&path, &HashMap::new()).unwrap();
     assert_eq!(select_tag(&tags, " wOrK ").unwrap().name, "Work");
     assert_eq!(select_tag(&tags, "友").unwrap().name, "朋友");
-    assert_eq!(select_tag(&tags, "").unwrap().name, "");
+    assert!(select_tag(&tags, "").is_err());
     assert!(select_tag(&tags, "wor")
         .unwrap_err()
         .to_string()
@@ -114,7 +114,14 @@ fn repeated_definitions_numeric_types_and_first_field_preserve_tag_membership() 
     let tags = contact_tags_from_path(&path, &HashMap::new()).unwrap();
     assert_eq!(select_tag(&tags, "新名字").unwrap().member_count, 4);
     assert_eq!(select_tag(&tags, "文本ID").unwrap().member_count, 0);
-    assert_eq!(select_tag(&tags, "").unwrap().member_count, 2);
+    assert_eq!(
+        tags.tags
+            .iter()
+            .find(|tag| tag.name.is_empty())
+            .unwrap()
+            .member_count,
+        2
+    );
 }
 
 #[test]
@@ -334,6 +341,29 @@ fn total_text_limit_is_inclusive_before_member_clones() {
             .to_string(),
         "contact result text byte limit exceeded"
     );
+}
+
+#[tokio::test]
+async fn blank_tag_queries_are_rejected_before_unavailable_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = DbCache::with_dirs(
+        dir.path().join("source"),
+        dir.path().join("cache"),
+        dir.path().join("mtimes.json"),
+        HashMap::new(),
+    )
+    .await
+    .unwrap();
+    assert!(q_contact_tags(&cache, &HashMap::new()).await.is_err());
+    for query in ["", " ", "\t\r\n", "\u{3000}"] {
+        let error = q_tag_members(&cache, &HashMap::new(), query)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<domain::Error>(),
+            Some(&domain::Error::InvalidData("empty tag query"))
+        );
+    }
 }
 
 #[tokio::test]

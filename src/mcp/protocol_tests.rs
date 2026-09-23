@@ -352,6 +352,21 @@ fn attachment_tools_validate_identity_and_reject_paths_before_dispatch() {
 }
 
 #[test]
+fn blank_tag_queries_are_rejected_before_host_access() {
+    let mut protocol = Protocol::new(|_| panic!("blank tag query reached host"));
+    ready(&mut protocol);
+    for query in ["", " ", "\t\r\n", "\u{3000}"] {
+        let args = json!({"tag_name":query});
+        assert_eq!(
+            route("get_tag_members", &args).unwrap_err(),
+            "Empty query target"
+        );
+        let reply = send(&mut protocol, call("get_tag_members", args)).unwrap();
+        assert_eq!(reply["error"]["code"], -32602);
+    }
+}
+
+#[test]
 fn readonly_extensions_validate_arguments_and_keep_safe_errors() {
     for (name, args) in [
         ("get_contact_tags", json!({"output":"forbidden"})),

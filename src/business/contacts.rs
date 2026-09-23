@@ -210,6 +210,15 @@ pub fn validate_query(query: &str) -> Result<()> {
     }
 }
 
+pub fn validate_tag_query(query: &str) -> Result<()> {
+    validate_query(query)?;
+    if query.trim().is_empty() {
+        Err(Error::InvalidData("empty tag query"))
+    } else {
+        Ok(())
+    }
+}
+
 /// Exact names take precedence over substrings; ambiguity is never resolved by order.
 pub fn select_name<'a>(names: impl IntoIterator<Item = &'a str>, query: &str) -> Result<usize> {
     validate_query(query)?;
@@ -271,7 +280,7 @@ pub fn members(source: &impl ContactSource, query: &str) -> Result<(Contact, Mem
 }
 
 pub fn tag(source: &impl ContactSource, query: &str) -> Result<Tag> {
-    validate_query(query)?;
+    validate_tag_query(query)?;
     let tags = source.tags()?;
     let index = select_name(tags.iter().map(|tag| tag.name.as_str()), query)?;
     Ok(tags[index].clone())
@@ -363,5 +372,53 @@ mod tests {
         );
         assert_eq!(select_name(["same", "SAME"], "same"), Err(Error::Ambiguous));
         assert_eq!(validate_query(&"x".repeat(4097)), Err(Error::Limit));
+    }
+
+    #[test]
+    fn blank_tag_queries_are_rejected_without_changing_name_selection() {
+        struct Tags(Vec<Tag>);
+        impl ContactSource for Tags {
+            fn contacts(&self) -> Result<Directory> {
+                unreachable!("tag lookup does not read contacts")
+            }
+            fn members(&self, _: &ContactId) -> Result<Membership> {
+                unreachable!("tag lookup does not read group members")
+            }
+            fn tags(&self) -> Result<Vec<Tag>> {
+                Ok(self.0.clone())
+            }
+        }
+        for count in [1, 2] {
+            let source = Tags(Memory(vec![]).tags().unwrap()[..count].to_vec());
+            for query in ["", " ", "\t\r\n", "\u{3000}"] {
+                assert_eq!(
+                    tag(&source, query),
+                    Err(Error::InvalidData("empty tag query"))
+                );
+            }
+            assert_eq!(tag(&source, " friends ").unwrap().name, "Friends");
+            assert_eq!(tag(&source, "missing"), Err(Error::NotFound));
+        }
+        let source = Memory(vec![]);
+        assert_eq!(tag(&source, "work").unwrap().name, "Friends work");
+        assert_eq!(tag(&source, "frien"), Err(Error::Ambiguous));
+    }
+
+    #[test]
+    fn empty_contact_filter_remains_valid() {
+        let source = Memory(vec![contact("a", "Person", ContactKind::Person)]);
+        for text in [None, Some("")] {
+            let page = list(
+                &source,
+                ContactQuery {
+                    text,
+                    offset: 0,
+                    limit: 10,
+                },
+            )
+            .unwrap();
+            assert_eq!(page.total, 1);
+            assert_eq!(page.contacts[0].id.0, "a");
+        }
     }
 }
