@@ -49,6 +49,6 @@ Write-Host ""
 Write-Host "✓ wx 已安装到 $InstallDir\$BinName"
 Write-Host ""
 Write-Host "快速开始（以管理员身份运行）："
-Write-Host "  wx init       # 首次初始化（需要微信正在运行）"
+Write-Host '  wx init --db-dir "<当前账号的 db_storage 目录>" --key-provider memory # 微信须已登录'
 Write-Host "  wx sessions   # 查看最近会话"
 Write-Host "  wx --help     # 查看所有命令"

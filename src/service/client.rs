@@ -182,7 +182,10 @@ async fn connect_named_bound(
     parent: Option<&ProcessIdentity>,
 ) -> Result<NamedPipeClient> {
     let directory = DirectoryGuard::open(&runtime.directory)?;
-    let bytes = transport::read_identity(&directory.path.join("daemon.pid"), 16 * 1024)?;
+    let bytes = transport::read_identity(
+        &directory.path.join("daemon.pid"),
+        transport::PROCESS_IDENTITY_LIMIT,
+    )?;
     let record: PidRecord =
         serde_json::from_slice(&bytes).context("invalid daemon identity record")?;
     ensure!(

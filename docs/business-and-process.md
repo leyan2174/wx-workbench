@@ -36,8 +36,8 @@ Decrypt（包括 task WechatDecrypt）有成功项又有失败项时返回 20，
 
 ## 受管执行
 
-`windows_process::managed` 在 Windows 创建挂起子进程，先加入 Job Object
-再恢复执行，避免启动到归属建立之间的空隙。普通 helper 不使用 breakaway；
+`windows_process::managed` 在 Windows 通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST`
+在创建挂起子进程时原子分配 Job Object，再恢复执行，避免创建后才加入 Job 的归属空隙。普通 helper 不使用 breakaway；
 worker 内的 helper 使用嵌套 Job，内层清理不应杀死外层 worker。
 已有专用账号捕获流程的特殊 Job 行为不在此处扩大使用范围。
 

@@ -217,6 +217,16 @@ pub fn prepare_snapshot(
                             .get(&source)
                             .await?
                             .context("database snapshot missing")?;
+                        let copy = crate::daemon::cache::ResourceSnapshot::new(&path)?;
+                        // Planning consumes single-level paths inside this batch root.
+                        let path = directory
+                            .path()
+                            .join(format!("static-{}.db", sources.len()));
+                        ensure!(
+                            !path.try_exists()?,
+                            "static snapshot destination already exists"
+                        );
+                        fs::rename(copy.path(), &path)?;
                         sources.push(DecryptedSource { source, path });
                     }
                     verify_sources(&runtime.config.db_dir, &paths, &before)?;
@@ -262,6 +272,8 @@ fn snapshot_source_files(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub(crate) struct VoiceSnapshot {
+    // Drop private static copies before their containing batch directory.
+    _static_sources: Vec<crate::daemon::cache::ResourceSnapshot>,
     pub snapshot: Snapshot,
     pub names: crate::daemon::query::Names,
     pub missing_media: Vec<String>,
@@ -381,9 +393,18 @@ pub(crate) fn prepare_voice_snapshot(
                         )
                         .await?;
                         let mut sources = Vec::new();
+                        let mut static_sources = Vec::new();
                         for source in db.raw_db_keys() {
                             match db.get(&source).await? {
-                                Some(path) => sources.push(DecryptedSource { source, path }),
+                                Some(path) => {
+                                    let sealed =
+                                        crate::daemon::cache::ResourceSnapshot::new(&path)?;
+                                    sources.push(DecryptedSource {
+                                        source,
+                                        path: sealed.path(),
+                                    });
+                                    static_sources.push(sealed);
+                                }
                                 None => {
                                     let source = source.replace('\\', "/").to_ascii_lowercase();
                                     if source.starts_with("message/media_") {
@@ -417,6 +438,7 @@ pub(crate) fn prepare_voice_snapshot(
                         missing_messages.sort();
                         missing_messages.dedup();
                         Ok(VoiceSnapshot {
+                            _static_sources: static_sources,
                             snapshot: Snapshot {
                                 account_id: runtime.id.clone(),
                                 sources,
@@ -431,6 +453,77 @@ pub(crate) fn prepare_voice_snapshot(
             .join()
             .map_err(|_| anyhow::anyhow!("Voice snapshot worker panicked"))?
     })
+}
+
+#[cfg(test)]
+mod voice_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn static_voice_copies_remain_sidecar_free_during_catalog_and_strict_join() {
+        use crate::adapters::wechat::media::{voice_catalog::MediaShard, voice_export::Catalog};
+        let directory = tempfile::tempdir().unwrap();
+        let audio = b"\x02#!SILK_V3synthetic-wal";
+        let mut originals = Vec::new();
+        let mut copies = Vec::new();
+        let mut sources = Vec::new();
+        for kind in ["message", "media"] {
+            let path = directory.path().join(format!("{kind}.db"));
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+            if kind == "message" {
+                let table = format!("Msg_{:x}", md5::compute("peer"));
+                conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type INTEGER,create_time INTEGER,server_id INTEGER); INSERT INTO [{table}] VALUES(7,34,123,1000);")).unwrap();
+            } else {
+                conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id VALUES('peer'); CREATE TABLE VoiceInfo(chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,svr_id INTEGER,voice_data BLOB);").unwrap();
+                conn.execute(
+                    "INSERT INTO VoiceInfo VALUES(1,700,123,1000,?1)",
+                    [audio.as_slice()],
+                )
+                .unwrap();
+            }
+            drop(conn);
+            let original = fs::read(&path).unwrap();
+            assert_eq!(&original[18..20], &[2, 2]);
+            let copy = crate::daemon::cache::ResourceSnapshot::new(&path).unwrap();
+            assert_eq!(&fs::read(copy.path()).unwrap()[18..20], &[1, 1]);
+            sources.push(DecryptedSource {
+                source: format!("message/{kind}_0.db"),
+                path: copy.path(),
+            });
+            copies.push(copy);
+            originals.push((path, original));
+        }
+        let catalog = Catalog::open(vec![MediaShard {
+            source: sources[1].source.clone(),
+            path: sources[1].path.clone(),
+        }])
+        .unwrap();
+        let raw = catalog.material(0).unwrap();
+        let proven = database_media::resolve_voice_media_row(
+            &sources,
+            "peer",
+            700,
+            "message/media_0.db",
+            raw.media_rowid,
+        )
+        .unwrap();
+        assert_eq!(proven.silk, audio);
+        assert_eq!(proven.silk, raw.voice_data);
+        assert_eq!(proven.evidence.message_local_id, 7);
+        for source in &sources {
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let mut sidecar = source.path.as_os_str().to_owned();
+                sidecar.push(suffix);
+                assert!(!Path::new(&sidecar).exists());
+            }
+        }
+        for (path, original) in originals {
+            assert_eq!(fs::read(path).unwrap(), original);
+        }
+        drop(catalog);
+        drop(copies);
+    }
 }
 
 #[cfg(test)]

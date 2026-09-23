@@ -109,6 +109,7 @@ SOFTWARE.
   function taskName(task) { return task.name || availableTasks.find((x) => x.kind === task.kind)?.name || task.kind || '任务'; }
   function username(item) { return String(item.username ?? item.user_name ?? ''); }
   function displayName(item) { return item.remark || item.display_name || item.display || item.name || item.nickname || username(item); }
+  function contactName(item) { return typeof item.nickname === 'string' && item.nickname.trim() ? item.nickname.trim() : displayName(item); }
   function redact(value) { const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2); return token ? String(text ?? '').split(token).join('[令牌已隐藏]') : String(text ?? ''); }
   function errorText(error) {
     const planErrors = { media_write_not_authorized: '本次 Web 启动未允许原始语音写入', plan_ref_unavailable: '计划引用已不可用，请重新选择计划', plan_ref_changed: '计划内容已变更，已停止操作', plan_selection_invalid: '计划选择无效或会话已变化，请重新审阅', plan_scan_not_authorized: '本次 Web 启动未允许计划扫描', invalid_page: '计划分页参数无效' };
@@ -358,7 +359,15 @@ SOFTWARE.
   function mergedPeople() {
     if (model.view === 'contacts') return model.contacts;
     const contacts = new Map(model.contacts.map((item) => [username(item), item]));
-    return model.sessions.map((item) => ({ ...contacts.get(username(item)), ...item, tags: item.tags || contacts.get(username(item))?.tags }));
+    return model.sessions.map((item) => ({ ...contacts.get(username(item)), ...item, tags: item.tags || contacts.get(username(item))?.tags }))
+      .sort((a, b) => sessionTime(b) - sessionTime(a));
+  }
+  function sessionTime(item) {
+    const value = item.last_ts ?? item.last_timestamp ?? item.timestamp;
+    if (!value) return 0;
+    const numeric = Number(value);
+    const time = Number.isFinite(numeric) ? numeric * (numeric < 1e12 ? 1000 : 1) : Date.parse(value);
+    return Number.isFinite(time) ? time : 0;
   }
   function renderTags() {
     const selected = $('tag-filter').value;
@@ -414,7 +423,7 @@ SOFTWARE.
       node.setAttribute('aria-current', String(username(item) === username(model.selected || {}) || (item.conversations || []).some((chat) => username(chat) === username(model.selected || {}))));
       const avatar = el('span', 'avatar'); avatar.append(icon(personType(item) === 'group' ? 'users' : 'message-square'));
       const body = el('span', 'person-body'), top = el('span', 'person-top');
-      top.append(el('span', 'person-name', displayName(item)), el('time', '', timestamp(item.last_ts || item.last_timestamp, true)));
+      top.append(el('span', 'person-name', model.view === 'contacts' ? contactName(item) : displayName(item)), el('time', '', timestamp(item.last_ts || item.last_timestamp, true)));
       body.append(top, el('span', 'preview', model.view === 'contacts' ? username(item) : item.summary || item.last_message || username(item)));
       const tags = el('span', 'tags'); tagNames(item).forEach((name) => tags.append(el('span', 'tag', name))); body.append(tags);
       node.append(avatar, body); fragment.append(node);
@@ -795,7 +804,10 @@ SOFTWARE.
   }
   function renderState() {
     const state = model.state, account = state.account || state.current_account || {};
-    $('account-summary').textContent = typeof account === 'string' ? account : account.name || account.username || account.wxid || state.account_id || state.runtime_id || '账号未提供';
+    const nickname = typeof account.nickname === 'string' ? account.nickname.trim() : '';
+    const wechatId = typeof account.username === 'string' ? account.username.trim() : '';
+    $('account-summary').textContent = nickname ? (wechatId ? `${nickname}（${wechatId}）` : nickname) : (wechatId ? `昵称未读取（${wechatId}）` : '账号资料未读取');
+    $('account-summary').title = $('account-summary').textContent;
     const target = $('account-state'); target.replaceChildren();
     const fields = [['账号/运行实例', $('account-summary').textContent], ['账号状态', account.status || state.account_status || '未提供'], ['工作目录', state.workspace || state.data_dir || '未提供'], ['版本', state.version || (state.api_version ? `API ${state.api_version} · ${state.engine || ''}` : '未提供')], ['任务历史', state.history_persisted === undefined ? '未提供' : state.history_persisted ? '已持久化' : '未持久化'], ['服务地址', location.origin], ['认证状态', token ? '已设置访问令牌' : '未设置访问令牌']];
     fields.forEach(([key, value]) => target.append(el('dt', '', key), el('dd', '', value)));

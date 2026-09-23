@@ -43,8 +43,12 @@ fn open(path: &Path) -> Result<File> {
 fn read(mut file: &File) -> Result<Zeroizing<Vec<u8>>> {
     file.seek(SeekFrom::Start(0))?;
     let mut bytes = Zeroizing::new(Vec::new());
-    file.take(4 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 4 * 1024 * 1024, "配置超过读取限额");
+    file.take(crate::config::MAX_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() as u64 <= crate::config::MAX_CONFIG_BYTES,
+        "配置超过读取限额"
+    );
     Ok(bytes)
 }
 
@@ -143,6 +147,65 @@ impl ConfigPin {
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn pinned_reader_uses_shared_limit_and_rewinds() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("config.json");
+        for length in [
+            crate::config::MAX_CONFIG_BYTES,
+            crate::config::MAX_CONFIG_BYTES + 1,
+        ] {
+            File::create(&path)?.set_len(length)?;
+            let before = std::fs::metadata(&path)?;
+            let file = open(&path)?;
+            for _ in 0..2 {
+                match read(&file) {
+                    Ok(bytes) => {
+                        assert_eq!(length, crate::config::MAX_CONFIG_BYTES);
+                        assert_eq!(bytes.len() as u64, length);
+                        assert!(bytes.iter().all(|byte| *byte == 0));
+                    }
+                    Err(error) => {
+                        assert_eq!(length, crate::config::MAX_CONFIG_BYTES + 1);
+                        assert_eq!(error.to_string(), "配置超过读取限额");
+                    }
+                }
+            }
+            let after = std::fs::metadata(&path)?;
+            assert_eq!(after.len(), before.len());
+            assert_eq!(after.modified()?, before.modified()?);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn pin_creation_rejects_oversized_configuration_during_identity_check() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("config.json");
+        let config = crate::config::Config {
+            key_store: None,
+            db_dir: root.path().join("account/db_storage"),
+            keys_file: root.path().join("keys.json"),
+            decrypted_dir: root.path().join("decrypted"),
+            wechat_process: "SyntheticNeverLaunched.exe".into(),
+        };
+        std::fs::create_dir_all(&config.db_dir)?;
+        std::fs::write(&path, serde_json::to_vec(&config)?)?;
+        let runtime =
+            RuntimeContext::from_config(path.clone(), config, root.path().join("runtime"))?;
+        OpenOptions::new()
+            .write(true)
+            .open(&path)?
+            .set_len(crate::config::MAX_CONFIG_BYTES + 1)?;
+        let before = std::fs::metadata(&path)?;
+        let error = ConfigPin::new(&runtime).err().expect("oversized config");
+        assert_eq!(error.to_string(), "配置超过读取限额");
+        let after = std::fs::metadata(&path)?;
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.modified()?, before.modified()?);
+        Ok(())
+    }
     #[test]
     fn fingerprint_includes_legacy_image_fields() -> Result<()> {
         let a = br#"{"db_dir":"a","image_aes_key":"synthetic","image_xor_key":1,"nested":{"x":1}}"#;

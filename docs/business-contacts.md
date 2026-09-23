@@ -9,12 +9,12 @@
 
 ## 实际接线
 
-CLI、HTTP、MCP contacts 共用 `q_contacts`、当前查询租约的 `Names` 快照和正式联系人业务。`contact_rows.rs` 仅投影 `{contacts:[{username,display}],total}`。members、contact tags 和 tag members 保留原有业务能力，`mcp_contacts.rs` 仍负责标签投影和固定账户装配，不包含 SQL 或 BLOB 解析。
+CLI、MCP contacts 通过 `q_contacts` 消费当前查询租约的 `Names` 快照，投影 `{contacts:[{username,display}],total}`。HTTP `/api/contacts` 通过 `WebContacts`、`q_web_contacts` 从当前账号的 `SqliteContacts` 读取正式联系人业务对象；`contact_rows.rs` 的 Web 投影另含 `nickname`、`remark`，供界面优先显示微信昵称。members、contact tags 和 tag members 保留原有业务能力，`mcp_contacts.rs` 仍负责标签投影和固定账户装配，不包含 SQL 或 BLOB 解析。
 
 正式联系人契约与保留的业务能力：
 
 - 普通联系人只列真人，按显示名、身份排序；搜索显示名和身份。姓名相同时用身份稳定排序。
-- 所有 contacts 入口消费同一账号查询租约的 `Names` 物化快照，由微信缓存适配器转换为业务目录，不重新打开数据库或扩大快照范围。已物化的首选显示名不会被误标为昵称或备注。
+- CLI、MCP contacts 消费同一账号查询租约的 `Names` 物化快照，由微信缓存适配器转换为业务目录，不重新打开数据库或扩大快照范围。已物化的首选显示名不会被误标为昵称或备注；Web 的昵称和备注来自当前账号联系人数据库的独立字段。
 - Contacts IPC 采用独立严格请求结构，旧 `legacy_view`（即使 false/null）和未知字段明确拒绝。MCP 只保留 JSON-text 协议包装，不新增联系人筛选或投影规则。
 - 联系人读取、名称缓存、成员关联与唯一身份选择均拒绝重复身份。昵称、备注、别名、描述、电话及群身份仍由适配器保留供正式业务使用，不包含在 get_contacts 的两字段投影中。
 - 标签定义的重复 ID 更新、重复关联计数及空标签名维持既有兼容规则。业务唯一标签选择采用不区分大小写的精确匹配优先，不允许入口自选首项。

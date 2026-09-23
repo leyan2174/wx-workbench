@@ -1,4 +1,4 @@
-//! WeChat cache layout and pinned, attribute-only size scanning.
+//! WeChat cache layout and pinned size scanning without reading file contents.
 use crate::business::chat_plan::{Partial, ScanContribution};
 use anyhow::{bail, ensure, Result};
 use std::{
@@ -24,7 +24,7 @@ pub(crate) fn scan_pin(path: &Path) -> std::result::Result<ScanPin, Partial> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        // 只读取属性、不跟随重解析点；拒绝共享删除，固定整个扫描链。
+        // 文件只读取属性；确认目录后再为同一对象增加列举权限以固定目录。
         options
             .access_mode(0x80)
             .share_mode(0x3)
@@ -55,6 +55,29 @@ pub(crate) fn scan_pin(path: &Path) -> std::result::Result<ScanPin, Partial> {
     if metadata.file_type().is_symlink() {
         return Err(Partial::ScanReparseSkipped);
     }
+    #[cfg(windows)]
+    let handle = if metadata.is_dir() {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Attribute-only access does not enforce deny-delete sharing for directories.
+        // Compare identities after acquiring the directory pin to reject replacement
+        // during the attribute-only phase. Neither handle reads file contents.
+        let original = same_file::Handle::from_file(handle).map_err(|_| Partial::ScanError)?;
+        let pinned = options
+            .access_mode(0x81)
+            .open(path)
+            .map_err(|_| Partial::ScanError)?;
+        let identity =
+            same_file::Handle::from_file(pinned.try_clone().map_err(|_| Partial::ScanError)?)
+                .map_err(|_| Partial::ScanError)?;
+        if identity != original
+            || identity != same_file::Handle::from_path(path).map_err(|_| Partial::ScanError)?
+        {
+            return Err(Partial::ScanError);
+        }
+        pinned
+    } else {
+        handle
+    };
     Ok(ScanPin {
         _handle: handle,
         metadata,
@@ -201,6 +224,85 @@ pub(crate) fn scan_tree(path: &Path, _pin: ScanPin, depth: usize, total: &mut Sc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_pins_block_directory_rename_until_released() {
+        let mut blocked = Vec::new();
+        for full_root in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("scan");
+            let moved = temp.path().join("moved");
+            fs::create_dir(&root).unwrap();
+            let pins = if full_root {
+                let (pins, partial) = pin_scan_root(&root).unwrap();
+                assert!(partial.is_none());
+                pins
+            } else {
+                vec![scan_pin(&root).unwrap()]
+            };
+            let held_result = fs::rename(&root, &moved);
+            drop(pins);
+            if held_result.is_ok() {
+                fs::rename(&moved, &root).unwrap();
+            }
+            fs::rename(&root, &moved).unwrap();
+            temp.close().unwrap();
+            blocked.push(held_result.is_err());
+        }
+        assert_eq!(
+            blocked,
+            [true, true],
+            "leaf and full-root scan pins must block rename"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_root_pins_allow_child_creation_and_staged_publication() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("scan");
+        fs::create_dir(&root).unwrap();
+        let (pins, partial) = pin_scan_root(&root).unwrap();
+        assert!(partial.is_none());
+        fs::write(root.join("child"), b"synthetic child").unwrap();
+        let target = root.join("published");
+        let mut first = tempfile::NamedTempFile::new_in(&root).unwrap();
+        first.write_all(b"first").unwrap();
+        drop(first.persist_noclobber(&target).unwrap());
+        let mut replacement = tempfile::NamedTempFile::new_in(&root).unwrap();
+        replacement.write_all(b"replacement").unwrap();
+        drop(replacement.persist(&target).unwrap());
+        assert_eq!(fs::read(target).unwrap(), b"replacement");
+        assert_eq!(fs::read(root.join("child")).unwrap(), b"synthetic child");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        drop(pins);
+        temp.close().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_file_pin_remains_metadata_only_with_an_active_writer() {
+        use std::{io::Read, os::windows::fs::OpenOptionsExt};
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("synthetic.bin");
+        fs::write(&path, b"synthetic bytes").unwrap();
+        let writer = fs::OpenOptions::new()
+            .write(true)
+            .share_mode(2)
+            .open(&path)
+            .unwrap();
+        let pin = scan_pin(&path).unwrap();
+        assert_eq!(pin.metadata.len(), 15);
+        assert!((&pin._handle).read(&mut [0; 1]).is_err());
+        drop(pin);
+        drop(writer);
+        assert_eq!(fs::read(&path).unwrap(), b"synthetic bytes");
+        temp.close().unwrap();
+    }
 
     #[test]
     fn cache_layout_and_missing_lane_meaning_remain_wechat_specific() {

@@ -23,6 +23,10 @@ pub(crate) mod image_key_sample;
 pub(crate) mod image_keys;
 pub(crate) mod init;
 mod media_snapshot;
+#[cfg(test)]
+pub(crate) use media_snapshot::{
+    prepare_snapshot as prepare_media_snapshot_for_test, DatabaseMaterials as TestDatabaseMaterials,
+};
 pub(crate) mod monitor_native;
 pub(crate) mod new_messages;
 pub(crate) mod output;

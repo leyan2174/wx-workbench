@@ -13,8 +13,7 @@ use crate::adapters::wechat::media::{
     voice_export::{self, Catalog, VoiceRow},
 };
 use crate::business::voice_export::{self as domain, Selection};
-use crate::daemon::cache::DbCache;
-use crate::daemon::query::{chat_type_of, load_names, Names};
+use crate::daemon::query::{chat_type_of, Names};
 use crate::infrastructure::publication::ExportTarget;
 use crate::runtime::RuntimeContext;
 
@@ -257,40 +256,17 @@ async fn export_voices(
     } else {
         ExportTarget::capture(runtime, &summary_path)?
     };
-    let mut snapshot = if task.is_some() {
-        Some(super::media_snapshot::prepare_voice_snapshot(
-            runtime,
-            super::media_snapshot::DatabaseMaterials::new(std::mem::take(&mut all_keys.0)),
-        )?)
-    } else {
-        None
-    };
-    let db = if task.is_none() {
-        Some(
-            DbCache::with_dirs(
-                runtime.config.db_dir.clone(),
-                runtime.cache_dir(),
-                runtime.mtime_file(),
-                std::mem::take(&mut all_keys.0),
-            )
-            .await?,
-        )
-    } else {
-        None
-    };
+    let mut snapshot = super::media_snapshot::prepare_voice_snapshot(
+        runtime,
+        super::media_snapshot::DatabaseMaterials::new(std::mem::take(&mut all_keys.0)),
+    )?;
     let empty_names = || Names {
         map: HashMap::new(),
         msg_db_keys: Vec::new(),
         biz_msg_db_keys: Vec::new(),
         verify_flags: HashMap::new(),
     };
-    let mut names = if let Some(snapshot) = snapshot.as_mut() {
-        std::mem::replace(&mut snapshot.names, empty_names())
-    } else {
-        load_names(db.as_ref().context("Missing legacy cache")?)
-            .await
-            .unwrap_or_else(|_| empty_names())
-    };
+    let mut names = std::mem::replace(&mut snapshot.names, empty_names());
     if let Some(task) = task {
         task.verify(runtime)?;
     }
@@ -309,15 +285,10 @@ async fn export_voices(
         .transpose()?;
 
     let mut shards = Vec::new();
-    let mut missing_shards = snapshot
-        .as_ref()
-        .map(|s| s.missing_media.clone())
-        .unwrap_or_default();
+    let mut missing_shards = snapshot.missing_media.clone();
     let mut association_sources = Vec::new();
     for rel_key in media_paths {
-        let Some(path) =
-            source_path(db.as_ref(), snapshot.as_ref(), &lookup_keys[&rel_key]).await?
-        else {
+        let Some(path) = source_path(&snapshot, &lookup_keys[&rel_key]) else {
             missing_shards.push(rel_key);
             continue;
         };
@@ -330,20 +301,16 @@ async fn export_voices(
             path,
         });
     }
-    let mut missing_message_shards = snapshot
-        .as_ref()
-        .map(|s| s.missing_messages.clone())
-        .unwrap_or_default();
+    let mut missing_message_shards = snapshot.missing_messages.clone();
     for key in &message_paths {
-        match source_path(db.as_ref(), snapshot.as_ref(), &lookup_keys[key]).await {
-            Ok(Some(path)) => {
+        match source_path(&snapshot, &lookup_keys[key]) {
+            Some(path) => {
                 association_sources.push(crate::adapters::wechat::media::voice::DecryptedSource {
                     source: key.clone(),
                     path,
                 })
             }
-            Err(error) if task.is_some() => return Err(error),
-            _ => missing_message_shards.push(key.clone()),
+            None => missing_message_shards.push(key.clone()),
         }
     }
     missing_shards.sort();
@@ -528,24 +495,14 @@ async fn export_voices(
     Ok(summary)
 }
 
-async fn source_path(
-    db: Option<&DbCache>,
-    snapshot: Option<&super::media_snapshot::VoiceSnapshot>,
-    source: &str,
-) -> Result<Option<PathBuf>> {
-    if let Some(snapshot) = snapshot {
-        let canonical = source.replace('\\', "/").to_ascii_lowercase();
-        Ok(snapshot
-            .snapshot
-            .sources()
-            .iter()
-            .find(|s| s.source.replace('\\', "/").to_ascii_lowercase() == canonical)
-            .map(|s| s.path.clone()))
-    } else {
-        db.context("Missing voice database cache")?
-            .get(source)
-            .await
-    }
+fn source_path(snapshot: &super::media_snapshot::VoiceSnapshot, source: &str) -> Option<PathBuf> {
+    let canonical = source.replace('\\', "/").to_ascii_lowercase();
+    snapshot
+        .snapshot
+        .sources()
+        .iter()
+        .find(|s| s.source.replace('\\', "/").to_ascii_lowercase() == canonical)
+        .map(|s| s.path.clone())
 }
 
 fn task_voice_value(voice: &ExportedVoice) -> Result<Value> {

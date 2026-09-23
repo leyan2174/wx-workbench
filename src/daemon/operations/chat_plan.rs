@@ -169,7 +169,7 @@ fn pin_output_parent(parent: &Path) -> Result<Vec<fs::File>> {
         {
             use std::os::windows::fs::OpenOptionsExt;
             options
-                .access_mode(0x80)
+                .access_mode(0x81)
                 .share_mode(3)
                 .custom_flags(0x02200000);
         }
@@ -369,6 +369,51 @@ pub(super) fn execute_for(
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[cfg(windows)]
+    #[test]
+    fn output_parent_pin_blocks_root_rename_until_released() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("output");
+        let moved = temp.path().join("moved");
+        fs::create_dir(&root).unwrap();
+        let pins = pin_output_parent(&root).unwrap();
+        let held_result = fs::rename(&root, &moved);
+        drop(pins);
+        if held_result.is_ok() {
+            fs::rename(&moved, &root).unwrap();
+        }
+        fs::rename(&root, &moved).unwrap();
+        temp.close().unwrap();
+        assert!(
+            held_result.is_err(),
+            "Output parent pin allowed root rename"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn output_parent_pin_allows_child_creation_and_staged_publication() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("output");
+        fs::create_dir(&root).unwrap();
+        let pins = pin_output_parent(&root).unwrap();
+        fs::write(root.join("child"), b"synthetic child").unwrap();
+        let target = root.join("plan.csv");
+        let mut first = tempfile::NamedTempFile::new_in(&root).unwrap();
+        first.write_all(b"first").unwrap();
+        drop(first.persist_noclobber(&target).unwrap());
+        let mut replacement = tempfile::NamedTempFile::new_in(&root).unwrap();
+        replacement.write_all(b"replacement").unwrap();
+        drop(replacement.persist(&target).unwrap());
+        assert_eq!(fs::read(target).unwrap(), b"replacement");
+        assert_eq!(fs::read(root.join("child")).unwrap(), b"synthetic child");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        drop(pins);
+        temp.close().unwrap();
+    }
 
     #[derive(Parser)]
     struct Command {

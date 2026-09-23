@@ -65,10 +65,19 @@ fn ensure_running_until(runtime: &RuntimeContext, notice: bool, deadline: Instan
 }
 
 fn recorded_process_alive(runtime: &RuntimeContext) -> Result<bool> {
-    let bytes = match std::fs::read(runtime.pid_path()) {
+    let bytes = match super::transport::read_identity(
+        &runtime.pid_path(),
+        super::transport::PROCESS_IDENTITY_LIMIT,
+    ) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error.into()),
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(false)
+        }
+        Err(error) => return Err(error),
     };
     let record: PidFile =
         serde_json::from_slice(&bytes).context("后台身份记录损坏，未覆盖原记录")?;
@@ -169,17 +178,21 @@ pub fn stop_daemon() -> Result<()> {
 pub(crate) fn stop_runtime(runtime: &RuntimeContext) -> Result<()> {
     let _lock = runtime.lock("startup.lock")?;
     let path = runtime.pid_path();
-    let text = match std::fs::read(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            ensure!(
-                !ping(runtime).unwrap_or(false),
-                "后台正在运行但缺少身份记录，拒绝盲目停止"
-            );
-            return Ok(());
-        }
-        Err(e) => return Err(e.into()),
-    };
+    let text =
+        match super::transport::read_identity(&path, super::transport::PROCESS_IDENTITY_LIMIT) {
+            Ok(text) => text,
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                ensure!(
+                    !ping(runtime).unwrap_or(false),
+                    "后台正在运行但缺少身份记录，拒绝盲目停止"
+                );
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
     let record: PidFile =
         serde_json::from_slice(&text).context("后台身份记录损坏，拒绝盲目停止")?;
     ensure!(
@@ -548,6 +561,56 @@ async fn read_response<R: tokio::io::AsyncBufRead + Unpin>(
 mod tests {
     use super::*;
 
+    #[test]
+    fn lifecycle_identity_limit_rejects_oversize_without_mutating_record() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = RuntimeContext {
+            config: crate::config::Config {
+                key_store: None,
+                db_dir: PathBuf::new(),
+                keys_file: PathBuf::new(),
+                decrypted_dir: PathBuf::new(),
+                wechat_process: String::new(),
+            },
+            config_path: PathBuf::new(),
+            root: PathBuf::new(),
+            directory: temp.path().to_path_buf(),
+            id: "synthetic-identity-limit".into(),
+        };
+        assert!(!recorded_process_alive(&runtime).unwrap());
+        let handle = process_handle(std::process::id(), false).unwrap();
+        let mut bytes = serde_json::to_vec(&PidFile {
+            pid: std::process::id(),
+            exe: std::env::current_exe().unwrap(),
+            created: process_created(handle.0).unwrap(),
+            runtime_id: runtime.id.clone(),
+        })
+        .unwrap();
+        bytes.resize(super::super::transport::PROCESS_IDENTITY_LIMIT, b' ');
+        std::fs::write(runtime.pid_path(), &bytes).unwrap();
+        assert!(recorded_process_alive(&runtime).unwrap());
+        bytes.push(b' ');
+        // A regressed size check must fail parsing, never reach process termination.
+        bytes[0] = b'!';
+        std::fs::write(runtime.pid_path(), &bytes).unwrap();
+        let before = std::fs::metadata(runtime.pid_path()).unwrap();
+        for result in [
+            recorded_process_alive(&runtime).map(|_| ()),
+            stop_runtime(&runtime),
+        ] {
+            assert!(format!("{:#}", result.unwrap_err()).contains("exceeds limit"));
+        }
+        assert_eq!(std::fs::read(runtime.pid_path()).unwrap(), bytes);
+        assert_eq!(
+            std::fs::metadata(runtime.pid_path())
+                .unwrap()
+                .modified()
+                .unwrap(),
+            before.modified().unwrap()
+        );
+        assert!(process_active(handle.0).unwrap());
+    }
+
     #[tokio::test]
     async fn bounded_response_checks_limit_before_json_parse() {
         let reply = b"{\"ok\":true,\"pong\":true}\n";
@@ -642,11 +705,21 @@ mod tests {
                         .create_tokio()
                         .unwrap();
                     ready.send(()).unwrap();
-                    if let Ok(Ok(_stream)) =
+                    if let Ok(Ok(mut stream)) =
                         tokio::time::timeout(Duration::from_secs(2), listener.accept()).await
                     {
                         // 接受连接但不返回消息，模拟后台卡在查询中的情况。
                         tokio::time::sleep(Duration::from_millis(300)).await;
+                        use tokio::io::AsyncReadExt;
+                        let mut byte = [0u8; 1];
+                        let count =
+                            tokio::time::timeout(Duration::from_secs(1), stream.read(&mut byte))
+                                .await
+                                .expect("timed-out client must close its pipe")
+                                .expect("read client disconnect");
+                        assert_eq!(count, 0, "rejected handshake must not send business data");
+                    } else {
+                        panic!("synthetic client did not connect");
                     }
                 });
         });

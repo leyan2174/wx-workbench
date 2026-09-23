@@ -26,13 +26,15 @@ let voice = database_media::resolve_voice(
 
 此适配器提供只读消息与媒体关联证据。`wx voices` 的媒体目录导出与严格消息关联是不同契约；完整聊天导出保留语音引用，原始 SILK 及关联 manifest 供下游工具消费。宿主负责固定账号、准备来源、路径保护和文件发布，不把媒体 local_id 当作消息 local_id。
 
+CLI 原始语音导出与 `export_voices` 任务统一使用宿主 `prepare_voice_snapshot` 准备独立来源。`VoiceSnapshot` 持有通过 SQLite Backup 生成的 `ResourceSnapshot`，将单库已提交数据（包括 WAL 中已提交的数据）纳入私有副本，仅对副本设置 `journal_mode=DELETE`。这不放宽下述严格读取边界：读取器仍拒绝侧车，宿主不删除源侧车或修改源库日志模式，逐库副本不保证跨库原子一致性。
+
 ## 关联证据
 
 - 消息定位必须包含完整 source；不以 username/local_id 在媒体分片中选取首个同 local_id 记录，歧义必须报错。
 - wechat-decrypt 导出参考实现提供 `Msg_<md5(username)>.server_id` 字段语义；本适配器的关联规则由测试和类型化证据独立固定。
 - 关联核心使用 `VoiceInfo.svr_id`、`local_id`、`create_time`、`chat_name_id`，并用同媒体库 `Name2Id.rowid/user_name` 证明联系人；调用方通过本文件上方的公共入口访问，不依赖 CLI 私有读取函数。
-- `application/voice_batch_export.rs` 通过本适配器关联联系人并遍历媒体；配置、输出与计数仍由应用工作流负责，不提升为微信适配器的公共 helper。
-- `daemon/query/export.rs` 以完整分片 source 和 `Msg_<md5(username)>` 表导出 local_id。本实现沿用这个消息身份，不将媒体 local_id 当作消息 local_id。
+- [原始语音导出工作流](../../../daemon/operations/voices.rs) 使用媒体导出目录 `voice_export::Catalog` 遍历媒体，并调用本适配器的 `resolve_voice_media_row` 核对消息关联；固定账号、来源准备、输出发布与计数由 daemon 操作宿主负责，不提升为微信适配器的公共 helper。
+- [聊天查询导出](../../../daemon/query/export.rs) 以完整分片 source 和 `Msg_<md5(username)>` 表导出 local_id。本实现沿用这个消息身份，不将媒体 local_id 当作消息 local_id。
 
 查询先在指定 source 的实际消息表中唯一定位 local_id，并检查低 32 位类型为 34、server_id 非零。然后只枚举此根目录 `message/media_N.db`，精确按 username 找本库 Name2Id，再以 `svr_id = message.server_id` 查媒体。必须唯一，create_time 必须相同。媒体 local_id 即使不同也保留原值作为证据。重复消息、重复联系人映射、同库或跨库多候选均报错误，不按顺序、时间接近或字节相同擅自去重。
 

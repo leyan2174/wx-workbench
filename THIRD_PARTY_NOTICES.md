@@ -41,7 +41,10 @@ approving public source distribution.
 The clean source snapshot is an engineering candidate, not a statement that
 all third-party permission questions are resolved. Dependency packages retain
 their own licenses; a source snapshot is not a bundled binary release. Web
-Lucide assets retain `src/web/assets/LICENSE-lucide.txt` (ISC). Synthetic test
+Lucide assets retain `src/web/assets/LICENSE-lucide.txt`, including the Lucide
+ISC license and the MIT license for Feather-derived icons. Release staging
+copies this complete file to `LICENSE-lucide.txt` beside the GitHub binary
+and into both npm packages. Synthetic test
 audio has generation parameters and hashes in `tests/fixtures/audio/manifest.json`.
 
 

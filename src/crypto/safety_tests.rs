@@ -10,6 +10,43 @@ const KEY: [u8; 32] = [0x42; 32];
 const SALT: [u8; 16] = [0x35; 16];
 const FRAME: usize = 24 + PAGE_SZ;
 
+#[test]
+fn atomic_output_blocks_parent_rename_until_released() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("output");
+    let moved = temp.path().join("moved");
+    fs::create_dir(&root).unwrap();
+    let output = atomic::Output::new(&root.join("result.db"), &[]).unwrap();
+    let held_result = fs::rename(&root, &moved);
+    drop(output);
+    if held_result.is_ok() {
+        fs::rename(&moved, &root).unwrap();
+    }
+    fs::rename(&root, &moved).unwrap();
+    temp.close().unwrap();
+    assert!(
+        held_result.is_err(),
+        "Output allowed parent rename while held"
+    );
+}
+
+#[test]
+fn atomic_output_allows_child_creation_and_new_or_replacement_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("output");
+    let path = root.join("result.db");
+    for bytes in [b"first".as_slice(), b"replacement".as_slice()] {
+        let mut output = atomic::Output::new(&path, &[]).unwrap();
+        fs::write(root.join("child"), b"synthetic child").unwrap();
+        output.file().write_all(bytes).unwrap();
+        output.publish().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read(root.join("child")).unwrap(), b"synthetic child");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+    }
+    temp.close().unwrap();
+}
+
 fn plain(pgno: u32, marker: u8) -> Vec<u8> {
     let mut bytes = vec![marker; PAGE_SZ];
     if pgno == 1 {

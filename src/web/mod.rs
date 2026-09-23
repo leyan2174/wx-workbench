@@ -306,6 +306,9 @@ async fn css() -> impl IntoResponse {
 
 async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     let info = state.backend(Call::Info {}).await.map_err(backend_error)?;
+    let account = query::request(&state, ipc::Request::AccountProfile)
+        .await
+        .unwrap_or_else(|_| json!({"status":"账号资料未读取"}));
     let kinds = info["task_kinds"]
         .as_array()
         .cloned()
@@ -326,12 +329,12 @@ async fn state(State(state): State<Arc<Shared>>) -> ApiResult {
     }
     Ok(Json(
         json!({"api_version":1,"engine":"rust","runtime_id":state.runtime.id,
-        "gui_mode":"browser","task_kinds":kinds,
+        "gui_mode":"browser","task_kinds":kinds,"account":account,
         "limits":limits,"capabilities":info["capabilities"],
         "history_persisted":info["history_persisted"],"running":info["running"],
         "sources":["wechat"],
         "image_preview":{"enabled":true,"readonly":true,"max_bytes":16777216,"requires_decoded_cache":true},
-        "boundaries":["GUI 为本地浏览器页面，不是原 tkinter/EXE 窗口","图片预览只读取缓存；没有缓存时须先批量解密图片"]}),
+        "boundaries":["Web 界面为本地浏览器页面，仅监听本机回环地址","独立图片预览面板只读取已解码缓存；聊天内图片按精确消息身份按需解码"]}),
     ))
 }
 
@@ -442,7 +445,7 @@ async fn contacts(State(state): State<Arc<Shared>>, filter: FilterInput) -> ApiR
     filter.validate()?;
     query::request(
         &state,
-        ipc::Request::Contacts(ipc::ContactsRequest {
+        ipc::Request::WebContacts(ipc::ContactsRequest {
             query: filter.query,
             limit: filter.limit,
         }),

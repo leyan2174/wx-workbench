@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn source_files_excludes_known_resource_catalogs() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("message");
+    fs::create_dir(&directory).unwrap();
+    for name in [
+        "message_0.db",
+        "media_0.db",
+        "MESSAGE_RESOURCE.DB",
+        "message_resource_0.db",
+        "message_resource_12.db",
+    ] {
+        fs::write(directory.join(name), b"synthetic inventory only").unwrap();
+    }
+    let mut names: Vec<_> = source_files(root.path())
+        .unwrap()
+        .into_iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["media_0.db", "message_0.db"]);
+}
+
+#[test]
+fn source_files_still_rejects_unknown_message_and_resource_names() {
+    for name in [
+        "message_future.db",
+        "message_resource_future.db",
+        "message_resource_.db",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("message");
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join(name), b"synthetic inventory only").unwrap();
+        assert_eq!(
+            source_files(root.path()).unwrap_err().kind,
+            ErrorKind::UnsupportedSchema,
+            "{name}",
+        );
+    }
+}
+
+#[test]
 fn raw_coordinate_reverse_join_preserves_bytes_and_unknowns() {
     let f = Fixture::valid();
     let sources = explicit_sources(&f);

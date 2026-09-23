@@ -33,6 +33,14 @@ backend, automatic retry, upload, key acquisition or recovery is triggered.
 
 Adapters:
 
+These mappings apply when an adapter handles a business outcome. Successfully
+reading a task record is a separate operation: MCP/HTTP get/list can return a
+successful response containing a failed background task. Inspect the task's
+status and exit code. SNS timeline/snapshot hosts currently report media or
+parse failures through ordinary errors (exit 1), not typed Partial (exit 20);
+`media_missing` alone does not select that failure path. See
+[SNS boundaries](../../docs/sns-cache-boundary.md) for the report semantics.
+
 - CLI checks business success and prints only the typed failure's safe message.
   Public decode ambiguity code 2 is retained; internal worker codes are below.
 - MCP maps partial/refused/failure to `isError: true` and fixed public text;

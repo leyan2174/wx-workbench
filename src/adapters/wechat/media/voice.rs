@@ -764,6 +764,12 @@ fn shard_names(directory: &Path, prefix: &str) -> Result<Vec<String>> {
             .map_err(|_| error(ErrorKind::UnsafePath, "non-UTF8 database filename"))?;
         // 识别和证据规范化不区分大小写；打开文件及快照复核仍保留原名。
         let canonical = name.to_ascii_lowercase();
+        // Resource catalogs share the prefix but are not voice message shards.
+        if prefix == "message_"
+            && (canonical == "message_resource.db" || numbered_db(&canonical, "message_resource_"))
+        {
+            continue;
+        }
         if canonical.starts_with(prefix) && canonical.ends_with(".db") {
             if !numbered_db(&canonical, prefix) {
                 return Err(error(

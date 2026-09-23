@@ -152,3 +152,29 @@ pub(crate) fn assert_private_acl(path: &std::path::Path) {
         EqualSid(PSID(std::ptr::addr_of_mut!((*ace).SidStart).cast()), sid).unwrap();
     }
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::{fs, io::Write, os::windows::fs::OpenOptionsExt};
+
+    #[test]
+    fn file_is_private_before_first_write_and_exclusive_until_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("private-data.bin");
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true).share_mode(0);
+        let mut file = options.open(&path).unwrap();
+        restrict(&file).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        assert_private_acl(&path);
+        assert_eq!(fs::File::open(&path).unwrap_err().raw_os_error(), Some(32));
+        file.write_all(b"synthetic private data").unwrap();
+        file.sync_all().unwrap();
+        drop(file);
+        assert_private_acl(&path);
+        assert_eq!(fs::read(&path).unwrap(), b"synthetic private data");
+        assert!(options.open(&path).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"synthetic private data");
+    }
+}

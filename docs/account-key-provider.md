@@ -60,7 +60,7 @@ Frida 执行内嵌的 `account_hook.js`，不需要 Node.js 或 Python。Hook �
 
 启动时清除原始标准句柄的继承，显式子进程重定向仍有效，避免长期运行的微信持有调用者输出管道。Frida 使用默认 spawn 标准流，不额外创建 piped stdio。
 
-worker 挂起启动、加入 Job 后才恢复。只有明确的 force/account/restart 操作使用允许子进程脱离的专用 Job：worker 仍被 daemon 回收，重启后的用户应用可继续运行。该标志作用于该 worker 的全部子进程，因此捕获路径不能借它运行无关工具。普通 Job 仍回收后代。
+worker 在创建挂起进程时通过 Job 列表属性原子分配到 Job，随后恢复执行。只有明确的 force/account/restart 操作使用允许子进程脱离的专用 Job：worker 仍被 daemon 回收，重启后的用户应用可继续运行。该标志作用于该 worker 的全部子进程，因此捕获路径不能借它运行无关工具。普通 Job 仍回收后代。
 
 捕获失败或取消后先确认目标进程状态，不把失败当成再次关闭或启动微信的授权。已写入文件不因取消自动回滚。
 

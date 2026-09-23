@@ -1,11 +1,11 @@
 # Message Read Contracts
 
-`business::messages` distinguishes a legacy `MessageSelector`, a verified
+`business::messages` distinguishes a compatibility `MessageSelector`, a verified
 `MessageRef`, and an `EvidenceRef`. The selector is not an ID. Every reference
 currently has `SnapshotBound` stability: another read instance rejects it, and
 dropping the creating snapshot expires it. Neither `rowid`, server ID, timestamp,
-nor a content hash is promoted to a permanent global identity. There is no new
-database, registry, or long-lived query lease.
+nor a content hash is promoted to a permanent global identity. The read core does
+not create a database, registry, or long-lived query lease.
 
 `adapters::wechat::messages::read::Snapshot` accepts only host-prepared sources.
 Logical source names distinguish ordinary and official-push databases and cannot
@@ -28,7 +28,7 @@ page chronologically; search presents newest first. Unmapped global-search resul
 have null username, explicit identity status and identity-completeness metadata.
 Page direction changes timestamp order only; same-second ties retain source rank
 and ascending snapshot record order. History ranks sources by their latest timestamp
-descending, preserving the legacy stable merge before applying offset and limit.
+descending and uses a stable merge before applying offset and limit.
 
 The compatibility read policy, including packed WeChat numeric types and the
 stored-text versus decoded app-message search distinction, belongs to the adapter.
@@ -48,13 +48,13 @@ checks complete. Plain content decoding receives detached evidence without a liv
 identity promise.
 
 `business::sessions` owns summary selection. The session adapter has separate
-full-summary, timestamp and two-column unread-publisher projections. A legacy
+full-summary, timestamp and two-column unread-publisher projections. A
 timestamp subscription is explicitly not a complete history cursor: same-second
-truncation and the existing initial-window advancement remain compatibility limits.
+truncation and initial-window advancement are compatibility limits.
 Call events preserve client status and duration text, with media `Unknown`; a voice
 message is not a call and status text is not evidence of audio versus video.
 
-Verification is coordinated by the parent task. Synthetic tests cover duplicate
+Synthetic tests cover duplicate
 records, expiry, metadata-only sources, server scalar types and cross-time ambiguity,
 source whitelisting, unknown call media, unmapped identities and session compatibility.
 This document does not claim unrun tests have passed.
@@ -75,21 +75,21 @@ storage types. Compact, directory and delta retain distinct compatibility format
 they do not serialize ordinary history messages. Raw export streams rows without
 the interactive 100,000-candidate cap, with a separate 64 MiB per stored/decoded
 body ceiling. Publication and whole-output budgets remain with existing exporters.
-Only the explicit delta profile retains its old malformed-compression missing-text
-behavior, while preserving original bytes; resource-limit errors never fall back.
-Its inverted time window retains the legacy empty SQL result, without skipping
+Only the explicit delta profile represents malformed compressed content as missing
+text while preserving original bytes; resource-limit errors never fall back.
+Its inverted time window returns an empty SQL result, without skipping
 source or projection checks. Other profiles retain normal time-range validation.
 
-Attachment listing has a separate legacy conversion policy. It reports skipped
+Attachment listing has a separate compatibility conversion policy. It reports skipped
 invalid rows and degraded sender text; strict metadata rejects row conversion
 errors. Neither policy suppresses source, schema, SQL execution or budget errors.
 
-Legacy transfer/location diagnostics consume only explicitly selected snapshot
+Compatibility transfer/location diagnostics consume only explicitly selected snapshot
 streams. They return detached, non-serializable raw diagnostic records, not verified
 MessageRefs. Production source keys come from the account's selected catalog;
-synthetic keys are constructed only by test fixtures. Timestamp zero retains its
-legacy no-time-filter meaning. All candidate diagnostics are retained within the
+synthetic keys are constructed only by test fixtures. Timestamp zero means no
+time filter. All candidate diagnostics are retained within the
 existing bounded read budgets; ambiguity is reported before type checking, and
-type checking before lazy lossy legacy content decoding. Existing transfer/location
-parsers and wire fields remain unchanged. This path does not widen an explicit
+type checking before lazy, potentially lossy content decoding. Transfer/location
+parsers produce the compatibility wire fields. This path does not widen an explicit
 source scope or replace MCP's strict evidence-resolution policy.

@@ -284,7 +284,9 @@ impl DirectoryGuard {
         let mut handles = Vec::new();
         for parent in path.ancestors().collect::<Vec<_>>().into_iter().rev() {
             let file = OpenOptions::new()
-                .access_mode(0)
+                // Directory-list access makes deny-delete sharing effective;
+                // share-write still permits child creation and atomic publication.
+                .access_mode(0x81)
                 .share_mode(3)
                 .custom_flags(OPEN_REPARSE | BACKUP_SEMANTICS)
                 .open(parent)
@@ -316,6 +318,8 @@ pub(crate) fn regular_file(file: &File) -> Result<()> {
     );
     Ok(())
 }
+
+pub(crate) const PROCESS_IDENTITY_LIMIT: usize = 16 * 1024;
 
 pub(crate) fn read_identity(path: &Path, limit: usize) -> Result<Zeroizing<Vec<u8>>> {
     let file = OpenOptions::new()
@@ -665,6 +669,70 @@ mod tests {
     use super::*;
     use tokio::io::AsyncWriteExt;
 
+    fn assert_directory_rename_is_blocked(rename_ancestor: bool) {
+        let temp = tempfile::tempdir().unwrap();
+        let ancestor = temp.path().join("ancestor");
+        let root = ancestor.join("root");
+        let moved = temp.path().join("moved");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("child"), b"synthetic child").unwrap();
+        let source = if rename_ancestor { &ancestor } else { &root };
+        let guard = DirectoryGuard::open(&root).unwrap();
+        let held_result = std::fs::rename(source, &moved);
+        drop(guard);
+        // Restore an unexpectedly moved directory before checking the released state.
+        if held_result.is_ok() {
+            std::fs::rename(&moved, source).unwrap();
+        }
+        std::fs::rename(source, &moved).unwrap();
+        let child = if rename_ancestor {
+            moved.join("root/child")
+        } else {
+            moved.join("child")
+        };
+        assert_eq!(std::fs::read(child).unwrap(), b"synthetic child");
+        temp.close().unwrap();
+        assert!(
+            held_result.is_err(),
+            "DirectoryGuard allowed rename while held (ancestor={rename_ancestor})"
+        );
+    }
+
+    #[test]
+    fn directory_guard_blocks_root_rename_until_released() {
+        assert_directory_rename_is_blocked(false);
+    }
+
+    #[test]
+    fn directory_guard_blocks_ancestor_rename_until_released() {
+        assert_directory_rename_is_blocked(true);
+    }
+
+    #[test]
+    fn directory_guard_allows_child_creation_and_staged_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("ancestor/root");
+        std::fs::create_dir_all(&root).unwrap();
+        let guard = DirectoryGuard::open(&root).unwrap();
+        std::fs::write(root.join("child"), b"synthetic child").unwrap();
+        let target = root.join("published");
+        let mut first = tempfile::NamedTempFile::new_in(&root).unwrap();
+        first.write_all(b"first publication").unwrap();
+        drop(first.persist_noclobber(&target).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"first publication");
+        let mut replacement = tempfile::NamedTempFile::new_in(&root).unwrap();
+        replacement.write_all(b"replacement publication").unwrap();
+        drop(replacement.persist(&target).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"replacement publication");
+        assert_eq!(
+            std::fs::read(root.join("child")).unwrap(),
+            b"synthetic child"
+        );
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+        drop(guard);
+        temp.close().unwrap();
+    }
+
     fn test_name(directory: &Path) -> String {
         format!(
             r"\\.\pipe\wx-cli-tasks-v1-test-{}-{}",
@@ -829,18 +897,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Requires Windows symbolic-link creation privilege; run explicitly in a prepared environment"]
     async fn symbolic_link_is_not_followed_or_removed() {
         let dir = tempfile::tempdir().unwrap();
         let original = dir.path().join("original");
         let path = dir.path().join("service-token.key");
         leave_stale_token(&original, &[b'a'; 64]);
-        if let Err(error) = std::os::windows::fs::symlink_file(&original, &path) {
-            if error.raw_os_error() == Some(1314) {
-                eprintln!("symlink test skipped: Windows symlink privilege is unavailable");
-                return;
-            }
-            panic!("cannot create symlink fixture: {error}");
-        }
+        std::os::windows::fs::symlink_file(&original, &path)
+            .expect("Windows symbolic-link creation privilege is required for this test");
         let listener = create_pipe(&test_name(dir.path()), true).unwrap();
         assert!(TokenFile::create(DirectoryGuard::open(dir.path()).unwrap(), &listener).is_err());
         assert!(std::fs::symlink_metadata(&path)

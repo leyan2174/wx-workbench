@@ -42,6 +42,7 @@ mod mcp_refer;
 pub(super) mod mcp_voice;
 mod message_read;
 mod strict_message;
+pub(super) mod web_contacts;
 pub use mcp_refer::q_decode_refer;
 
 const CONTACT_DB_KEY: &str = crate::adapters::wechat::messages::sources::contacts().cache_key();

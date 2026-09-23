@@ -4,7 +4,7 @@
   "description": "wx-workbench binary for Windows x64",
   "os": ["win32"],
   "cpu": ["x64"],
-  "files": ["bin/", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "files": ["bin/", "LICENSE", "THIRD_PARTY_NOTICES.md", "LICENSE-lucide.txt"],
   "license": "Apache-2.0",
   "publishConfig": { "access": "public" }
 }

@@ -5,9 +5,9 @@ use clap::Subcommand;
 pub enum Command {
     /// Acquire verified database keys with explicit memory-scan authorization.
     Database(super::database_keys::Args),
-    /// Acquire verified image materials with explicit memory-scan authorization.
+    /// Acquire verified image materials from offline samples or an authorized memory scan.
     Image(super::image_keys::Args),
-    /// Import verified image material from private stdin into the selected account.
+    /// Import verified image material from non-interactive stdin into the selected account.
     ImportImage(super::image_keys::ImportArgs),
     /// Watch for verified image materials and exit when found.
     WatchImage(super::image_keys::MonitorArgs),

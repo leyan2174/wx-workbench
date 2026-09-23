@@ -4,7 +4,7 @@ The favorites query uses:
 
 `CLI favorites -> existing query RPC -> daemon query -> business::favorites::list -> WeChat Source`
 
-The HTTP routes and MCP query allowlist do not expose favorites.
+HTTP `GET /api/favorites` and MCP `get_favorites` also expose the account-bound favorites query through the existing query dispatch.
 
 The source is assembled from the existing account-bound `DbCache` and executes
 in the existing blocking query boundary. No additional cache, runtime selection,
@@ -31,11 +31,19 @@ The response includes `favorite_id` on each item and `has_more` on the list whil
 retaining all existing fields. IDs are stable only within the fixed account
 context, not global identities. `has_more` explicitly identifies a limited page;
 it is not a promise that the local cache contains all remote favorites.
+CLI JSON/YAML output remains the item array; when `has_more` is true, the CLI
+prints a continuation notice to stderr rather than adding a page wrapper.
 
 Invalid required fields or duplicate logical identifiers fail explicitly
 instead of producing zero identifiers, silently discarded rows, or empty
 success. Missing schema and unavailable sources have distinct internal errors.
 Nullable optional text still projects to the original empty-string fields.
+Row validation covers the requested items. The extra lookahead row only establishes
+`has_more` and is not decoded; a successful limited page does not validate every
+matching row in the database. At the underlying query/CLI boundary, a zero limit
+can return no items with `has_more=true`. This does not override entry-point
+budgets: HTTP accepts limits from 1 to 2000, while the MCP tool schema declares
+limits from 1 to 500.
 
 Article link extraction deliberately preserves the legacy fragment/entity rules.
 The shared `adapters::wechat::xml_fragments` helper is explicitly a compatibility

@@ -90,7 +90,7 @@ wx voice-messages <CHAT> [-n|--limit N] [--offset N]
 | 多类型与最早页 | history 支持 | history 支持 | 选定会话的 history 支持；本页筛选不等于服务端过滤 |
 | 原始来源调试 | 既有全局 --debug-source | 不公开 | 部分本地 HTTP 查询有 debug_source；可能包含私有路径 |
 
-共享 legacy 类型过滤将 `link` 与 `file` 都投影为应用消息类型 49，不能承诺精确区分链接、文件和其他应用消息。MCP 的 msg_types 名称经大小写归一化解析；HTTP 还接受非负数值 wire selector。消息实际结构与具体详情应从返回内容判断，不能仅根据筛选标签命名。实现见[时间解析](../src/service/time.rs)、[类型投影](../src/service/message_filter.rs)与[Request](../src/ipc.rs)。
+共享类型过滤将 `link` 与 `file` 都投影为宽泛的应用消息类型 49，不能承诺精确区分链接、文件和其他应用消息。MCP 的 msg_types 名称经大小写归一化解析；HTTP 还接受非负数值 wire selector。消息实际结构与具体详情应从返回内容判断，不能仅根据筛选标签命名。实现见[时间解析](../src/service/time.rs)、[类型投影](../src/service/message_filter.rs)与[Request](../src/ipc.rs)。
 
 ## 验证边界
 

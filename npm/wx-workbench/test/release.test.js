@@ -32,6 +32,12 @@ test('release packaging is manual, gated, and keeps license notices', () => {
   assert.match(release, /Copy-Item LICENSE npm\/wx-workbench\/LICENSE/);
   assert.match(release, /Copy-Item THIRD_PARTY_NOTICES\.md npm\/platforms\/win32-x64\/THIRD_PARTY_NOTICES\.md/);
   assert.match(release, /working-directory: npm\/wx-workbench/);
+  for (const destination of ['npm/wx-workbench', 'npm/platforms/win32-x64']) {
+    const copy = `Copy-Item src/web/assets/LICENSE-lucide.txt ${destination}/LICENSE-lucide.txt`;
+    assert.equal(release.split(copy).length - 1, 2, `${destination}: build and publish stages must retain icon licenses`);
+  }
+  assert.ok(release.includes('Copy-Item src/web/assets/LICENSE-lucide.txt LICENSE-lucide.txt'));
+  assert.equal((release.match(/^            LICENSE-lucide\.txt\r?$/gm) || []).length, 2, 'artifact and GitHub release must retain icon licenses');
 });
 
 test('both npm packages declare license and third-party notice files', () => {
@@ -39,6 +45,7 @@ test('both npm packages declare license and third-party notice files', () => {
     const manifest = JSON.parse(read(file));
     assert.ok(manifest.files.includes('LICENSE'), `${file} must include LICENSE`);
     assert.ok(manifest.files.includes('THIRD_PARTY_NOTICES.md'), `${file} must include THIRD_PARTY_NOTICES.md`);
+    assert.ok(manifest.files.includes('LICENSE-lucide.txt'), `${file} must include Lucide and Feather license text`);
   }
 });
 

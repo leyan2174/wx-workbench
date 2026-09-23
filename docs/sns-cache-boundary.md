@@ -16,6 +16,24 @@
 
 ## Outcome Compatibility
 
+### Timeline content decoding
+
+`adapters/wechat/moments/decode.rs` interprets timeline content separately from
+the media DAT codec. Encoded text or BLOB input is limited to 1,600,000 bytes.
+A standard Zstandard frame header selects bounded decompression: the decoder
+uses `window_log_max(23)`, reads at most 800,001 output bytes and rejects output
+above 800,000 bytes. Recognized hexadecimal or Base64 text is converted once
+to BLOB handling; it is not recursively unwrapped as arbitrary text encodings.
+After entity decoding, XML text is limited to 200,000 Unicode characters.
+
+This is compatibility decoding, not strict or lossless UTF-8 validation.
+Malformed UTF-8 sequences are discarded; XML cleanup can remove control
+characters and escape selected text. A successfully parsed post therefore does
+not prove byte-for-byte preservation of its original content. The decoder
+rejects `DOCTYPE`/`ENTITY` declaration markers before cleanup; XML parsing and
+its errors remain separate checks. These budgets do not establish complete
+remote-history coverage or a bound on the whole export's peak memory.
+
 Missing SNS source keeps the prior report fields and includes `status: unavailable`,
 `exit_code: 1` and `coverage: local_cache_only`. It returns typed
 `moments::SourceError::Unavailable`, does not load image keys or scan caches, and
@@ -27,6 +45,24 @@ Image matching is still labeled `legacy_image_heuristic`, not proof of media
 identity; video association remains `post_media_md5`. Partial-video policy is
 unchanged. Neither export success nor cache recovery claims complete remote
 history.
+
+### Report status, process exit and task status
+
+The timeline host reports `status: partial` and `exit_code: 1` when media
+recovery, attempted downloads or record parsing fail. It then returns an
+ordinary error; this path does not construct `BusinessFailure::Partial` and
+does not use worker exit code 20. The offline snapshot host likewise prints
+its report before returning an error for those failure counts. A queued SNS
+export with this nonzero exit is a failed task even if some files were written.
+
+`media_missing` alone does not trigger those failure checks. For example, an
+item without a download URL can remain missing without an attempted-download
+failure. Inspect the individual counters and warnings; exit 0 is not a claim
+that every referenced medium was recovered.
+
+MCP task get/list or HTTP task get/list can successfully return the JSON of a
+failed task. Their transport success is not the background export outcome;
+clients must inspect the task status, exit code and available diagnostics.
 
 ## Offline Snapshot Material Boundary
 

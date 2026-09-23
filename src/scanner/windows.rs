@@ -46,7 +46,7 @@ impl SourcePin {
         let mut options = OpenOptions::new();
         // 共享读写但不共享删除；禁止路径替换，不阻塞已有 SQLite 写句柄。
         options
-            .access_mode(if directory { 0x80 } else { 0x80000000 })
+            .access_mode(if directory { 0x81 } else { 0x80000000 })
             .share_mode(1 | 2)
             .custom_flags(0x00200000 | if directory { 0x02000000 } else { 0 });
         let file = options.open(path).context("无法固定库存源路径")?;
@@ -546,6 +546,52 @@ fn merge_entries(target: &mut Vec<KeyEntry>, found: Vec<KeyEntry>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_directory_pin_blocks_root_rename_until_released() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("source");
+        let moved = temp.path().join("moved");
+        fs::create_dir(&root).unwrap();
+        let pin = SourcePin::open(&root, true).unwrap();
+        let held_result = fs::rename(&root, &moved);
+        let verification = pin.verify();
+        drop(pin);
+        if held_result.is_ok() {
+            fs::rename(&moved, &root).unwrap();
+        }
+        fs::rename(&root, &moved).unwrap();
+        temp.close().unwrap();
+        assert_eq!(verification.is_err(), held_result.is_ok());
+        assert!(
+            held_result.is_err(),
+            "SourcePin allowed root rename while held"
+        );
+    }
+
+    #[test]
+    fn source_directory_pin_allows_child_creation_and_staged_publication() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("source");
+        fs::create_dir(&root).unwrap();
+        let pin = SourcePin::open(&root, true).unwrap();
+        fs::write(root.join("child"), b"synthetic child").unwrap();
+        let target = root.join("published");
+        let mut first = tempfile::NamedTempFile::new_in(&root).unwrap();
+        first.write_all(b"first").unwrap();
+        drop(first.persist_noclobber(&target).unwrap());
+        let mut replacement = tempfile::NamedTempFile::new_in(&root).unwrap();
+        replacement.write_all(b"replacement").unwrap();
+        drop(replacement.persist(&target).unwrap());
+        pin.verify().unwrap();
+        assert_eq!(fs::read(target).unwrap(), b"replacement");
+        assert_eq!(fs::read(root.join("child")).unwrap(), b"synthetic child");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        drop(pin);
+        temp.close().unwrap();
+    }
 
     fn entry(name: &str) -> KeyEntry {
         KeyEntry {

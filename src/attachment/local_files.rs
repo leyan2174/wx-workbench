@@ -242,6 +242,7 @@ impl Pin {
     pub(crate) fn read_bounded(&self, limit: u64) -> Result<Vec<u8>> {
         self.verify()?;
         let bound = limit.checked_add(1).context("source size limit overflow")?;
+        ensure!(self.stamp.1 <= limit, "Source exceeds size limit");
         let mut bytes = Vec::new();
         (&self.file).take(bound).read_to_end(&mut bytes)?;
         ensure!(bytes.len() as u64 <= limit, "Source exceeds size limit");
@@ -472,6 +473,22 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn oversized_pinned_read_is_rejected_before_advancing_handle() {
+        use std::io::Seek;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("oversized.bin");
+        let limit = 1024;
+        File::create(&path).unwrap().set_len(limit + 1).unwrap();
+        let pin = Pin::open(&path, false).unwrap();
+        let error = pin.read_bounded(limit).unwrap_err();
+        assert!(error.to_string().contains("Source exceeds size limit"));
+        assert_eq!((&pin.file).stream_position().unwrap(), 0);
+        pin.verify().unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), limit + 1);
+    }
 
     #[test]
     fn directory_pin_blocks_replacement_but_allows_child_creation() {

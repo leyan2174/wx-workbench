@@ -1,6 +1,11 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::{
+    io::Read,
+    path::{Path, PathBuf},
+};
+
+pub const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -15,10 +20,24 @@ pub struct Config {
 
 /// 从指定文件加载一次配置，避免后台启动过程中重复发现配置而切换账号。
 pub(crate) fn load_config_at(config_path: &Path) -> Result<Config> {
-    let content = std::fs::read_to_string(config_path)
+    let file = std::fs::File::open(config_path)
+        .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
+    anyhow::ensure!(
+        file.metadata()
+            .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?
+            .len()
+            <= MAX_CONFIG_BYTES,
+        "配置超过读取限额"
+    );
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    file.take(MAX_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
+    anyhow::ensure!(bytes.len() as u64 <= MAX_CONFIG_BYTES, "配置超过读取限额");
+    let content = std::str::from_utf8(&bytes)
         .with_context(|| format!("读取 config.json 失败: {}", config_path.display()))?;
     let raw: serde_json::Value =
-        serde_json::from_str(&content).with_context(|| "config.json 格式错误")?;
+        serde_json::from_str(content).with_context(|| "config.json 格式错误")?;
     validate_key_configuration(&raw)?;
 
     let mut db_dir = raw
@@ -308,6 +327,70 @@ fn known_documents_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn oversized_configuration_is_rejected_before_parsing_without_changing_source() {
+        use std::io::Read;
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        let prefix = b"invalid-json synthetic-secret";
+        fs::write(&path, prefix).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(super::MAX_CONFIG_BYTES + 1)
+            .unwrap();
+        let before = fs::metadata(&path).unwrap();
+        let error = super::load_config_at(&path).unwrap_err();
+        assert_eq!(error.to_string(), "配置超过读取限额");
+        assert!(!format!("{error:#}").contains("synthetic-secret"));
+        let after = fs::metadata(&path).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+        let mut actual = vec![0; prefix.len()];
+        fs::File::open(&path)
+            .unwrap()
+            .read_exact(&mut actual)
+            .unwrap();
+        assert_eq!(actual, prefix);
+    }
+
+    #[test]
+    fn configuration_at_size_limit_preserves_paths_defaults_and_unrelated_fields() {
+        use std::io::{Read, Write};
+
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.json");
+        let bytes = br#"{"db_dir":"account/db_storage","key_store":"keys.dpapi","unrelated":{"enabled":true}}"#;
+        for length in [bytes.len() as u64, super::MAX_CONFIG_BYTES] {
+            let mut file = fs::File::create(&path).unwrap();
+            file.write_all(bytes).unwrap();
+            std::io::copy(
+                &mut std::io::repeat(b' ').take(length - bytes.len() as u64),
+                &mut file,
+            )
+            .unwrap();
+            drop(file);
+            let before = fs::metadata(&path).unwrap();
+            let config = super::load_config_at(&path).unwrap();
+            assert_eq!(config.db_dir, root.path().join("account/db_storage"));
+            assert_eq!(config.keys_file, root.path().join("all_keys.json"));
+            assert_eq!(config.key_store, Some(root.path().join("keys.dpapi")));
+            assert_eq!(config.decrypted_dir, root.path().join("decrypted"));
+            assert_eq!(config.wechat_process, super::default_wechat_process());
+            let after = fs::metadata(&path).unwrap();
+            assert_eq!(after.len(), length);
+            assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+            let mut actual = vec![0; bytes.len()];
+            fs::File::open(&path)
+                .unwrap()
+                .read_exact(&mut actual)
+                .unwrap();
+            assert_eq!(actual, bytes);
+        }
+    }
+
     #[test]
     fn old_inline_material_is_rejected_even_with_a_current_store() {
         let root = tempfile::tempdir().unwrap();

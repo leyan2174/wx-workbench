@@ -19,6 +19,10 @@ struct Seed {
 }
 
 fn seed(fixture: &mut Fixture, name: &str) -> Seed {
+    seed_with_journal(fixture, name, false)
+}
+
+fn seed_with_journal(fixture: &mut Fixture, name: &str, wal: bool) -> Seed {
     let account = fixture.account(name, true);
     let contact = rusqlite::Connection::open(account.join("fixture.db")).unwrap();
     contact.execute_batch("INSERT INTO contact VALUES('voice-peer','Same synthetic name','',0),('voice-other','Same synthetic name','',0);").unwrap();
@@ -36,6 +40,10 @@ fn seed(fixture: &mut Fixture, name: &str) -> Seed {
         fs::copy(account.join("fixture.db"), &message_plain).unwrap();
         let media = rusqlite::Connection::open(&media_plain).unwrap();
         let messages = rusqlite::Connection::open(&message_plain).unwrap();
+        if wal {
+            media.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+            messages.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        }
         media.execute_batch("CREATE TABLE Name2Id(user_name TEXT); CREATE TABLE VoiceInfo(chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,svr_id INTEGER,voice_data BLOB);").unwrap();
         for (index, username) in ["voice-peer", "voice-other"].into_iter().enumerate() {
             let bytes = format!("\u{2}#!SILK_V3\0synthetic-{shard}-{index}").into_bytes();
@@ -59,6 +67,9 @@ fn seed(fixture: &mut Fixture, name: &str) -> Seed {
         drop(media);
         drop(messages);
         for (kind, plain) in [("media", media_plain), ("message", message_plain)] {
+            if wal {
+                assert_eq!(&fs::read(&plain).unwrap()[18..20], &[2, 2]);
+            }
             let logical = format!("message/{kind}_{shard}.db");
             let encrypted = account.join("db_storage").join(&logical);
             fs::create_dir_all(encrypted.parent().unwrap()).unwrap();
@@ -104,6 +115,70 @@ fn assert_no_physical_paths(value: &Value) {
             );
         }
         _ => {}
+    }
+}
+
+#[test]
+fn wal_voice_sources_have_identical_cli_and_task_association_and_selection() {
+    let mut fixture = Fixture::new();
+    let seeded = seed_with_journal(&mut fixture, "voice-wal", true);
+    let mut mcp = Mcp::start(&fixture, &seeded.account, HOST);
+    for (number, options, flags, count) in [
+        (0, json!({}), vec![], 4),
+        (1, json!({"limit":0}), vec!["--limit", "0"], 0),
+        (
+            2,
+            json!({"offset":1,"limit":2}),
+            vec!["--offset", "1", "--limit", "2"],
+            2,
+        ),
+    ] {
+        let output = fixture.root.join(format!("voice-wal-output-{number}"));
+        let mut args = vec!["voices", "--json", "-o", output.to_str().unwrap()];
+        args.extend(flags);
+        let cli = call(&fixture, &seeded.account, &args);
+        assert_eq!(cli["exported"], count, "{cli}");
+        assert_eq!(cli["associated"], count, "{cli}");
+        assert_eq!(cli["incomplete_items"], 0, "{cli}");
+        let mut cli_ids = Vec::new();
+        let mut cli_audio = Vec::new();
+        for item in cli["manifest"].as_array().unwrap() {
+            assert_eq!(item["association"], "exact_message_media_join");
+            cli_ids.push(item["message_id"].as_str().unwrap().to_owned());
+            cli_audio.push(fs::read(output.join(item["relative_path"].as_str().unwrap())).unwrap());
+        }
+        args.push("--overwrite");
+        let repeated = call(&fixture, &seeded.account, &args);
+        assert_eq!(repeated["associated"], count);
+        let id = format!("{:02x}", 0xa0 + number).repeat(32);
+        mcp.data("submit_task", request(&id, options));
+        let task = terminal(&fixture, &seeded.account, &id);
+        assert_eq!(task["status"], "succeeded", "{task}");
+        assert_eq!(task["result"]["associated"], count, "{task}");
+        let page = mcp.data("list_task_artifacts", json!({"id":id,"limit":100}));
+        let mut task_ids = Vec::new();
+        let mut task_audio = Vec::new();
+        for item in page["items"].as_array().unwrap() {
+            let bytes = read_artifact(&mut mcp, &id, item);
+            if item["media_type"] == "application/json" {
+                let evidence: Value = serde_json::from_slice(&bytes).unwrap();
+                if let Some(message) = evidence["message_id"].as_str() {
+                    assert_eq!(evidence["association"], "exact_message_media_join");
+                    task_ids.push(message.to_owned());
+                }
+            } else {
+                task_audio.push(bytes);
+            }
+        }
+        cli_ids.sort();
+        task_ids.sort();
+        cli_audio.sort();
+        task_audio.sort();
+        assert_eq!(task_ids, cli_ids);
+        assert_eq!(task_audio, cli_audio);
+    }
+    for (path, before) in seeded.sources {
+        assert_eq!(fs::read(path).unwrap(), before);
     }
 }
 

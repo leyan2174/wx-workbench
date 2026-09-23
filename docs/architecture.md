@@ -39,6 +39,8 @@ flowchart TB
 
 聊天计划任务契约由 `service::chat_plan` 拥有，`daemon::operations::plan_tasks` 装配现有 `application::chat_export_plan` 与计划选集、聊天导出能力。微信统计仍由适配层读取；任务计划不读取旧共享解密目录，而用当前账号材料创建独立快照，再以逻辑来源映射私有文件。`daemon::tasks::plan_artifacts` 管理不可变计划引用、类型化分页及逐聊天发布记录。CLI、MCP、HTTP 共用这些任务和读取 RPC，不复制选择规则。扫描授权留在入口，账号与配置复核留在共享宿主；审阅不是授权状态，发布的空选集不扩大为全量导出。
 
+聊天媒体与计划使用的 `media_snapshot::prepare_snapshot` 在私有解密后，通过 `ResourceSnapshot` 对每库执行 SQLite Backup，并仅将副本日志模式设为 `DELETE`。静态文件移入本批次私有根下的单层路径，`DecryptedSource.source` 保留原逻辑来源，计划消费者的根内单层路径约束不变。这使普通媒体读取与严格语音关联消费同一组静态来源，不通过放宽侧车检查兼容 WAL 副本。冷解密与 Backup 都有时间成本；每库独立备份不保证跨库原子一致性。源清单及状态变化仍会拒绝处理，应等待写入稳定后重试，不删除源侧车或修改源库日志模式。这些机制说明不代表真实微信混合媒体导出已全部验证通过。
+
 ```mermaid
 flowchart LR
     C[CLI / Web] --> Q[认证查询请求]
@@ -166,7 +168,7 @@ MCP 在短查询租约外执行编排；需要数据时调用进程内查询分�
 
 直接表情导出 `Operation::ExportEmoticons` 也使用该只读材料通道，再交给原表情 `DbCache` 读取；预览、筛选、下载和发布继续共用既有业务实现。删除磁盘密钥文件不会隐式撤销热快照，显式重载或重启后缺钥必须失败。一键准备仍保留额外进程前置检查，但与直接入口共用 daemon 材料来源。
 
-语音原始导出 `Operation::Voices` 同样使用 `READ_DATABASES` 和私有 worker 材料通道，不直接读取磁盘密钥库。材料在创建输出目录前取得，再转交已有 `DbCache` 管理和清零；语音目录适配、筛选和发布逻辑不变。
+语音原始导出 `Operation::Voices` 同样使用 `READ_DATABASES` 和私有 worker 材料通道，不直接读取磁盘密钥库。材料在创建输出目录前取得；CLI 与 `export_voices` 任务随后统一通过 `prepare_voice_snapshot` 创建账号内的独立解密快照，不直接把共享解密缓存交给严格语音读取器。
 
 聊天目录媒体导出同时获得 `READ_DATABASES | READ_IMAGE`：数据库材料按需从 broker 读取，图片材料随进程绑定的初始快照交付，并在每个聊天发布前后复核 revision。`application::chat_directory` 只接收窄 `MediaInput`，不依赖密钥库；dry-run、`--no-media` 和不含图片的任务步骤不获得图片读取权限。
 
@@ -178,7 +180,7 @@ SNS 缓存归档的前台 Operation 与持久任务 Step 同样只获得 `READ_I
 
 同一写入的重试按预期 revision 和稳定排序的材料指纹返回已完成 revision；不同写入使用旧 revision 时拒绝覆盖。RPC 等待取消不撤销已接收事务，worker 回收后撤销新请求权限。数据库取钥及图片取钥使用此写入链，包括保存模式的图片监控与授权图片任务；不保存模式不授予写权限。普通离线图片取钥不独立加载密钥库。图片监控、聊天目录媒体、SNS 和图片发布工作流通过进程绑定通道取得 daemon 快照中的图片材料，仅获得所需读取权限，不携带账号主密钥或数据库密钥；材料 Debug 脱敏、析构清零。验证前后通过内部请求复核版本，版本冲突或账号变化明确拒绝，外部文件替换仍须显式失效或重启后加载。初始化 bootstrap 仍由 daemon 直接创建正式存储，这是持久化所有权而不是应用层读取旁路。图片发布条件见[图片发布边界](image-publication-boundary.md)。
 
-worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取消和异常时回收 worker 及后代；操作输出与终态发布分开处理，回收完成前不能报取消完成。
+worker 在创建挂起进程时通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 原子分配到 Job，随后恢复执行。普通操作在结束、取消和异常时回收 worker 及后代；操作输出与终态发布分开处理，回收完成前不能报取消完成。
 
 仅明确授权的账号重启捕获使用允许用户应用脱离的专用 Job，worker 自身仍受管理。持久任务和前台操作的取消语义不同：退出持久任务等待客户端不取消任务，前台操作失联受租约约束。
 
@@ -191,6 +193,10 @@ worker 创建为挂起进程，入 Job 后恢复。普通操作在结束、取�
 `service::voice_export` 拥有无路径的原始语音任务请求与结果，`export_voices` 经既有任务 worker 调用同一选择、媒体关联和发布实现。`business::voice_export` 保持纯选择规则，微信媒体适配器负责分库与关联；入口不读取表结构。`daemon::tasks::voice_artifacts` 只在 SILK 与证据均核验完成后登记文件组，保留部分结果和取消前缀。原前台 voices 保持独立生命周期及既有目录覆盖语义，任务只用新受控目录，不把查询或所有媒体操作统一塞进队列。
 
 参见[语音目录](voice-catalog-boundary.md)和[原始语音导出](../src/business/VOICE_EXPORT.md)。
+
+`VoiceSnapshot` 持有各来源的 `ResourceSnapshot`。后者通过 SQLite Backup 将单库已提交数据（包括 WAL 中已提交的数据）复制到私有副本，仅在副本上设置 `journal_mode=DELETE`；不修改源库日志模式或删除源侧车。严格语音读取器仍拒绝 WAL/SHM/journal。副本生命周期覆盖导出读取；逐库备份不保证跨数据库的原子一致性，也不证明所有真实微信版本兼容。
+
+每次原始语音导出都需要准备私有解密快照，较大的数据库可能明显增加等待时间。源库在读取期间发生变化时会明确拒绝本次处理；等待源写入稳定后再重试。不要通过删除 WAL/SHM/journal 绕过检查，也不能据此保证微信持续写入时导出必定成功。
 
 ## 导出、SNS 与 Web
 

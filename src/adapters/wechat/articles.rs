@@ -113,12 +113,40 @@ pub(crate) fn parse_push(
         });
         return result;
     }
-    if roxmltree::Document::parse(xml).is_err() {
-        result.issues.push(Issue {
-            evidence: Some(EvidenceRef::new(evidence.clone(), None)),
-            kind: IssueKind::InvalidContent,
-        });
+    if let Ok(document) = roxmltree::Document::parse(xml) {
+        for (index, item) in (0u32..).zip(
+            document
+                .descendants()
+                .filter(|node| node.has_tag_name("item")),
+        ) {
+            if let Some(article) = article_from_fields(
+                evidence,
+                publisher,
+                publisher_name,
+                received_at,
+                index,
+                |tag| {
+                    let field = item.children().find(|node| node.has_tag_name(tag))?;
+                    if field.children().any(|node| node.is_element()) {
+                        return None;
+                    }
+                    let value: String = field
+                        .children()
+                        .filter(|node| node.is_text())
+                        .filter_map(|node| node.text())
+                        .collect();
+                    Some(value.trim().to_owned())
+                },
+            ) {
+                result.articles.push(article);
+            }
+        }
+        return result;
     }
+    result.issues.push(Issue {
+        evidence: Some(EvidenceRef::new(evidence.clone(), None)),
+        kind: IssueKind::InvalidContent,
+    });
     let mut search_from = 0;
     let mut index = 0;
     while let Some(item_start) = xml[search_from..].find("<item>") {
@@ -128,31 +156,55 @@ pub(crate) fn parse_push(
         };
         let abs_end = abs_start + item_end + 7;
         let item_xml = &xml[abs_start..abs_end];
-        let title = extract_cdata(item_xml, "title").unwrap_or_default();
-        let url = extract_cdata(item_xml, "url").unwrap_or_default();
-        let item_evidence = EvidenceRef::new(evidence.clone(), Some(index));
+        if let Some(article) = article_from_fields(
+            evidence,
+            publisher,
+            publisher_name,
+            received_at,
+            index,
+            |tag| {
+                if tag == "pub_time" {
+                    extract_xml_text(item_xml, tag)
+                } else {
+                    extract_cdata(item_xml, tag)
+                }
+            },
+        ) {
+            result.articles.push(article);
+        }
         index += 1;
         search_from = abs_end;
-        // Empty title/URL also represents known non-article app messages.
-        if title.is_empty() || url.is_empty() {
-            continue;
-        }
-        let published_at = extract_xml_text(item_xml, "pub_time")
-            .and_then(|value| value.parse::<i64>().ok())
-            .unwrap_or(received_at);
-        result.articles.push(Article {
-            evidence: item_evidence,
-            publisher: publisher.into(),
-            publisher_name: publisher_name.into(),
-            received_at,
-            published_at,
-            title,
-            url,
-            digest: extract_cdata(item_xml, "digest").unwrap_or_default(),
-            cover_url: extract_cdata(item_xml, "cover").unwrap_or_default(),
-        });
     }
     result
+}
+
+fn article_from_fields(
+    evidence: &MessageRef,
+    publisher: &str,
+    publisher_name: &str,
+    received_at: i64,
+    index: u32,
+    field: impl Fn(&str) -> Option<String>,
+) -> Option<Article> {
+    let title = field("title")?;
+    let url = field("url")?;
+    // Empty title/URL also represents known non-article app messages.
+    if title.is_empty() || url.is_empty() {
+        return None;
+    }
+    Some(Article {
+        evidence: EvidenceRef::new(evidence.clone(), Some(index)),
+        publisher: publisher.into(),
+        publisher_name: publisher_name.into(),
+        received_at,
+        published_at: field("pub_time")
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(received_at),
+        title,
+        url,
+        digest: field("digest").unwrap_or_default(),
+        cover_url: field("cover").unwrap_or_default(),
+    })
 }
 
 fn extract_cdata(xml: &str, tag: &str) -> Option<String> {
@@ -339,6 +391,41 @@ mod tests {
         assert!(page.issues.is_empty());
         assert_eq!(page.articles[0].evidence.item_index(), Some(1));
         assert_eq!(page.articles[1].evidence.item_index(), Some(2));
+    }
+
+    #[test]
+    fn valid_xml_does_not_parse_cdata_or_comments_as_items() {
+        let xml = r#"<msg>
+            <note><![CDATA[<item><title>Fake</title><url>fake</url></item>]]></note>
+            <!-- <item><title>Comment</title><url>comment</url></item> -->
+        </msg>"#;
+        let page = parse_push(&message_ref(), "publisher", "Publisher", 7, xml);
+        assert!(page.articles.is_empty());
+        assert!(page.issues.is_empty());
+    }
+
+    #[test]
+    fn valid_xml_reads_attributed_items_and_direct_fields_once() {
+        let xml = r#"<msg>
+            <item kind="non-article" />
+            <item kind="article" >
+                <note><title>Nested fake</title><url>nested</url></note>
+                <title lang="en">A &amp; B <![CDATA[<item> &amp;]]></title>
+                <url>https://example.invalid/?a=1&amp;b=2</url>
+                <digest>&amp;lt;plain&amp;gt;</digest>
+                <pub_time value="timestamp">12</pub_time>
+            </item>
+            <item><note><title>Not a direct field</title></note><url>absent</url></item>
+        </msg>"#;
+        let page = parse_push(&message_ref(), "publisher", "Publisher", 7, xml);
+        assert!(page.issues.is_empty());
+        assert_eq!(page.articles.len(), 1);
+        let article = &page.articles[0];
+        assert_eq!(article.evidence.item_index(), Some(1));
+        assert_eq!(article.title, "A & B <item> &amp;");
+        assert_eq!(article.url, "https://example.invalid/?a=1&b=2");
+        assert_eq!(article.digest, "&lt;plain&gt;");
+        assert_eq!(article.published_at, 12);
     }
 
     fn parse_biz_xml_items(received: i64, publisher: &str, xml: &str) -> Vec<Article> {

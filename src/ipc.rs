@@ -88,6 +88,10 @@ pub struct ContactsRequest {
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Request {
     Ping,
+    /// 当前绑定账号的公开资料；不接受调用方指定账号。
+    AccountProfile,
+    /// Web 联系人显示所需的昵称与备注；保持普通 Contacts 投影不变。
+    WebContacts(ContactsRequest),
     /// 固定只读查询的缓存、解密、WAL 和查询阶段计时，不返回聊天内容。
     LatencyProbe {
         limit: usize,
@@ -365,6 +369,8 @@ impl Request {
     pub fn operation_name(&self) -> &'static str {
         match self {
             Self::Ping => "ping",
+            Self::AccountProfile => "account_profile",
+            Self::WebContacts(_) => "web_contacts",
             Self::LatencyProbe { .. } => "latency_probe",
             Self::ResolveChat { .. } => "resolve_chat",
             Self::ExportChatList => "export_chat_list",

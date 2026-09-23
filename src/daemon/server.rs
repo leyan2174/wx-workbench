@@ -174,6 +174,10 @@ pub(super) async fn dispatch_state(req: Request, state: &QueryState) -> Response
     match state.snapshot().await {
         Ok(lease) => {
             let response = match req {
+                Request::AccountProfile => query_response(
+                    super::query::web_contacts::q_account_profile(lease.db(), state.runtime())
+                        .await,
+                ),
                 Request::Extract {
                     attachment_id,
                     output,
@@ -313,6 +317,7 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
     );
     let mut response = match req {
         Ping => Response::ok(serde_json::json!({ "pong": true })),
+        AccountProfile => Response::err("Account-bound query context required"),
         LatencyProbe { limit } => match db.latency_probe(limit).await {
             Ok(probe) => Response::from_result(serde_json::to_value(probe)),
             Err(error) => Response::err(error.to_string()),
@@ -566,6 +571,9 @@ async fn dispatch(req: Request, db: &DbCache, names: &tokio::sync::RwLock<Arc<Na
         Contacts(request) => query_response(
             query::q_contacts(&names_arc, request.query.as_deref(), request.limit).await,
         ),
+        WebContacts(request) => {
+            query_response(query::web_contacts::q_web_contacts(db, request).await)
+        }
         Unread {
             limit,
             filter,

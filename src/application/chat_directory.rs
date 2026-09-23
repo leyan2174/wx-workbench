@@ -25,6 +25,188 @@ mod raw_voice_tests {
     use super::*;
 
     #[test]
+    fn delete_snapshot_mixed_media_preserves_image_and_voice() {
+        mixed_media_snapshot(false);
+    }
+
+    #[test]
+    fn wal_snapshot_mixed_media_preserves_image_and_voice() {
+        mixed_media_snapshot(true);
+    }
+
+    fn mixed_media_snapshot(wal: bool) {
+        use crate::daemon::{
+            operations::{prepare_media_snapshot_for_test, TestDatabaseMaterials},
+            query::encrypted_cache,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let account = root.path().join("account");
+        let db_dir = account.join("db_storage");
+        fs::create_dir_all(db_dir.join("message")).unwrap();
+        let runtime = RuntimeContext {
+            config: crate::config::Config {
+                key_store: None,
+                db_dir: db_dir.clone(),
+                keys_file: account.join("keys.json"),
+                decrypted_dir: account.join("unused-decrypted"),
+                wechat_process: String::new(),
+            },
+            config_path: account.join("config.json"),
+            root: account.clone(),
+            id: "synthetic-mixed-media".into(),
+            directory: account.join("runtime"),
+        };
+        let target = Target {
+            username: "peer".into(),
+            chat: "Peer".into(),
+            is_group: false,
+        };
+        let raw = b"\x02#!SILK_V3synthetic-mixed";
+        // Valid 1x1 24-bit BMP, stored using the supported legacy XOR container.
+        let mut bitmap = vec![0u8; 58];
+        bitmap[..2].copy_from_slice(b"BM");
+        for (offset, value) in [(2, 58u32), (10, 54), (14, 40), (18, 1), (22, 1), (34, 4)] {
+            bitmap[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bitmap[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bitmap[28..30].copy_from_slice(&24u16.to_le_bytes());
+        bitmap[56] = 255;
+        let digest = format!("{:x}", md5::compute(&bitmap));
+        let image_path = account.join(format!(
+            "msg/attach/{:x}/2026-09/Img/{digest}.dat",
+            md5::compute("peer")
+        ));
+        fs::create_dir_all(image_path.parent().unwrap()).unwrap();
+        let encoded: Vec<_> = bitmap.iter().map(|byte| byte ^ 0x5a).collect();
+        fs::write(&image_path, &encoded).unwrap();
+        let mut keys = std::collections::HashMap::new();
+        let mut originals = Vec::new();
+        for kind in ["message_0", "media_0", "message_resource"] {
+            let plain = account.join(format!("{kind}-plain.db"));
+            let conn = encrypted_cache::sqlite(&plain);
+            if wal {
+                conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+            }
+            match kind {
+                "message_0" => {
+                    let table = format!("Msg_{:x}", md5::compute("peer"));
+                    conn.execute_batch(&format!("CREATE TABLE [{table}](local_id INTEGER,local_type INTEGER,create_time INTEGER,server_id INTEGER,message_content TEXT,WCDB_CT_message_content INTEGER); INSERT INTO [{table}] VALUES(7,34,123,987,'<msg><voicemsg voicelength=\"1250\"/></msg>',0),(8,3,124,988,'',0);")).unwrap();
+                }
+                "media_0" => {
+                    conn.execute_batch("CREATE TABLE Name2Id(user_name TEXT); INSERT INTO Name2Id(rowid,user_name) VALUES(91,'peer'); CREATE TABLE VoiceInfo(chat_name_id INTEGER,local_id INTEGER,create_time INTEGER,svr_id INTEGER,voice_data BLOB);").unwrap();
+                    conn.execute(
+                        "INSERT INTO VoiceInfo VALUES(91,700,123,987,?1)",
+                        [raw.as_slice()],
+                    )
+                    .unwrap();
+                }
+                _ => {
+                    conn.execute_batch("CREATE TABLE ChatName2Id(user_name TEXT); INSERT INTO ChatName2Id(rowid,user_name) VALUES(7,'peer'); CREATE TABLE MessageResourceInfo(chat_id INTEGER,message_local_id INTEGER,message_local_type INTEGER,message_create_time INTEGER,packed_info BLOB);").unwrap();
+                    let mut packed = vec![0x12, 0x22, 0x0a, 0x20];
+                    packed.extend_from_slice(digest.as_bytes());
+                    conn.execute(
+                        "INSERT INTO MessageResourceInfo VALUES(7,8,3,124,?1)",
+                        [packed],
+                    )
+                    .unwrap();
+                }
+            }
+            drop(conn);
+            let mode = if wal { 2 } else { 1 };
+            assert_eq!(&fs::read(&plain).unwrap()[18..20], &[mode, mode]);
+            let source = format!("message/{kind}.db");
+            let path = db_dir.join(&source);
+            encrypted_cache::seed(&plain, &path);
+            originals.push((path.clone(), fs::read(&path).unwrap()));
+            keys.insert(source, "11".repeat(32));
+        }
+        let snapshot =
+            prepare_media_snapshot_for_test(&runtime, TestDatabaseMaterials::new(keys)).unwrap();
+        let (snapshot_root, _) = snapshot.planning_inputs().unwrap();
+        for source in snapshot.sources() {
+            assert_eq!(
+                source
+                    .path
+                    .strip_prefix(snapshot_root)
+                    .unwrap()
+                    .components()
+                    .count(),
+                1
+            );
+        }
+        let document = json!({"username":"peer", "is_group":false, "messages":[
+            {"source":"message/message_0.db","local_id":8,"local_type":3,"server_id":988,"sort_seq":2,"status":null,"sender_username":null,"sender":"","timestamp":124,"raw_content":""},
+            {"source":"message/message_0.db","local_id":7,"local_type":34,"server_id":987,"sort_seq":1,"status":null,"sender_username":null,"sender":"","timestamp":123,"raw_content":"<msg><voicemsg voicelength='1250'/></msg>"}
+        ]});
+        let options = Options {
+            formats: [Format::Json].into(),
+            media_enabled: true,
+            update: false,
+            max_media_bytes: 1024 * 1024,
+            max_total_media_bytes: 1024 * 1024,
+        };
+        let output = root.path().join("out");
+        let result = export_document_with_sources(
+            &runtime,
+            &json!({}),
+            &target,
+            &document,
+            &output,
+            &options,
+            MediaInput::snapshot(snapshot.sources(), None),
+        );
+        let mut sidecars = Vec::new();
+        for source in snapshot.sources() {
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let mut path = source.path.as_os_str().to_owned();
+                path.push(suffix);
+                if Path::new(&path).exists() {
+                    sidecars.push(format!("{}{suffix}", source.source));
+                }
+            }
+        }
+        for (path, bytes) in originals {
+            assert_eq!(fs::read(path).unwrap(), bytes);
+        }
+        assert_eq!(fs::read(image_path).unwrap(), encoded);
+        let report =
+            result.unwrap_or_else(|error| panic!("wal={wal}, sidecars={sidecars:?}: {error:#}"));
+        let media: Value =
+            serde_json::from_slice(&fs::read(output.join("_media_manifest.json")).unwrap())
+                .unwrap();
+        let voices: Value =
+            serde_json::from_slice(&fs::read(output.join("_voice_manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            report.media_issues, 0,
+            "wal={wal}, sidecars={sidecars:?}, media={media}, voices={voices}"
+        );
+        assert!(
+            sidecars.is_empty(),
+            "consumer snapshots acquired sidecars: {sidecars:?}"
+        );
+        let image = media["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["local_id"] == 8)
+            .unwrap();
+        let image = &image["media"][0];
+        assert_eq!(image["status"], "available");
+        assert_eq!(
+            fs::read(output.join(image["path"].as_str().unwrap())).unwrap(),
+            bitmap
+        );
+        let voice = &voices["items"][0];
+        assert_eq!(voice["association"], "exact_message_media_join");
+        assert_eq!(voice["status"], "success");
+        assert_eq!(
+            fs::read(output.join(voice["relative_path"].as_str().unwrap())).unwrap(),
+            raw
+        );
+    }
+
+    #[test]
     fn default_media_chat_export_keeps_raw_silk_and_machine_reference() {
         let root = tempfile::tempdir().unwrap();
         let account = root.path().join("account");

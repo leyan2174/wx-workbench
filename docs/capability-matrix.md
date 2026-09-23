@@ -42,7 +42,7 @@
 | 详情身份 | CLI/MCP 五种只读详情保留 create_time 省略/0 wildcard；HTTP 必须正 local_id、正 create_time，不能用 0 绕开时间定位。 |
 | 分页 | CLI/MCP 语音默认 20，HTTP 默认 200；语音均最多 500，offset 最多 1000000。其他工具按各自 schema，不能用一组全局默认值替代。 |
 | 搜索 | CLI/HTTP search 没有 offset；MCP 在 offset+limit<=10000 的候选窗口内切片。三端 search 均没有 history 的多类型/oldest_first 契约。 |
-| 消息类型 | link/file 都走宽泛 legacy 应用消息 49，不保证精确分类；history 多类型与单类型的空值/冲突规则按入口分别校验。 |
+| 消息类型 | link/file 都走宽泛的应用消息类型 49，不保证精确分类；history 多类型与单类型的空值/冲突规则按入口分别校验。 |
 | Web 筛选 | 原文字/类型筛选只改变本页；“记录范围”重新查询服务端；资料查询搜索是另一个后端接口。 |
 | 元数据 | MCP 支持指定工具的 with_meta，不公开 debug_source；CLI 和部分本地 HTTP 有调试来源参数，不应把私有路径带入公开报告。 |
 | 歧义拒绝 | contacts/messages 的 typed Ambiguous 保留为 status=ambiguous、error_code=ambiguous_identity、exit_code=2；CLI 非零退出，MCP 返回 Business request refused，HTTP 返回安全 409 query_ambiguous。不凭其他失败文本猜测身份歧义。 |

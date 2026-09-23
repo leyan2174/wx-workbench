@@ -18,15 +18,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(test)]
-pub(crate) fn parse_aes(value: &str) -> Result<[u8; 16]> {
-    ensure!(
-        value.is_ascii() && value.len() >= 16,
-        "Image AES key requires at least 16 ASCII bytes"
-    );
-    Ok(value.as_bytes()[..16].try_into().unwrap())
-}
-
 pub(crate) fn parse_xor(value: &str) -> Result<u8> {
     if let Some(hex) = value
         .strip_prefix("0x")
@@ -128,7 +119,9 @@ impl ImageInput {
         let input = Self { path, parent, pin };
         input.verify()?;
         // The pinned handle denies writes/deletes; the path identity is checked around the read.
-        let bytes = fs::read(&input.path)?;
+        let bytes = input
+            .pin
+            .read_bounded(crate::attachment::native_image::MAX_DAT_BYTES)?;
         input.verify()?;
         Ok((input, bytes))
     }
@@ -494,12 +487,8 @@ mod workflow_tests {
     }
 
     #[test]
-    fn explicit_keys_are_validated_without_echoing_values() {
-        assert!(parse_aes("too-short").is_err());
-        assert_eq!(
-            parse_aes("0123456789abcdefghijklmnopqrstuv").unwrap(),
-            *b"0123456789abcdef"
-        );
+    fn explicit_xor_keys_accept_decimal_and_hex_and_reject_out_of_range() {
+        assert_eq!(parse_xor("136").unwrap(), 136);
         assert_eq!(parse_xor("0x88").unwrap(), 136);
         assert!(parse_xor("256").is_err());
     }
@@ -555,6 +544,89 @@ mod publication_tests {
             )
             .unwrap();
         (root, runtime)
+    }
+
+    #[test]
+    fn oversized_single_image_cannot_publish_or_replace_output() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("oversized.dat");
+        fs::File::create(&input)
+            .unwrap()
+            .set_len(crate::attachment::native_image::MAX_DAT_BYTES + 1)
+            .unwrap();
+        let output = root.path().join("image.png");
+        for existing in [false, true] {
+            if existing {
+                fs::write(&output, b"previous export").unwrap();
+            }
+            let error = decode_image_for(
+                &runtime,
+                input.to_string_lossy().into_owned(),
+                Some(output.to_string_lossy().into_owned()),
+                stored(),
+            )
+            .unwrap_err();
+            assert!(format!("{error:#}").contains("Source exceeds size limit"));
+            if existing {
+                assert_eq!(fs::read(&output).unwrap(), b"previous export");
+            } else {
+                assert!(!output.exists());
+            }
+        }
+    }
+
+    #[test]
+    fn oversized_batch_images_preserve_outputs_and_report_partial_success() {
+        let (root, runtime) = fixture();
+        let input = root.path().join("input");
+        let output = root.path().join("output");
+        put(&input.join("valid.dat"));
+        for name in ["existing.dat", "absent.dat"] {
+            fs::File::create(input.join(name))
+                .unwrap()
+                .set_len(crate::attachment::native_image::MAX_DAT_BYTES + 1)
+                .unwrap();
+        }
+        fs::create_dir(&output).unwrap();
+        fs::write(output.join("existing.png"), b"previous export").unwrap();
+        let report = batch_scoped(
+            &ImageScope::for_runtime(&runtime).unwrap(),
+            &input,
+            &output,
+            KeyMaterial {
+                aes_key: None,
+                xor_key: 0x88,
+            },
+            true,
+            Layout::Mirror,
+            &|| Ok(()),
+        )
+        .unwrap();
+        assert_eq!(report.total, 3);
+        assert_eq!(report.written, 1);
+        assert_eq!(report.skipped, 0);
+        assert_eq!(report.skipped_no_key, 0);
+        assert_eq!(report.failures.len(), 2);
+        for failure in &report.failures {
+            assert!([Path::new("existing.dat"), Path::new("absent.dat")]
+                .contains(&failure.path.as_path()));
+            assert!(failure.error.contains("Source exceeds size limit"));
+        }
+        assert_eq!(fs::read(output.join("valid.png")).unwrap(), PNG);
+        assert_eq!(
+            fs::read(output.join("existing.png")).unwrap(),
+            b"previous export"
+        );
+        assert!(!output.join("absent.png").exists());
+        assert_eq!(fs::read_dir(&output).unwrap().count(), 2);
+        let error = report.finish().unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<crate::ipc::outcome::BusinessFailure>()
+                .unwrap()
+                .0,
+            crate::ipc::outcome::BusinessOutcome::Partial
+        );
     }
 
     struct ProbeReset;

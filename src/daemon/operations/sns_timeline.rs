@@ -70,33 +70,6 @@ fn paths(runtime: &RuntimeContext, raw: &Value, args: &Args) -> Result<(PathBuf,
     Ok((output, CacheRoots::for_account(account, legacy.as_deref())))
 }
 
-#[cfg(test)]
-fn image_keys(raw: &Value) -> Result<CacheKeys> {
-    use crate::application::image_publication::{parse_aes, parse_xor};
-    let aes = match raw.get("image_aes_key") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(s)) if s.is_empty() => None,
-        Some(Value::String(s)) => {
-            Some(parse_aes(s).map_err(|_| anyhow::anyhow!("image_aes_key 格式无效"))?)
-        }
-        Some(_) => anyhow::bail!("image_aes_key 必须是字符串"),
-    };
-    let xor = match raw.get("image_xor_key") {
-        None => 0x88,
-        Some(value) => parse_xor(
-            &value
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| value.to_string()),
-        )
-        .map_err(|_| anyhow::anyhow!("image_xor_key 必须为 0 至 255 的十进制或十六进制字节"))?,
-    };
-    Ok(CacheKeys {
-        image_aes_key: aes,
-        image_xor_key: xor,
-    })
-}
-
 fn existing(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -457,31 +430,6 @@ mod tests {
             .0,
             explicit
         );
-    }
-
-    #[test]
-    fn keys_reuse_ascii_aes_and_numeric_or_hex_xor_without_echo() {
-        let keys = image_keys(
-            &json!({"image_aes_key":"0123456789abcdefghijklmnopqrstuv", "image_xor_key":"0x88"}),
-        )
-        .unwrap();
-        assert_eq!(keys.image_aes_key, Some(*b"0123456789abcdef"));
-        assert_eq!(keys.image_xor_key, 136);
-        assert_eq!(
-            image_keys(&json!({"image_xor_key":7}))
-                .unwrap()
-                .image_xor_key,
-            7
-        );
-        assert_eq!(image_keys(&json!({})).unwrap().image_xor_key, 0x88);
-        for raw in [
-            json!({"image_aes_key":"private"}),
-            json!({"image_xor_key":"private"}),
-            json!({"image_xor_key":256}),
-        ] {
-            let error = image_keys(&raw).err().unwrap();
-            assert!(!format!("{error:#}").contains("private"));
-        }
     }
 
     #[test]

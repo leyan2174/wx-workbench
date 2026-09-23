@@ -64,9 +64,12 @@ pub fn load(runtime: &RuntimeContext, args: &SettingsInput) -> Result<Settings> 
     args.validate_serialized()?;
     let mut bytes = zeroize::Zeroizing::new(Vec::new());
     fs::File::open(&runtime.config_path)?
-        .take(4 * 1024 * 1024 + 1)
+        .take(crate::config::MAX_CONFIG_BYTES + 1)
         .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 4 * 1024 * 1024, "配置超过读取限额");
+    ensure!(
+        bytes.len() as u64 <= crate::config::MAX_CONFIG_BYTES,
+        "配置超过读取限额"
+    );
     let raw: Value = serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("配置格式无效"))?;
     ensure!(raw.is_object(), "Configuration must be an object");
     let base = runtime.config_path.parent().context("配置缺少父目录")?;

@@ -40,6 +40,7 @@ cargo test --target x86_64-pc-windows-msvc --test runtime_isolation mcp_tasks --
 
 - 主仓测试包含单元、集成、真实子进程/命名管道和合成加密库；真实进程不等于使用真实微信账号。共享模块在多个套件中会重复执行，合计通过次数不是独立功能数。
 - 默认 `ignored` 不计通过。FFmpeg/Frida 等可选测试须先核对本机依赖和测试行为，再定向执行；符号链接测试还可能受权限限制。不要无差别运行所有 ignored，部分条目是由父测试调用的子进程夹具入口。
+- 传输层符号链接保护测试默认显式忽略。有创建符号链接权限的 Windows 环境可运行 `cargo test --locked --target x86_64-pc-windows-msvc --bin wx service::transport::tests::symbolic_link_is_not_followed_or_removed -- --ignored --exact --nocapture`。权限不足时该命令会失败，不会提前返回并计为通过；发布记录应区分环境未满足与保护断言失败。
 - 部分差异 oracle 使用 Python 或 Node，属于构建/测试依赖，不能据此推断普通原生生产入口需要它们。不要为了文档检查重建 golden 或下载额外依赖。
 - 独立 harness 的编译器、依赖 rlib 与测试二进制必须匹配。没有 manifest 的目录（如 `fixtures/mcp-contacts`）使用其 README 指向的主仓入口，不自行拼装 Cargo 命令。
 - 全面检查的范围、顺序和人工审核点见[测试计划](../docs/testing-plan.md)。构建和定向回归见[开发与回归验证](../docs/quality-checks.md)。单次通过不能代替账号完整性和安装部署验收。

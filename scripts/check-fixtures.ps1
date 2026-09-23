@@ -43,7 +43,7 @@ try {
             'mcp-readonly-security' { @('--lib', '--bins', '--test', 'security') }
             default { @('--all-targets') }
         }
-        $cargoArgs = @('check', '--locked', '--target', 'x86_64-pc-windows-msvc', '--manifest-path', $manifest.FullName) + $targets
+        $cargoArgs = @('check', '--locked', '--target', 'x86_64-pc-windows-msvc', '--target-dir', $targetRoot, '--manifest-path', $manifest.FullName) + $targets
         if ($Offline) { $cargoArgs += '--offline' }
         if ($name -in @('mcp-history-compat', 'plan-selection')) { $cargoArgs += @('--features', 'runtime') }
         $logPath = Join-Path $logRoot "$name.log"

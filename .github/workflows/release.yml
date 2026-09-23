@@ -52,6 +52,9 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md npm/wx-workbench/THIRD_PARTY_NOTICES.md
           Copy-Item LICENSE npm/platforms/win32-x64/LICENSE
           Copy-Item THIRD_PARTY_NOTICES.md npm/platforms/win32-x64/THIRD_PARTY_NOTICES.md
+          Copy-Item src/web/assets/LICENSE-lucide.txt npm/wx-workbench/LICENSE-lucide.txt
+          Copy-Item src/web/assets/LICENSE-lucide.txt npm/platforms/win32-x64/LICENSE-lucide.txt
+          Copy-Item src/web/assets/LICENSE-lucide.txt LICENSE-lucide.txt
       - name: Validate npm contents
         shell: pwsh
         run: |
@@ -64,6 +67,7 @@ jobs:
             wx-workbench-windows-x86_64.exe
             LICENSE
             THIRD_PARTY_NOTICES.md
+            LICENSE-lucide.txt
       - uses: actions/upload-artifact@v4
         with:
           name: npm-win32-x64
@@ -92,6 +96,7 @@ jobs:
             wx-workbench-windows-x86_64.exe
             LICENSE
             THIRD_PARTY_NOTICES.md
+            LICENSE-lucide.txt
 
   publish-npm:
     needs: build
@@ -115,6 +120,8 @@ jobs:
           Copy-Item THIRD_PARTY_NOTICES.md npm/wx-workbench/THIRD_PARTY_NOTICES.md
           Copy-Item LICENSE npm/platforms/win32-x64/LICENSE
           Copy-Item THIRD_PARTY_NOTICES.md npm/platforms/win32-x64/THIRD_PARTY_NOTICES.md
+          Copy-Item src/web/assets/LICENSE-lucide.txt npm/wx-workbench/LICENSE-lucide.txt
+          Copy-Item src/web/assets/LICENSE-lucide.txt npm/platforms/win32-x64/LICENSE-lucide.txt
       - name: Publish Windows package
         working-directory: npm/platforms/win32-x64
         run: npm publish

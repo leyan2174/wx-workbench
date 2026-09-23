@@ -6,7 +6,7 @@ use std::io::IsTerminal;
 
 #[derive(Debug, clap::Args)]
 pub struct ImportArgs {
-    /// Read one bounded material JSON object from a private pipe, never the terminal.
+    /// Read one bounded material JSON object from non-interactive stdin.
     #[arg(long, required = true)]
     stdin: bool,
     /// Host-selected offline DAT sample root; defaults to the attached account's samples.

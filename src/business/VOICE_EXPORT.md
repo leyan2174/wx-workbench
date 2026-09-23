@@ -29,6 +29,21 @@ stay in the adapter; the business layer contains metadata and pure selection onl
 Metadata memory still scales with the legacy inventory; this is not a streaming
 metadata cursor. Snapshots are per shard, not a cross-database atomic snapshot.
 
+Both the synchronous CLI and the persistent task use the daemon's
+`prepare_voice_snapshot` before catalog and strict association reads. The host
+prepares an account-scoped private decryption snapshot; each source is then
+copied with SQLite Backup into a `ResourceSnapshot` held by `VoiceSnapshot`.
+Backup includes committed WAL data. Only the private copy is switched to
+`journal_mode=DELETE`; source journal modes and sidecars are not changed or
+deleted. Strict readers still reject WAL/SHM/journal files. This preparation
+does not establish cross-shard atomicity or compatibility with every live schema.
+
+Each export prepares its private decryption snapshot, which can take substantial
+time for large databases. If a source changes while it is being read, the
+operation refuses that attempt; retry after source writes have settled. Do not
+delete WAL/SHM/journal files to bypass this check. Success is not guaranteed
+while WeChat continues writing.
+
 The original SILK bytes are preserved, including an existing `0x02` prefix.
 No prefix normalization, WAV/MP3 conversion, decoding or upload is performed.
 Complete chat exports retain voice references; raw SILK and an association

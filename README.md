@@ -138,6 +138,8 @@ wx contacts -n 20 --json
 
 `key_store` 指向统一 DPAPI 加密存储，`keys_file` 是账号与存储绑定锚点。daemon 按需加载密钥，在内存中维护账号隔离的运行快照。配置文件不保存明文密钥。详见[密钥存储](docs/key-store.md)。
 
+`config.json` 必须是 UTF-8 JSON，文件大小最多 4 MiB；超限在解析前拒绝，不会修改原配置。此限制针对程序配置，不是聊天数据库或导出文件的大小限制。
+
 缓存命中仍检查当前源库首页，正式解密逐页认证；密钥失效或首页校验失败时不以旧缓存掩盖。主库与 WAL 在副本上完成后发布，但这不是在线账号的事务快照。详见[数据库认证边界](docs/architecture.md#数据库认证与缓存发布)。
 
 配置、密钥、解密缓存、导出内容和运行令牌都是私人材料，不放入源码目录、版本控制或公开日志。
@@ -165,7 +167,7 @@ wx voice-messages $chat -n 20 --json
 
 历史支持偏移、日期和类型筛选。`--type` 与 `--types` 不能同时使用；`--oldest-first` 从全部分片合并后的最早记录分页。默认取最新页，页内按时间展示。
 
-CLI 日期采用本地时区，`--until YYYY-MM-DD` 包含当天最后一秒；MCP 和 HTTP 接收 Unix 秒。`link` 与 `file` 都映射到 legacy 应用消息类型 49，并非精确链接/文件分类。分页、类型及各入口的差异见[查询协议](docs/query-protocol.md)。
+CLI 日期采用本地时区，`--until YYYY-MM-DD` 包含当天最后一秒；MCP 和 HTTP 接收 Unix 秒。`link` 与 `file` 都映射到宽泛的应用消息类型 49，并非精确链接/文件分类。分页、类型及各入口的差异见[查询协议](docs/query-protocol.md)。
 
 `--with-meta` 返回较重的来源与新鲜度信息。调试来源可能包含本地路径，不直接贴入公开报告。首次读取较大的数据库可能触发私有缓存准备；超时不表示无数据，也不构成自动重试写入操作的依据。
 
@@ -267,7 +269,7 @@ cargo test --target x86_64-pc-windows-msvc
 | 来源 | 采用和参考的内容 | 对本项目的意义 |
 | --- | --- | --- |
 | [jackwener/wx-cli](https://github.com/jackwener/wx-cli) | Rust CLI、daemon、数据库解密与缓存、联系人及聊天查询、附件处理、基础导出和 SNS 查询。 | 提供本地数据访问与查询执行的实现基础。 |
-| [ylytdeng/wechat-decrypt](https://github.com/ylytdeng/wechat-decrypt) | 聊天批量与增量导出、朋友圈解析与导出、图片处理、语音转码与转录、表情索引与导出的实现及处理规则。 | 为导出工作流和媒体格式处理提供参考。 |
+| [ylytdeng/wechat-decrypt](https://github.com/ylytdeng/wechat-decrypt) | 聊天批量与增量导出、朋友圈解析与导出、图片处理、表情索引与导出的实现及处理规则。 | 为导出工作流和媒体格式处理提供参考。 |
 | [LOGO127/wechat-ai-memory](https://github.com/LOGO127/wechat-ai-memory) | Windows 账号密钥获取中的 SHA-512/HMAC 捕获方法与密钥派生方案。 | 为账号密钥适配提供参考。 |
 
 第三方代码保留原作者归属；Rust 实现或 AI 修改不改变其来源。其他依赖、媒体资产参考及各项许可状态见[第三方说明](THIRD_PARTY_NOTICES.md)。

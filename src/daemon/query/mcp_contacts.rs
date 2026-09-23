@@ -43,7 +43,10 @@ fn project(tag: domain::Tag) -> ContactTag {
             .collect(),
     }
 }
-async fn source(db: &DbCache, names: &HashMap<String, String>) -> Result<wechat::SqliteContacts> {
+pub(super) async fn source(
+    db: &DbCache,
+    names: &HashMap<String, String>,
+) -> Result<wechat::SqliteContacts> {
     let [primary, compatibility] = wechat::source_keys();
     let path = match db.get(primary).await? {
         Some(path) => path,
