@@ -20,6 +20,18 @@
 
 业务执行集中在账号隔离的 daemon 中。初始化、导出、媒体下载和清理有各自的前置条件，不由普通查询自动触发。查询和导出范围受本机已有数据库及媒体缓存限制；微信版本变化可能影响格式适配。
 
+## 从哪里开始
+
+先完成[源码安装](#安装)和[账号初始化](#选择账号)，再选择入口：
+
+| 入口 | 适用场景 | 开始使用 |
+| --- | --- | --- |
+| CLI | 终端查询、脚本、批量导出 | [CLI 使用](#cli-使用) |
+| Web | 浏览会话、查询资料、查看任务与下载产物 | [Web 使用](#web-使用) |
+| MCP | 让支持本地 stdio MCP 的 AI 客户端调用微信查询工具 | [MCP 使用](#mcp-使用) |
+
+三种入口使用同一个已初始化账号，但能力和写入权限并非完全相同，见[能力矩阵](docs/capability-matrix.md)。本版本为初步版本；第三方授权证据和 Git 历史隐私核查尚未完整完成，作为已知遗留项记录，不代表已经全面核验，见[第三方说明](THIRD_PARTY_NOTICES.md)。
+
 ## 安装
 
 ### 准备 Windows 构建环境
@@ -121,14 +133,19 @@ cargo +stable-x86_64-pc-windows-msvc test --locked --no-fail-fast --target x86_6
 
 ```powershell
 $account = Join-Path $env:USERPROFILE 'wx-workbench-data/synthetic-account'
+New-Item -ItemType Directory -Force -Path $account | Out-Null
 $env:WX_CLI_CONFIG = Join-Path $account 'config.json'
 $env:WX_CLI_HOME = Join-Path $account 'runtime'
 wx init --help
 ```
 
-首次初始化前确认 `$dbStorage` 是目标账号的实际 `db_storage` 目录：
+首次初始化前，打开桌面微信并登录目标账号，将下方示例路径替换成该账号实际的 `db_storage` 目录。这一步显式选择内存扫描以取得本地数据库材料；仅对自己或已获授权的账号执行。
 
 ```powershell
+$dbStorage = 'D:\xwechat_files\YOUR_ACCOUNT\db_storage' # 替换为实际目录
+if (-not (Test-Path -LiteralPath $dbStorage -PathType Container)) {
+    throw '请先将 $dbStorage 替换为目标账号实际的 db_storage 目录'
+}
 wx init --db-dir $dbStorage --key-provider memory
 wx sessions --json
 wx contacts -n 20 --json
@@ -144,7 +161,13 @@ wx contacts -n 20 --json
 
 配置、密钥、解密缓存、导出内容和运行令牌都是私人材料，不放入源码目录、版本控制或公开日志。
 
-## 查询
+## CLI 使用
+
+后续使用无需每次重新初始化。在新 PowerShell 窗口中重新设置同一账号的 `WX_CLI_CONFIG`、`WX_CLI_HOME`，并确保 `wx.exe` 在 PATH 中；这些会话环境变量不会自动传给已经运行的 AI 客户端。
+
+先用 `wx sessions -n 20 --json` 验证能读到会话，再查询具体联系人；`--json` 便于脚本处理，省略时使用该命令默认输出。查询所需 daemon 会按需启动，不必另开窗口手动运行。
+
+### 查询示例
 
 先从会话列表选择普通联系人或群聊。`brandsessionholder` 等聚合入口不是普通聊天对象。显示名有歧义时，自动化优先使用查询返回的精确标识。
 
@@ -235,21 +258,75 @@ wx voices --help
 
 本产品不提供语音识别、音频转码、模型管理或识别结果回写。详见[原始语音导出](src/business/VOICE_EXPORT.md)与[语音目录](docs/voice-catalog-boundary.md)。
 
-## MCP、Web 与 daemon
+## Web 使用
+
+在已设置上述账号环境变量的 PowerShell 中启动：
 
 ```powershell
-# MCP 必须显式设置 WX_CLI_CONFIG。
-wx mcp
-wx web
+wx web --open
+# 可选：固定端口；不指定时自动选择空闲端口。
+# wx web --port 8765 --open
+```
+
+`--open` 自动打开默认浏览器。若未打开，复制终端输出的**完整地址**，格式为 `http://127.0.0.1:<端口>/#token=<本次令牌>`；只输入端口首页可能缺少认证信息。地址中的令牌不要分享或放入截图。保持这个终端运行，按 `Ctrl+C` 关闭 Web 服务；只关闭浏览器标签不会停止服务。
+
+打开后先检查页面账号信息，再选择会话查看聊天；通过资料查询面板选择搜索、收藏、朋友圈等查询。需要导出时查看对应任务的状态，完成后在产物区下载；失败或部分完成不等于已经完整导出。
+
+Web 的资料查询面板接入搜索、未读、成员、统计、收藏、公众号、朋友圈和语音目录；聊天页的“记录范围”向服务端提交时间、类型和顺序，原本的本页筛选仍只作用于当前页。消息详情可查询引用、文件、合并记录条目、转账和位置。HTTP 参数与错误见[本地 HTTP API](docs/http-api.md)。当前 Web 接线不等于浏览器操作已验收，跨入口覆盖与剩余边界见[能力矩阵](docs/capability-matrix.md)。
+
+Web 仅监听 `127.0.0.1`，不是局域网多人服务。原始语音任务的媒体写入需要本次启动显式开启：
+
+```powershell
+wx web --open --task-allow-media-write
+```
+
+计划中的磁盘媒体扫描另需 `--task-allow-plan-scan`，不等于授权进程内存扫描或媒体下载。更多选项用 `wx web --help` 查看，任务权限见[后台任务](docs/daemon-tasks.md)。
+
+## MCP 使用
+
+MCP 由 AI 客户端启动 `wx.exe mcp`，通过标准输入/输出通信；它不是 Web 地址，也不需要先启动 `wx web`。先按“选择账号”完成初始化，再在客户端中添加本地 **stdio** 服务。
+
+以下是采用 `mcpServers` 格式的客户端配置示例。将可执行文件和账号路径替换为本机**绝对路径**；不同客户端的配置文件位置和外层结构可能不同，若使用表单，则分别填写 command、args 和 env。
+
+```json
+{
+  "mcpServers": {
+    "wx-workbench": {
+      "command": "C:/src/wx-workbench/target/x86_64-pc-windows-msvc/release/wx.exe",
+      "args": ["mcp"],
+      "env": {
+        "WX_CLI_CONFIG": "C:/Users/YOUR_NAME/wx-workbench-data/synthetic-account/config.json",
+        "WX_CLI_HOME": "C:/Users/YOUR_NAME/wx-workbench-data/synthetic-account/runtime"
+      }
+    }
+  }
+}
+```
+
+必须显式设置 `WX_CLI_CONFIG`，并与 CLI 初始化时的账号对应。JSON 中的 `YOUR_NAME` 不会自动展开；不要把数据库密钥填进客户端配置。保存后重新连接该 MCP 服务，在客户端查看工具列表，再尝试：“调用 `get_recent_sessions` 列出最近 10 个会话”；确认对象后再调用 `get_chat_history`，使用返回的精确会话标识避免同名误选。
+
+直接在终端运行 `wx mcp` 后等待输入是正常现象，它不会显示聊天窗口。MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。默认注册 23 项工具，包含查询及受控图片执行；`decode_image` 还需要宿主配置 `--media-output-root` 指定已存在的可信输出目录，否则拒绝写出。
+
+后台任务默认未开放。需要让 AI 导出聊天历史并读取产物时，可把示例中的 `args` 改为：
+
+```json
+["mcp", "--tasks", "--task-kind", "export_history", "--task-allow-artifact-read"]
+```
+
+这只开放指定的任务类型及产物读取，不等于允许全部媒体写入、下载或密钥扫描。工具参数不能切换账号或指定任意宿主输出根。其他任务类型和前置条件以 `wx mcp --help`、[后台任务](docs/daemon-tasks.md)为准；默认查询参数见[查询协议](docs/query-protocol.md)，认证和媒体边界见[MCP 协议](src/mcp/PROTOCOL.md)。
+
+如果客户端提示配置缺失，检查其 `env`；如果没有预期的任务工具，检查启动参数并重新连接；如果能列出工具但数据查询失败，先在相同账号环境下执行 `wx sessions --json` 排查初始化。配置替换或切换账号后重新连接，同一账号的密钥更新不需要重建会话。
+
+## daemon 管理
+
+CLI、Web 和 MCP 共用固定账号的后台执行服务。关闭 Web 或 MCP 不表示该账号的 daemon 已停止；需要管理时，在相同账号环境下执行：
+
+```powershell
 wx daemon status
 wx daemon stop
 ```
 
-MCP 使用逐行 JSON-RPC，标准输出只承载协议帧。初始化和工具列表不读取账号，业务由认证 daemon 执行。默认注册 23 项工具，包含查询及受控图片执行；未读、群成员、统计、收藏、公众号和朋友圈各有只读工具。任务工具由宿主另行启用，不算在默认 23 项内。工具参数不能设置账号或宿主输出根。当前查询工具与参数见[查询协议](docs/query-protocol.md)，会话和媒体宿主边界见[MCP 协议](src/mcp/PROTOCOL.md)。
-
-Web 的资料查询面板接入搜索、未读、成员、统计、收藏、公众号、朋友圈和语音目录；聊天页的“记录范围”向服务端提交时间、类型和顺序，原本的本页筛选仍只作用于当前页。消息详情可查询引用、文件、合并记录条目、转账和位置。HTTP 参数与错误见[本地 HTTP API](docs/http-api.md)。当前 Web 接线不等于浏览器操作已验收，跨入口覆盖与剩余边界见[能力矩阵](docs/capability-matrix.md)。
-
-Web 是本地界面，不应暴露到不可信网络。只停止本任务创建且身份可验证的 daemon，不按进程名清理其他账号或用户应用。MCP 按操作短时固定配置，同一账号的密钥更新不需要关闭会话；替换配置或切换账号仍需重新连接。生命周期见[入口边界](docs/daemon-entrypoints.md)和[后台任务](docs/daemon-tasks.md)。
+只停止自己使用且身份可验证的账号服务，不按进程名批量结束微信或其他账号的程序。生命周期详见[入口边界](docs/daemon-entrypoints.md)。
 
 ## 开发与测试
 
