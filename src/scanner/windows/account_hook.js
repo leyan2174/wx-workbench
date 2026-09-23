@@ -1,4 +1,4 @@
-// Adapted from LOGO127/wechat-ai-memory (MIT).
+// Adapted from LOGO127/wechat-ai-memory; upstream license not independently verified.
 // Copyright (c) 2026 WeChat AI Memory contributors. See THIRD_PARTY_NOTICES.md.
 'use strict';
 let installed = false;
